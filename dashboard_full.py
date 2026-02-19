@@ -64,6 +64,194 @@ PROJECT_BOTTLENECK_PREFIX = {
     'DATA&ANALYTICS': 'dataanalytics-downstream',
 }
 
+PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
+PORTFOLIO_CACHE = {'fetched_at': None, 'data': None, 'error': None}
+PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
+PORTFOLIO_CSV_SUFFIX = '-data.csv'
+
+
+def normalize_text(value):
+    txt = str(value or '').strip().lower()
+    translate_map = str.maketrans('áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+    return txt.translate(translate_map)
+
+
+def compute_portfolio_snapshot(df, updated_at_label):
+    if df is None or df.empty:
+        return {
+            'updated_at': updated_at_label,
+            'metrics': {'epics_sem_features': 0, 'features_sem_epico': 0, 'features_sem_filhos': 0, 'features_sem_mov_15': 0, 'features_sem_mov_30': 0},
+            'tables': {
+                'epics_sem_features': pd.DataFrame(),
+                'features_sem_epico': pd.DataFrame(),
+                'features_sem_filhos': pd.DataFrame(),
+                'features_sem_mov_15': pd.DataFrame(),
+                'features_sem_mov_30': pd.DataFrame(),
+            },
+        }
+
+    df = df.copy()
+    if 'UpdatedAt' in df.columns:
+        df['UpdatedAt'] = pd.to_datetime(df['UpdatedAt'], errors='coerce', utc=True)
+    else:
+        df['UpdatedAt'] = pd.NaT
+    if 'StatusChangedAt' in df.columns:
+        df['StatusChangedAt'] = pd.to_datetime(df['StatusChangedAt'], errors='coerce', utc=True)
+    else:
+        df['StatusChangedAt'] = pd.NaT
+
+    df['TipoNorm'] = df['Tipo'].map(normalize_text)
+    df['ProjetoNorm'] = df['Projeto'].map(normalize_text)
+    df['ParentID'] = df['ParentID'].fillna('').astype(str)
+
+    epic_types = {'epic', 'epico'}
+    feature_types = {'feature', 'funcionalidade'}
+
+    epics = df[(df['ProjetoNorm'] == 'bt') & (df['TipoNorm'].isin(epic_types))].copy()
+    features = df[(df['ProjetoNorm'] == 'ns') & (df['TipoNorm'].isin(feature_types))].copy()
+
+    epic_ids = set(epics['ID'])
+    feature_ids = set(features['ID'])
+
+    features_with_epic = features[features['ParentID'].isin(epic_ids)]
+    epics_sem_features = epics[~epics['ID'].isin(features_with_epic['ParentID'])]
+    features_sem_epico = features[~features['ParentID'].isin(epic_ids)]
+
+    children = df[df['ParentID'].isin(feature_ids)].copy()
+    child_counts = children.groupby('ParentID').size().rename('QtdFilhos') if not children.empty else pd.Series(dtype='int64')
+    features = features.merge(child_counts, left_on='ID', right_index=True, how='left')
+    features['QtdFilhos'] = features['QtdFilhos'].fillna(0).astype(int)
+    features_sem_filhos = features[features['QtdFilhos'] == 0].copy()
+
+    children['MovimentadoAt'] = children['StatusChangedAt']
+    children.loc[children['MovimentadoAt'].isna(), 'MovimentadoAt'] = children.loc[children['MovimentadoAt'].isna(), 'UpdatedAt']
+    last_move = children.groupby('ParentID')['MovimentadoAt'].max().rename('UltimaMovimentacao') if not children.empty else pd.Series(dtype='datetime64[ns, UTC]')
+
+    features = features.merge(last_move, left_on='ID', right_index=True, how='left')
+    features_com_filhos = features[features['QtdFilhos'] > 0].copy()
+
+    now_utc = pd.Timestamp.now(tz='UTC')
+    cutoff_15 = now_utc - pd.Timedelta(days=15)
+    cutoff_30 = now_utc - pd.Timedelta(days=30)
+
+    features_sem_mov_15 = features_com_filhos[
+        features_com_filhos['UltimaMovimentacao'].isna() | (features_com_filhos['UltimaMovimentacao'] < cutoff_15)
+    ].copy()
+    features_sem_mov_30 = features_com_filhos[
+        features_com_filhos['UltimaMovimentacao'].isna() | (features_com_filhos['UltimaMovimentacao'] < cutoff_30)
+    ].copy()
+
+    show_cols = ['ID', 'Titulo', 'Status', 'Link']
+    show_cols_children = ['ID', 'Titulo', 'Status', 'QtdFilhos', 'Link']
+    show_cols_movement = ['ID', 'Titulo', 'Status', 'QtdFilhos', 'UltimaMovimentacao', 'Link']
+
+    for movement_df in [features_sem_mov_15, features_sem_mov_30]:
+        if 'UltimaMovimentacao' in movement_df.columns:
+            movement_df['UltimaMovimentacao'] = movement_df['UltimaMovimentacao'].dt.strftime('%Y-%m-%d %H:%M').fillna('')
+
+    return {
+        'updated_at': updated_at_label,
+        'metrics': {
+            'epics_sem_features': int(len(epics_sem_features)),
+            'features_sem_epico': int(len(features_sem_epico)),
+            'features_sem_filhos': int(len(features_sem_filhos)),
+            'features_sem_mov_15': int(len(features_sem_mov_15)),
+            'features_sem_mov_30': int(len(features_sem_mov_30)),
+        },
+        'tables': {
+            'epics_sem_features': epics_sem_features[show_cols].copy() if not epics_sem_features.empty else pd.DataFrame(columns=show_cols),
+            'features_sem_epico': features_sem_epico[show_cols].copy() if not features_sem_epico.empty else pd.DataFrame(columns=show_cols),
+            'features_sem_filhos': features_sem_filhos[show_cols_children].copy() if not features_sem_filhos.empty else pd.DataFrame(columns=show_cols_children),
+            'features_sem_mov_15': features_sem_mov_15[show_cols_movement].copy() if not features_sem_mov_15.empty else pd.DataFrame(columns=show_cols_movement),
+            'features_sem_mov_30': features_sem_mov_30[show_cols_movement].copy() if not features_sem_mov_30.empty else pd.DataFrame(columns=show_cols_movement),
+        },
+    }
+
+
+def find_latest_portfolio_csv():
+    try:
+        candidates = [
+            os.path.join(DATA_FOLDER, f)
+            for f in os.listdir(DATA_FOLDER)
+            if f.startswith(PORTFOLIO_CSV_PREFIX) and f.endswith(PORTFOLIO_CSV_SUFFIX)
+        ]
+    except Exception:
+        return None
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getctime)
+
+
+def build_portfolio_snapshot_from_csv():
+    csv_file = find_latest_portfolio_csv()
+    if not csv_file:
+        raise RuntimeError(
+            f'CSV de portfólio não encontrado. Gere um arquivo {PORTFOLIO_CSV_PREFIX}YYYYMMDD{PORTFOLIO_CSV_SUFFIX} em {DATA_FOLDER}.'
+        )
+
+    df = pd.read_csv(csv_file)
+    required_cols = {'ID', 'Titulo', 'Projeto', 'Tipo', 'Status', 'ParentID', 'Link', 'UpdatedAt', 'StatusChangedAt'}
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise RuntimeError(f'CSV de portfólio inválido ({os.path.basename(csv_file)}). Colunas ausentes: {", ".join(missing)}')
+
+    updated_at_label = datetime.fromtimestamp(os.path.getctime(csv_file)).strftime('%Y-%m-%d %H:%M')
+    snapshot = compute_portfolio_snapshot(df, updated_at_label)
+    snapshot['source_file'] = csv_file
+    return snapshot
+
+
+def get_portfolio_snapshot():
+    now = datetime.now()
+    cached_at = PORTFOLIO_CACHE.get('fetched_at')
+    if cached_at and (now - cached_at) <= PORTFOLIO_CACHE_TTL and PORTFOLIO_CACHE.get('data') is not None:
+        return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('error')
+    try:
+        payload = build_portfolio_snapshot_from_csv()
+        PORTFOLIO_CACHE['fetched_at'] = now
+        PORTFOLIO_CACHE['data'] = payload
+        PORTFOLIO_CACHE['error'] = None
+        return payload, None
+    except Exception as exc:
+        PORTFOLIO_CACHE['fetched_at'] = now
+        PORTFOLIO_CACHE['data'] = None
+        PORTFOLIO_CACHE['error'] = str(exc)
+        return None, str(exc)
+
+
+def portfolio_table_component(df, title, table_id):
+    if df is None or df.empty:
+        return html.Div([
+            html.H4(title),
+            html.P('Nenhum item encontrado para este critério.')
+        ], style={'marginTop': '20px'})
+
+    columns = []
+    for col in df.columns:
+        col_def = {'name': col, 'id': col}
+        if col == 'Link':
+            col_def['presentation'] = 'markdown'
+        columns.append(col_def)
+
+    df_display = df.copy()
+    if 'Link' in df_display.columns:
+        df_display['Link'] = df_display['Link'].apply(lambda x: f"[Abrir]({x})" if str(x).strip() else '')
+
+    return html.Div([
+        html.H4(title),
+        dash_table.DataTable(
+            id=table_id,
+            columns=columns,
+            data=df_display.to_dict('records'),
+            page_size=10,
+            sort_action='native',
+            filter_action='native',
+            style_table={'overflowX': 'auto'},
+            style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '120px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+        )
+    ], style={'marginTop': '20px'})
+
 def create_kpi_card(title, value, class_name='six columns'):
     return html.Div([
         html.H4(title, style={'textAlign': 'center'}),
@@ -294,8 +482,8 @@ app.layout = html.Div([
 
     dcc.Tabs(id='tabs', value='tab-performance', children=[
         dcc.Tab(label='Performance do Serviço', value='tab-performance'),
+        dcc.Tab(label='Portfólio', value='tab-portfolio'),
         dcc.Tab(label='Painel Fluxo 3x3', value='tab-painel-3x3'),
-        dcc.Tab(label='Dashboard', value='tab-dashboard'),
         dcc.Tab(label='Fluxo', value='tab-fluxo'),
         dcc.Tab(label='Estabilidade', value='tab-estabilidade'),
         dcc.Tab(label='Saúde Fluxo', value='tab-saude'),
@@ -393,6 +581,64 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             ),
             html.Div(id='performance-metric-chart')
         ])
+
+    if tab == 'tab-portfolio':
+        snapshot, error = get_portfolio_snapshot()
+        if error:
+            return html.Div([
+                html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
+                html.P(
+                    f'Não foi possível carregar o CSV de portfólio: {error}',
+                    style={'textAlign': 'center', 'color': '#b22222'}
+                ),
+                html.P(
+                    'Gere/atualize o CSV com o script jira_portfolio_to_csv.py e tente novamente.',
+                    style={'textAlign': 'center', 'color': '#666'}
+                ),
+            ], style={'padding': '20px'})
+
+        metrics = snapshot['metrics']
+        tables = snapshot['tables']
+
+        return html.Div([
+            html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
+            html.P(
+                f"Atualizado em: {snapshot['updated_at']} | Fonte: {os.path.basename(snapshot.get('source_file', 'csv local'))}",
+                style={'textAlign': 'center', 'color': '#666'}
+            ),
+            html.Div([
+                create_kpi_card('Épicos BT sem features', f"{metrics['epics_sem_features']}", class_name='three columns'),
+                create_kpi_card('Features NS sem épico', f"{metrics['features_sem_epico']}", class_name='three columns'),
+                create_kpi_card('Features NS sem filhos', f"{metrics['features_sem_filhos']}", class_name='three columns'),
+                create_kpi_card('Sem movimento 15d / 30d', f"{metrics['features_sem_mov_15']} / {metrics['features_sem_mov_30']}", class_name='three columns'),
+            ], className='row'),
+
+            portfolio_table_component(
+                tables['epics_sem_features'],
+                'Épicos (BT) sem features relacionadas',
+                'table-portfolio-epics-sem-features'
+            ),
+            portfolio_table_component(
+                tables['features_sem_epico'],
+                'Features (NS) sem épico pai',
+                'table-portfolio-features-sem-epico'
+            ),
+            portfolio_table_component(
+                tables['features_sem_filhos'],
+                'Features (NS) sem itens filhos',
+                'table-portfolio-features-sem-filhos'
+            ),
+            portfolio_table_component(
+                tables['features_sem_mov_15'],
+                'Features (NS) com filhos, sem movimentação nos últimos 15 dias',
+                'table-portfolio-features-sem-mov-15'
+            ),
+            portfolio_table_component(
+                tables['features_sem_mov_30'],
+                'Features (NS) com filhos, sem movimentação nos últimos 30 dias',
+                'table-portfolio-features-sem-mov-30'
+            ),
+        ], style={'padding': '10px 20px 20px 20px'})
 
     if tab == 'tab-painel-3x3':
         start_ts = pd.to_datetime(start_date)
@@ -553,38 +799,6 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 return '—'
             return pattern.format(value)
 
-        def dynamic_limits(series, lower_is_better, fallback_good, fallback_warn):
-            s = pd.Series(series).dropna()
-            if len(s) >= 8:
-                if lower_is_better:
-                    return (s.quantile(0.50), s.quantile(0.85), int(len(s)), 'histórico')
-                return (s.quantile(0.50), s.quantile(0.25), int(len(s)), 'histórico')
-            return (fallback_good, fallback_warn, int(len(s)), 'fallback')
-
-        def merge_limits(dynamic_good, dynamic_warn, lower_is_better, hard_good=None, hard_warn=None):
-            good = dynamic_good
-            warn = dynamic_warn
-            if hard_good is not None:
-                good = min(good, hard_good) if lower_is_better else max(good, hard_good)
-            if hard_warn is not None:
-                warn = min(warn, hard_warn) if lower_is_better else max(warn, hard_warn)
-            if lower_is_better and warn < good:
-                warn = good
-            if not lower_is_better and warn > good:
-                warn = good
-            return good, warn
-
-        def classify_with_hard_cap(value, good_limit, warn_limit, hard_cap):
-            if pd.isna(value):
-                return ('Sem base', '#9e9e9e')
-            if value > hard_cap:
-                return ('Crítico', '#c62828')
-            effective_good = min(good_limit, hard_cap)
-            effective_warn = min(warn_limit, hard_cap)
-            if effective_warn < effective_good:
-                effective_warn = effective_good
-            return classify_direction(value, effective_good, effective_warn, lower_is_better=True)
-
         def classify_forecasting_risk(value):
             if pd.isna(value):
                 return ('Sem base', '#9e9e9e')
@@ -592,27 +806,67 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 return ('RISCO MODERADO', '#2e7d32')
             return ('RISCO ALTO', '#ef7d32')
 
-        cards = []
-        wip_good, wip_warn, _, _ = dynamic_limits(weekly_hist_df.get('WIP', pd.Series(dtype=float)), True, 20, 35)
-        lt_good, lt_warn, _, _ = dynamic_limits(weekly_hist_df.get('LeadTime_P85', pd.Series(dtype=float)), True, 15, 25)
-        tp_good, tp_warn, _, _ = dynamic_limits(weekly_hist_df.get('Throughput', pd.Series(dtype=float)), False, 8, 4)
-        pressure_good, pressure_warn, _, _ = dynamic_limits(weekly_hist_df.get('Pressure', pd.Series(dtype=float)), True, 1.0, 1.15)
-        wip_age_good, wip_age_warn, _, _ = dynamic_limits(weekly_hist_df.get('WIP_Age', pd.Series(dtype=float)), True, 10, 20)
+        def classify_pressure(value):
+            if pd.isna(value):
+                return ('Sem base', '#9e9e9e')
+            if value <= 0.80:
+                return ('OK', '#2e7d32')
+            if value <= 0.90:
+                return ('ATENÇÃO', '#f9a825')
+            if value <= 0.95:
+                return ('CRÍTICO', '#c62828')
+            return ('EXTREMAMENTE CRÍTICO', '#7f0000')
 
-        # Eficiência com cortes fixos solicitados.
-        eff_good, eff_warn = 0.20, 0.10
-        # WIP Age por P50/P85 com hard cap absoluto em 30 dias.
-        wip_age_good, wip_age_warn = merge_limits(wip_age_good, wip_age_warn, lower_is_better=True, hard_warn=30)
+        def classify_efficiency(value):
+            if pd.isna(value):
+                return ('Sem base', '#9e9e9e')
+            # Eficiência (1 - rho) é o inverso da pressão rho.
+            if value >= 0.20:
+                return ('OK', '#2e7d32')
+            if value >= 0.10:
+                return ('ATENÇÃO', '#f9a825')
+            if value >= 0.05:
+                return ('CRÍTICO', '#c62828')
+            return ('EXTREMAMENTE CRÍTICO', '#7f0000')
+
+        def cv_percent(series):
+            s = pd.Series(series).dropna()
+            if len(s) < 2:
+                return np.nan
+            mean = s.mean()
+            if pd.isna(mean) or abs(mean) < 1e-9:
+                return np.nan
+            return (s.std() / abs(mean)) * 100.0
+
+        def classify_cv(cv_value):
+            if pd.isna(cv_value):
+                return ('Sem base', '#9e9e9e')
+            if cv_value <= 30:
+                return ('OK (VERDE)', '#2e7d32')
+            if cv_value <= 50:
+                return ('RAZOÁVEL', '#f9a825')
+            if cv_value <= 65:
+                return ('RUIM', '#ef6c00')
+            if cv_value <= 80:
+                return ('CRÍTICO', '#c62828')
+            return ('EXTREMAMENTE CRÍTICO', '#7f0000')
+
+        cards = []
+        wip_cv_status = classify_cv(cv_percent(weekly_hist_df.get('WIP', pd.Series(dtype=float))))
+        lt_cv_status = classify_cv(cv_percent(weekly_hist_df.get('LeadTime_P85', pd.Series(dtype=float))))
+        throughput_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Throughput', pd.Series(dtype=float))))
+        arrivals_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Chegadas', pd.Series(dtype=float))))
+        wip_age_cv_status = classify_cv(cv_percent(weekly_hist_df.get('WIP_Age', pd.Series(dtype=float))))
 
         card_specs = [
-            ('WIP médio (semana)', wip_avg, '{:.1f} itens', classify_direction(wip_avg, wip_good, wip_warn, lower_is_better=True)),
-            ('Lead Time P85', lead_time_p85, '{:.1f} dias', classify_direction(lead_time_p85, lt_good, lt_warn, lower_is_better=True)),
-            ('Vazão média semanal', throughput_avg, '{:.1f} itens/sem', classify_direction(throughput_avg, tp_good, tp_warn, lower_is_better=False)),
-            ('Taxa de chegada média', arrivals_avg, '{:.1f} itens/sem', classify_direction(pressure_ratio, pressure_good, pressure_warn, lower_is_better=True)),
-            ('Eficiência (1 - ρ)', queue_efficiency, '{:.2f}', classify_direction(queue_efficiency, eff_good, eff_warn, lower_is_better=False)),
-            ('Pressão de fluxo (chegada/vazão)', pressure_ratio, '{:.2f}', classify_direction(pressure_ratio, pressure_good, pressure_warn, lower_is_better=True)),
-            ('WIP Age médio', wip_age, '{:.1f} dias', classify_with_hard_cap(wip_age, wip_age_good, wip_age_warn, hard_cap=30)),
-            ('WIP atual (fim do período)', wip_current, '{:.0f} itens', classify_direction(wip_current, wip_good, wip_warn, lower_is_better=True)),
+            ('WIP médio (semana)', wip_avg, '{:.1f} itens', wip_cv_status),
+            ('Lead Time P85', lead_time_p85, '{:.1f} dias', lt_cv_status),
+            ('Vazão média semanal', throughput_avg, '{:.1f} itens/sem', throughput_cv_status),
+            ('Taxa de chegada média', arrivals_avg, '{:.1f} itens/sem', arrivals_cv_status),
+            ('Eficiência (1 - ρ)', queue_efficiency, '{:.2f}', classify_efficiency(queue_efficiency)),
+            ('Pressão de fluxo (chegada/vazão)', pressure_ratio, '{:.2f}', classify_pressure(pressure_ratio)),
+            ('WIP Age médio', wip_age, '{:.1f} dias', wip_age_cv_status),
+            ('WIP atual (fim do período)', wip_current, '{:.0f} itens', wip_cv_status),
             ('Risco Forecasting (P98/Mediana)', risk_forecasting_ratio, '{:.2f}', classify_forecasting_risk(risk_forecasting_ratio)),
         ]
 
@@ -637,7 +891,9 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             html.H3("Painel Principal de Gestão de Fluxo (3 x 3)", style={'textAlign': 'center'}),
             html.P(
                 "Sinais executivos de fluxo para o filtro ativo de projeto e período. "
-                "Semáforo: Saudável, Atenção e Crítico.",
+                "Semáforo por CV: OK (<=30%), Razoável (>30% e <=50%), Ruim (>50% e <=65%), Crítico (>65% e <=80%) e Extremamente Crítico (>80%). "
+                "Limites fixos: Pressão de fluxo (rho=chegada/vazão) OK <=0.80, Atenção >0.80 e <=0.90, Crítico >0.90 e <=0.95, Extremamente Crítico >0.95. "
+                "Eficiência (1-rho) inversa: OK >=0.20, Atenção >=0.10 e <0.20, Crítico >=0.05 e <0.10, Extremamente Crítico <0.05.",
                 style={'textAlign': 'center', 'color': '#666', 'marginBottom': '20px'}
             ),
             html.Div([
@@ -645,111 +901,6 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 html.Div([html.Div(cards[i], className='four columns') for i in range(3, 6)], className='row', style={'marginTop': '14px'}),
                 html.Div([html.Div(cards[i], className='four columns') for i in range(6, 9)], className='row', style={'marginTop': '14px'}),
             ], style={'maxWidth': '1200px', 'margin': '0 auto'}),
-        ])
-
-    if tab == 'tab-dashboard':
-        # Para o detalhamento, precisamos de uma base que ignore o filtro de 'tipo'
-        start_date_ts = pd.to_datetime(start_date)
-        end_date_ts = pd.to_datetime(end_date)
-
-        df_base_breakdown = fato.copy()
-        if projeto: df_base_breakdown = df_base_breakdown[df_base_breakdown['Projeto'] == projeto]
-        if responsavel: df_base_breakdown = df_base_breakdown[df_base_breakdown['Responsavel'] == responsavel]
-        mask_done_period = (
-            df_base_breakdown['DataDone'].notna() &
-            (df_base_breakdown['DataDone'] >= start_date_ts) &
-            (df_base_breakdown['DataDone'] <= end_date_ts)
-        )
-        mask_open = (
-            df_base_breakdown['DataDone'].isna() &
-            (
-                pd.isna(df_base_breakdown['DataInProgress']) |
-                (df_base_breakdown['DataInProgress'] <= end_date_ts)
-            )
-        )
-        df_backlog_base = df_base_breakdown[mask_done_period | mask_open].copy()
-
-        stage_map = [
-            ('Backlog', 'TempoBacklog_Dias'),
-            ('Execução', 'TempoExecucao_Dias'),
-            ('Bloqueio', 'TempoBloqueioDias'),
-            ('Espera Intermediária', 'TempoEsperaIntermediariaDias'),
-        ]
-        stage_rows = []
-        for stage_name, col in stage_map:
-            if col not in df_backlog_base.columns:
-                continue
-            s = pd.to_numeric(df_backlog_base[col], errors='coerce').dropna()
-            s = s[s >= 0]
-            s = s[s > 0]
-            if s.empty:
-                continue
-            stage_rows.append({
-                'Etapa': stage_name,
-                'Itens na Etapa': int(s.shape[0]),
-                'Tempo Médio (dias)': float(s.mean()),
-                'P85 (dias)': float(s.quantile(0.85)),
-                'Dias Acumulados': float(s.sum()),
-            })
-
-        stage_df = pd.DataFrame(stage_rows)
-        if not stage_df.empty:
-            stage_df = stage_df.sort_values('Tempo Médio (dias)', ascending=False, ignore_index=True)
-            total_accum = stage_df['Dias Acumulados'].sum()
-            stage_df['% do Backlog (dias)'] = (
-                (stage_df['Dias Acumulados'] / total_accum * 100).round(1) if total_accum > 0 else 0
-            )
-            top_stage = stage_df.iloc[0]['Etapa']
-            top_avg = stage_df.iloc[0]['Tempo Médio (dias)']
-            fig_backlog_stage = px.bar(
-                stage_df,
-                x='Tempo Médio (dias)',
-                y='Etapa',
-                orientation='h',
-                title='Backlog por Etapa do Processo (Tempo Médio)',
-                text='Tempo Médio (dias)',
-                labels={'Tempo Médio (dias)': 'Tempo Médio (dias)', 'Etapa': 'Etapa'},
-                template='plotly_white',
-                color='Tempo Médio (dias)',
-                color_continuous_scale='OrRd',
-            )
-            fig_backlog_stage.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-            fig_backlog_stage.update_layout(
-                yaxis=dict(autorange='reversed'),
-                coloraxis_showscale=False,
-                height=450,
-                margin=dict(l=140, r=40, t=70, b=50),
-            )
-
-            stage_display = stage_df.copy()
-            for c in ['Tempo Médio (dias)', 'P85 (dias)', 'Dias Acumulados']:
-                stage_display[c] = stage_display[c].round(2)
-            stage_table = dash_table.DataTable(
-                columns=[{"name": i, "id": i} for i in stage_display.columns],
-                data=stage_display.to_dict('records'),
-                style_cell={'textAlign': 'center', 'padding': '6px'},
-                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
-                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
-            )
-        else:
-            top_stage = 'N/D'
-            top_avg = 0.0
-            fig_backlog_stage = {}
-            stage_table = html.P('Sem dados suficientes para análise de backlog por etapa.')
-
-        fig_lead = px.box(df, y='LeadTime_Dias', title='Distribuição de Lead Time (dias)') if 'LeadTime_Dias' in df.columns else {}
-        if fig_lead:
-            fig_lead.update_layout(height=500)
-
-        return html.Div([
-            html.Div([
-                create_kpi_card('Etapa Gargalo', str(top_stage)),
-                create_kpi_card('Tempo Médio Gargalo (dias)', f"{top_avg:.2f}"),
-            ], className='row', style={'marginBottom': '20px'}),
-            html.H3("Análise de Backlog por Etapa do Processo", style={'textAlign': 'center'}),
-            html.Div(stage_table, style={'width': '80%', 'margin': 'auto', 'marginBottom': '20px'}),
-            dcc.Graph(figure=fig_backlog_stage),
-            dcc.Graph(figure=fig_lead),
         ])
 
     if tab == 'tab-fluxo':

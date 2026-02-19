@@ -3,6 +3,7 @@ param(
     [string]$DateTag = $(Get-Date -Format 'yyyyMMdd'),
     [string]$EnvFile = $(Join-Path $PSScriptRoot 'jira_env.txt'),
     [int]$Workers = 8,
+    [bool]$RunPortfolioExport = $true,
     [bool]$RunMetrics = $true,
     [bool]$OpenDashboard = $true
 )
@@ -39,6 +40,7 @@ if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKE
 }
 
 $scriptPath = Join-Path $PSScriptRoot 'jira_to_pipeline_csv.py'
+$portfolioScript = Join-Path $PSScriptRoot 'jira_portfolio_to_csv.py'
 if (-not (Test-Path $scriptPath)) {
     throw "Arquivo não encontrado: $scriptPath"
 }
@@ -75,6 +77,21 @@ foreach ($p in $projects) {
 }
 
 Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
+
+if ($RunPortfolioExport) {
+    if (-not (Test-Path $portfolioScript)) {
+        throw "Arquivo não encontrado: $portfolioScript"
+    }
+
+    $portfolioOut = Join-Path $OutDir ("portfolio-bt-ns-{0}-data.csv" -f $DateTag)
+    Write-Host "`nExportando CSV de portfólio (BT/NS)..." -ForegroundColor Cyan
+    Write-Host "Arquivo: $portfolioOut"
+
+    & python $portfolioScript --projects BT NS --out $portfolioOut --env-file $EnvFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha na exportação do portfólio (BT/NS)."
+    }
+}
 
 if ($RunMetrics) {
     Write-Host "`nExecutando processamento de métricas..." -ForegroundColor Cyan
