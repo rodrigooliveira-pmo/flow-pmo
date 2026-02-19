@@ -121,16 +121,17 @@ def detect_project_from_filename(filename):
     """
     Detect project from CSV filename
     """
-    filename_upper = filename.upper()
-    
-    if 'W1NNER' in filename_upper:
+    name = str(filename).strip().lower()
+    tokens = re.split(r"[^a-z0-9]+", name)
+
+    if "w1nner" in tokens or "w1nnr" in tokens:
         return 'W1NNER'
-    elif 'DATA' in filename_upper:
-        return 'DATA&ANALYTICS'
-    elif 'BF' in filename_upper:
-        return 'BEFINANCE'
-    elif 'S1NC' in filename_upper or 'SYNC' in filename_upper:
+    elif "s1nc" in tokens or "sync" in tokens or "w1sft" in tokens:
         return 'S1NC'
+    elif "befinance" in tokens or "bf" in tokens:
+        return 'BEFINANCE'
+    elif "dataanalytics" in tokens or "data" in tokens and "analytics" in tokens or "dt" in tokens or "da" in tokens:
+        return 'DATA&ANALYTICS'
     else:
         return 'UNKNOWN'
 
@@ -170,6 +171,12 @@ def select_latest_csv_per_project(csv_files):
     ignored_files = []
 
     for file_path in sorted(csv_files):
+        stem_lower = Path(file_path).stem.lower()
+        # Ignore derived artifacts that are not pipeline input datasets.
+        if "bottleneck" in stem_lower:
+            ignored_files.append(file_path)
+            continue
+
         project = detect_project_from_filename(Path(file_path).stem)
         ts = extract_timestamp_from_filename(file_path)
         mtime = os.path.getmtime(file_path)
@@ -1716,7 +1723,7 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
         # Write Fact Table
         fact_table.to_excel(writer, sheet_name='Fato_Items', index=False)
     
-    print(f"✓ Modelo salvo com sucesso!")
+    print("Modelo salvo com sucesso!")
     print(f"\nEstrutura do Modelo Power BI:")
     print(f"\nDIMENSÕES (Dimension Tables):")
     print(f"  - Dim_Projeto: {len(dimensions['Dim_Projeto'])} registros")

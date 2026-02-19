@@ -20,6 +20,7 @@ import csv
 import json
 import os
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -136,53 +137,104 @@ def safe_get(d: Dict[str, Any], *path: str) -> Any:
 
 
 class JiraClient:
-    def __init__(self, base_url: str, email: str, api_token: str, timeout: int = 60) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        email: str,
+        api_token: str,
+        timeout: int = 60,
+        max_retries: int = 5,
+        backoff_factor: float = 1.0,
+        pool_maxsize: int = 32,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
         self.session = requests.Session()
         self.session.auth = (email, api_token)
         self.session.headers.update({"Accept": "application/json"})
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=pool_maxsize,
+            pool_maxsize=pool_maxsize,
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
+    def _retry_delay(self, attempt: int, retry_after_header: Optional[str]) -> float:
+        if retry_after_header:
+            try:
+                return max(0.0, float(retry_after_header))
+            except ValueError:
+                pass
+        return self.backoff_factor * (2 ** attempt)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}{path}"
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = self.session.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=payload,
+                    timeout=self.timeout,
+                )
+            except requests.RequestException:
+                if attempt >= self.max_retries:
+                    raise
+                time.sleep(self._retry_delay(attempt, retry_after_header=None))
+                continue
+
+            if resp.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                delay = self._retry_delay(attempt, retry_after_header=resp.headers.get("Retry-After"))
+                time.sleep(delay)
+                continue
+
+            resp.raise_for_status()
+            return resp.json()
+
+        raise RuntimeError(f"Falha inesperada ao consultar Jira: {method} {url}")
 
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        url = f"{self.base_url}{path}"
-        resp = self.session.get(url, params=params, timeout=self.timeout)
-        if resp.status_code == 429:
-            retry_after = int(resp.headers.get("Retry-After", "5"))
-            time.sleep(retry_after)
-            resp = self.session.get(url, params=params, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("GET", path=path, params=params)
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self.base_url}{path}"
-        resp = self.session.post(url, json=payload, timeout=self.timeout)
-        if resp.status_code == 429:
-            retry_after = int(resp.headers.get("Retry-After", "5"))
-            time.sleep(retry_after)
-            resp = self.session.post(url, json=payload, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("POST", path=path, payload=payload)
 
-    def search_issues(self, jql: str, fields: List[str], page_size: int = 100) -> List[Dict[str, Any]]:
+    def search_issues(
+        self,
+        jql: str,
+        fields: List[str],
+        page_size: int = 100,
+        expand: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         errors: List[str] = []
 
         # Preferred endpoint (new enhanced search API) - POST.
         try:
-            return self._search_issues_enhanced_post(jql=jql, fields=fields, page_size=page_size)
+            return self._search_issues_enhanced_post(jql=jql, fields=fields, page_size=page_size, expand=expand)
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"enhanced_post:{status}")
 
         # Enhanced search API - GET variant.
         try:
-            return self._search_issues_enhanced_get(jql=jql, fields=fields, page_size=page_size)
+            return self._search_issues_enhanced_get(jql=jql, fields=fields, page_size=page_size, expand=expand)
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"enhanced_get:{status}")
 
         # Fallback for tenants still on legacy behavior.
         try:
-            return self._search_issues_legacy(jql=jql, fields=fields, page_size=page_size)
+            return self._search_issues_legacy(jql=jql, fields=fields, page_size=page_size, expand=expand)
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"legacy:{status}")
@@ -193,7 +245,13 @@ class JiraClient:
                 "Verifique permissões/scopes do token e disponibilidade dos endpoints de busca."
             ) from exc
 
-    def _search_issues_enhanced_post(self, jql: str, fields: List[str], page_size: int = 100) -> List[Dict[str, Any]]:
+    def _search_issues_enhanced_post(
+        self,
+        jql: str,
+        fields: List[str],
+        page_size: int = 100,
+        expand: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         issues: List[Dict[str, Any]] = []
         next_page_token: Optional[str] = None
         seen_tokens = set()
@@ -204,6 +262,8 @@ class JiraClient:
                 "maxResults": page_size,
                 "fields": fields,
             }
+            if expand:
+                body["expand"] = expand
             if next_page_token:
                 body["nextPageToken"] = next_page_token
 
@@ -230,7 +290,13 @@ class JiraClient:
 
         return issues
 
-    def _search_issues_enhanced_get(self, jql: str, fields: List[str], page_size: int = 100) -> List[Dict[str, Any]]:
+    def _search_issues_enhanced_get(
+        self,
+        jql: str,
+        fields: List[str],
+        page_size: int = 100,
+        expand: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         issues: List[Dict[str, Any]] = []
         next_page_token: Optional[str] = None
         seen_tokens = set()
@@ -241,6 +307,8 @@ class JiraClient:
                 "maxResults": page_size,
                 "fields": ",".join(fields),
             }
+            if expand:
+                params["expand"] = ",".join(expand)
             if next_page_token:
                 params["nextPageToken"] = next_page_token
 
@@ -263,7 +331,13 @@ class JiraClient:
 
         return issues
 
-    def _search_issues_legacy(self, jql: str, fields: List[str], page_size: int = 100) -> List[Dict[str, Any]]:
+    def _search_issues_legacy(
+        self,
+        jql: str,
+        fields: List[str],
+        page_size: int = 100,
+        expand: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         issues: List[Dict[str, Any]] = []
         start_at = 0
 
@@ -274,6 +348,8 @@ class JiraClient:
                 "maxResults": page_size,
                 "fields": ",".join(fields),
             }
+            if expand:
+                params["expand"] = ",".join(expand)
             try:
                 payload = self._get("/rest/api/3/search", params=params)
             except requests.HTTPError as exc:
@@ -292,21 +368,30 @@ class JiraClient:
 
         return issues
 
-    def get_issue_changelog(self, issue_key: str, page_size: int = 100) -> List[Dict[str, Any]]:
-        histories: List[Dict[str, Any]] = []
-        start_at = 0
+    def get_issue_changelog(
+        self,
+        issue_key: str,
+        page_size: int = 100,
+        start_at: int = 0,
+        initial_histories: Optional[List[Dict[str, Any]]] = None,
+        total_hint: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        histories: List[Dict[str, Any]] = list(initial_histories or [])
+        cursor = max(0, int(start_at))
+        total = int(total_hint) if total_hint is not None else 0
 
         while True:
             payload = self._get(
                 f"/rest/api/3/issue/{issue_key}/changelog",
-                params={"startAt": start_at, "maxResults": page_size},
+                params={"startAt": cursor, "maxResults": page_size},
             )
             page_histories = payload.get("values", [])
             histories.extend(page_histories)
 
-            total = int(payload.get("total", 0))
-            start_at += len(page_histories)
-            if not page_histories or start_at >= total:
+            if not total:
+                total = int(payload.get("total", 0))
+            cursor += len(page_histories)
+            if not page_histories or (total > 0 and cursor >= total):
                 break
 
         return histories
@@ -320,8 +405,9 @@ def extract_first_status_dates(
     issue_fields: Dict[str, Any],
     changelog: List[Dict[str, Any]],
     status_map: Dict[str, List[str]],
+    normalized_status_map: Optional[Dict[str, set[str]]] = None,
 ) -> Dict[str, str]:
-    normalized = {
+    normalized = normalized_status_map or {
         col: {name.strip().lower() for name in names}
         for col, names in status_map.items()
     }
@@ -350,6 +436,25 @@ def extract_first_status_dates(
                     first_dates[col] = when
 
     return {k: format_jira_datetime(v) for k, v in first_dates.items()}
+
+
+def get_embedded_changelog(issue: Dict[str, Any]) -> tuple[List[Dict[str, Any]], int]:
+    changelog = issue.get("changelog")
+    if not isinstance(changelog, dict):
+        return [], 0
+
+    histories = changelog.get("histories")
+    if not isinstance(histories, list):
+        histories = changelog.get("values")
+    if not isinstance(histories, list):
+        histories = []
+
+    total_raw = changelog.get("total")
+    try:
+        total = int(total_raw) if total_raw is not None else len(histories)
+    except (TypeError, ValueError):
+        total = len(histories)
+    return histories, max(total, len(histories))
 
 
 def build_issue_row(
@@ -648,7 +753,7 @@ def main() -> int:
     print(f"Consultando Jira com JQL: {jql}")
 
     client = JiraClient(base_url=base_url, email=email, api_token=token)
-    issues = client.search_issues(jql=jql, fields=fields_to_fetch)
+    issues = client.search_issues(jql=jql, fields=fields_to_fetch, expand=["changelog"])
     print(f"Issues encontradas: {len(issues)}")
     if not issues:
         print("Nenhuma issue retornada para o JQL informado.")
@@ -665,16 +770,45 @@ def main() -> int:
     workers = max(1, int(args.workers))
     rows: List[Dict[str, str]] = []
     processing_errors: List[str] = []
+    normalized_status_map = {
+        col: {name.strip().lower() for name in names}
+        for col, names in status_map.items()
+    }
+    worker_local = threading.local()
+
+    def get_worker_client() -> JiraClient:
+        local_client = getattr(worker_local, "client", None)
+        if local_client is None:
+            # Keep one client/session per worker thread for persistent connections.
+            local_client = JiraClient(base_url=base_url, email=email, api_token=token)
+            worker_local.client = local_client
+        return local_client
 
     def process_one(index: int, issue_data: Dict[str, Any]) -> tuple[int, Optional[Dict[str, str]], Optional[str]]:
         key = issue_data.get("key", "")
         if not key:
             return index, None, None
         try:
-            # Each worker keeps its own HTTP session to avoid cross-thread contention.
-            local_client = JiraClient(base_url=base_url, email=email, api_token=token)
-            changelog = local_client.get_issue_changelog(key)
-            status_dates = extract_first_status_dates(issue_data.get("fields", {}), changelog, status_map)
+            local_client = get_worker_client()
+            embedded_histories, embedded_total = get_embedded_changelog(issue_data)
+            if embedded_histories and len(embedded_histories) >= embedded_total:
+                changelog = embedded_histories
+            elif embedded_histories:
+                changelog = local_client.get_issue_changelog(
+                    key,
+                    start_at=len(embedded_histories),
+                    initial_histories=embedded_histories,
+                    total_hint=embedded_total,
+                )
+            else:
+                changelog = local_client.get_issue_changelog(key)
+
+            status_dates = extract_first_status_dates(
+                issue_data.get("fields", {}),
+                changelog,
+                status_map,
+                normalized_status_map=normalized_status_map,
+            )
             row = build_issue_row(base_url=base_url, issue=issue_data, status_dates=status_dates, field_map=field_map)
             return index, row, None
         except Exception as exc:
