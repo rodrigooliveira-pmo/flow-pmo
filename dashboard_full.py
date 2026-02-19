@@ -38,6 +38,12 @@ for dcol in ['DataBacklog', 'DataInProgress', 'DataDone']:
     if dcol in fato.columns:
         fato[dcol] = pd.to_datetime(fato[dcol], errors='coerce')
 
+# Fallback: when DataInProgress is missing, use DataBacklog as start proxy.
+if 'DataInProgress' in fato.columns and 'DataBacklog' in fato.columns:
+    missing_in_progress = fato['DataInProgress'].isna() & fato['DataBacklog'].notna()
+    if missing_in_progress.any():
+        fato.loc[missing_in_progress, 'DataInProgress'] = fato.loc[missing_in_progress, 'DataBacklog']
+
 # Merge readable names
 fato = fato.merge(dim_projeto, how='left', left_on='ProjetoID', right_on='ProjetoID')
 fato = fato.merge(dim_tipo, how='left', left_on='TipoID', right_on='TipoID')
@@ -77,16 +83,46 @@ def normalize_text(value):
 
 
 def compute_portfolio_snapshot(df, updated_at_label):
+    def group_count(df_source, by_cols, count_name):
+        if df_source is None or df_source.empty:
+            return pd.DataFrame(columns=[*by_cols, count_name])
+        return (
+            df_source.groupby(by_cols, dropna=False)
+            .size()
+            .reset_index(name=count_name)
+            .sort_values(count_name, ascending=False, ignore_index=True)
+        )
+
+    def complexidade_feature(qtd_filhos):
+        qtd = int(qtd_filhos or 0)
+        if qtd == 0:
+            return 'Sem filhos'
+        if qtd <= 2:
+            return 'Baixa'
+        if qtd <= 5:
+            return 'Média'
+        return 'Alta'
+
+    def complexidade_epico(qtd_itens_fluxo):
+        qtd = int(qtd_itens_fluxo or 0)
+        if qtd == 0:
+            return 'Sem itens'
+        if qtd <= 5:
+            return 'Baixa'
+        if qtd <= 15:
+            return 'Média'
+        return 'Alta'
+
     if df is None or df.empty:
         return {
             'updated_at': updated_at_label,
             'metrics': {'epics_sem_features': 0, 'features_sem_epico': 0, 'features_sem_filhos': 0, 'features_sem_mov_15': 0, 'features_sem_mov_30': 0},
-            'tables': {
-                'epics_sem_features': pd.DataFrame(),
-                'features_sem_epico': pd.DataFrame(),
-                'features_sem_filhos': pd.DataFrame(),
-                'features_sem_mov_15': pd.DataFrame(),
-                'features_sem_mov_30': pd.DataFrame(),
+            'groups': {
+                'epicos_por_projeto_status': pd.DataFrame(),
+                'features_por_projeto_status': pd.DataFrame(),
+                'epicos_por_complexidade': pd.DataFrame(),
+                'features_por_complexidade': pd.DataFrame(),
+                'epicos_fluxo_etapas': pd.DataFrame(),
             },
         }
 
@@ -107,28 +143,42 @@ def compute_portfolio_snapshot(df, updated_at_label):
     epic_types = {'epic', 'epico'}
     feature_types = {'feature', 'funcionalidade'}
 
-    epics = df[(df['ProjetoNorm'] == 'bt') & (df['TipoNorm'].isin(epic_types))].copy()
-    features = df[(df['ProjetoNorm'] == 'ns') & (df['TipoNorm'].isin(feature_types))].copy()
+    epics = df[df['TipoNorm'].isin(epic_types)].copy()
+    features = df[df['TipoNorm'].isin(feature_types)].copy()
 
     epic_ids = set(epics['ID'])
     feature_ids = set(features['ID'])
 
-    features_with_epic = features[features['ParentID'].isin(epic_ids)]
-    epics_sem_features = epics[~epics['ID'].isin(features_with_epic['ParentID'])]
-    features_sem_epico = features[~features['ParentID'].isin(epic_ids)]
+    features['EpicID'] = features['ParentID'].where(features['ParentID'].isin(epic_ids), '')
+    features_with_epic = features[features['EpicID'] != ''].copy()
+    features_sem_epico = features[features['EpicID'] == ''].copy()
 
     children = df[df['ParentID'].isin(feature_ids)].copy()
-    child_counts = children.groupby('ParentID').size().rename('QtdFilhos') if not children.empty else pd.Series(dtype='int64')
+    children['FeatureID'] = children['ParentID']
+    feature_to_epic = features.set_index('ID')['EpicID'] if not features.empty else pd.Series(dtype='object')
+    children['EpicID'] = children['FeatureID'].map(feature_to_epic).fillna('')
+    children_under_epic = children[children['EpicID'].isin(epic_ids)].copy()
+
+    child_counts = (
+        children.groupby('ParentID').size().rename('QtdFilhos')
+        if not children.empty
+        else pd.Series(name='QtdFilhos', dtype='int64')
+    )
     features = features.merge(child_counts, left_on='ID', right_index=True, how='left')
     features['QtdFilhos'] = features['QtdFilhos'].fillna(0).astype(int)
     features_sem_filhos = features[features['QtdFilhos'] == 0].copy()
 
     children['MovimentadoAt'] = children['StatusChangedAt']
     children.loc[children['MovimentadoAt'].isna(), 'MovimentadoAt'] = children.loc[children['MovimentadoAt'].isna(), 'UpdatedAt']
-    last_move = children.groupby('ParentID')['MovimentadoAt'].max().rename('UltimaMovimentacao') if not children.empty else pd.Series(dtype='datetime64[ns, UTC]')
+    last_move = (
+        children.groupby('ParentID')['MovimentadoAt'].max().rename('UltimaMovimentacao')
+        if not children.empty
+        else pd.Series(name='UltimaMovimentacao', dtype='datetime64[ns, UTC]')
+    )
 
     features = features.merge(last_move, left_on='ID', right_index=True, how='left')
     features_com_filhos = features[features['QtdFilhos'] > 0].copy()
+    features['Complexidade'] = features['QtdFilhos'].apply(complexidade_feature)
 
     now_utc = pd.Timestamp.now(tz='UTC')
     cutoff_15 = now_utc - pd.Timedelta(days=15)
@@ -141,13 +191,58 @@ def compute_portfolio_snapshot(df, updated_at_label):
         features_com_filhos['UltimaMovimentacao'].isna() | (features_com_filhos['UltimaMovimentacao'] < cutoff_30)
     ].copy()
 
-    show_cols = ['ID', 'Titulo', 'Status', 'Link']
-    show_cols_children = ['ID', 'Titulo', 'Status', 'QtdFilhos', 'Link']
-    show_cols_movement = ['ID', 'Titulo', 'Status', 'QtdFilhos', 'UltimaMovimentacao', 'Link']
+    epic_feature_counts = (
+        features_with_epic.groupby('EpicID').size().rename('QtdFeatures')
+        if not features_with_epic.empty
+        else pd.Series(name='QtdFeatures', dtype='int64')
+    )
+    epic_child_counts = (
+        children_under_epic.groupby('EpicID').size().rename('QtdItensFilhos')
+        if not children_under_epic.empty
+        else pd.Series(name='QtdItensFilhos', dtype='int64')
+    )
+    epics = epics.merge(epic_feature_counts, left_on='ID', right_index=True, how='left')
+    epics = epics.merge(epic_child_counts, left_on='ID', right_index=True, how='left')
+    epics['QtdFeatures'] = epics['QtdFeatures'].fillna(0).astype(int)
+    epics['QtdItensFilhos'] = epics['QtdItensFilhos'].fillna(0).astype(int)
+    epics['QtdItensFluxo'] = epics['QtdFeatures'] + epics['QtdItensFilhos']
+    epics['Complexidade'] = epics['QtdItensFluxo'].apply(complexidade_epico)
+    epics_sem_features = epics[epics['QtdFeatures'] == 0].copy()
 
-    for movement_df in [features_sem_mov_15, features_sem_mov_30]:
-        if 'UltimaMovimentacao' in movement_df.columns:
-            movement_df['UltimaMovimentacao'] = movement_df['UltimaMovimentacao'].dt.strftime('%Y-%m-%d %H:%M').fillna('')
+    epicos_por_projeto_status = group_count(epics, ['Projeto', 'Status'], 'QtdEpicos')
+    features_por_projeto_status = group_count(features, ['Projeto', 'Status'], 'QtdFeatures')
+    epicos_por_complexidade = group_count(epics, ['Projeto', 'Complexidade'], 'QtdEpicos')
+    features_por_complexidade = group_count(features, ['Projeto', 'Complexidade'], 'QtdFeatures')
+
+    epic_flow_items = pd.DataFrame(columns=['EpicID', 'Status'])
+    if not features_with_epic.empty:
+        epic_flow_items = pd.concat([
+            epic_flow_items,
+            features_with_epic[['EpicID', 'Status']].copy(),
+        ], ignore_index=True)
+    if not children_under_epic.empty:
+        epic_flow_items = pd.concat([
+            epic_flow_items,
+            children_under_epic[['EpicID', 'Status']].copy(),
+        ], ignore_index=True)
+
+    if epic_flow_items.empty:
+        epicos_fluxo_etapas = pd.DataFrame(columns=['EpicID', 'Titulo', 'Projeto', 'Complexidade', 'TotalItens'])
+    else:
+        epics_info = epics[['ID', 'Titulo', 'Projeto', 'Complexidade']].copy()
+        epics_info.rename(columns={'ID': 'EpicID'}, inplace=True)
+        epicos_fluxo_etapas = (
+            epic_flow_items
+            .pivot_table(index='EpicID', columns='Status', values='Status', aggfunc='count', fill_value=0)
+            .reset_index()
+        )
+        epicos_fluxo_etapas = epics_info.merge(epicos_fluxo_etapas, on='EpicID', how='left').fillna(0)
+        stage_cols = [c for c in epicos_fluxo_etapas.columns if c not in {'EpicID', 'Titulo', 'Projeto', 'Complexidade'}]
+        if stage_cols:
+            epicos_fluxo_etapas['TotalItens'] = epicos_fluxo_etapas[stage_cols].sum(axis=1).astype(int)
+        else:
+            epicos_fluxo_etapas['TotalItens'] = 0
+        epicos_fluxo_etapas = epicos_fluxo_etapas.sort_values('TotalItens', ascending=False, ignore_index=True)
 
     return {
         'updated_at': updated_at_label,
@@ -157,13 +252,15 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'features_sem_filhos': int(len(features_sem_filhos)),
             'features_sem_mov_15': int(len(features_sem_mov_15)),
             'features_sem_mov_30': int(len(features_sem_mov_30)),
+            'total_epicos': int(len(epics)),
+            'total_features': int(len(features)),
         },
-        'tables': {
-            'epics_sem_features': epics_sem_features[show_cols].copy() if not epics_sem_features.empty else pd.DataFrame(columns=show_cols),
-            'features_sem_epico': features_sem_epico[show_cols].copy() if not features_sem_epico.empty else pd.DataFrame(columns=show_cols),
-            'features_sem_filhos': features_sem_filhos[show_cols_children].copy() if not features_sem_filhos.empty else pd.DataFrame(columns=show_cols_children),
-            'features_sem_mov_15': features_sem_mov_15[show_cols_movement].copy() if not features_sem_mov_15.empty else pd.DataFrame(columns=show_cols_movement),
-            'features_sem_mov_30': features_sem_mov_30[show_cols_movement].copy() if not features_sem_mov_30.empty else pd.DataFrame(columns=show_cols_movement),
+        'groups': {
+            'epicos_por_projeto_status': epicos_por_projeto_status,
+            'features_por_projeto_status': features_por_projeto_status,
+            'epicos_por_complexidade': epicos_por_complexidade,
+            'features_por_complexidade': features_por_complexidade,
+            'epicos_fluxo_etapas': epicos_fluxo_etapas,
         },
     }
 
@@ -311,6 +408,16 @@ def calculate_mm1_metrics(arrival_rate, service_rate):
     return {'lambda': arrival_rate, 'mu': service_rate, 'rho': rho, 'Lq': lq, 'Wq': wq, 'W': w}
 
 
+def calculate_flow_efficiency(arrival_rate, service_rate):
+    """Calcula pressão de fluxo (ρ=λ/μ) e eficiência de fluxo (1-ρ)."""
+    if service_rate is None or pd.isna(service_rate) or service_rate <= 0:
+        return np.nan, np.nan
+    if arrival_rate is None or pd.isna(arrival_rate) or arrival_rate < 0:
+        return np.nan, np.nan
+    rho = arrival_rate / service_rate
+    return rho, (1 - rho)
+
+
 def compute_flow_bottlenecks(df):
     """Monta ranking de gargalos por etapa do fluxo com base no tempo médio em dias."""
     stage_columns = [
@@ -334,6 +441,7 @@ def compute_flow_bottlenecks(df):
             'Tempo Mediano (dias)': float(series.median()),
             'P90 (dias)': float(series.quantile(0.90)),
             'Qtde Itens': int(series.shape[0]),
+            'Vazão da Etapa (itens)': int(series.shape[0]),
         })
 
     bottlenecks_df = pd.DataFrame(rows)
@@ -382,6 +490,7 @@ def load_project_bottlenecks_from_csv(projeto):
         'Tempo Mediano (dias)': pd.to_numeric(bdf['Mediana Dias'], errors='coerce'),
         'P90 (dias)': pd.to_numeric(bdf['P90 Dias'], errors='coerce'),
         'Qtde Itens': pd.to_numeric(bdf['Qtde Issues'], errors='coerce'),
+        'Vazão da Etapa (itens)': pd.to_numeric(bdf['Qtde Issues'], errors='coerce'),
     }).dropna(subset=['Etapa', 'Tempo Médio (dias)'])
 
     out = out[out['Tempo Médio (dias)'] >= 0]
@@ -389,6 +498,7 @@ def load_project_bottlenecks_from_csv(projeto):
         return out
 
     out['Qtde Itens'] = out['Qtde Itens'].fillna(0).astype(int)
+    out['Vazão da Etapa (itens)'] = out['Vazão da Etapa (itens)'].fillna(0).astype(int)
     out = out.sort_values('Tempo Médio (dias)', ascending=False, ignore_index=True)
     return out
 
@@ -437,12 +547,7 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         avg_lt = finished['LeadTime_Dias'].dropna().mean() if tp_total > 0 and 'LeadTime_Dias' in finished.columns else 0
         if pd.isna(avg_lt):
             avg_lt = 0
-        avg_eff = 0
-        if tp_total > 0:
-            for eff_col in ['EficienciaAjustada', 'Eficiencia']:
-                if eff_col in finished.columns and not finished[eff_col].dropna().empty:
-                    avg_eff = finished[eff_col].dropna().mean()
-                    break
+        _, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
         if pd.isna(avg_eff):
             avg_eff = 0
         p85_lt = finished['LeadTime_Dias'].dropna().quantile(0.85) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
@@ -452,7 +557,7 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         rows['Média WIP / semana'][week_label] = str(len(wip))
         rows['WIP Age (dias)'][week_label] = f"{wip_age:.0f}" if wip_age else '0'
         rows['Média Lead Time'][week_label] = f"{avg_lt:.0f}" if avg_lt else '0'
-        rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if avg_eff else '0.000'
+        rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if pd.notna(avg_eff) else '0.000'
         rows['% Demanda de Valor'][week_label] = f"{tp_dev / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['% Demanda de Falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['Qtd. Itens Descartados'][week_label] = '—'
@@ -598,45 +703,84 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             ], style={'padding': '20px'})
 
         metrics = snapshot['metrics']
-        tables = snapshot['tables']
+        groups = snapshot['groups']
+
+        epicos_status = groups.get('epicos_por_projeto_status', pd.DataFrame())
+        features_status = groups.get('features_por_projeto_status', pd.DataFrame())
+        epicos_complexidade = groups.get('epicos_por_complexidade', pd.DataFrame())
+        features_complexidade = groups.get('features_por_complexidade', pd.DataFrame())
+        epicos_fluxo_etapas = groups.get('epicos_fluxo_etapas', pd.DataFrame())
+
+        def grouped_chart(df_group, x_col, y_col, color_col, title):
+            if df_group is None or df_group.empty:
+                return html.Div([
+                    html.H4(title),
+                    html.P('Sem dados para exibição.')
+                ])
+            fig = px.bar(
+                df_group,
+                x=x_col,
+                y=y_col,
+                color=color_col,
+                barmode='group',
+                template='plotly_white',
+                title=title
+            )
+            fig.update_layout(height=360, margin=dict(t=50, b=80), xaxis_tickangle=-30)
+            return dcc.Graph(figure=fig)
 
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
-                f"Atualizado em: {snapshot['updated_at']} | Fonte: {os.path.basename(snapshot.get('source_file', 'csv local'))}",
+                f"Atualizado em: {snapshot['updated_at']} | Fonte: CSV local de portfólio",
                 style={'textAlign': 'center', 'color': '#666'}
             ),
             html.Div([
-                create_kpi_card('Épicos BT sem features', f"{metrics['epics_sem_features']}", class_name='three columns'),
-                create_kpi_card('Features NS sem épico', f"{metrics['features_sem_epico']}", class_name='three columns'),
-                create_kpi_card('Features NS sem filhos', f"{metrics['features_sem_filhos']}", class_name='three columns'),
-                create_kpi_card('Sem movimento 15d / 30d', f"{metrics['features_sem_mov_15']} / {metrics['features_sem_mov_30']}", class_name='three columns'),
+                create_kpi_card('Total de épicos', f"{metrics.get('total_epicos', 0)}", class_name='two columns'),
+                create_kpi_card('Total de features', f"{metrics.get('total_features', 0)}", class_name='two columns'),
+                create_kpi_card('Épicos sem features', f"{metrics['epics_sem_features']}", class_name='two columns'),
+                create_kpi_card('Features sem épico', f"{metrics['features_sem_epico']}", class_name='two columns'),
+                create_kpi_card('Features sem filhos', f"{metrics['features_sem_filhos']}", class_name='two columns'),
+                create_kpi_card('Sem movimento 15d / 30d', f"{metrics['features_sem_mov_15']} / {metrics['features_sem_mov_30']}", class_name='two columns'),
             ], className='row'),
 
+            html.Div([
+                html.Div([
+                    html.H4('Visão de Épicos', style={'textAlign': 'center'}),
+                    grouped_chart(
+                        epicos_status,
+                        x_col='Status',
+                        y_col='QtdEpicos',
+                        color_col='Projeto',
+                        title='Épicos por projeto e etapa de fluxo'
+                    ),
+                    portfolio_table_component(
+                        epicos_complexidade,
+                        'Épicos por projeto e complexidade',
+                        'table-portfolio-epicos-complexidade'
+                    ),
+                ], className='six columns'),
+                html.Div([
+                    html.H4('Visão de Features', style={'textAlign': 'center'}),
+                    grouped_chart(
+                        features_status,
+                        x_col='Status',
+                        y_col='QtdFeatures',
+                        color_col='Projeto',
+                        title='Features por projeto e etapa de fluxo'
+                    ),
+                    portfolio_table_component(
+                        features_complexidade,
+                        'Features por projeto e complexidade',
+                        'table-portfolio-features-complexidade'
+                    ),
+                ], className='six columns'),
+            ], className='row', style={'marginTop': '20px'}),
+
             portfolio_table_component(
-                tables['epics_sem_features'],
-                'Épicos (BT) sem features relacionadas',
-                'table-portfolio-epics-sem-features'
-            ),
-            portfolio_table_component(
-                tables['features_sem_epico'],
-                'Features (NS) sem épico pai',
-                'table-portfolio-features-sem-epico'
-            ),
-            portfolio_table_component(
-                tables['features_sem_filhos'],
-                'Features (NS) sem itens filhos',
-                'table-portfolio-features-sem-filhos'
-            ),
-            portfolio_table_component(
-                tables['features_sem_mov_15'],
-                'Features (NS) com filhos, sem movimentação nos últimos 15 dias',
-                'table-portfolio-features-sem-mov-15'
-            ),
-            portfolio_table_component(
-                tables['features_sem_mov_30'],
-                'Features (NS) com filhos, sem movimentação nos últimos 30 dias',
-                'table-portfolio-features-sem-mov-30'
+                epicos_fluxo_etapas,
+                'Épicos: quantidade de itens por etapa de fluxo',
+                'table-portfolio-epicos-fluxo-etapas'
             ),
         ], style={'padding': '10px 20px 20px 20px'})
 
@@ -691,15 +835,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                     lt_p85 = done['LeadTime_Dias'].quantile(0.85)
                     lt_p50 = done['LeadTime_Dias'].quantile(0.50)
 
-                flow_eff_w = np.nan
-                for eff_col in ['EficienciaAjustada', 'Eficiencia']:
-                    if eff_col in done.columns and not done[eff_col].dropna().empty:
-                        flow_eff_w = done[eff_col].mean()
-                        break
-
                 tp = len(done)
                 ar = len(arrived)
                 wip = len(wip_items)
+                pressure_w, flow_eff_w = calculate_flow_efficiency(ar, tp)
                 rows.append({
                     'Semana': week_start.date(),
                     'Chegadas': ar,
@@ -708,8 +847,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                     'WIP_Age': (week_end - wip_items['DataInProgress']).dt.days.mean() if wip > 0 else np.nan,
                     'LeadTime_P85': lt_p85,
                     'FlowEfficiency': flow_eff_w,
-                    'Pressure': (ar / tp) if tp > 0 else np.nan,
-                    'QueueEfficiency': (1 - (ar / tp)) if tp > 0 else np.nan,
+                    'Pressure': pressure_w,
+                    'QueueEfficiency': flow_eff_w,
                     'WIP_TP_Ratio': (wip / tp) if tp > 0 else np.nan,
                     'Predictability': (lt_p85 / lt_p50) if pd.notna(lt_p85) and pd.notna(lt_p50) and lt_p50 > 0 else np.nan,
                 })
@@ -773,8 +912,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             lead_time_p50 = df_done_period['LeadTime_Dias'].quantile(0.50)
             lead_time_p98 = df_done_period['LeadTime_Dias'].quantile(0.98)
 
-        pressure_ratio = arrivals_avg / throughput_avg if pd.notna(arrivals_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
-        queue_efficiency = 1 - pressure_ratio if pd.notna(pressure_ratio) else np.nan
+        pressure_ratio, queue_efficiency = calculate_flow_efficiency(arrivals_avg, throughput_avg)
         wip_tp_ratio = wip_avg / throughput_avg if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
         predictability = lead_time_p85 / lead_time_p50 if pd.notna(lead_time_p85) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
         risk_forecasting_ratio = lead_time_p98 / lead_time_p50 if pd.notna(lead_time_p98) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
@@ -940,8 +1078,19 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             # Assumindo que "Tempo até Primeiro Movimento" é equivalente ao tempo em backlog.
             metrics['Tempo em Backlog Médio (dias)'] = tempo_backlog.mean()
             metrics['Tempo até Primeiro Movimento (dias)'] = tempo_backlog.mean()
-        if 'EficienciaAjustada' in df_flow.columns and not df_flow['EficienciaAjustada'].dropna().empty:
-            metrics['Eficiência Ajustada Média'] = df_flow['EficienciaAjustada'].mean()
+        arrivals_period = len(df_flow[
+            (df_flow['DataInProgress'] >= start_ts) &
+            (df_flow['DataInProgress'] <= end_ts)
+        ])
+        throughput_period = len(df_flow[
+            (df_flow['DataDone'] >= start_ts) &
+            (df_flow['DataDone'] <= end_ts)
+        ])
+        pressure_period, efficiency_period = calculate_flow_efficiency(arrivals_period, throughput_period)
+        if pd.notna(efficiency_period):
+            metrics['Eficiência de Fluxo (1 - ρ)'] = efficiency_period
+        if pd.notna(pressure_period):
+            metrics['Pressão de Fluxo (ρ = λ/μ)'] = pressure_period
         if not tempo_bloqueio.empty:
             metrics['Tempo de Bloqueio Médio (dias)'] = tempo_bloqueio.mean()
         if not tempo_espera.empty:
@@ -997,11 +1146,19 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                     x=bottlenecks_df['Tempo Médio (dias)'],
                     y=bottlenecks_df['Etapa'],
                     orientation='h',
-                    text=[f"{v:.2f} d" for v in bottlenecks_df['Tempo Médio (dias)']],
+                    text=[
+                        f"{lt:.2f} d | vazão: {vz}"
+                        for lt, vz in zip(
+                            bottlenecks_df['Tempo Médio (dias)'],
+                            bottlenecks_df['Vazão da Etapa (itens)'],
+                        )
+                    ],
                     textposition='outside',
                     marker_color='#1f77b4',
                     marker_line=dict(color='#155a8a', width=1),
-                    hovertemplate='Etapa: %{y}<br>Tempo médio: %{x:.2f} dias<extra></extra>',
+                    customdata=bottlenecks_df[['Vazão da Etapa (itens)']].values,
+                    hovertemplate='Etapa: %{y}<br>Lead time médio: %{x:.2f} dias'
+                                  '<br>Vazão: %{customdata[0]} itens<extra></extra>',
                 )
             )
             fig_bottlenecks.update_layout(
@@ -1164,10 +1321,23 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         razao = development_count / defects_count if defects_count > 0 else float('inf')
         metrics['Razão Valor/Custo'] = f"{razao:.2f}:1" if razao != float('inf') else "Infinito (sem defeitos)"
 
-        if 'Eficiencia' in df.columns and not df['Eficiencia'].dropna().empty:
-            metrics['Eficiência Média (Simples)'] = df['Eficiencia'].mean()
-        if 'EficienciaAjustada' in df.columns and not df['EficienciaAjustada'].dropna().empty:
-            metrics['Eficiência Média (Ajustada)'] = df['EficienciaAjustada'].mean()
+        arrivals_base = fato.copy()
+        if projeto:
+            arrivals_base = arrivals_base[arrivals_base['Projeto'] == projeto]
+        if tipo:
+            arrivals_base = arrivals_base[arrivals_base['Tipo'] == tipo]
+        if responsavel:
+            arrivals_base = arrivals_base[arrivals_base['Responsavel'] == responsavel]
+        arrivals_count = len(arrivals_base[
+            (arrivals_base['DataInProgress'] >= pd.to_datetime(start_date)) &
+            (arrivals_base['DataInProgress'] <= pd.to_datetime(end_date))
+        ])
+        throughput_count = len(df)
+        pressure_quality, efficiency_quality = calculate_flow_efficiency(arrivals_count, throughput_count)
+        if pd.notna(efficiency_quality):
+            metrics['Eficiência de Fluxo (1 - ρ)'] = efficiency_quality
+        if pd.notna(pressure_quality):
+            metrics['Pressão de Fluxo (ρ = λ/μ)'] = pressure_quality
 
         kpi_data = [{'Métrica': k, 'Valor': f"{v:.2f}" if isinstance(v, (int, float)) else v} for k, v in metrics.items()]
         kpi_table = dash_table.DataTable(
@@ -1351,6 +1521,57 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
 
         # --- 1. Calcular colunas adicionais ---
         df_eff = df.copy()
+
+        # Fallback de execução para itens sem DataInProgress:
+        # usa DataBacklog como proxy para manter a análise de eficiência.
+        if 'DataBacklog' in df_eff.columns:
+            effective_start = df_eff.get('DataInProgress', pd.Series(pd.NaT, index=df_eff.index)).fillna(df_eff['DataBacklog'])
+        else:
+            effective_start = df_eff.get('DataInProgress', pd.Series(pd.NaT, index=df_eff.index))
+
+        if 'TempoBacklog_Dias' in df_eff.columns:
+            missing_backlog = df_eff['TempoBacklog_Dias'].isna()
+            backlog_fallback = (effective_start - df_eff.get('DataBacklog', pd.Series(pd.NaT, index=df_eff.index))).dt.days
+            df_eff.loc[missing_backlog, 'TempoBacklog_Dias'] = backlog_fallback.loc[missing_backlog]
+
+        if 'TempoExecucao_Dias' in df_eff.columns and 'DataDone' in df_eff.columns:
+            missing_exec = df_eff['TempoExecucao_Dias'].isna()
+            exec_fallback = (df_eff['DataDone'] - effective_start).dt.days
+            df_eff.loc[missing_exec, 'TempoExecucao_Dias'] = exec_fallback.loc[missing_exec]
+
+        flow_base = fato.copy()
+        if projeto:
+            flow_base = flow_base[flow_base['Projeto'] == projeto]
+        if tipo:
+            flow_base = flow_base[flow_base['Tipo'] == tipo]
+        if responsavel:
+            flow_base = flow_base[flow_base['Responsavel'] == responsavel]
+
+        start_eff_ts = pd.to_datetime(start_date)
+        end_eff_ts = pd.to_datetime(end_date)
+        weeks_eff = pd.date_range(start=start_eff_ts, end=end_eff_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
+        weekly_eff_map = {}
+        for i in range(len(weeks_eff) - 1):
+            week_start = weeks_eff[i]
+            week_end = weeks_eff[i + 1]
+            arrivals_w = len(flow_base[
+                (flow_base['DataInProgress'] >= week_start) &
+                (flow_base['DataInProgress'] < week_end)
+            ])
+            throughput_w = len(flow_base[
+                (flow_base['DataDone'] >= week_start) &
+                (flow_base['DataDone'] < week_end)
+            ])
+            _, efficiency_w = calculate_flow_efficiency(arrivals_w, throughput_w)
+            weekly_eff_map[pd.Timestamp(week_start).normalize()] = efficiency_w
+
+        if 'DataDone' in df_eff.columns:
+            df_eff['SemanaReferencia'] = weekly_bucket_start(df_eff['DataDone'].fillna(effective_start))
+        else:
+            df_eff['SemanaReferencia'] = weekly_bucket_start(effective_start)
+        df_eff['SemanaReferencia'] = pd.to_datetime(df_eff['SemanaReferencia']).dt.normalize()
+        df_eff['Eficiencia'] = df_eff['SemanaReferencia'].map(weekly_eff_map)
+        df_eff['EficienciaAjustada'] = df_eff['Eficiencia']
         
         time_cols = ['TempoBacklog_Dias', 'TempoExecucao_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias']
         for col in time_cols:
@@ -1363,8 +1584,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
 
         eff_cols = ['Eficiencia', 'EficienciaAjustada']
         for col in eff_cols:
-            if col not in df_eff.columns: df_eff[col] = 0
-            else: df_eff[col] = df_eff[col].fillna(0)
+            if col not in df_eff.columns:
+                df_eff[col] = np.nan
 
         df_eff['Diferença Eficiência'] = df_eff['EficienciaAjustada'] - df_eff['Eficiencia']
 
@@ -1384,8 +1605,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         fig_breakdown.update_layout(barmode='stack', yaxis_title=None, yaxis_showticklabels=False, legend_title_text='Componente')
 
         fig_scatter_eff = px.scatter(df_eff, x='Eficiencia', y='EficienciaAjustada',
-                                     color='Tipo', hover_data=['ItemID'], title='Eficiência Simples vs. Ajustada',
-                                     labels={'Eficiencia': 'Eficiência Simples', 'EficienciaAjustada': 'Eficiência Ajustada'}, color_discrete_map=color_map)
+                                     color='Tipo', hover_data=['ItemID'], title='Eficiência de Fluxo (1-ρ) por Semana de Referência',
+                                     labels={'Eficiencia': 'Eficiência de Fluxo (1-ρ)', 'EficienciaAjustada': 'Eficiência de Fluxo (1-ρ)'}, color_discrete_map=color_map)
         fig_scatter_eff.update_layout(height=550)
         fig_scatter_eff.add_shape(type='line', x0=0, y0=0, x1=1, y1=1, line=dict(color='grey', width=2, dash='dash'))
 
@@ -1748,7 +1969,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             return f"{value:.2f}{unit}"
 
         period_label = f"{start_date_ts.date()} a {end_date_ts.date()}"
-        efficiency = 1 - base['rho'] if base is not None and np.isfinite(base['rho']) else np.nan
+        _, efficiency = calculate_flow_efficiency(base['lambda'], base['mu'])
         kpi_data = [
             {'Métrica': 'Período analisado', 'Valor': period_label},
             {'Métrica': 'Semanas analisadas', 'Valor': f"{n_weeks}"},
@@ -1865,6 +2086,61 @@ def render_metric_chart(active_cell, table_data):
 
     # Extrair semanas (colunas exceto 'Métrica') e valores numéricos
     week_labels = [col for col in row.keys() if col != 'Métrica']
+
+    # Para Demanda de Valor/Falha, exibe comparativo em colunas sobrepostas.
+    if metric_name in ['% Demanda de Valor', '% Demanda de Falha']:
+        row_valor = next((r for r in table_data if r.get('Métrica') == '% Demanda de Valor'), None)
+        row_falha = next((r for r in table_data if r.get('Métrica') == '% Demanda de Falha'), None)
+
+        if row_valor and row_falha:
+            weeks_cmp = []
+            vals_valor = []
+            vals_falha = []
+
+            for wl in week_labels:
+                raw_valor = str(row_valor.get(wl, '')).replace('%', '').replace(',', '.').strip()
+                raw_falha = str(row_falha.get(wl, '')).replace('%', '').replace(',', '.').strip()
+                try:
+                    num_valor = float(raw_valor)
+                    num_falha = float(raw_falha)
+                    weeks_cmp.append(wl)
+                    vals_valor.append(num_valor)
+                    vals_falha.append(num_falha)
+                except (ValueError, TypeError):
+                    continue
+
+            if weeks_cmp:
+                fig_cmp = go.Figure()
+                fig_cmp.add_trace(go.Bar(
+                    x=weeks_cmp,
+                    y=vals_valor,
+                    name='Demanda de Valor',
+                    marker_color='green',
+                    opacity=0.85
+                ))
+                fig_cmp.add_trace(go.Bar(
+                    x=weeks_cmp,
+                    y=vals_falha,
+                    name='Demanda de Falha',
+                    marker_color='red',
+                    opacity=0.85
+                ))
+                fig_cmp.update_layout(
+                    title='Demanda de Falha x Demanda de Valor',
+                    xaxis_title='Semana',
+                    yaxis_title='Percentual (%)',
+                    template='plotly_white',
+                    height=550,
+                    margin=dict(t=60, b=130),
+                    xaxis_tickangle=-45,
+                    barmode='overlay',
+                    legend_title_text='Valores'
+                )
+
+                return html.Div([
+                    dcc.Graph(figure=fig_cmp)
+                ], style={'marginTop': '20px'})
+
     values = []
     for wl in week_labels:
         val_str = str(row[wl]).replace('%', '').replace(',', '.').strip()

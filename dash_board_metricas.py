@@ -103,6 +103,37 @@ def compute_valid_lead_series(df):
     lt_days = (df['Done'] - df['Sprint Backlog']).dt.days
     return lt_days[lt_days >= 0]
 
+
+def resolve_in_progress_date(row):
+    """
+    Resolve execution start date with fallback:
+    - Prefer explicit 'In Progress'
+    - Fallback to 'Sprint Backlog' when In Progress is missing
+    """
+    in_progress = row.get('In Progress')
+    if pd.notna(in_progress):
+        return in_progress
+    sprint_backlog = row.get('Sprint Backlog')
+    return sprint_backlog if pd.notna(sprint_backlog) else pd.NaT
+
+
+def week_start_monday(ts):
+    """Return normalized monday-start week key for a timestamp."""
+    if pd.isna(ts):
+        return pd.NaT
+    ts = pd.Timestamp(ts)
+    return (ts - pd.Timedelta(days=ts.weekday())).normalize()
+
+
+def calculate_flow_efficiency(arrival_rate, service_rate):
+    """Flow efficiency aligned with queue-capacity rule: 1 - (lambda/mu)."""
+    if service_rate is None or pd.isna(service_rate) or service_rate <= 0:
+        return np.nan, np.nan
+    if arrival_rate is None or pd.isna(arrival_rate) or arrival_rate < 0:
+        return np.nan, np.nan
+    rho = arrival_rate / service_rate
+    return rho, (1 - rho)
+
 def detect_project_from_id(id_str):
     """
     Detect project from work item ID prefix
@@ -371,6 +402,13 @@ def load_and_consolidate_all_data(csv_files):
             for col in date_cols:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+
+            # Fallback for files where In Progress is empty:
+            # treat Sprint Backlog as execution start proxy.
+            if 'In Progress' in df.columns and 'Sprint Backlog' in df.columns:
+                missing_in_progress = df['In Progress'].isna() & df['Sprint Backlog'].notna()
+                if missing_in_progress.any():
+                    df.loc[missing_in_progress, 'In Progress'] = df.loc[missing_in_progress, 'Sprint Backlog']
 
             # Signal rows with inconsistent Done earlier than Sprint Backlog.
             if 'Sprint Backlog' in df.columns and 'Done' in df.columns:
@@ -797,12 +835,14 @@ def generate_efficiency_wait_time_analysis(consolidated_data):
             in_progress = row.get('In Progress')
             done = row.get('Done')
             
-            if pd.isna(sprint_backlog) or pd.isna(in_progress) or pd.isna(done):
+            if pd.isna(sprint_backlog) or pd.isna(done):
                 continue
+
+            effective_in_progress = in_progress if pd.notna(in_progress) else sprint_backlog
             
             # Calculate time components (in days)
-            backlog_time = (in_progress - sprint_backlog).days
-            execution_time = (done - in_progress).days
+            backlog_time = max(0, (effective_in_progress - sprint_backlog).days)
+            execution_time = max(0, (done - effective_in_progress).days)
             lead_time = compute_valid_lead_days(done, sprint_backlog)
             if lead_time is None:
                 continue
@@ -828,8 +868,8 @@ def generate_efficiency_wait_time_analysis(consolidated_data):
                     except:
                         continue  # Skip if can't convert to timestamp
                     
-                    if wait_date < in_progress:
-                        stage_duration = (in_progress - wait_date).days
+                    if wait_date < effective_in_progress:
+                        stage_duration = (effective_in_progress - wait_date).days
                         wait_stage_time += max(0, stage_duration)
                         wait_stages_detail.append(f"{wait_col}: {stage_duration}d")
             
@@ -1637,6 +1677,14 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
 
         if 'ID' in df.columns:
             df = df.drop_duplicates(subset=['ID'], keep='first')
+
+        # Weekly rates used by queue-based flow efficiency (1 - lambda/mu).
+        rates_df = df.copy()
+        rates_df['_EffectiveInProgress'] = rates_df.apply(resolve_in_progress_date, axis=1)
+        rates_df['_ArrivalWeek'] = rates_df['_EffectiveInProgress'].apply(week_start_monday)
+        rates_df['_DoneWeek'] = rates_df['Done'].apply(week_start_monday) if 'Done' in rates_df.columns else pd.NaT
+        arrivals_by_week = rates_df.dropna(subset=['_ArrivalWeek']).groupby('_ArrivalWeek').size().to_dict()
+        throughput_by_week = rates_df.dropna(subset=['_DoneWeek']).groupby('_DoneWeek').size().to_dict()
         
         for idx, row in df.iterrows():
             projeto_id = dim_projeto_map.get(projeto, 1)
@@ -1659,9 +1707,11 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             sprint_backlog_date = row.get('Sprint Backlog')
             in_progress_date = row.get('In Progress')
             done_date = row.get('Done')
-            
-            backlog_days = (in_progress_date - sprint_backlog_date).days if pd.notna(sprint_backlog_date) and pd.notna(in_progress_date) else None
-            cycle_days = (done_date - in_progress_date).days if pd.notna(in_progress_date) and pd.notna(done_date) else None
+
+            effective_in_progress_date = resolve_in_progress_date(row)
+
+            backlog_days = (effective_in_progress_date - sprint_backlog_date).days if pd.notna(sprint_backlog_date) and pd.notna(effective_in_progress_date) else None
+            cycle_days = (done_date - effective_in_progress_date).days if pd.notna(effective_in_progress_date) and pd.notna(done_date) else None
             lead_days = compute_valid_lead_days(done_date, sprint_backlog_date)
             lead_time_inconsistente = (
                 pd.notna(sprint_backlog_date)
@@ -1669,14 +1719,17 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 and lead_days is None
             )
             
-            # Efficiency
-            if lead_days and lead_days > 0 and cycle_days:
-                efficiency = cycle_days / lead_days
+            week_ref = week_start_monday(done_date if pd.notna(done_date) else effective_in_progress_date)
+            if pd.notna(week_ref):
+                arrivals_w = arrivals_by_week.get(week_ref, 0)
+                throughput_w = throughput_by_week.get(week_ref, 0)
+                _, efficiency = calculate_flow_efficiency(arrivals_w, throughput_w)
             else:
                 efficiency = None
-            
-            # Calculate V2 efficiency metrics
-            adjusted_eff, blocked_days_v2, wait_days_v2 = calculate_enhanced_efficiency(row, wait_columns)
+
+            # Keep blocked/wait decomposition, but efficiency now follows queue rule.
+            _, blocked_days_v2, wait_days_v2 = calculate_enhanced_efficiency(row, wait_columns)
+            adjusted_eff = efficiency
 
             is_completed = 1 if pd.notna(done_date) else 0
             is_blocked = 1 if row.get('Blocked') == True else 0
@@ -1684,11 +1737,11 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             # Calculate WIP status (is item currently in progress but not done?)
             is_wip = 0
             wip_dias = 0
-            if pd.notna(in_progress_date) and pd.isna(done_date):
+            if pd.notna(effective_in_progress_date) and pd.isna(done_date):
                 # Item started but not finished = in WIP
                 is_wip = 1
-                wip_dias = (pd.Timestamp(today) - in_progress_date).days
-            elif pd.notna(in_progress_date) and pd.notna(done_date):
+                wip_dias = (pd.Timestamp(today) - effective_in_progress_date).days
+            elif pd.notna(effective_in_progress_date) and pd.notna(done_date):
                 # Item was completed, check if it was in WIP during execution
                 is_wip = 0  # No longer in WIP
                 wip_dias = cycle_days if cycle_days else 0
@@ -1717,7 +1770,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'Bloqueado': is_blocked,
                 'StoryPoints': row.get('Story Points'),
                 'DataBacklog': sprint_backlog_date,
-                'DataInProgress': in_progress_date,
+                'DataInProgress': effective_in_progress_date,
                 'DataDone': done_date,
                 'LeadTimeInconsistente': lead_time_inconsistente,
                 'EmWIP': is_wip,

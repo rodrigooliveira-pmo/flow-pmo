@@ -449,6 +449,30 @@ def generate_consolidated_dashboard(consolidated_data):
     
     return list(metrics_by_week.values())
 
+def resolve_in_progress_date(row):
+    """Resolve execution start date with fallback to Sprint Backlog."""
+    in_progress = row.get('In Progress')
+    if pd.notna(in_progress):
+        return in_progress
+    sprint_backlog = row.get('Sprint Backlog')
+    return sprint_backlog if pd.notna(sprint_backlog) else pd.NaT
+
+def week_start_monday(ts):
+    """Return normalized monday-start week key for a timestamp."""
+    if pd.isna(ts):
+        return pd.NaT
+    ts = pd.Timestamp(ts)
+    return (ts - pd.Timedelta(days=ts.weekday())).normalize()
+
+def calculate_flow_efficiency(arrival_rate, service_rate):
+    """Flow efficiency aligned with queue-capacity rule: 1 - (lambda/mu)."""
+    if service_rate is None or pd.isna(service_rate) or service_rate <= 0:
+        return np.nan, np.nan
+    if arrival_rate is None or pd.isna(arrival_rate) or arrival_rate < 0:
+        return np.nan, np.nan
+    rho = arrival_rate / service_rate
+    return rho, (1 - rho)
+
 def detect_wait_stage_columns(df):
     """
     Detect columns that represent waiting stages (not actual work).
@@ -1479,6 +1503,14 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
 
         if 'ID' in df.columns:
             df = df.drop_duplicates(subset=['ID'], keep='first')
+
+        # Weekly rates used by queue-based flow efficiency (1 - lambda/mu).
+        rates_df = df.copy()
+        rates_df['_EffectiveInProgress'] = rates_df.apply(resolve_in_progress_date, axis=1)
+        rates_df['_ArrivalWeek'] = rates_df['_EffectiveInProgress'].apply(week_start_monday)
+        rates_df['_DoneWeek'] = rates_df['Done'].apply(week_start_monday) if 'Done' in rates_df.columns else pd.NaT
+        arrivals_by_week = rates_df.dropna(subset=['_ArrivalWeek']).groupby('_ArrivalWeek').size().to_dict()
+        throughput_by_week = rates_df.dropna(subset=['_DoneWeek']).groupby('_DoneWeek').size().to_dict()
         
         for idx, row in df.iterrows():
             projeto_id = dim_projeto_map.get(projeto, 1)
@@ -1506,14 +1538,18 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             cycle_days = (done_date - in_progress_date).days if pd.notna(in_progress_date) and pd.notna(done_date) else None
             lead_days = (done_date - sprint_backlog_date).days if pd.notna(sprint_backlog_date) and pd.notna(done_date) else None
             
-            # Efficiency
-            if lead_days and lead_days > 0 and cycle_days:
-                efficiency = cycle_days / lead_days
+            effective_in_progress_date = resolve_in_progress_date(row)
+            week_ref = week_start_monday(done_date if pd.notna(done_date) else effective_in_progress_date)
+            if pd.notna(week_ref):
+                arrivals_w = arrivals_by_week.get(week_ref, 0)
+                throughput_w = throughput_by_week.get(week_ref, 0)
+                _, efficiency = calculate_flow_efficiency(arrivals_w, throughput_w)
             else:
                 efficiency = None
-            
-            # Calculate V2 efficiency metrics
-            adjusted_eff, blocked_days_v2, wait_days_v2 = calculate_enhanced_efficiency(row, wait_columns)
+
+            # Keep blocked/wait decomposition, but efficiency now follows queue rule.
+            _, blocked_days_v2, wait_days_v2 = calculate_enhanced_efficiency(row, wait_columns)
+            adjusted_eff = efficiency
 
             is_completed = 1 if pd.notna(done_date) else 0
             is_blocked = 1 if row.get('Blocked') == True else 0
@@ -1521,11 +1557,11 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             # Calculate WIP status (is item currently in progress but not done?)
             is_wip = 0
             wip_dias = 0
-            if pd.notna(in_progress_date) and pd.isna(done_date):
+            if pd.notna(effective_in_progress_date) and pd.isna(done_date):
                 # Item started but not finished = in WIP
                 is_wip = 1
-                wip_dias = (pd.Timestamp(today) - in_progress_date).days
-            elif pd.notna(in_progress_date) and pd.notna(done_date):
+                wip_dias = (pd.Timestamp(today) - effective_in_progress_date).days
+            elif pd.notna(effective_in_progress_date) and pd.notna(done_date):
                 # Item was completed, check if it was in WIP during execution
                 is_wip = 0  # No longer in WIP
                 wip_dias = cycle_days if cycle_days else 0
@@ -1554,7 +1590,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'Bloqueado': is_blocked,
                 'StoryPoints': row.get('Story Points'),
                 'DataBacklog': sprint_backlog_date,
-                'DataInProgress': in_progress_date,
+                'DataInProgress': effective_in_progress_date,
                 'DataDone': done_date,
                 'EmWIP': is_wip,
                 'WIP_Dias': wip_dias
