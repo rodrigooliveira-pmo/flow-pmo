@@ -74,6 +74,15 @@ PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
 PORTFOLIO_CACHE = {'fetched_at': None, 'data': None, 'error': None}
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_CSV_SUFFIX = '-data.csv'
+PORTFOLIO_COLOR_THRESHOLDS = {
+    'Q1 Pendências': {'green_max': 2, 'yellow_max': 8},
+    'Q2 Pendências': {'green_max': 1, 'yellow_max': 5},
+    'Q3 Pendências': {'green_max': 0, 'yellow_max': 3},
+    'aging_us_20': {'green_max': 0, 'yellow_max': 5},
+    'aging_features_40': {'green_max': 0, 'yellow_max': 8},
+    'aging_us_comp_20': {'green_max': 0, 'yellow_max': 5},
+    'aging_features_comp_40': {'green_max': 0, 'yellow_max': 8},
+}
 
 
 def normalize_text(value):
@@ -113,6 +122,23 @@ def compute_portfolio_snapshot(df, updated_at_label):
             return 'Média'
         return 'Alta'
 
+    def map_portfolio_label(value):
+        raw = str(value or '').strip()
+        key = normalize_text(raw)
+        if key == 'bt':
+            return 'Épico'
+        if key == 'ns':
+            return 'Feature'
+        return raw
+
+    def status_contains(series_norm, terms):
+        if series_norm.empty:
+            return pd.Series(dtype=bool)
+        mask = pd.Series(False, index=series_norm.index)
+        for term in terms:
+            mask = mask | series_norm.str.contains(term, regex=False, na=False)
+        return mask
+
     if df is None or df.empty:
         return {
             'updated_at': updated_at_label,
@@ -123,6 +149,12 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'epicos_por_complexidade': pd.DataFrame(),
                 'features_por_complexidade': pd.DataFrame(),
                 'epicos_fluxo_etapas': pd.DataFrame(),
+                'pendencias_q_por_time': pd.DataFrame(),
+                'aging_us_20': pd.DataFrame(),
+                'aging_features_40': pd.DataFrame(),
+                'aging_us_comp_20': pd.DataFrame(),
+                'aging_features_comp_40': pd.DataFrame(),
+                'executive_tiles': pd.DataFrame(),
             },
         }
 
@@ -135,9 +167,18 @@ def compute_portfolio_snapshot(df, updated_at_label):
         df['StatusChangedAt'] = pd.to_datetime(df['StatusChangedAt'], errors='coerce', utc=True)
     else:
         df['StatusChangedAt'] = pd.NaT
+    if 'Team' not in df.columns:
+        df['Team'] = ''
+
+    df['Projeto'] = df['Projeto'].fillna('').astype(str)
+    df['Team'] = df['Team'].fillna('').astype(str).str.strip()
+    df['ProjetoAgrupado'] = df['Team']
+    df.loc[df['ProjetoAgrupado'] == '', 'ProjetoAgrupado'] = df.loc[df['ProjetoAgrupado'] == '', 'Projeto']
+    df['ProjetoAgrupado'] = df['ProjetoAgrupado'].map(map_portfolio_label)
 
     df['TipoNorm'] = df['Tipo'].map(normalize_text)
     df['ProjetoNorm'] = df['Projeto'].map(normalize_text)
+    df['StatusNorm'] = df['Status'].map(normalize_text)
     df['ParentID'] = df['ParentID'].fillna('').astype(str)
 
     epic_types = {'epic', 'epico'}
@@ -191,6 +232,59 @@ def compute_portfolio_snapshot(df, updated_at_label):
         features_com_filhos['UltimaMovimentacao'].isna() | (features_com_filhos['UltimaMovimentacao'] < cutoff_30)
     ].copy()
 
+    # Aging e classes de fluxo para indicadores em tiles.
+    done_terms = {'done', 'concluido', 'concluida', 'closed', 'resolved'}
+    backlog_terms = {'backlog', 'to do', 'todo', 'triagem'}
+    in_progress_terms = {'in progress', 'homolog', 'staging', 'ready', 'progress', 'desenvolvimento'}
+
+    df['UltimaMovimentacaoItem'] = df['StatusChangedAt']
+    df.loc[df['UltimaMovimentacaoItem'].isna(), 'UltimaMovimentacaoItem'] = df.loc[df['UltimaMovimentacaoItem'].isna(), 'UpdatedAt']
+    df['AgingDiasSemAlteracao'] = (now_utc - df['UltimaMovimentacaoItem']).dt.days
+
+    is_done = status_contains(df['StatusNorm'], done_terms)
+    is_backlog = status_contains(df['StatusNorm'], backlog_terms)
+    is_in_progress = status_contains(df['StatusNorm'], in_progress_terms) & (~is_done)
+    is_open = (~is_done)
+
+    df['IsOpen'] = is_open
+    df['IsInProgress'] = is_in_progress
+    df['IsBacklog'] = is_backlog
+
+    user_story_types = {'story', 'user story', 'historia', 'historia de usuario', 'us'}
+    df['IsUS'] = df['TipoNorm'].isin(user_story_types)
+    df['IsFeature'] = df['TipoNorm'].isin(feature_types)
+
+    # Q1/Q2/Q3 Pendências (faixas de aging em aberto, por TEAM/projeto agrupado).
+    pendencias = df[df['IsOpen']].copy()
+    pendencias['Quadrante'] = 'Q1 Pendências'
+    pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 15, 'Quadrante'] = 'Q2 Pendências'
+    pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 30, 'Quadrante'] = 'Q3 Pendências'
+    pendencias_q_por_time = (
+        group_count(pendencias, ['Quadrante', 'ProjetoAgrupado'], 'WorkItems')
+        .rename(columns={'ProjetoAgrupado': 'Projeto'})
+    )
+
+    # Aging WIP - quatro indicadores no padrão dos exemplos.
+    us_in_progress = df[df['IsUS'] & df['IsInProgress']].copy()
+    features_in_progress = df[df['IsFeature'] & df['IsInProgress']].copy()
+    us_compromissadas = df[df['IsUS'] & df['IsInProgress'] & (~df['IsBacklog'])].copy()
+    features_compromissadas = features_with_epic[features_with_epic['Status'].notna()].copy()
+    if not features_compromissadas.empty:
+        age_map = df.set_index('ID')['AgingDiasSemAlteracao']
+        in_progress_map = df.set_index('ID')['IsInProgress']
+        features_compromissadas['AgingDiasSemAlteracao'] = features_compromissadas['ID'].map(age_map)
+        features_compromissadas['IsInProgress'] = features_compromissadas['ID'].map(in_progress_map)
+        features_compromissadas = features_compromissadas[features_compromissadas['IsInProgress'] == True].copy()
+
+    aging_us_20 = group_count(us_in_progress[us_in_progress['AgingDiasSemAlteracao'] > 20], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    aging_features_40 = group_count(features_in_progress[features_in_progress['AgingDiasSemAlteracao'] > 40], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    aging_us_comp_20 = group_count(us_compromissadas[us_compromissadas['AgingDiasSemAlteracao'] > 20], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    aging_features_comp_40 = (
+        group_count(features_compromissadas[features_compromissadas['AgingDiasSemAlteracao'] > 40], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
+        if not features_compromissadas.empty
+        else pd.DataFrame(columns=['Projeto', 'WorkItems'])
+    )
+
     epic_feature_counts = (
         features_with_epic.groupby('EpicID').size().rename('QtdFeatures')
         if not features_with_epic.empty
@@ -209,10 +303,10 @@ def compute_portfolio_snapshot(df, updated_at_label):
     epics['Complexidade'] = epics['QtdItensFluxo'].apply(complexidade_epico)
     epics_sem_features = epics[epics['QtdFeatures'] == 0].copy()
 
-    epicos_por_projeto_status = group_count(epics, ['Projeto', 'Status'], 'QtdEpicos')
-    features_por_projeto_status = group_count(features, ['Projeto', 'Status'], 'QtdFeatures')
-    epicos_por_complexidade = group_count(epics, ['Projeto', 'Complexidade'], 'QtdEpicos')
-    features_por_complexidade = group_count(features, ['Projeto', 'Complexidade'], 'QtdFeatures')
+    epicos_por_projeto_status = group_count(epics, ['ProjetoAgrupado', 'Status'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    features_por_projeto_status = group_count(features, ['ProjetoAgrupado', 'Status'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    epicos_por_complexidade = group_count(epics, ['ProjetoAgrupado', 'Complexidade'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    features_por_complexidade = group_count(features, ['ProjetoAgrupado', 'Complexidade'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
 
     epic_flow_items = pd.DataFrame(columns=['EpicID', 'Status'])
     if not features_with_epic.empty:
@@ -229,8 +323,9 @@ def compute_portfolio_snapshot(df, updated_at_label):
     if epic_flow_items.empty:
         epicos_fluxo_etapas = pd.DataFrame(columns=['EpicID', 'Titulo', 'Projeto', 'Complexidade', 'TotalItens'])
     else:
-        epics_info = epics[['ID', 'Titulo', 'Projeto', 'Complexidade']].copy()
+        epics_info = epics[['ID', 'Titulo', 'ProjetoAgrupado', 'Complexidade']].copy()
         epics_info.rename(columns={'ID': 'EpicID'}, inplace=True)
+        epics_info.rename(columns={'ProjetoAgrupado': 'Projeto'}, inplace=True)
         epicos_fluxo_etapas = (
             epic_flow_items
             .pivot_table(index='EpicID', columns='Status', values='Status', aggfunc='count', fill_value=0)
@@ -243,6 +338,23 @@ def compute_portfolio_snapshot(df, updated_at_label):
         else:
             epicos_fluxo_etapas['TotalItens'] = 0
         epicos_fluxo_etapas = epicos_fluxo_etapas.sort_values('TotalItens', ascending=False, ignore_index=True)
+
+    # Cards executivos no estilo "mosaico".
+    sem_team = int((df['Team'].str.strip() == '').sum())
+    em_dia = int(((df['IsOpen']) & (df['AgingDiasSemAlteracao'] <= 15)).sum())
+    atrasadas = int(((df['IsOpen']) & (df['AgingDiasSemAlteracao'] > 30)).sum())
+    divergente = int(len(features_sem_epico) + len(epics_sem_features))
+    executive_tiles = pd.DataFrame([
+        {'Indicador': 'Iniciativas', 'Valor': int(len(epics) + len(features)), 'Tipo': 'info'},
+        {'Indicador': 'Épicos', 'Valor': int(len(epics)), 'Tipo': 'ok'},
+        {'Indicador': 'Features', 'Valor': int(len(features)), 'Tipo': 'ok'},
+        {'Indicador': 'Sem TEAM', 'Valor': sem_team, 'Tipo': 'risco'},
+        {'Indicador': 'Em dia', 'Valor': em_dia, 'Tipo': 'ok'},
+        {'Indicador': 'Atrasadas', 'Valor': atrasadas, 'Tipo': 'risco'},
+        {'Indicador': 'Estado divergente', 'Valor': divergente, 'Tipo': 'alerta'},
+        {'Indicador': 'Features sem épico', 'Valor': int(len(features_sem_epico)), 'Tipo': 'alerta'},
+        {'Indicador': 'Épicos sem features', 'Valor': int(len(epics_sem_features)), 'Tipo': 'alerta'},
+    ])
 
     return {
         'updated_at': updated_at_label,
@@ -261,6 +373,12 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'epicos_por_complexidade': epicos_por_complexidade,
             'features_por_complexidade': features_por_complexidade,
             'epicos_fluxo_etapas': epicos_fluxo_etapas,
+            'pendencias_q_por_time': pendencias_q_por_time,
+            'aging_us_20': aging_us_20,
+            'aging_features_40': aging_features_40,
+            'aging_us_comp_20': aging_us_comp_20,
+            'aging_features_comp_40': aging_features_comp_40,
+            'executive_tiles': executive_tiles,
         },
     }
 
@@ -588,7 +706,7 @@ app.layout = html.Div([
     dcc.Tabs(id='tabs', value='tab-performance', children=[
         dcc.Tab(label='Performance do Serviço', value='tab-performance'),
         dcc.Tab(label='Portfólio', value='tab-portfolio'),
-        dcc.Tab(label='Painel Fluxo 3x3', value='tab-painel-3x3'),
+        dcc.Tab(label='Painel Fluxo', value='tab-painel-3x3'),
         dcc.Tab(label='Fluxo', value='tab-fluxo'),
         dcc.Tab(label='Estabilidade', value='tab-estabilidade'),
         dcc.Tab(label='Saúde Fluxo', value='tab-saude'),
@@ -710,6 +828,12 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         epicos_complexidade = groups.get('epicos_por_complexidade', pd.DataFrame())
         features_complexidade = groups.get('features_por_complexidade', pd.DataFrame())
         epicos_fluxo_etapas = groups.get('epicos_fluxo_etapas', pd.DataFrame())
+        pendencias_q_por_time = groups.get('pendencias_q_por_time', pd.DataFrame())
+        aging_us_20 = groups.get('aging_us_20', pd.DataFrame())
+        aging_features_40 = groups.get('aging_features_40', pd.DataFrame())
+        aging_us_comp_20 = groups.get('aging_us_comp_20', pd.DataFrame())
+        aging_features_comp_40 = groups.get('aging_features_comp_40', pd.DataFrame())
+        executive_tiles = groups.get('executive_tiles', pd.DataFrame())
 
         def grouped_chart(df_group, x_col, y_col, color_col, title):
             if df_group is None or df_group.empty:
@@ -729,6 +853,104 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             fig.update_layout(height=360, margin=dict(t=50, b=80), xaxis_tickangle=-30)
             return dcc.Graph(figure=fig)
 
+        def threshold_color(count, threshold_key, empty_gray=False):
+            c = int(count or 0)
+            if empty_gray and c == 0:
+                return '#d8d8d8'
+            limits = PORTFOLIO_COLOR_THRESHOLDS.get(threshold_key) or {'green_max': 0, 'yellow_max': 0}
+            if c <= int(limits.get('green_max', 0)):
+                return '#2e7d32'
+            if c <= int(limits.get('yellow_max', 0)):
+                return '#f9a825'
+            return '#c62828'
+
+        def render_tile(label, value, threshold_key, subtitle='Work items', empty_gray=False):
+            bg = threshold_color(value, threshold_key=threshold_key, empty_gray=empty_gray)
+            fg = '#111' if bg in {'#f9a825', '#d8d8d8'} else 'white'
+            return html.Div([
+                html.Div(str(label), style={'fontSize': '16px', 'fontWeight': 'bold'}),
+                html.Div(str(int(value or 0)), style={'fontSize': '54px', 'lineHeight': '1.1'}),
+                html.Div(subtitle, style={'fontSize': '13px', 'opacity': 0.9}),
+            ], style={
+                'backgroundColor': bg,
+                'color': fg,
+                'padding': '12px',
+                'borderRadius': '4px',
+                'minHeight': '150px',
+                'display': 'flex',
+                'flexDirection': 'column',
+                'justifyContent': 'space-between',
+            })
+
+        def render_tiles_by_team(df_metric, title, threshold_key):
+            if df_metric is None or df_metric.empty:
+                return html.Div([html.H4(title), html.P('Sem dados para exibição.')])
+            cards = [
+                render_tile(row['Projeto'], row['WorkItems'], threshold_key=threshold_key)
+                for _, row in df_metric.sort_values('WorkItems', ascending=False).iterrows()
+            ]
+            return html.Div([
+                html.H4(title, style={'textAlign': 'left'}),
+                html.Div(cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fill, minmax(160px, 1fr))',
+                    'gap': '10px'
+                })
+            ], style={'marginTop': '16px'})
+
+        def render_q_pendencias_grid(df_q):
+            if df_q is None or df_q.empty:
+                return html.Div([html.H4('Q Pendências por TEAM'), html.P('Sem dados para exibição.')])
+            quadrantes = ['Q1 Pendências', 'Q2 Pendências', 'Q3 Pendências']
+            blocks = []
+            for q in quadrantes:
+                d = df_q[df_q['Quadrante'] == q].copy()
+                cards = []
+                if d.empty:
+                    cards.append(render_tile('Sem dados', 0, threshold_key=q, empty_gray=True))
+                else:
+                    for _, row in d.sort_values('WorkItems', ascending=False).iterrows():
+                        cards.append(render_tile(row['Projeto'], row['WorkItems'], threshold_key=q))
+                blocks.append(html.Div([
+                    html.H4(q, style={'minWidth': '150px'}),
+                    html.Div(cards, style={
+                        'display': 'grid',
+                        'gridTemplateColumns': 'repeat(auto-fill, minmax(160px, 1fr))',
+                        'gap': '10px',
+                        'width': '100%'
+                    })
+                ], style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-start', 'marginBottom': '14px'}))
+            return html.Div([
+                html.H3('Indicador 1 - Q Pendências por TEAM', style={'textAlign': 'left'}),
+                *blocks
+            ], style={'marginTop': '24px'})
+
+        def render_executive_tiles(df_exec):
+            if df_exec is None or df_exec.empty:
+                return html.Div([html.H3('Indicador 3 - Resumo Executivo'), html.P('Sem dados para exibição.')])
+            colors = {'ok': '#2e7d32', 'alerta': '#ef6c00', 'risco': '#ad1457', 'info': '#1976d2'}
+            cards = []
+            for _, row in df_exec.iterrows():
+                bg = colors.get(str(row.get('Tipo', 'info')), '#1976d2')
+                cards.append(html.Div([
+                    html.Div(str(row['Indicador']), style={'fontSize': '16px', 'fontWeight': 'bold'}),
+                    html.Div(str(int(row['Valor'])), style={'fontSize': '56px', 'lineHeight': '1.1'}),
+                ], style={
+                    'backgroundColor': bg,
+                    'color': 'white',
+                    'padding': '12px',
+                    'borderRadius': '4px',
+                    'minHeight': '135px',
+                }))
+            return html.Div([
+                html.H3('Indicador 3 - Resumo Executivo', style={'textAlign': 'left'}),
+                html.Div(cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fill, minmax(170px, 1fr))',
+                    'gap': '10px'
+                })
+            ], style={'marginTop': '24px'})
+
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
@@ -743,6 +965,22 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 create_kpi_card('Features sem filhos', f"{metrics['features_sem_filhos']}", class_name='two columns'),
                 create_kpi_card('Sem movimento 15d / 30d', f"{metrics['features_sem_mov_15']} / {metrics['features_sem_mov_30']}", class_name='two columns'),
             ], className='row'),
+
+            render_q_pendencias_grid(pendencias_q_por_time),
+
+            html.Div([
+                html.H3('Indicador 2 - Aging WIP por TEAM', style={'textAlign': 'left'}),
+                html.Div([
+                    html.Div(render_tiles_by_team(aging_us_20, 'US com mais de 20 dias em processo sem alteração', threshold_key='aging_us_20'), className='six columns'),
+                    html.Div(render_tiles_by_team(aging_features_40, 'Features com mais de 40 dias em processo sem alteração', threshold_key='aging_features_40'), className='six columns'),
+                ], className='row'),
+                html.Div([
+                    html.Div(render_tiles_by_team(aging_us_comp_20, 'US compromissadas a mais de 20 dias e em processo', threshold_key='aging_us_comp_20'), className='six columns'),
+                    html.Div(render_tiles_by_team(aging_features_comp_40, 'Features compromissadas a mais de 40 dias e em processo', threshold_key='aging_features_comp_40'), className='six columns'),
+                ], className='row'),
+            ], style={'marginTop': '20px'}),
+
+            render_executive_tiles(executive_tiles),
 
             html.Div([
                 html.Div([
@@ -917,6 +1155,17 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         predictability = lead_time_p85 / lead_time_p50 if pd.notna(lead_time_p85) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
         risk_forecasting_ratio = lead_time_p98 / lead_time_p50 if pd.notna(lead_time_p98) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
 
+        tipo_norm = df_done_period['Tipo'].map(normalize_text) if 'Tipo' in df_done_period.columns else pd.Series(dtype='object')
+        tp_valor = tipo_norm.apply(
+            lambda x: ('valor' in x) or ('desenvol' in x) or ('feature' in x) or ('funcional' in x)
+        ).sum() if not tipo_norm.empty else 0
+        tp_falha = tipo_norm.apply(
+            lambda x: ('falha' in x) or ('defeit' in x) or ('bug' in x)
+        ).sum() if not tipo_norm.empty else 0
+        tp_base_valor_falha = tp_valor + tp_falha
+        tp_valor_pct = (tp_valor / tp_base_valor_falha * 100.0) if tp_base_valor_falha > 0 else np.nan
+        tp_falha_pct = (tp_falha / tp_base_valor_falha * 100.0) if tp_base_valor_falha > 0 else np.nan
+
         def classify_direction(value, good_limit, warn_limit, lower_is_better=True):
             if pd.isna(value):
                 return ('Sem base', '#9e9e9e')
@@ -967,6 +1216,15 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 return ('CRÍTICO', '#c62828')
             return ('EXTREMAMENTE CRÍTICO', '#7f0000')
 
+        def classify_throughput_mix(falha_pct):
+            if pd.isna(falha_pct):
+                return ('Sem base', '#9e9e9e')
+            if falha_pct <= 20:
+                return ('OK', '#2e7d32')
+            if falha_pct <= 35:
+                return ('ATENÇÃO', '#f9a825')
+            return ('CRÍTICO', '#c62828')
+
         def cv_percent(series):
             s = pd.Series(series).dropna()
             if len(s) < 2:
@@ -996,6 +1254,11 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         arrivals_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Chegadas', pd.Series(dtype=float))))
         wip_age_cv_status = classify_cv(cv_percent(weekly_hist_df.get('WIP_Age', pd.Series(dtype=float))))
 
+        tp_relacao_display = (
+            f"{tp_valor_pct:.1f}% x {tp_falha_pct:.1f}%" if pd.notna(tp_valor_pct) and pd.notna(tp_falha_pct) else '—'
+        )
+        tp_relacao_status = classify_throughput_mix(tp_falha_pct)
+
         card_specs = [
             ('WIP médio (semana)', wip_avg, '{:.1f} itens', wip_cv_status),
             ('Lead Time P85', lead_time_p85, '{:.1f} dias', lt_cv_status),
@@ -1003,9 +1266,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             ('Taxa de chegada média', arrivals_avg, '{:.1f} itens/sem', arrivals_cv_status),
             ('Eficiência (1 - ρ)', queue_efficiency, '{:.2f}', classify_efficiency(queue_efficiency)),
             ('Pressão de fluxo (chegada/vazão)', pressure_ratio, '{:.2f}', classify_pressure(pressure_ratio)),
-            ('WIP Age médio', wip_age, '{:.1f} dias', wip_age_cv_status),
+            ('Aging WIP médio', wip_age, '{:.1f} dias', wip_age_cv_status),
             ('WIP atual (fim do período)', wip_current, '{:.0f} itens', wip_cv_status),
             ('Risco Forecasting (P98/Mediana)', risk_forecasting_ratio, '{:.2f}', classify_forecasting_risk(risk_forecasting_ratio)),
+            ('Throughput valor x falha (%)', tp_relacao_display, '{}', tp_relacao_status),
         ]
 
         for title, raw_value, value_pattern, (status_label, status_color) in card_specs:
@@ -1025,8 +1289,18 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 })
             )
 
+        card_rows = []
+        for idx in range(0, len(cards), 3):
+            card_rows.append(
+                html.Div(
+                    [html.Div(cards[i], className='four columns') for i in range(idx, min(idx + 3, len(cards)))],
+                    className='row',
+                    style={'marginTop': '14px'} if idx > 0 else {},
+                )
+            )
+
         return html.Div([
-            html.H3("Painel Principal de Gestão de Fluxo (3 x 3)", style={'textAlign': 'center'}),
+            html.H3("Painel Principal de Gestão de Fluxo", style={'textAlign': 'center'}),
             html.P(
                 "Sinais executivos de fluxo para o filtro ativo de projeto e período. "
                 "Semáforo por CV: OK (<=30%), Razoável (>30% e <=50%), Ruim (>50% e <=65%), Crítico (>65% e <=80%) e Extremamente Crítico (>80%). "
@@ -1034,11 +1308,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 "Eficiência (1-rho) inversa: OK >=0.20, Atenção >=0.10 e <0.20, Crítico >=0.05 e <0.10, Extremamente Crítico <0.05.",
                 style={'textAlign': 'center', 'color': '#666', 'marginBottom': '20px'}
             ),
-            html.Div([
-                html.Div([html.Div(cards[i], className='four columns') for i in range(0, 3)], className='row'),
-                html.Div([html.Div(cards[i], className='four columns') for i in range(3, 6)], className='row', style={'marginTop': '14px'}),
-                html.Div([html.Div(cards[i], className='four columns') for i in range(6, 9)], className='row', style={'marginTop': '14px'}),
-            ], style={'maxWidth': '1200px', 'margin': '0 auto'}),
+            html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
         ])
 
     if tab == 'tab-fluxo':

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 from datetime import datetime
@@ -23,6 +24,7 @@ CSV_COLUMNS = [
     "ID",
     "Titulo",
     "Projeto",
+    "Team",
     "Tipo",
     "Status",
     "ParentID",
@@ -31,6 +33,17 @@ CSV_COLUMNS = [
     "UpdatedAt",
     "StatusChangedAt",
 ]
+
+
+def parse_json_env(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return default
+    return parsed if isinstance(parsed, dict) else default
 
 
 def load_env_file(env_file: str) -> None:
@@ -128,15 +141,34 @@ def search_issues(base_url: str, email: str, token: str, jql: str, fields: List[
     raise RuntimeError(f"Falha ao consultar Jira ({', '.join(errors)}).")
 
 
-def build_output_row(base_url: str, issue: Dict[str, Any]) -> Dict[str, str]:
+def extract_custom_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        parts: List[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                parts.append(str(item.get("name") or item.get("value") or item.get("displayName") or ""))
+            else:
+                parts.append(str(item))
+        return ", ".join([p for p in parts if p])
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("value") or value.get("displayName") or "")
+    return str(value)
+
+
+def build_output_row(base_url: str, issue: Dict[str, Any], team_field: str) -> Dict[str, str]:
     fields = issue.get("fields", {}) or {}
     parent = fields.get("parent") or {}
     parent_fields = parent.get("fields") or {}
     key = str(issue.get("key") or "")
+    team_raw = fields.get(team_field) if team_field else None
+    team_text = extract_custom_text(team_raw)
     return {
         "ID": key,
         "Titulo": str(fields.get("summary") or ""),
         "Projeto": str((fields.get("project") or {}).get("key") or ""),
+        "Team": team_text,
         "Tipo": str((fields.get("issuetype") or {}).get("name") or ""),
         "Status": str((fields.get("status") or {}).get("name") or ""),
         "ParentID": str(parent.get("key") or ""),
@@ -190,13 +222,18 @@ def main() -> int:
     if args.jql_extra.strip():
         jql = f"{jql} AND ({args.jql_extra.strip()})"
 
+    field_map = parse_json_env("JIRA_FIELD_MAP", default={})
+    team_field = str(field_map.get("team") or "").strip()
+
     fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate"]
+    if team_field and team_field not in fields:
+        fields.append(team_field)
 
     print(f"Consultando Jira com JQL: {jql}")
     issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
     print(f"Issues encontradas: {len(issues)}")
 
-    rows = [build_output_row(base_url=base_url, issue=issue) for issue in issues]
+    rows = [build_output_row(base_url=base_url, issue=issue, team_field=team_field) for issue in issues]
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fp:
         writer = csv.DictWriter(fp, fieldnames=CSV_COLUMNS)
