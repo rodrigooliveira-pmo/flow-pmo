@@ -1,0 +1,573 @@
+# 📊 Medidas DAX para Power BI
+
+**Copie e cole essas medidas diretamente no Power BI Desktop**
+
+---
+
+## GROUP 1: MÉTRICAS FUNDAMENTAIS
+
+```dax
+-- Contar todos os items
+Total Items = 
+COUNTA(Fato_Items[ItemID])
+
+-- Items completados
+Items Completados = 
+CALCULATE(
+    [Total Items], 
+    Fato_Items[Concluido] = 1
+)
+
+-- Items bloqueados
+Items Bloqueados = 
+CALCULATE(
+    [Total Items], 
+    Fato_Items[Bloqueado] = 1
+)
+
+-- Taxa de conclusão (%)
+Taxa Conclusao (%) = 
+DIVIDE(
+    [Items Completados],
+    [Total Items]
+) * 100
+
+-- Taxa de bloqueio (%)
+Taxa Bloqueio (%) = 
+DIVIDE(
+    [Items Bloqueados],
+    [Total Items]
+) * 100
+```
+
+---
+
+## GROUP 2: LEAD TIME & CYCLE TIME
+
+```dax
+-- Lead Time médio (dias)
+Lead Time Medio = 
+AVERAGEX(
+    Fato_Items,
+    Fato_Items[LeadTime_Dias]
+)
+
+-- Lead Time mediano (dias)
+Lead Time Mediano = 
+PERCENTILE.INC(Fato_Items[LeadTime_Dias], 0.5)
+
+-- Cycle Time médio (dias)
+Cycle Time Medio = 
+AVERAGEX(
+    Fato_Items,
+    Fato_Items[TempoExecucao_Dias]
+)
+
+-- Lead Time Percentil 50
+LT P50 = 
+PERCENTILE.INC(Fato_Items[LeadTime_Dias], 0.5)
+
+-- Lead Time Percentil 75
+LT P75 = 
+PERCENTILE.INC(Fato_Items[LeadTime_Dias], 0.75)
+
+-- Lead Time Percentil 85
+LT P85 = 
+PERCENTILE.INC(Fato_Items[LeadTime_Dias], 0.85)
+
+-- Lead Time Percentil 95
+LT P95 = 
+PERCENTILE.INC(Fato_Items[LeadTime_Dias], 0.95)
+
+-- Tempo em Backlog médio
+Tempo Backlog Medio = 
+AVERAGEX(
+    Fato_Items,
+    Fato_Items[TempoBacklog_Dias]
+)
+
+-- Items com LT > P85 (vencidos)
+Items Vencidos = 
+CALCULATE(
+    [Total Items],
+    Fato_Items[LeadTime_Dias] > [LT P85]
+)
+```
+
+---
+
+## GROUP 3: QUALIDADE & REWORK
+
+```dax
+-- Items Defeitos (categoria)
+Items Defeitos = 
+CALCULATE(
+    [Items Completados],
+    Dim_Tipo[Tipo] = "Defeitos"
+)
+
+-- Items Desenvolvimento
+Items Desenvolvimento = 
+CALCULATE(
+    [Items Completados],
+    Dim_Tipo[Tipo] = "Desenvolvimento"
+)
+
+-- Debt Ratio (%)
+Debt Ratio (%) = 
+DIVIDE(
+    [Items Defeitos],
+    [Items Completados]
+) * 100
+
+-- Value Ratio (%)
+Value Ratio (%) = 
+DIVIDE(
+    [Items Desenvolvimento],
+    [Items Completados]
+) * 100
+
+-- Razão Valor/Custo
+Razao Valor Custo = 
+DIVIDE(
+    [Items Desenvolvimento],
+    [Items Defeitos]
+)
+
+-- Eficiência média
+Eficiencia Media = 
+AVERAGEX(
+    Fato_Items,
+    Fato_Items[Eficiencia]
+)
+```
+
+---
+
+## GROUP 4: THROUGHPUT & VELOCITY
+
+```dax
+-- Throughput (items completados)
+Throughput = 
+[Items Completados]
+
+-- Throughput média (últimas 4 semanas)
+Throughput 4w = 
+AVERAGEX(
+    DATESBETWEEN(
+        Dim_Data[Data],
+        TODAY() - 28,
+        TODAY()
+    ),
+    [Throughput]
+)
+
+-- Crescimento de Throughput (este mês vs anterior)
+Throughput Growth MoM (%) = 
+VAR CurrentMonth = [Throughput]
+VAR PreviousMonth = 
+    CALCULATE(
+        [Throughput],
+        PREVIOUSMONTH(Dim_Data[Data])
+    )
+RETURN
+    IFERROR(
+        DIVIDE(
+            CurrentMonth - PreviousMonth,
+            PreviousMonth
+        ) * 100,
+        BLANK()
+    )
+```
+
+---
+
+## GROUP 5: ESTABILIDADE & PREVISIBILIDADE
+
+```dax
+-- Desvio Padrão do Lead Time
+Desvio Padrao LT = 
+STDEV.S(Fato_Items[LeadTime_Dias])
+
+-- Coeficiente de Variação (%)
+Coeficiente Variacao (%) = 
+DIVIDE(
+    [Desvio Padrao LT],
+    [Lead Time Medio]
+) * 100
+
+-- Desvio Padrão Throughput (por semana)
+Desvio Padrao Throughput = 
+STDEV.S(
+    CALCULATE(
+        COUNTA(Fato_Items[ItemID]),
+        Fato_Items[Concluido] = 1
+    )
+)
+
+-- Intervalo de Confiança - Inferior (95%)
+IC Inferior 95 = 
+[Lead Time Medio] - 
+    1.96 * DIVIDE(
+        [Desvio Padrao LT],
+        SQRT([Total Items])
+    )
+
+-- Intervalo de Confiança - Superior (95%)
+IC Superior 95 = 
+[Lead Time Medio] + 
+    1.96 * DIVIDE(
+        [Desvio Padrao LT],
+        SQRT([Total Items])
+    )
+```
+
+---
+
+## GROUP 6: CAPACIDADE & HEADROOM
+
+```dax
+-- WIP (Work In Progress) - items não concluídos
+WIP Count = 
+CALCULATE(
+    [Total Items],
+    Fato_Items[Concluido] <> 1
+)
+
+-- WIP Age médio
+WIP Age Medio = 
+AVERAGEX(
+    FILTER(
+        Fato_Items,
+        Fato_Items[Concluido] <> 1
+    ),
+    DATEDIFF(Fato_Items[DataInProgress], TODAY(), DAY)
+)
+
+-- Ratio Chegada / Throughput
+Ratio Chegada Throughput = 
+VAR TotalChegada = [Total Items]
+VAR TotalThroughput = [Items Completados]
+RETURN
+    DIVIDE(TotalChegada, TotalThroughput)
+
+-- Headroom (capacidade disponível)
+-- Assumindo max WIP de 50
+Headroom = 
+MAX(0, 50 - [WIP Count])
+
+-- Utilização (%)
+Utilizacao (%) = 
+DIVIDE([WIP Count], 50) * 100
+```
+
+---
+
+## GROUP 7: ANÁLISE DIMENSIONAL
+
+```dax
+-- Throughput por Responsável
+Throughput x Responsavel = 
+SUMPRODUCT(
+    (Fato_Items[ResponsavelID] = Dim_Responsavel[ResponsavelID]) *
+    (Fato_Items[Concluido] = 1)
+)
+
+-- Lead Time por Componente
+LT x Componente = 
+CALCULATE(
+    [Lead Time Medio],
+    SELECTEDVALUE(Dim_Componente[ComponenteID])
+)
+
+-- Taxa Defeitos por Responsável
+Taxa Defeitos x Resp = 
+DIVIDE(
+    CALCULATE(
+        [Items Defeitos],
+        SELECTEDVALUE(Dim_Responsavel[ResponsavelID])
+    ),
+    CALCULATE(
+        [Items Completados],
+        SELECTEDVALUE(Dim_Responsavel[ResponsavelID])
+    )
+) * 100
+```
+
+---
+
+## GROUP 8: TENDÊNCIAS & FORECASTING
+
+```dax
+-- Trend Throughput (linear regression)
+-- Nota: Requer extensão ou cálculo em Python
+Throughput Trend = 
+AVERAGE(
+    FILTER(
+        Fato_Items,
+        DATEDIFF(
+            Fato_Items[DataDone],
+            TODAY(),
+            DAY
+        ) <= 28
+    )
+)
+
+-- YoY Comparação (Year-over-Year)
+YoY Comparison = 
+DIVIDE(
+    [Items Completados],
+    CALCULATE(
+        [Items Completados],
+        DATEADD(Dim_Data[Data], -1, YEAR)
+    )
+) - 1
+
+-- Forecast simples (média últimas 8 semanas)
+Forecast Throughput 4w = 
+AVERAGE(
+    LASTDATE(Dim_Data[Data], 56 ),
+    [Throughput]
+)
+
+-- Índice de Saúde (0-100)
+Indice Saude = 
+MIN(100,
+    (
+        -- Componente 1: Taxa conclusão (peso 30%)
+        (MIN([Taxa Conclusao (%)], 100) / 100) * 0.30 +
+        
+        -- Componente 2: Baixo CV (peso 30%)
+        ((100 - MIN([Coeficiente Variacao (%)], 100)) / 100) * 0.30 +
+        
+        -- Componente 3: Baixo Debt (peso 20%)
+        ((100 - MIN([Debt Ratio (%)], 100)) / 100) * 0.20 +
+        
+        -- Componente 4: Baixa taxa bloqueio (peso 20%)
+        ((100 - MIN([Taxa Bloqueio (%)], 100)) / 100) * 0.20
+    ) * 100
+)
+```
+
+---
+
+## GROUP 9: COMPARATIVOS & BENCHMARKING
+
+```dax
+-- Score Projeto (comparação relativa)
+Score Projeto = 
+RANK(
+    ALL(Dim_Projeto),
+    [Lead Time Medio],
+    ASC
+)
+
+-- % da Meta Throughput (assumindo meta de 20/semana)
+Perc Meta Throughput = 
+DIVIDE(
+    [Throughput],
+    20
+) * 100
+
+-- Diferença vs Melhor Performer
+Diff vs Best = 
+[Lead Time Medio] - 
+MINX(
+    Dim_Responsavel,
+    CALCULATE([Lead Time Medio])
+)
+
+-- Performance Index (0-100, vs top performer)
+Performance Index = 
+DIVIDE(
+    MAXX(Dim_Responsavel, CALCULATE([Lead Time Medio])),
+    [Lead Time Medio]
+) * 100
+```
+
+---
+
+## GROUP 10: KPIs EXECUTIVOS (DASHBOARD PRINCIPAL)
+
+```dax
+-- KPI Status Geral
+KPI Status = 
+IF(
+    [Taxa Conclusao (%)] >= 85 && 
+    [Debt Ratio (%)] <= 35 && 
+    [Coeficiente Variacao (%)] <= 40,
+    "✓ Saudável",
+    IF(
+        [Taxa Conclusao (%)] >= 75 && 
+        [Debt Ratio (%)] <= 45,
+        "⚠ Atenção",
+        "✗ Crítico"
+    )
+)
+
+-- Meta Status
+Meta Status KPI = 
+IF([Taxa Conclusao (%)] >= 90, "✓", "✗") & " Conclusão | " &
+IF([Debt Ratio (%)] <= 30, "✓", "✗") & " Qualidade | " &
+IF([Coeficiente Variacao (%)] <= 30, "✓", "✗") & " Previsibilidade"
+
+-- Variância Throughput (vs semana anterior)
+Variance Throughput = 
+[Throughput] - 
+CALCULATE(
+    [Throughput],
+    DATEADD(Dim_Data[Data], -7, DAY)
+)
+```
+
+---
+
+## GROUP 11: WIP POR PESSOA
+
+```dax
+-- WIP Count por Responsável (Pessoa)
+WIP Pessoa = 
+CALCULATE(
+    [Total Items],
+    Fato_Items[EmWIP] = 1
+)
+
+-- WIP Average por Responsável (para período selecionado)
+WIP Media Pessoa = 
+AVERAGEX(
+    FILTER(
+        Fato_Items,
+        Fato_Items[EmWIP] = 1
+    ),
+    Fato_Items[WIP_Dias]
+)
+
+-- WIP Máximo por Pessoa (pico da semana)
+WIP Maximo Pessoa = 
+MAXX(
+    FILTER(
+        Fato_Items,
+        Fato_Items[EmWIP] = 1
+    ),
+    Fato_Items[WIP_Dias]
+)
+
+-- Items em WIP por Responsável
+Items em WIP = 
+COUNTIF(Fato_Items[EmWIP], 1)
+
+-- Throughput vs WIP Pessoa
+Throughput Pessoa = 
+CALCULATE(
+    [Items Completados],
+    SELECTEDVALUE(Dim_Responsavel[ResponsavelID])
+)
+
+-- Taxa WIP (% items em WIP vs total)
+Taxa WIP Pessoa (%) = 
+DIVIDE(
+    [WIP Pessoa],
+    [Total Items]
+) * 100
+
+-- WIP Age Médio por Pessoa
+WIP Age Pessoa = 
+AVERAGEX(
+    FILTER(
+        Fato_Items,
+        Fato_Items[EmWIP] = 1
+    ),
+    Fato_Items[WIP_Dias]
+)
+
+-- Headroom por Pessoa (capacidade disponível, assumindo max 10 items/pessoa)
+Headroom Pessoa = 
+MAX(0, 10 - [WIP Pessoa])
+
+-- Utilização Pessoa (%)
+Utilizacao Pessoa (%) = 
+DIVIDE([WIP Pessoa], 10) * 100
+
+-- Ratio Throughput/WIP (quanto menor, mais eficiente)
+Ratio Throughput WIP Pessoa = 
+DIVIDE(
+    [Throughput Pessoa],
+    [WIP Pessoa]
+)
+
+-- Items Completados vs Em WIP (comparação)
+Comparacao Completo WIP = 
+[Items Completados] - [WIP Pessoa]
+
+-- WIP Trend (items em WIP trend)
+WIP Growing = 
+IF(
+    [WIP Pessoa] > CALCULATE([WIP Pessoa], DATEADD(Dim_Data[Data], -7, DAY)),
+    "↑ Crescendo",
+    IF(
+        [WIP Pessoa] < CALCULATE([WIP Pessoa], DATEADD(Dim_Data[Data], -7, DAY)),
+        "↓ Reduzindo",
+        "→ Estável"
+    )
+)
+
+-- Status WIP por Pessoa
+Status WIP Pessoa = 
+IF(
+    [Utilizacao Pessoa (%)] >= 80,
+    "🔴 Crítico (>80%)",
+    IF(
+        [Utilizacao Pessoa (%)] >= 60,
+        "🟡 Aviso (60-80%)",
+        "🟢 Saudável (<60%)"
+    )
+)
+
+-- Dias de WIP por Responsável (age)
+Dias WIP Responsavel = 
+AVERAGEX(
+    FILTER(
+        Fato_Items,
+        Fato_Items[EmWIP] = 1 && Fato_Items[ResponsavelNome] = SELECTEDVALUE(Fato_Items[ResponsavelNome])
+    ),
+    Fato_Items[WIP_Dias]
+)
+```
+
+---
+
+## 📌 COMO USAR ESSAS MEDIDAS
+
+### No Power BI Desktop:
+
+1. **Criar Nova Medida:**
+   - Clique direito em **Fato_Items** → **New Measure**
+   - Cole o código DAX
+   - Pressione Enter
+
+2. **Usando em Visualizações:**
+   - Coloque a medida na área **Values**
+   - Adicione dimensões em **Axis** ou **Legend**
+   - Formatar conforme necessário
+
+3. **Dicas DAX:**
+   - Use `CALCULATE()` para contextos de filtro
+   - Use `SUMPRODUCT()` para lógica condicional complexa
+   - Use `PERCENTILE.INC()` para percentis
+   - Use `DIVIDE()` para evitar divisão por zero
+
+---
+
+## ⚠️ NOTAS IMPORTANTES
+
+- **Espaços em nomes:** Se a medida tiver espaços, use aspas: `[Taxa Conclusao (%)]`
+- **Contexto:** Medidas funcionam diferente em linhas vs colunas (contexto de linha vs filtro)
+- **Performance:** Se lento, use `COUNTROWS()` ao invés de `COUNTA()`
+- **Atualização:** Medidas recalculam automaticamente quando dados mudam
+- **WIP por Pessoa:** As medidas de WIP por Pessoa funcionam melhor com slicers de Responsável ativo
+
+---
+
+**Última Atualização:** 2026-02-11  
+**Versão DAX:** 1.1  
+**Compatibilidade:** Power BI Desktop e Service

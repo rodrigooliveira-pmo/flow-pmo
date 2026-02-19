@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/opt/homebrew/bin/python3.13 -m pip install:*)",
+      "Bash(/opt/homebrew/bin/python3.13:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(\"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/OneDrive-W1/Documentos/Python/venv/bin/pip\" install numpy pandas)",
+      "Bash(/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/OneDrive-W1/Documentos/Python/venv/bin/pip install:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 show:*)",
+      "WebFetch(domain:codepen.io)"
+    ]
+  }
+}

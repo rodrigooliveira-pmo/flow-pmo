@@ -1,0 +1,331 @@
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║         GUIA PASSO-A-PASSO DE MONTAGEM DO DASHBOARD POWER BI              ║
+║                                                                            ║
+║  Versão: 1.0                                                              ║
+║  Data: 11 de fevereiro de 2026                                            ║
+║  Arquivo: PowerBI_Model_20260211_135700.xlsx                              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+⏱️  TEMPO ESTIMADO: 3-4 horas para criar todos os 6 painéis
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSO 1: IMPORTAR DADOS (5 min)
+───────────────────────────────
+
+1. Abra Power BI Desktop
+2. Clique em "Get Data" → "Excel"
+3. Selecione: PowerBI_Model_20260211_135700.xlsx
+4. Selecione TODAS as 7 abas (Dim_* e Fato_Items)
+5. Clique "Load"
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSO 2: CRIAR RELACIONAMENTOS (10 min)
+───────────────────────────────────────
+
+Vá para "Model" view e crie essas relações (drag-drop):
+
+✓ Fato_Items[ProjetoID] → Dim_Projeto[ProjetoID]
+✓ Fato_Items[TipoID] → Dim_Tipo[TipoID]
+✓ Fato_Items[ResponsavelID] → Dim_Responsavel[ResponsavelID]
+✓ Fato_Items[ComponenteID] → Dim_Componente[ComponenteID]
+✓ Fato_Items[PrioridadeID] → Dim_Prioridade[PrioridadeID]
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSO 3: ADICIONAR MEDIDAS DAX (20 min)
+──────────────────────────────────────
+
+Em "Model" view, clique em Fato_Items → New Measure e adicione:
+
+
+▸ Total Items
+  DAX: COUNTA(Fato_Items[ItemID])
+
+
+▸ Items Completados
+  DAX: CALCULATE([Total Items], Fato_Items[Concluido]=1)
+
+
+▸ Taxa Conclusao (%)
+  DAX: DIVIDE([Items Completados], [Total Items]) * 100
+
+
+▸ Lead Time Medio
+  DAX: AVERAGE(Fato_Items[LeadTime_Dias])
+
+
+▸ Debt Ratio (%)
+  DAX: DIVIDE(CALCULATE([Total Items], Dim_Tipo[Tipo]='Defeitos'), [Items Completados]) * 100
+
+
+▸ Razao Valor Custo
+  DAX: DIVIDE(CALCULATE([Items Completados], Dim_Tipo[Tipo]='Desenvolvimento'), CALCULATE([Items Completados], Dim_Tipo[Tipo]='Defeitos'))
+
+
+(Para mais medidas, veja o arquivo MEDIDAS_DAX.txt)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSO 4: CRIAR FILTROS GLOBAIS (10 min)
+───────────────────────────────────────
+
+1. Home → "+" Nova página → renomeie para "Filtros"
+2. Insira 4 slicers (segmentações):
+   ☐ Dim_Projeto[NomeProjeto] → Projeto
+   ☐ Dim_Tipo[Tipo] → Tipo de Trabalho
+   ☐ Dim_Responsavel[Responsavel] → Responsável
+   ☐ Dim_Data[AnoMes] → Período
+
+3. Configure para filtrar TODAS as outras páginas:
+   → Clique em slicer → Format → General → Edit interactions
+   → Marque filtros nas outras páginas
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSO 5: CRIAR PAINÉIS (2-3 horas)
+──────────────────────────────────
+
+
+【 PÁGINA 1: Pulse Executivo 】
+
+Descrição: KPIs principais em tempo real
+Layout: grid_2x2
+Visualizações: 5
+
+
+  1. Throughput Total
+     - Tipo: Card
+     - Posição: top_left
+     - Medida: COUNTA(Fato_Items[ItemID]) WHERE Fato_Items[Concluido]=1
+
+
+  2. Lead Time Médio (dias)
+     - Tipo: Card
+     - Posição: top_right
+     - Medida: AVERAGE(Fato_Items[LeadTime_Dias])
+
+
+  3. Taxa Conclusão (%)
+     - Tipo: Card
+     - Posição: bottom_left
+     - Medida: (COUNTA(Fato_Items WHERE Concluido=1) / COUNTA(Fato_Items)) * 100
+
+
+  4. Debt Ratio (%)
+     - Tipo: Card
+     - Posição: bottom_right
+     - Medida: (COUNTA(Fato_Items WHERE Tipo='Defeitos') / COUNTA(Fato_Items)) * 100
+
+
+  5. Throughput por Semana (Trend)
+     - Tipo: LineChart
+     - Posição: full_width
+     - Medida: Dim_Data[Semana]
+
+
+【 PÁGINA 2: Saúde do Fluxo 】
+
+Descrição: Monitoramento operacional
+Layout: grid_2x2
+Visualizações: 4
+
+
+  1. Taxa Conclusão vs Meta (90%)
+     - Tipo: Gauge
+     - Posição: top_left
+     - Medida: Taxa Conclusao (%)
+
+
+  2. Items Bloqueados
+     - Tipo: Card
+     - Posição: top_right
+     - Medida: COUNTA(Fato_Items WHERE Bloqueado=1)
+
+
+  3. WIP por Projeto
+     - Tipo: BarChart
+     - Posição: bottom_left
+     - Medida: Dim_Projeto[NomeProjeto]
+
+
+  4. Distribuição de Lead Time
+     - Tipo: Histogram
+     - Posição: bottom_right
+     - Medida: 
+
+
+【 PÁGINA 3: Previsibilidade 】
+
+Descrição: Estatística de Lead Time
+Layout: grid_3x2
+Visualizações: 5
+
+
+  1. Percentis de Lead Time
+     - Tipo: Table
+     - Posição: top_full
+     - Medida: 
+
+
+  2. Cycle Time vs Lead Time
+     - Tipo: ScatterPlot
+     - Posição: middle_left
+     - Medida: Fato_Items[TempoExecucao_Dias]
+
+
+  3. Coef. Variação Lead Time (%)
+     - Tipo: Card
+     - Posição: middle_right
+     - Medida: (STDEV(Fato_Items[LeadTime_Dias]) / AVERAGE(Fato_Items[LeadTime_Dias])) * 100
+
+
+  4. IC 95% Inferior
+     - Tipo: Card
+     - Posição: bottom_left
+     - Medida: AVERAGE(Fato_Items[LeadTime_Dias]) - 1.96 * (STDEV(Fato_Items[LeadTime_Dias]) / SQRT(COUNTA(Fato_Items)))
+
+
+  5. IC 95% Superior
+     - Tipo: Card
+     - Posição: bottom_right
+     - Medida: AVERAGE(Fato_Items[LeadTime_Dias]) + 1.96 * (STDEV(Fato_Items[LeadTime_Dias]) / SQRT(COUNTA(Fato_Items)))
+
+
+【 PÁGINA 4: Performance por Dimensão 】
+
+Descrição: Benchmarking de time
+Layout: grid_2x2
+Visualizações: 4
+
+
+  1. Throughput por Responsável (Ranking)
+     - Tipo: HorizontalBarChart
+     - Posição: top_left
+     - Medida: COUNTA(Fato_Items WHERE Concluido=1)
+
+
+  2. Throughput por Componente
+     - Tipo: BarChart
+     - Posição: top_right
+     - Medida: Dim_Componente[Componente]
+
+
+  3. Lead Time Médio por Responsável
+     - Tipo: BarChart
+     - Posição: bottom_left
+     - Medida: Dim_Responsavel[Responsavel]
+
+
+  4. Defect Rate: Componente x Projeto
+     - Tipo: HeatMap
+     - Posição: bottom_right
+     - Medida: 
+
+
+【 PÁGINA 5: Qualidade 】
+
+Descrição: Análise de Debt Ratio
+Layout: grid_2x2
+Visualizações: 4
+
+
+  1. Desenvolvimento vs Defeitos (Concluídos)
+     - Tipo: PieChart
+     - Posição: top_left
+     - Medida: 
+
+
+  2. Debt Ratio Trend (por Mês)
+     - Tipo: LineChart
+     - Posição: top_right
+     - Medida: Dim_Data[AnoMes]
+
+
+  3. Lead Time por Tipo
+     - Tipo: BarChart
+     - Posição: bottom_left
+     - Medida: Dim_Tipo[Tipo]
+
+
+  4. Razão Valor/Custo
+     - Tipo: Card
+     - Posição: bottom_right
+     - Medida: COUNTA(Desenv) / COUNTA(Defeitos)
+
+
+【 PÁGINA 6: Tendências 】
+
+Descrição: Histórico e forecasting
+Layout: grid_2x1
+Visualizações: 2
+
+
+  1. Throughput com Trend
+     - Tipo: ComboChart
+     - Posição: top_full
+     - Medida: Dim_Data[Semana]
+
+
+  2. WIP e Lead Time Trend
+     - Tipo: AreaChart
+     - Posição: bottom_full
+     - Medida: Dim_Data[Semana]
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PASSO 6: PUBLICAR (15 min)
+─────────────────────────
+
+1. Home → Publicar
+2. Selecione o Workspace
+3. Configure atualização agendada
+   → Frequência: 1x por semana
+   → Horário: Terça 07:00
+4. Compartilhe o link com o time
+
+═══════════════════════════════════════════════════════════════════════════════
+
+⚡ DICAS RÁPIDAS
+
+• Use templates de visualizações prontas do Power BI (tema consistente)
+• Adicione title em cada visualização
+• Use cores da paleta: Azul (#1f77b4), Laranja (#ff7f0e), Verde (#2ca02c)
+• Todos os gráficos devem ter "Total" visível
+• Configure Drill Down em tabelas quando possível
+• Test all filters work correctly (cross-filtering)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📋 CHECKLIST DE CONCLUSÃO
+
+□ Dados importados (7 tabelas)
+□ Relacionamentos criados (5 relações)
+□ Medidas DAX adicionadas (50+)
+□ 6 páginas criadas com nomes corretos
+□ Visualizações inseridas em cada página
+□ Filtros globais funcionando
+□ Cores consistentes em todos os gráficos
+□ Publicado no Power BI Service
+□ Atualização automática configurada
+□ Link compartilhado com o team
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 RESULTADO FINAL
+
+Você terá um dashboard profissional com:
+✓ 6 páginas (painéis)
+✓ 25+ visualizações
+✓ 50+ medidas DAX
+✓ 4 filtros globais
+✓ Atualização automática 1x/semana
+✓ Compartilhado com todo o team
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Tempo total: ~3-4 horas | Resultado: Profissional | Manutenção: 10 min/semana
+

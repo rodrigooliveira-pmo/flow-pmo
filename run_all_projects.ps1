@@ -1,0 +1,74 @@
+param(
+    [string]$OutDir = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados",
+    [string]$DateTag = $(Get-Date -Format 'yyyyMMdd'),
+    [string]$EnvFile = $(Join-Path $PSScriptRoot 'jira_env.txt'),
+    [int]$Workers = 8
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Import-EnvFile {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    Get-Content -Path $Path | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith('#') -or -not $line.Contains('=')) {
+            return
+        }
+
+        $parts = $line.Split('=', 2)
+        $key = $parts[0].Trim()
+        $value = $parts[1].Trim().Trim('"').Trim("'")
+
+        if ($key -and $value -and -not (Test-Path "Env:$key")) {
+            Set-Item -Path "Env:$key" -Value $value
+        }
+    }
+}
+
+Import-EnvFile -Path $EnvFile
+
+if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKEN) {
+    throw "Defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN (ou preencha o arquivo $EnvFile) antes de executar."
+}
+
+$scriptPath = Join-Path $PSScriptRoot 'jira_to_pipeline_csv.py'
+if (-not (Test-Path $scriptPath)) {
+    throw "Arquivo não encontrado: $scriptPath"
+}
+
+if (-not (Test-Path $OutDir)) {
+    New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+}
+
+# Ajuste as chaves Jira se necessário.
+$projects = @(
+    @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream' },
+    @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream' },
+    @{ Key = 'BF'; FilePrefix = 'befinance-downstream' },
+    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream' }
+)
+
+Write-Host "Iniciando exportação Jira -> CSV..." -ForegroundColor Cyan
+Write-Host "Base URL: $($env:JIRA_BASE_URL)"
+Write-Host "Saída: $OutDir"
+Write-Host "Data: $DateTag"
+
+foreach ($p in $projects) {
+    $outFile = Join-Path $OutDir ("{0}-{1}-data.csv" -f $p.FilePrefix, $DateTag)
+
+    Write-Host "`nProjeto: $($p.Key)" -ForegroundColor Yellow
+    Write-Host "Arquivo: $outFile"
+
+    & python $scriptPath --projects $p.Key --out $outFile --env-file $EnvFile --workers $Workers
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha na exportação do projeto $($p.Key)."
+    }
+}
+
+Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
+Write-Host "Próximo passo: python .\dash_board_metricas.py"

@@ -1,0 +1,36 @@
+/* ==========================================================
+   Fix: calendário DatePickerRange - Dash 4.0
+   Esconde o stepper de ano visualmente (mantém no DOM para JS).
+   ========================================================== */
+
+/* Esconder stepper de ano visualmente mas manter no DOM */
+.dash-datepicker-controls .dash-input {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: -1px !important;
+}
+
+/* Dropdown de ano customizado */
+.year-select-custom {
+    height: 32px;
+    border: 1px solid rgba(0, 18, 77, 0.45);
+    border-radius: 4px;
+    background: white;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0 8px;
+    cursor: pointer;
+    color: inherit;
+    appearance: auto;
+}
+
+.year-select-custom:focus {
+    border-color: #7f4bc4;
+    outline: 1px solid #7f4bc4;
+}

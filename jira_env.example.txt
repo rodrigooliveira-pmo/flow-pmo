@@ -1,0 +1,12 @@
+# Copie este arquivo para jira_env.txt e preencha os valores reais.
+# Formato: CHAVE=VALOR
+
+JIRA_BASE_URL=https://w1consultoria.atlassian.net
+JIRA_EMAIL=seu.email@w1consultoria.com.br
+JIRA_API_TOKEN=cole_seu_token_aqui
+
+# Opcional: mapeamento de campos customizados Jira -> colunas do CSV.
+# JIRA_FIELD_MAP={"blocked_days":"customfield_12345","flagged":"customfield_10021","team":"customfield_10001","organizations":"customfield_10002","sprints":"customfield_10020","epic_name":"customfield_10014","principal":"customfield_10067"}
+
+# Opcional: mapeamento de status Jira -> etapas do fluxo.
+# JIRA_STATUS_MAP={"Sprint Backlog":["Backlog","To Do","Triagem"],"In Progress":["In Progress"],"Done":["Done","Concluído","Concluido"]}
