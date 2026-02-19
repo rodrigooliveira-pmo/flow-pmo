@@ -413,6 +413,13 @@ def extract_first_status_dates(
     }
 
     first_dates: Dict[str, Optional[str]] = {col: None for col in status_map.keys()}
+    done_col_names = {"done", "concluido", "concluído", "itens concluídos", "itens concluidos"}
+    done_status_names = {"done", "concluido", "concluído", "closed", "resolved", "completed"}
+    done_columns: set[str] = set()
+    for col, allowed in normalized.items():
+        col_norm = str(col).strip().lower()
+        if col_norm in done_col_names or any(status in done_status_names for status in allowed):
+            done_columns.add(col)
 
     created = issue_fields.get("created")
     current_status = safe_get(issue_fields, "status", "name")
@@ -420,6 +427,10 @@ def extract_first_status_dates(
         current_status_norm = str(current_status).strip().lower()
         for col, allowed in normalized.items():
             if current_status_norm in allowed:
+                # Do not set terminal "Done" date from issue creation;
+                # prefer changelog transition date (or resolution date fallback).
+                if col in done_columns:
+                    continue
                 first_dates[col] = created
 
     sorted_changes = sorted(changelog, key=lambda h: h.get("created") or "")
@@ -434,6 +445,15 @@ def extract_first_status_dates(
             for col, allowed in normalized.items():
                 if to_status in allowed and first_dates[col] is None:
                     first_dates[col] = when
+
+    # Fallback for terminal status when changelog transition is unavailable.
+    resolution_date = issue_fields.get("resolutiondate")
+    if resolution_date and current_status:
+        current_status_norm = str(current_status).strip().lower()
+        for col in done_columns:
+            allowed = normalized.get(col, set())
+            if current_status_norm in allowed and first_dates.get(col) is None:
+                first_dates[col] = resolution_date
 
     return {k: format_jira_datetime(v) for k, v in first_dates.items()}
 
@@ -743,6 +763,7 @@ def main() -> int:
         "parent",
         "status",
         "created",
+        "resolutiondate",
     ]
 
     for logical_name, jira_field in field_map.items():

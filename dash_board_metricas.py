@@ -87,6 +87,22 @@ def detect_date_columns(df):
     
     return date_mapping
 
+
+def compute_valid_lead_days(done_date, sprint_backlog_date):
+    """Return lead time in days or None when missing/negative."""
+    if pd.isna(done_date) or pd.isna(sprint_backlog_date):
+        return None
+    lead_days = (done_date - sprint_backlog_date).days
+    return lead_days if lead_days >= 0 else None
+
+
+def compute_valid_lead_series(df):
+    """Return non-negative lead times for dataframe rows with Done and Sprint Backlog."""
+    if 'Done' not in df.columns or 'Sprint Backlog' not in df.columns:
+        return pd.Series(dtype='float64')
+    lt_days = (df['Done'] - df['Sprint Backlog']).dt.days
+    return lt_days[lt_days >= 0]
+
 def detect_project_from_id(id_str):
     """
     Detect project from work item ID prefix
@@ -256,6 +272,7 @@ def load_and_consolidate_all_data(csv_files):
             'delimiter': None,
             'project': None,
             'rows': 0,
+            'neg_lead_time_rows': 0,
             'reason': None
         }
 
@@ -355,6 +372,20 @@ def load_and_consolidate_all_data(csv_files):
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
 
+            # Signal rows with inconsistent Done earlier than Sprint Backlog.
+            if 'Sprint Backlog' in df.columns and 'Done' in df.columns:
+                neg_lt_mask = (
+                    df['Sprint Backlog'].notna()
+                    & df['Done'].notna()
+                    & ((df['Done'] - df['Sprint Backlog']).dt.days < 0)
+                )
+                report['neg_lead_time_rows'] = int(neg_lt_mask.sum())
+                if report['neg_lead_time_rows'] > 0:
+                    print(
+                        f"Warning {report['file']}: {report['neg_lead_time_rows']} itens com Lead Time negativo "
+                        f"(serão ignorados nas métricas de Lead Time)."
+                    )
+
             # Convert Blocked Days to numeric (avoid NaN propagation from string values)
             if 'Blocked Days' in df.columns:
                 df['Blocked Days'] = pd.to_numeric(df['Blocked Days'], errors='coerce').fillna(0)
@@ -387,7 +418,7 @@ def load_and_consolidate_all_data(csv_files):
     print('\nFile import summary:')
     for r in file_reports:
         status = 'OK' if r.get('read') else 'SKIPPED'
-        print(f" - {r['file']}: {status}, project={r.get('project')}, rows={r.get('rows')}, enc={r.get('encoding')}, delim={r.get('delimiter')}, reason={r.get('reason')}")
+        print(f" - {r['file']}: {status}, project={r.get('project')}, rows={r.get('rows')}, neg_lt={r.get('neg_lead_time_rows', 0)}, enc={r.get('encoding')}, delim={r.get('delimiter')}, reason={r.get('reason')}")
 
     return consolidated_data
 
@@ -461,9 +492,9 @@ def generate_consolidated_dashboard(consolidated_data):
 
                 # Lead Time & Efficiency
                 if not finished.empty:
-                    lt_days = (finished['Done'] - finished['Sprint Backlog']).dt.days
-                    avg_lead_time = lt_days.mean()
-                    p85_lead_time = lt_days.quantile(0.85)
+                    lt_days = compute_valid_lead_series(finished)
+                    avg_lead_time = lt_days.mean() if not lt_days.empty else 0
+                    p85_lead_time = lt_days.quantile(0.85) if not lt_days.empty else 0
                     
                     # Detect wait stage columns for this dataframe
                     wait_columns = detect_wait_stage_columns(finished)
@@ -481,6 +512,9 @@ def generate_consolidated_dashboard(consolidated_data):
 
                         total_time = td_total.days
                         execution_time = td_exec.days
+
+                        if total_time < 0:
+                            continue
 
                         # Simple efficiency (original calculation)
                         if total_time > 0:
@@ -769,7 +803,9 @@ def generate_efficiency_wait_time_analysis(consolidated_data):
             # Calculate time components (in days)
             backlog_time = (in_progress - sprint_backlog).days
             execution_time = (done - in_progress).days
-            lead_time = (done - sprint_backlog).days
+            lead_time = compute_valid_lead_days(done, sprint_backlog)
+            if lead_time is None:
+                continue
             
             # Get blocked days
             blocked_days = row.get('Blocked Days', 0)
@@ -865,7 +901,7 @@ def generate_stability_metrics(consolidated_data):
             
             # Lead times for completed items
             if not finished.empty:
-                lt_days = (finished['Done'] - finished['Sprint Backlog']).dt.days
+                lt_days = compute_valid_lead_series(finished)
                 lead_times.extend(lt_days.tolist())
         
         if throughputs and lead_times:
@@ -953,7 +989,7 @@ def generate_flow_health_metrics(consolidated_data):
             # Lead times
             if finished > 0:
                 finished_items = df[(df['Done'] >= week_start) & (df['Done'] < week_end)]
-                lead_times_total.extend((finished_items['Done'] - finished_items['Sprint Backlog']).dt.days.tolist())
+                lead_times_total.extend(compute_valid_lead_series(finished_items).tolist())
         
         # Ratio Chegada/Throughput
         ratio_chegada = (arrivals_total / throughput_total) if throughput_total > 0 else 0
@@ -966,8 +1002,8 @@ def generate_flow_health_metrics(consolidated_data):
         # Itens Vencidos (Lead Time > P85)
         if lead_times_total:
             p85_lead = np.percentile(lead_times_total, 85)
-            overdue_items = len(df[(df['Done'].notna()) & 
-                                    ((df['Done'] - df['Sprint Backlog']).dt.days > p85_lead)])
+            valid_lt_all = compute_valid_lead_series(df)
+            overdue_items = int((valid_lt_all > p85_lead).sum()) if not valid_lt_all.empty else 0
         else:
             overdue_items = 0
         
@@ -1070,7 +1106,7 @@ def generate_type_analysis(consolidated_data):
             df_cat = df_complete[df_complete['WorkItemCategory'] == category]
             
             if not df_cat.empty:
-                lead_times = (df_cat['Done'] - df_cat['Sprint Backlog']).dt.days
+                lead_times = compute_valid_lead_series(df_cat)
                 
                 analysis_list.append({
                     'Projeto': projeto,
@@ -1078,8 +1114,8 @@ def generate_type_analysis(consolidated_data):
                     'Ordem': 0,
                     '% do Total': round((len(df_cat) / total_complete * 100), 2) if total_complete > 0 else 0,
                     'Throughput': len(df_cat),
-                    'Lead Time Médio (dias)': round(lead_times.mean(), 2),
-                    'Lead Time P85 (dias)': round(lead_times.quantile(0.85), 2)
+                    'Lead Time Médio (dias)': round(lead_times.mean(), 2) if not lead_times.empty else 0,
+                    'Lead Time P85 (dias)': round(lead_times.quantile(0.85), 2) if not lead_times.empty else 0
                 })
         
         # By WorkItemSubType
@@ -1087,7 +1123,7 @@ def generate_type_analysis(consolidated_data):
             df_sub = df_complete[df_complete['WorkItemSubType'] == subtype]
             
             if not df_sub.empty:
-                lead_times = (df_sub['Done'] - df_sub['Sprint Backlog']).dt.days
+                lead_times = compute_valid_lead_series(df_sub)
                 
                 analysis_list.append({
                     'Projeto': projeto,
@@ -1095,8 +1131,8 @@ def generate_type_analysis(consolidated_data):
                     'Ordem': 1,
                     '% do Total': round((len(df_sub) / total_complete * 100), 2) if total_complete > 0 else 0,
                     'Throughput': len(df_sub),
-                    'Lead Time Médio (dias)': round(lead_times.mean(), 2),
-                    'Lead Time P85 (dias)': round(lead_times.quantile(0.85), 2)
+                    'Lead Time Médio (dias)': round(lead_times.mean(), 2) if not lead_times.empty else 0,
+                    'Lead Time P85 (dias)': round(lead_times.quantile(0.85), 2) if not lead_times.empty else 0
                 })
     
     # Sort by project and order
@@ -1199,7 +1235,8 @@ def generate_trend_analysis(consolidated_data):
             
             # Lead Time
             if not finished.empty:
-                lt_avg = (finished['Done'] - finished['Sprint Backlog']).dt.days.mean()
+                lead_times_valid = compute_valid_lead_series(finished)
+                lt_avg = lead_times_valid.mean() if not lead_times_valid.empty else 0
                 lead_times_weekly.append(lt_avg)
             else:
                 lead_times_weekly.append(None)
@@ -1280,8 +1317,8 @@ def generate_throughput_by_type_weekly(consolidated_data):
                 if throughput > 0 or i == 0:  # Include all weeks or at least first week
                     # Calculate metrics
                     if not finished.empty:
-                        lead_times = (finished['Done'] - finished['Sprint Backlog']).dt.days
-                        p85_lead_time = lead_times.quantile(0.85)
+                        lead_times = compute_valid_lead_series(finished)
+                        p85_lead_time = lead_times.quantile(0.85) if not lead_times.empty else 0
                         
                         # Efficiency
                         effs = []
@@ -1377,12 +1414,12 @@ def generate_comprehensive_trend_analysis(consolidated_data):
             
             # Lead time metrics
             if not finished.empty:
-                lead_times = (finished['Done'] - finished['Sprint Backlog']).dt.days
+                lead_times = compute_valid_lead_series(finished)
                 cycle_times = (finished['Done'] - finished['In Progress']).dt.days
                 backlog_times = (finished['In Progress'] - finished['Sprint Backlog']).dt.days
                 
-                avg_lead_time = lead_times.mean()
-                p85_lead_time = lead_times.quantile(0.85)
+                avg_lead_time = lead_times.mean() if not lead_times.empty else 0
+                p85_lead_time = lead_times.quantile(0.85) if not lead_times.empty else 0
                 avg_cycle_time = cycle_times.mean()
                 avg_backlog_time = backlog_times.mean()
                 
@@ -1625,7 +1662,12 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             
             backlog_days = (in_progress_date - sprint_backlog_date).days if pd.notna(sprint_backlog_date) and pd.notna(in_progress_date) else None
             cycle_days = (done_date - in_progress_date).days if pd.notna(in_progress_date) and pd.notna(done_date) else None
-            lead_days = (done_date - sprint_backlog_date).days if pd.notna(sprint_backlog_date) and pd.notna(done_date) else None
+            lead_days = compute_valid_lead_days(done_date, sprint_backlog_date)
+            lead_time_inconsistente = (
+                pd.notna(sprint_backlog_date)
+                and pd.notna(done_date)
+                and lead_days is None
+            )
             
             # Efficiency
             if lead_days and lead_days > 0 and cycle_days:
@@ -1677,6 +1719,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'DataBacklog': sprint_backlog_date,
                 'DataInProgress': in_progress_date,
                 'DataDone': done_date,
+                'LeadTimeInconsistente': lead_time_inconsistente,
                 'EmWIP': is_wip,
                 'WIP_Dias': wip_dias
             })

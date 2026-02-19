@@ -57,6 +57,13 @@ WEEK_PERIOD = 'W-SUN'
 app = dash.Dash(__name__, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], suppress_callback_exceptions=True)
 app.title = 'Dashboard de Métricas (Full)'
 
+PROJECT_BOTTLENECK_PREFIX = {
+    'W1NNER': 'w1nner-downstream',
+    'S1NC': 's1nc-downstream',
+    'BEFINANCE': 'befinance-downstream',
+    'DATA&ANALYTICS': 'dataanalytics-downstream',
+}
+
 def create_kpi_card(title, value, class_name='six columns'):
     return html.Div([
         html.H4(title, style={'textAlign': 'center'}),
@@ -130,6 +137,7 @@ def compute_flow_bottlenecks(df):
         if col not in df.columns:
             continue
         series = pd.to_numeric(df[col], errors='coerce').dropna()
+        series = series[series >= 0]
         if series.empty:
             continue
         rows.append({
@@ -148,6 +156,53 @@ def compute_flow_bottlenecks(df):
             ignore_index=True,
         )
     return bottlenecks_df
+
+
+def load_project_bottlenecks_from_csv(projeto):
+    """Carrega o CSV de gargalos mais recente do projeto, se existir."""
+    if not projeto:
+        return pd.DataFrame()
+    prefix = PROJECT_BOTTLENECK_PREFIX.get(str(projeto).strip().upper())
+    if not prefix:
+        return pd.DataFrame()
+
+    try:
+        files = [
+            os.path.join(DATA_FOLDER, f)
+            for f in os.listdir(DATA_FOLDER)
+            if f.startswith(prefix) and f.endswith('-data_bottlenecks.csv')
+        ]
+    except Exception:
+        return pd.DataFrame()
+
+    if not files:
+        return pd.DataFrame()
+
+    latest_file = max(files, key=os.path.getctime)
+    try:
+        bdf = pd.read_csv(latest_file)
+    except Exception:
+        return pd.DataFrame()
+
+    required_cols = {'Etapa', 'Media Dias', 'Mediana Dias', 'P90 Dias', 'Qtde Issues'}
+    if not required_cols.issubset(set(bdf.columns)):
+        return pd.DataFrame()
+
+    out = pd.DataFrame({
+        'Etapa': bdf['Etapa'].astype(str),
+        'Tempo Médio (dias)': pd.to_numeric(bdf['Media Dias'], errors='coerce'),
+        'Tempo Mediano (dias)': pd.to_numeric(bdf['Mediana Dias'], errors='coerce'),
+        'P90 (dias)': pd.to_numeric(bdf['P90 Dias'], errors='coerce'),
+        'Qtde Itens': pd.to_numeric(bdf['Qtde Issues'], errors='coerce'),
+    }).dropna(subset=['Etapa', 'Tempo Médio (dias)'])
+
+    out = out[out['Tempo Médio (dias)'] >= 0]
+    if out.empty:
+        return out
+
+    out['Qtde Itens'] = out['Qtde Itens'].fillna(0).astype(int)
+    out = out.sort_values('Tempo Médio (dias)', ascending=False, ignore_index=True)
+    return out
 
 def compute_weekly_service_metrics(df_projeto, weeks):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
@@ -600,109 +655,149 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         df_base_breakdown = fato.copy()
         if projeto: df_base_breakdown = df_base_breakdown[df_base_breakdown['Projeto'] == projeto]
         if responsavel: df_base_breakdown = df_base_breakdown[df_base_breakdown['Responsavel'] == responsavel]
-        metrics_data = []
-        categories = ['Desenvolvimento', 'Defeitos', 'Outro']
-
-        for cat in categories:
-            # Itens concluídos na categoria e período
-            df_completed_cat = df_base_breakdown[
-                (df_base_breakdown['Tipo'] == cat) &
-                (df_base_breakdown['DataDone'] >= start_date_ts) &
-                (df_base_breakdown['DataDone'] <= end_date_ts)
-            ]
-            # Itens que chegaram na categoria e período
-            df_arrived_cat = df_base_breakdown[
-                (df_base_breakdown['Tipo'] == cat) &
-                (df_base_breakdown['DataInProgress'] >= start_date_ts) &
-                (df_base_breakdown['DataInProgress'] <= end_date_ts)
-            ]
-            # Itens em WIP no final do período para a categoria
-            df_wip_cat = df_base_breakdown[
-                (df_base_breakdown['Tipo'] == cat) &
-                (df_base_breakdown['DataInProgress'] <= end_date_ts) &
-                ((df_base_breakdown['DataDone'] > end_date_ts) | pd.isna(df_base_breakdown['DataDone']))
-            ]
-
-            throughput = len(df_completed_cat)
-            arrivals = len(df_arrived_cat)
-            wip = len(df_wip_cat)
-            wip_age = (end_date_ts - df_wip_cat['DataInProgress']).dt.days.mean() if wip > 0 else 0
-            
-            lead_time = df_completed_cat['LeadTime_Dias'].mean() if throughput > 0 else 0
-            p85_lt = df_completed_cat['LeadTime_Dias'].quantile(0.85) if throughput > 0 else 0
-            eff_simple = df_completed_cat['Eficiencia'].mean() if throughput > 0 else 0
-            eff_ajustada = df_completed_cat['EficienciaAjustada'].mean() if throughput > 0 else 0
-
-            metrics_data.append({
-                'Tipo de Demanda': cat,
-                'Taxa Chegada': arrivals,
-                'Throughput': throughput,
-                'WIP': wip,
-                'WIP Age': f"{wip_age:.1f}",
-                'Lead Time': f"{lead_time:.1f}",
-                'P85 Lead Time': f"{p85_lt:.1f}",
-                'Eficiência Simples': f"{eff_simple:.2f}",
-                'Eficiência Ajustada': f"{eff_ajustada:.2f}",
-            })
-
-        total_throughput_for_pct = sum(item['Throughput'] for item in metrics_data)
-        throughput_defeitos = next((item['Throughput'] for item in metrics_data if item['Tipo de Demanda'] == 'Defeitos'), 0)
-        throughput_desenvolvimento = next((item['Throughput'] for item in metrics_data if item['Tipo de Demanda'] == 'Desenvolvimento'), 0)
-
-        pct_demanda_falha = (throughput_defeitos / total_throughput_for_pct * 100) if total_throughput_for_pct > 0 else 0
-        pct_demanda_valor = (throughput_desenvolvimento / total_throughput_for_pct * 100) if total_throughput_for_pct > 0 else 0
-
-        # O gráfico de throughput deve sempre mostrar o breakdown, ignorando o filtro de 'tipo'
-        df_throughput_chart_data = df_base_breakdown[
+        mask_done_period = (
+            df_base_breakdown['DataDone'].notna() &
             (df_base_breakdown['DataDone'] >= start_date_ts) &
             (df_base_breakdown['DataDone'] <= end_date_ts)
-        ].copy()
-        df_throughput_chart_data['Semana'] = weekly_bucket_start(df_throughput_chart_data['DataDone'])
-        fig_throughput = px.histogram(df_throughput_chart_data,
-                                      x='Semana',
-                                      color='Tipo',
-                                      title='Breakdown do Throughput Semanal',
-                                      labels={'x': 'Semana', 'y': 'Itens Concluídos'},
-                                      barmode='stack',
-                                      color_discrete_map=color_map)
-        fig_throughput.update_layout(height=500, xaxis_tickangle=-45, margin=dict(b=130))
+        )
+        mask_open = (
+            df_base_breakdown['DataDone'].isna() &
+            (
+                pd.isna(df_base_breakdown['DataInProgress']) |
+                (df_base_breakdown['DataInProgress'] <= end_date_ts)
+            )
+        )
+        df_backlog_base = df_base_breakdown[mask_done_period | mask_open].copy()
+
+        stage_map = [
+            ('Backlog', 'TempoBacklog_Dias'),
+            ('Execução', 'TempoExecucao_Dias'),
+            ('Bloqueio', 'TempoBloqueioDias'),
+            ('Espera Intermediária', 'TempoEsperaIntermediariaDias'),
+        ]
+        stage_rows = []
+        for stage_name, col in stage_map:
+            if col not in df_backlog_base.columns:
+                continue
+            s = pd.to_numeric(df_backlog_base[col], errors='coerce').dropna()
+            s = s[s >= 0]
+            s = s[s > 0]
+            if s.empty:
+                continue
+            stage_rows.append({
+                'Etapa': stage_name,
+                'Itens na Etapa': int(s.shape[0]),
+                'Tempo Médio (dias)': float(s.mean()),
+                'P85 (dias)': float(s.quantile(0.85)),
+                'Dias Acumulados': float(s.sum()),
+            })
+
+        stage_df = pd.DataFrame(stage_rows)
+        if not stage_df.empty:
+            stage_df = stage_df.sort_values('Tempo Médio (dias)', ascending=False, ignore_index=True)
+            total_accum = stage_df['Dias Acumulados'].sum()
+            stage_df['% do Backlog (dias)'] = (
+                (stage_df['Dias Acumulados'] / total_accum * 100).round(1) if total_accum > 0 else 0
+            )
+            top_stage = stage_df.iloc[0]['Etapa']
+            top_avg = stage_df.iloc[0]['Tempo Médio (dias)']
+            fig_backlog_stage = px.bar(
+                stage_df,
+                x='Tempo Médio (dias)',
+                y='Etapa',
+                orientation='h',
+                title='Backlog por Etapa do Processo (Tempo Médio)',
+                text='Tempo Médio (dias)',
+                labels={'Tempo Médio (dias)': 'Tempo Médio (dias)', 'Etapa': 'Etapa'},
+                template='plotly_white',
+                color='Tempo Médio (dias)',
+                color_continuous_scale='OrRd',
+            )
+            fig_backlog_stage.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_backlog_stage.update_layout(
+                yaxis=dict(autorange='reversed'),
+                coloraxis_showscale=False,
+                height=450,
+                margin=dict(l=140, r=40, t=70, b=50),
+            )
+
+            stage_display = stage_df.copy()
+            for c in ['Tempo Médio (dias)', 'P85 (dias)', 'Dias Acumulados']:
+                stage_display[c] = stage_display[c].round(2)
+            stage_table = dash_table.DataTable(
+                columns=[{"name": i, "id": i} for i in stage_display.columns],
+                data=stage_display.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            )
+        else:
+            top_stage = 'N/D'
+            top_avg = 0.0
+            fig_backlog_stage = {}
+            stage_table = html.P('Sem dados suficientes para análise de backlog por etapa.')
+
         fig_lead = px.box(df, y='LeadTime_Dias', title='Distribuição de Lead Time (dias)') if 'LeadTime_Dias' in df.columns else {}
         if fig_lead:
             fig_lead.update_layout(height=500)
 
         return html.Div([
             html.Div([
-                create_kpi_card('% Demanda de Valor', f"{pct_demanda_valor:.1f}%"),
-                create_kpi_card('% Demanda de Falha', f"{pct_demanda_falha:.1f}%"),
+                create_kpi_card('Etapa Gargalo', str(top_stage)),
+                create_kpi_card('Tempo Médio Gargalo (dias)', f"{top_avg:.2f}"),
             ], className='row', style={'marginBottom': '20px'}),
-            html.H3("Detalhamento por Tipo de Demanda", style={'textAlign': 'center'}),
-            dash_table.DataTable(columns=[{"name": i, "id": i} for i in metrics_data[0].keys()], data=metrics_data, style_cell={'textAlign': 'center'}, style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'}),
-            dcc.Graph(figure=fig_throughput),
+            html.H3("Análise de Backlog por Etapa do Processo", style={'textAlign': 'center'}),
+            html.Div(stage_table, style={'width': '80%', 'margin': 'auto', 'marginBottom': '20px'}),
+            dcc.Graph(figure=fig_backlog_stage),
             dcc.Graph(figure=fig_lead),
         ])
 
     if tab == 'tab-fluxo':
-        if df.empty:
+        start_ts = pd.to_datetime(start_date) if start_date else fato['DataDone'].min()
+        end_ts = pd.to_datetime(end_date) if end_date else pd.to_datetime('today')
+
+        df_flow = fato.copy()
+        if projeto:
+            df_flow = df_flow[df_flow['Projeto'] == projeto]
+        if tipo:
+            df_flow = df_flow[df_flow['Tipo'] == tipo]
+        if responsavel:
+            df_flow = df_flow[df_flow['Responsavel'] == responsavel]
+
+        mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
+        mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
+        df_flow = df_flow[mask_started_until_end & mask_not_finished_before_start].copy()
+
+        if df_flow.empty:
             return html.Div('Sem dados para exibir para o período e filtros selecionados.')
 
         # --- 1. Calcular Métricas ---
         metrics = {}
-        if 'TempoExecucao_Dias' in df.columns and not df['TempoExecucao_Dias'].dropna().empty:
-            metrics['Cycle Time Médio (dias)'] = df['TempoExecucao_Dias'].mean()
-            metrics['Cycle Time Mediano (dias)'] = df['TempoExecucao_Dias'].median()
-        if 'TempoBacklog_Dias' in df.columns and not df['TempoBacklog_Dias'].dropna().empty:
+        tempo_exec = pd.to_numeric(df_flow['TempoExecucao_Dias'], errors='coerce').dropna() if 'TempoExecucao_Dias' in df_flow.columns else pd.Series(dtype='float64')
+        tempo_exec = tempo_exec[tempo_exec >= 0]
+        tempo_backlog = pd.to_numeric(df_flow['TempoBacklog_Dias'], errors='coerce').dropna() if 'TempoBacklog_Dias' in df_flow.columns else pd.Series(dtype='float64')
+        tempo_backlog = tempo_backlog[tempo_backlog >= 0]
+        tempo_bloqueio = pd.to_numeric(df_flow['TempoBloqueioDias'], errors='coerce').dropna() if 'TempoBloqueioDias' in df_flow.columns else pd.Series(dtype='float64')
+        tempo_bloqueio = tempo_bloqueio[tempo_bloqueio >= 0]
+        tempo_espera = pd.to_numeric(df_flow['TempoEsperaIntermediariaDias'], errors='coerce').dropna() if 'TempoEsperaIntermediariaDias' in df_flow.columns else pd.Series(dtype='float64')
+        tempo_espera = tempo_espera[tempo_espera >= 0]
+
+        if not tempo_exec.empty:
+            metrics['Cycle Time Médio (dias)'] = tempo_exec.mean()
+            metrics['Cycle Time Mediano (dias)'] = tempo_exec.median()
+        if not tempo_backlog.empty:
             # Assumindo que "Tempo até Primeiro Movimento" é equivalente ao tempo em backlog.
-            metrics['Tempo em Backlog Médio (dias)'] = df['TempoBacklog_Dias'].mean()
-            metrics['Tempo até Primeiro Movimento (dias)'] = df['TempoBacklog_Dias'].mean()
-        if 'EficienciaAjustada' in df.columns and not df['EficienciaAjustada'].dropna().empty:
-            metrics['Eficiência Ajustada Média'] = df['EficienciaAjustada'].mean()
-        if 'TempoBloqueioDias' in df.columns and not df['TempoBloqueioDias'].dropna().empty:
-            metrics['Tempo de Bloqueio Médio (dias)'] = df['TempoBloqueioDias'].mean()
-        if 'TempoEsperaIntermediariaDias' in df.columns and not df['TempoEsperaIntermediariaDias'].dropna().empty:
-            metrics['Tempo de Espera Intermediária Médio (dias)'] = df['TempoEsperaIntermediariaDias'].mean()
-        if 'Bloqueado' in df.columns:
-            total_items = len(df)
-            blocked_items = df['Bloqueado'].sum()
+            metrics['Tempo em Backlog Médio (dias)'] = tempo_backlog.mean()
+            metrics['Tempo até Primeiro Movimento (dias)'] = tempo_backlog.mean()
+        if 'EficienciaAjustada' in df_flow.columns and not df_flow['EficienciaAjustada'].dropna().empty:
+            metrics['Eficiência Ajustada Média'] = df_flow['EficienciaAjustada'].mean()
+        if not tempo_bloqueio.empty:
+            metrics['Tempo de Bloqueio Médio (dias)'] = tempo_bloqueio.mean()
+        if not tempo_espera.empty:
+            metrics['Tempo de Espera Intermediária Médio (dias)'] = tempo_espera.mean()
+        if 'Bloqueado' in df_flow.columns:
+            total_items = len(df_flow)
+            blocked_items = df_flow['Bloqueado'].sum()
             metrics['Taxa de Bloqueio (%)'] = (blocked_items / total_items * 100) if total_items > 0 else 0
 
         kpi_data = [{'Métrica': k, 'Valor': f"{v:.2f}"} for k, v in metrics.items()]
@@ -715,53 +810,56 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         )
 
         # --- 2. Criar Gráficos ---
-        lead_time_components = {}
-        if 'TempoBacklog_Dias' in df.columns and not df['TempoBacklog_Dias'].dropna().empty: lead_time_components['Backlog'] = df['TempoBacklog_Dias'].mean()
-        if 'TempoExecucao_Dias' in df.columns and not df['TempoExecucao_Dias'].dropna().empty: lead_time_components['Execução (Cycle Time)'] = df['TempoExecucao_Dias'].mean()
-        if 'TempoBloqueioDias' in df.columns and not df['TempoBloqueioDias'].dropna().empty: lead_time_components['Bloqueio'] = df['TempoBloqueioDias'].mean()
-        if 'TempoEsperaIntermediariaDias' in df.columns and not df['TempoEsperaIntermediariaDias'].dropna().empty: lead_time_components['Espera Intermediária'] = df['TempoEsperaIntermediariaDias'].mean()
+        bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = compute_flow_bottlenecks(df_flow)
 
-        fig_breakdown = {}
-        if lead_time_components and 'LeadTime_Dias' in df.columns and not df['LeadTime_Dias'].dropna().empty:
-            total_accounted = sum(lead_time_components.values())
-            avg_lead_time = df['LeadTime_Dias'].mean()
-            if avg_lead_time > total_accounted:
-                lead_time_components['Outros'] = avg_lead_time - total_accounted
-            
-            df_breakdown = pd.DataFrame(lead_time_components.items(), columns=['Componente', 'Dias'])
-            df_breakdown['dummy'] = 'Lead Time Médio'
-            
-            fig_breakdown = px.bar(df_breakdown, x='Dias', y='dummy', orientation='h', color='Componente',
-                                   title='Breakdown do Lead Time Médio', labels={'Dias': 'Dias Médios', 'dummy': ''},
-                                   height=400, template='plotly_white')
-            fig_breakdown.update_layout(barmode='stack', yaxis_title=None, yaxis_showticklabels=False, legend_title_text='Componente')
-
-        fig_cycle_hist = px.histogram(df, x='TempoExecucao_Dias', nbins=30, title='Distribuição do Cycle Time (dias)') if 'TempoExecucao_Dias' in df.columns else {}
-        if fig_cycle_hist:
-            fig_cycle_hist.update_layout(height=500)
+        fig_cycle_hist = {}
+        cycle_hist_component = html.P(
+            'Sem dados válidos de Cycle Time (> 0 dias) para o período e filtros selecionados.'
+        )
+        if 'TempoExecucao_Dias' in df_flow.columns:
+            cycle_series = pd.to_numeric(df_flow['TempoExecucao_Dias'], errors='coerce').dropna()
+            cycle_series = cycle_series[cycle_series > 0]
+            if not cycle_series.empty:
+                cycle_df = pd.DataFrame({'TempoExecucao_Dias': cycle_series})
+                fig_cycle_hist = px.histogram(
+                    cycle_df,
+                    x='TempoExecucao_Dias',
+                    nbins=30,
+                    title='Distribuição do Cycle Time (dias)',
+                )
+                fig_cycle_hist.update_layout(
+                    height=500,
+                    xaxis=dict(title='Cycle Time (dias)', rangemode='nonnegative'),
+                    yaxis=dict(title='Quantidade de itens'),
+                )
+                cycle_hist_component = dcc.Graph(figure=fig_cycle_hist)
 
         # --- 3. Ranking de Gargalos por Etapa ---
-        bottlenecks_df = compute_flow_bottlenecks(df)
         if bottlenecks_df.empty:
             fig_bottlenecks = {}
             bottlenecks_table = html.P('Sem dados suficientes para calcular gargalos por etapa.')
         else:
-            fig_bottlenecks = px.bar(
-                bottlenecks_df,
-                x='Tempo Médio (dias)',
-                y='Etapa',
-                orientation='h',
-                title='Ranking de Gargalos do Fluxo (Maior para Menor)',
-                text='Tempo Médio (dias)',
-                labels={'Tempo Médio (dias)': 'Tempo Médio (dias)', 'Etapa': 'Etapa'},
-                template='plotly_white',
-                color='Tempo Médio (dias)',
-                color_continuous_scale='Reds',
+            fig_bottlenecks = go.Figure(
+                go.Bar(
+                    x=bottlenecks_df['Tempo Médio (dias)'],
+                    y=bottlenecks_df['Etapa'],
+                    orientation='h',
+                    text=[f"{v:.2f} d" for v in bottlenecks_df['Tempo Médio (dias)']],
+                    textposition='outside',
+                    marker_color='#1f77b4',
+                    marker_line=dict(color='#155a8a', width=1),
+                    hovertemplate='Etapa: %{y}<br>Tempo médio: %{x:.2f} dias<extra></extra>',
+                )
             )
-            fig_bottlenecks.update_traces(texttemplate='%{text:.2f}', textposition='outside')
             fig_bottlenecks.update_layout(
+                title='Ranking de Gargalos do Fluxo (Maior para Menor)'
+                      '<br><sup>Ordenação das etapas críticas por tempo médio</sup>',
+                xaxis_title='Tempo médio na etapa (dias)',
+                yaxis_title='Etapa',
+                template='plotly_white',
                 yaxis=dict(autorange='reversed'),
-                coloraxis_showscale=False,
                 height=480,
                 margin=dict(l=140, r=40, t=70, b=50),
             )
@@ -783,8 +881,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             html.H4("Indicador de Gargalo do Fluxo", style={'textAlign': 'center', 'marginTop': '10px'}),
             html.Div(bottlenecks_table, style={'width': '70%', 'margin': 'auto', 'marginBottom': '20px'}),
             dcc.Graph(figure=fig_bottlenecks),
-            dcc.Graph(figure=fig_breakdown),
-            dcc.Graph(figure=fig_cycle_hist),
+            cycle_hist_component,
         ])
 
     if tab == 'tab-estabilidade':

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agile PMO | Dashboard</title>
+  <meta name="description" content="Portal público do projeto Agile PMO com acesso ao dashboard e documentação." />
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --ink: #151515;
+      --muted: #5f5a53;
+      --card: #fffdf8;
+      --accent: #0f766e;
+      --accent-2: #f59e0b;
+      --ring: rgba(15, 118, 110, 0.25);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 15%, rgba(245, 158, 11, 0.22) 0, transparent 35%),
+        radial-gradient(circle at 80% 25%, rgba(15, 118, 110, 0.2) 0, transparent 36%),
+        linear-gradient(160deg, #fdfcf9 0%, var(--bg) 55%, #efe9de 100%);
+      font-family: "Segoe UI", "Aptos", "Trebuchet MS", sans-serif;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .panel {
+      width: min(900px, 100%);
+      background: color-mix(in srgb, var(--card) 92%, white);
+      border: 1px solid #e8dfd2;
+      border-radius: 24px;
+      box-shadow: 0 20px 50px rgba(32, 25, 16, 0.12);
+      overflow: hidden;
+      animation: rise 700ms ease-out;
+    }
+
+    .top {
+      padding: 28px 28px 8px;
+      border-bottom: 1px solid #ece4d8;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 48px);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+
+    p {
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: clamp(15px, 2vw, 18px);
+      line-height: 1.6;
+      max-width: 65ch;
+    }
+
+    .actions {
+      padding: 24px 28px 30px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .btn {
+      text-decoration: none;
+      font-weight: 700;
+      border-radius: 12px;
+      padding: 12px 18px;
+      transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+      border: 1px solid transparent;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #ffffff;
+      box-shadow: 0 8px 20px var(--ring);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      background: #0c5f59;
+    }
+
+    .btn-secondary {
+      color: var(--ink);
+      border-color: #d8cdbe;
+      background: #fffaf2;
+    }
+
+    .btn-secondary:hover {
+      transform: translateY(-1px);
+      background: #fff4e4;
+    }
+
+    .foot {
+      padding: 0 28px 24px;
+      color: #7a7268;
+      font-size: 13px;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <section class="top">
+      <span class="tag">Agile PMO</span>
+      <h1>Dashboard de Eficiência e Pipeline</h1>
+      <p>
+        Portal público do projeto com acesso ao dashboard operacional e aos artefatos do repositório.
+      </p>
+    </section>
+
+    <section class="actions">
+      <a class="btn btn-primary" href="https://SEU-DASHBOARD.onrender.com" target="_blank" rel="noopener noreferrer">Abrir Dashboard</a>
+      <a class="btn btn-secondary" href="https://github.com/rodrigooliveira-pmo/agile-pmo" target="_blank" rel="noopener noreferrer">Ver Repositório</a>
+    </section>
+
+    <footer class="foot">
+      GitHub Pages publicado a partir do repositório <strong>agile-pmo</strong>.
+      Atualize o link do botão "Abrir Dashboard" com a URL real da sua hospedagem (Render/Railway).
+    </footer>
+  </main>
+</body>
+</html>
