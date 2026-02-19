@@ -14,6 +14,7 @@
 ### Se estiver interessado em EFICIÊNCIA:
 - **Entender a Métrica:** [INDICADORES_EFICIENCIA_DETALHADO.md](INDICADORES_EFICIENCIA_DETALHADO.md) (15 min)
 - **Saber o que mudou:** [CHANGELOG_EFICIENCIA_V2.md](CHANGELOG_EFICIENCIA_V2.md) (5 min)
+- **Atualizações de hoje (19/02/2026):** [DOCUMENTACAO_ATUALIZADA_V2.md](DOCUMENTACAO_ATUALIZADA_V2.md) (seção "Adendo de Atualizações")
 
 ---
 
@@ -253,6 +254,7 @@ Ajuda a navegar toda a documentação.
 - **Problema com relacionamentos?** → [ARQUITETURA_MODELO.md](ARQUITETURA_MODELO.md) (Relacionamentos)
 - **✨ O que é Eficiência Ajustada?** → **[INDICADORES_EFICIENCIA_DETALHADO.md](INDICADORES_EFICIENCIA_DETALHADO.md)** (Novo)
 - **✨ O que mudou na v2.0?** → **[CHANGELOG_EFICIENCIA_V2.md](CHANGELOG_EFICIENCIA_V2.md)** (Novo)
+- **🆕 O que mudou hoje (19/02/2026)?** → **[DOCUMENTACAO_ATUALIZADA_V2.md](DOCUMENTACAO_ATUALIZADA_V2.md)** (Adendo de Atualizações)
 - **✨ Como usar Análise de Bloqueios?** → **[INDICADORES_EFICIENCIA_DETALHADO.md](INDICADORES_EFICIENCIA_DETALHADO.md)** (Seção Exemplos)
 
 ---

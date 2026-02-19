@@ -157,13 +157,36 @@ def extract_custom_text(value: Any) -> str:
     return str(value)
 
 
-def build_output_row(base_url: str, issue: Dict[str, Any], team_field: str) -> Dict[str, str]:
+def extract_team_from_fields(fields: Dict[str, Any], team_field: str) -> str:
+    candidates: List[Any] = []
+    if team_field:
+        candidates.append(fields.get(team_field))
+    for k in ("teams", "team", "Teams", "Team"):
+        if k in fields:
+            candidates.append(fields.get(k))
+    for val in candidates:
+        text = extract_custom_text(val).strip()
+        if text:
+            return text
+    return ""
+
+
+def build_output_row(
+    base_url: str,
+    issue: Dict[str, Any],
+    team_field: str,
+    issue_team_map: Dict[str, str],
+) -> Dict[str, str]:
     fields = issue.get("fields", {}) or {}
     parent = fields.get("parent") or {}
     parent_fields = parent.get("fields") or {}
     key = str(issue.get("key") or "")
-    team_raw = fields.get(team_field) if team_field else None
-    team_text = extract_custom_text(team_raw)
+    parent_id = str(parent.get("key") or "")
+    own_team = extract_team_from_fields(fields, team_field=team_field)
+    parent_team = extract_team_from_fields(parent_fields, team_field=team_field)
+    if not parent_team and parent_id:
+        parent_team = str(issue_team_map.get(parent_id) or "")
+    team_text = own_team or parent_team
     return {
         "ID": key,
         "Titulo": str(fields.get("summary") or ""),
@@ -171,7 +194,7 @@ def build_output_row(base_url: str, issue: Dict[str, Any], team_field: str) -> D
         "Team": team_text,
         "Tipo": str((fields.get("issuetype") or {}).get("name") or ""),
         "Status": str((fields.get("status") or {}).get("name") or ""),
-        "ParentID": str(parent.get("key") or ""),
+        "ParentID": parent_id,
         "ParentTipo": str((parent_fields.get("issuetype") or {}).get("name") or ""),
         "Link": f"{base_url}/browse/{key}" if key else "",
         "UpdatedAt": str(fields.get("updated") or ""),
@@ -233,7 +256,23 @@ def main() -> int:
     issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
     print(f"Issues encontradas: {len(issues)}")
 
-    rows = [build_output_row(base_url=base_url, issue=issue, team_field=team_field) for issue in issues]
+    issue_team_map: Dict[str, str] = {}
+    for issue in issues:
+        key = str(issue.get("key") or "")
+        if not key:
+            continue
+        issue_fields = issue.get("fields", {}) or {}
+        issue_team_map[key] = extract_team_from_fields(issue_fields, team_field=team_field)
+
+    rows = [
+        build_output_row(
+            base_url=base_url,
+            issue=issue,
+            team_field=team_field,
+            issue_team_map=issue_team_map,
+        )
+        for issue in issues
+    ]
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fp:
         writer = csv.DictWriter(fp, fieldnames=CSV_COLUMNS)

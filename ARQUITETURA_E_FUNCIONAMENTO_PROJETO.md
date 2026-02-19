@@ -2,69 +2,91 @@
 
 ## 1) Visão Geral
 
-Este projeto implementa um pipeline completo de métricas de fluxo de trabalho:
+Este projeto implementa um pipeline completo de métricas de fluxo e portfólio:
 
-1. Lê múltiplos arquivos CSV de itens de trabalho (origem operacional).
-2. Consolida e padroniza os dados.
-3. Calcula métricas semanais e métricas avançadas.
-4. Gera artefatos para análise em Excel e para consumo em Power BI.
-5. Publica um dashboard interativo em Dash (`dashboard_full.py`) usando o modelo mais recente.
+1. Exporta dados Jira para CSV (projetos de fluxo e portfólio BT/NS).
+2. Consolida e padroniza os dados de fluxo.
+3. Calcula métricas semanais, métricas avançadas e eficiência baseada em capacidade de fila.
+4. Gera artefatos para Excel e modelo dimensional para Power BI.
+5. Publica dashboard interativo em Dash (`dashboard_full.py`) com abas operacionais e executivas.
 
-O objetivo principal é acompanhar desempenho de entrega, qualidade e saúde de fluxo por projeto, tipo de demanda e responsável.
+Objetivo: acompanhar desempenho de entrega, gargalos, previsibilidade, qualidade e saúde do fluxo por projeto, tipo e responsável.
 
 ## 2) Componentes Principais
 
-### 2.1 `dash_board_metricas.py` (Pipeline de Dados)
+### 2.1 `jira_to_pipeline_csv.py` (Extração Jira de Fluxo)
 
 Responsável por:
 
-- Descoberta e leitura robusta de CSVs (múltiplos encodings e delimitadores).
+- Consultar Jira com fallback robusto de endpoint:
+  - `POST /rest/api/3/search/jql`
+  - `GET /rest/api/3/search/jql`
+  - `POST /rest/api/3/search` (legado)
+- Repetição automática para falhas transitórias (`429`, `5xx`) com backoff e `Retry-After`.
+- Busca paralela do changelog (parâmetro `--workers`).
+- Exportar CSV no formato esperado pelo pipeline (`w1nner-downstream-<data>-data.csv`, etc.).
+
+### 2.2 `jira_portfolio_to_csv.py` (Extração Jira de Portfólio)
+
+Responsável por:
+
+- Exportar snapshot de portfólio dos projetos BT/NS.
+- Incluir campos de relação e governança (`ParentID`, `Team`, `Status`, `StatusChangedAt`, `UpdatedAt`).
+- Gerar arquivo `portfolio-bt-ns-<data>-data.csv` consumido pela aba de portfólio no Dash.
+
+### 2.3 `dash_board_metricas.py` (Pipeline de Dados)
+
+Responsável por:
+
+- Descoberta e leitura robusta de CSVs.
 - Detecção automática de colunas de fluxo/datas.
 - Classificação de tipo de item (`Defeitos`, `Desenvolvimento`, `Outro`).
 - Cálculo de métricas semanais e análises avançadas.
+- Cálculo de eficiência de fluxo por regra de capacidade de fila (`1 - λ/μ`), com proteção para limites.
 - Geração de:
-  - `dashboard_output_<timestamp>.xlsx` (abas analíticas),
-  - `PowerBI_Model_<timestamp>.xlsx` (modelo dimensional).
+  - `dashboard_output_<timestamp>.xlsx`,
+  - `PowerBI_Model_<timestamp>.xlsx`.
 
-### 2.2 `dashboard_full.py` (Aplicação Dash)
+### 2.4 `dashboard_full.py` (Aplicação Dash)
 
 Responsável por:
 
-- Localizar o `PowerBI_Model_*.xlsx` mais recente na pasta de dados.
-- Carregar tabelas dimensionais e fato.
-- Aplicar filtros globais (período, projeto, tipo, responsável).
-- Renderizar abas analíticas com KPIs, tabelas e gráficos interativos.
+- Localizar o `PowerBI_Model_*.xlsx` mais recente.
+- Carregar tabelas dimensionais/fato e aplicar filtros globais.
+- Consumir o CSV de portfólio mais recente (`portfolio-bt-ns-*-data.csv`) com cache.
+- Renderizar painéis de fluxo, gargalos, eficiência e portfólio.
 
-### 2.3 Arquivos de Apoio
+### 2.5 `run_all_projects.ps1` (Orquestração)
 
-- `dashboard_app.py`: alternativa de aplicação Dash (escopo menor em relação ao `dashboard_full.py`).
-- Documentação complementar no repositório (`INDICE_CENTRAL.md`, `RESUMO_EXECUTIVO.md`, `ARQUITETURA_MODELO.md`, etc.).
+Responsável por:
+
+- Carregar variáveis do `jira_env.txt`.
+- Executar exportação dos 4 projetos de fluxo.
+- Executar exportação de portfólio (opcional).
+- Executar pipeline de métricas (opcional).
+- Subir dashboard automaticamente (opcional).
 
 ## 3) Arquitetura de Dados
 
-## 3.1 Origem
+### 3.1 Origem
 
 - Pasta padrão de entrada/saída:
   - Windows: `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados`
   - macOS: `~/Library/CloudStorage/OneDrive-W1/Documentos/Dados`
-- Entradas: arquivos `*.csv` exportados de gestão de trabalho.
+- Entradas:
+  - CSVs de fluxo por projeto (`*-downstream-*-data.csv`)
+  - CSV de portfólio (`portfolio-bt-ns-*-data.csv`)
 
-## 3.2 Padronização
+### 3.2 Padronização
 
 Durante a ingestão:
 
-- Colunas de data do fluxo são mapeadas para:
-  - `Sprint Backlog`
-  - `In Progress`
-  - `Done`
+- Colunas de fluxo são mapeadas para estágios principais (`Sprint Backlog`, `In Progress`, `Done`).
 - Datas são convertidas para `datetime`.
 - `Blocked Days` é convertido para numérico.
-- São adicionadas colunas derivadas:
-  - `Projeto`
-  - `WorkItemCategory`
-  - `WorkItemSubType`
+- São adicionadas colunas derivadas de negócio e análise.
 
-## 3.3 Modelo Analítico (Power BI)
+### 3.3 Modelo Analítico (Power BI)
 
 Modelo estrela com:
 
@@ -73,11 +95,11 @@ Modelo estrela com:
   - `Dim_Projeto`
   - `Dim_Data`
   - `Dim_Tipo`
-  - `Dim_Responsavel` (se aplicável)
-  - `Dim_Componente` (se aplicável)
-  - `Dim_Prioridade` (se aplicável)
+  - `Dim_Responsavel` (se disponível)
+  - `Dim_Componente` (se disponível)
+  - `Dim_Prioridade` (se disponível)
 
-Métricas por item na fato incluem, entre outras:
+Métricas por item na fato incluem:
 
 - `TempoBacklog_Dias`
 - `TempoExecucao_Dias`
@@ -90,89 +112,89 @@ Métricas por item na fato incluem, entre outras:
 
 ## 4) Fluxo de Processamento
 
-1. Coleta de CSVs da pasta de dados.
-2. Leitura robusta com fallback de encoding/delimitador.
-3. Identificação de projeto por `ID` e/ou nome de arquivo.
-4. Eliminação de duplicados por `ID` dentro de cada projeto.
-5. Cálculo de métricas em janelas semanais (terça a terça no pipeline principal).
-6. Geração de abas analíticas no Excel consolidado.
-7. Geração do modelo dimensional para Power BI.
-8. Consumo do modelo pelo `dashboard_full.py`.
+1. Exportar dados Jira de fluxo (`jira_to_pipeline_csv.py`).
+2. Exportar snapshot Jira de portfólio (`jira_portfolio_to_csv.py`).
+3. Consolidar CSVs de fluxo.
+4. Eliminar duplicados por `ID` dentro de cada projeto.
+5. Calcular métricas semanais em padrão ISO (segunda a domingo).
+6. Gerar abas analíticas no Excel consolidado.
+7. Gerar modelo dimensional para Power BI.
+8. Consumir modelo + snapshot de portfólio no `dashboard_full.py`.
 
 ## 5) Métricas e Análises Entregues
 
-## 5.1 Dashboard Semanal Base
+### 5.1 Dashboard Semanal Base
 
 - Taxa de chegada
 - Throughput
 - WIP e WIP Age
 - Lead Time médio e P85
-- Eficiência simples e ajustada
+- Eficiência de fluxo (`1 - λ/μ`)
 - `% Demanda de Falha` e `% Demanda de Valor`
 
-## 5.2 Blocos Avançados
+### 5.2 Blocos Avançados
 
-- Fluxo: cycle time, backlog time, bloqueios e esperas intermediárias.
-- Estabilidade: desvio padrão, coeficiente de variação, percentis e IC.
+- Fluxo: cycle time, backlog time, bloqueios e esperas.
+- Estabilidade: desvio padrão, coeficiente de variação e percentis.
 - Saúde de fluxo: razão chegada/throughput, crescimento de WIP, itens vencidos.
 - Qualidade: debt ratio e razão valor/custo.
 - Tendências: médias móveis, direção e momentum.
-- Throughput por tipo: segmentação semanal por categoria.
-- Eficiência detalhada por item: breakdown de tempos.
-- WIP por pessoa: visão semanal por responsável.
+- Throughput por tipo: segmentação semanal.
+- Eficiência detalhada por item.
+- WIP por pessoa.
+- Capacidade de fila.
+- Portfólio BT/NS com aging e pendências por quadrante.
 
 ## 6) Dashboard Interativo (`dashboard_full.py`)
 
 Abas principais:
 
 1. Performance do Serviço
-2. Dashboard
-3. Fluxo
-4. Estabilidade
-5. Saúde Fluxo
-6. Qualidade
-7. Análise Dimensional
-8. Análise Tipos
-9. Tendências
-10. Throughput por Tipo
-11. Análise Eficiência
-12. WIP por Pessoa
-13. Estatística Descritiva
+2. Portfólio
+3. Painel Fluxo
+4. Fluxo
+5. Estabilidade
+6. Saúde Fluxo
+7. Qualidade
+8. Análise Dimensional
+9. Análise Tipos
+10. Tendências
+11. Throughput por Tipo
+12. Análise Eficiência
+13. WIP por Pessoa
+14. Estatística Descritiva
+15. Capacidade de Fila
 
 Características:
 
 - Filtros globais por período/projeto/tipo/responsável.
-- KPIs com detalhamento em gráficos.
-- Tabelas interativas com ordenação e filtro.
-- Linhas estatísticas (P15/P85/P95/média/MM5) em gráficos de tendência.
+- KPIs, gráficos de tendência e tabelas interativas.
+- Ranking de gargalos por etapa e sinalização de criticidade.
+- Snapshot executivo de portfólio com agrupamento por time/projeto.
 
 ## 7) Operação e Execução
 
-## 7.1 Gerar dados (pipeline)
+### 7.1 Execução ponta a ponta (recomendado)
 
-Executar:
-
-```bash
-python dash_board_metricas.py
+```powershell
+.\run_all_projects.ps1
 ```
 
-Resultado esperado:
+Parâmetros úteis:
 
-- Arquivo consolidado: `dashboard_output_<timestamp>.xlsx`
-- Modelo analítico: `PowerBI_Model_<timestamp>.xlsx`
+- `-RunPortfolioExport $true|$false`
+- `-RunMetrics $true|$false`
+- `-OpenDashboard $true|$false`
+- `-Workers <n>`
 
-## 7.2 Subir dashboard
-
-Executar:
+### 7.2 Execução manual
 
 ```bash
+python jira_to_pipeline_csv.py --projects W1NNR S1NC BF DT --out "<arquivo>"
+python jira_portfolio_to_csv.py --projects BT NS --out "<arquivo>"
+python dash_board_metricas.py
 python dashboard_full.py
 ```
-
-Comportamento:
-
-- A aplicação seleciona automaticamente o `PowerBI_Model_*.xlsx` mais recente.
-- Caso não exista arquivo de modelo, a aplicação interrompe com `FileNotFoundError`.
 
 ## 8) Dependências Técnicas
 
@@ -182,30 +204,28 @@ Principais bibliotecas:
 - `numpy`
 - `dash`
 - `plotly`
+- `requests`
 - `openpyxl` (preferencial) ou `xlsxwriter` (fallback para escrita Excel)
 
 ## 9) Decisões de Arquitetura Relevantes
 
-- **Separação de responsabilidades**:
-  - Pipeline de dados separado da camada de visualização.
-- **Robustez de ingestão**:
-  - Fallback automático para encoding/delimitador.
-- **Modelo dimensional**:
-  - Facilita Power BI e simplifica consumo no Dash.
-- **Acoplamento temporal por arquivo mais recente**:
-  - Dashboard depende do último `PowerBI_Model_*.xlsx`.
+- Separação clara entre extração Jira, processamento de métricas e visualização.
+- Fallback de endpoint Jira para compatibilidade com tenants diferentes.
+- Retentativa automática para estabilidade de coleta.
+- Modelo dimensional para facilitar consumo no Power BI e Dash.
+- Dashboard sempre acoplado ao arquivo `PowerBI_Model_*.xlsx` mais recente.
 
 ## 10) Limitações e Pontos de Atenção
 
-- `dash_board_metricas.py` executa o processamento automaticamente ao ser importado (efeito colateral no fim do arquivo).
+- `dash_board_metricas.py` ainda executa processamento ao importar (efeito colateral).
 - Parte das métricas DORA na aba de performance está como placeholder (`—`).
-- O sistema foi padronizado para semana ISO (segunda a domingo), com janelas `W-MON` e bucket semanal `W-SUN` para agrupamentos.
-- A seleção do modelo mais recente depende de timestamp de criação de arquivo; em ambientes compartilhados, validar se o arquivo esperado é o correto.
+- A seleção de arquivos mais recentes depende de timestamps; validar em ambientes compartilhados.
+- A qualidade da aba Portfólio depende do preenchimento de `Team`/parentesco no Jira.
 
 ## 11) Recomendações de Evolução
 
-1. Adicionar um ponto de entrada explícito em `dash_board_metricas.py` com `if __name__ == '__main__':` para evitar execução em import.
-2. Manter o padrão semanal ISO (segunda a domingo) como regra única em novos cálculos e visualizações.
-3. Externalizar configurações (pastas, janela de datas, frequência) em arquivo `.env` ou `config.yaml`.
-4. Incluir testes automáticos para regras de classificação e cálculo de métricas críticas.
-5. Definir contrato de dados de entrada (campos obrigatórios/opcionais) com validação formal.
+1. Adicionar entrada explícita (`if __name__ == '__main__':`) no pipeline.
+2. Consolidar contrato de dados para os dois tipos de CSV (fluxo e portfólio).
+3. Externalizar configurações em `.env`/`config.yaml`.
+4. Incluir testes automáticos para regras de eficiência e gargalo.
+5. Versionar semanticamente as mudanças de documentação e scripts de coleta.

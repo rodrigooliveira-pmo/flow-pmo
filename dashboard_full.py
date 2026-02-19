@@ -149,6 +149,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'epicos_por_complexidade': pd.DataFrame(),
                 'features_por_complexidade': pd.DataFrame(),
                 'epicos_fluxo_etapas': pd.DataFrame(),
+                'epicos_por_team_total': pd.DataFrame(),
+                'features_por_team_total': pd.DataFrame(),
                 'pendencias_q_por_time': pd.DataFrame(),
                 'aging_us_20': pd.DataFrame(),
                 'aging_features_40': pd.DataFrame(),
@@ -172,6 +174,24 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
     df['Projeto'] = df['Projeto'].fillna('').astype(str)
     df['Team'] = df['Team'].fillna('').astype(str).str.strip()
+    if not df.empty:
+        # Herda TEAM pela cadeia de parentesco (item -> feature -> épico) quando o card atual vier sem TEAM.
+        team_map = {str(r['ID']): str(r['Team']).strip() for _, r in df[['ID', 'Team']].iterrows()}
+        parent_map = {str(r['ID']): str(r['ParentID']).strip() for _, r in df[['ID', 'ParentID']].iterrows()}
+
+        def resolve_team(issue_id):
+            iid = str(issue_id or '').strip()
+            seen = set()
+            while iid and iid not in seen:
+                seen.add(iid)
+                t = str(team_map.get(iid, '')).strip()
+                if t:
+                    return t
+                iid = str(parent_map.get(iid, '')).strip()
+            return ''
+
+        df['Team'] = df['ID'].apply(resolve_team)
+
     df['ProjetoAgrupado'] = df['Team']
     df.loc[df['ProjetoAgrupado'] == '', 'ProjetoAgrupado'] = df.loc[df['ProjetoAgrupado'] == '', 'Projeto']
     df['ProjetoAgrupado'] = df['ProjetoAgrupado'].map(map_portfolio_label)
@@ -307,6 +327,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
     features_por_projeto_status = group_count(features, ['ProjetoAgrupado', 'Status'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
     epicos_por_complexidade = group_count(epics, ['ProjetoAgrupado', 'Complexidade'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
     features_por_complexidade = group_count(features, ['ProjetoAgrupado', 'Complexidade'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    epicos_por_team_total = group_count(epics, ['ProjetoAgrupado'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    features_por_team_total = group_count(features, ['ProjetoAgrupado'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
 
     epic_flow_items = pd.DataFrame(columns=['EpicID', 'Status'])
     if not features_with_epic.empty:
@@ -345,7 +367,6 @@ def compute_portfolio_snapshot(df, updated_at_label):
     atrasadas = int(((df['IsOpen']) & (df['AgingDiasSemAlteracao'] > 30)).sum())
     divergente = int(len(features_sem_epico) + len(epics_sem_features))
     executive_tiles = pd.DataFrame([
-        {'Indicador': 'Iniciativas', 'Valor': int(len(epics) + len(features)), 'Tipo': 'info'},
         {'Indicador': 'Épicos', 'Valor': int(len(epics)), 'Tipo': 'ok'},
         {'Indicador': 'Features', 'Valor': int(len(features)), 'Tipo': 'ok'},
         {'Indicador': 'Sem TEAM', 'Valor': sem_team, 'Tipo': 'risco'},
@@ -373,6 +394,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'epicos_por_complexidade': epicos_por_complexidade,
             'features_por_complexidade': features_por_complexidade,
             'epicos_fluxo_etapas': epicos_fluxo_etapas,
+            'epicos_por_team_total': epicos_por_team_total,
+            'features_por_team_total': features_por_team_total,
             'pendencias_q_por_time': pendencias_q_por_time,
             'aging_us_20': aging_us_20,
             'aging_features_40': aging_features_40,
@@ -834,6 +857,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         aging_us_comp_20 = groups.get('aging_us_comp_20', pd.DataFrame())
         aging_features_comp_40 = groups.get('aging_features_comp_40', pd.DataFrame())
         executive_tiles = groups.get('executive_tiles', pd.DataFrame())
+        epicos_por_team_total = groups.get('epicos_por_team_total', pd.DataFrame())
+        features_por_team_total = groups.get('features_por_team_total', pd.DataFrame())
 
         def grouped_chart(df_group, x_col, y_col, color_col, title):
             if df_group is None or df_group.empty:
@@ -948,8 +973,37 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                     'display': 'grid',
                     'gridTemplateColumns': 'repeat(auto-fill, minmax(170px, 1fr))',
                     'gap': '10px'
-                })
+                }),
+                html.P(
+                    'Estado divergente = features sem épico + épicos sem features (quebra de relacionamento entre níveis).',
+                    style={'marginTop': '8px', 'color': '#555'}
+                )
             ], style={'marginTop': '24px'})
+
+        def render_team_total_tiles(df_team, value_col, title, color='#1565c0'):
+            if df_team is None or df_team.empty:
+                return html.Div([html.H4(title), html.P('Sem dados para exibição.')])
+            cards = []
+            for _, row in df_team.sort_values(value_col, ascending=False).iterrows():
+                cards.append(html.Div([
+                    html.Div(str(row['Projeto']), style={'fontSize': '16px', 'fontWeight': 'bold'}),
+                    html.Div(str(int(row[value_col] or 0)), style={'fontSize': '54px', 'lineHeight': '1.1'}),
+                    html.Div('Work items', style={'fontSize': '13px', 'opacity': 0.9}),
+                ], style={
+                    'backgroundColor': color,
+                    'color': 'white',
+                    'padding': '12px',
+                    'borderRadius': '4px',
+                    'minHeight': '150px',
+                }))
+            return html.Div([
+                html.H4(title, style={'textAlign': 'left'}),
+                html.Div(cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fill, minmax(160px, 1fr))',
+                    'gap': '10px'
+                })
+            ], style={'marginTop': '12px'})
 
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
@@ -981,6 +1035,16 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             ], style={'marginTop': '20px'}),
 
             render_executive_tiles(executive_tiles),
+            html.Div([
+                html.Div(
+                    render_team_total_tiles(epicos_por_team_total, 'QtdEpicos', 'Total de Épicos por TEAM', color='#2e7d32'),
+                    className='six columns'
+                ),
+                html.Div(
+                    render_team_total_tiles(features_por_team_total, 'QtdFeatures', 'Total de Features por TEAM', color='#1565c0'),
+                    className='six columns'
+                ),
+            ], className='row', style={'marginTop': '10px'}),
 
             html.Div([
                 html.Div([

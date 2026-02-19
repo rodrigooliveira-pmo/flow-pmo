@@ -263,3 +263,52 @@ C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\
 - **Próxima Revisão:** 19 de fevereiro de 2026 (após primeira execução em produção)
 
 **Todos os arquivos estão prontos para uso. Comece com RESUMO_EXECUTIVO.md!**
+
+---
+
+## 🆕 Adendo de Atualizações - 19 de fevereiro de 2026
+
+### Escopo desta rodada
+- Robustez da importação Jira.
+- Novo fluxo de portfólio BT/NS.
+- Ajustes no painel de gargalos e eficiência.
+- Automação de execução ponta a ponta.
+
+### Mudanças por componente
+
+#### `jira_to_pipeline_csv.py`
+- Implementado fallback de consulta Jira em 3 estratégias:
+  - Enhanced Search via `POST /search/jql`
+  - Enhanced Search via `GET /search/jql`
+  - Endpoint legado `POST /search`
+- Adicionadas retentativas com backoff para `429` e `5xx`.
+- Busca de changelog paralelizada com `--workers`.
+- Normalização de estágios reforçada para maior consistência do CSV.
+
+#### `jira_portfolio_to_csv.py` (novo no fluxo operacional)
+- Exportação dedicada do portfólio BT/NS.
+- Inclusão de campos de governança usados no dashboard:
+  - `Team`, `ParentID`, `Status`, `StatusChangedAt`, `UpdatedAt`.
+
+#### `run_all_projects.ps1`
+- Carregamento de variáveis via `jira_env.txt`.
+- Novas flags para controlar execução:
+  - `RunPortfolioExport`
+  - `RunMetrics`
+  - `OpenDashboard`
+- Inclusão da exportação de portfólio no pipeline automatizado.
+
+#### `dashboard_full.py`
+- Nova aba **Portfólio** com visão executiva BT/NS.
+- Melhorias no **Painel Fluxo** e no ranking de gargalos.
+- Métricas de eficiência alinhadas ao cálculo de capacidade de fila.
+- Leitura do CSV de portfólio mais recente com cache em memória.
+
+#### `dash_board_metricas.py`
+- Ajustes no cálculo de eficiência semanal para refletir `1 - λ/μ`.
+- Reforço da integração entre métricas de bloqueio/espera e visão semanal.
+
+### Documentos atualizados nesta revisão
+- `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` (atualização completa).
+- `DOCUMENTACAO_ATUALIZADA_V2.md` (este adendo).
+- `INDICE_CENTRAL.md` (atalho para mudanças de hoje).
