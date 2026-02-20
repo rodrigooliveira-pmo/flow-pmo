@@ -38,3 +38,10 @@ Use this file after any user correction.
 - Root cause: `JIRA_STATUS_MAP` do `jira_env.txt` sobrescrevia automaticamente a resolução dinâmica de fluxo por projeto/tipo.
 - Prevention rule: Em execução automatizada multi-projeto, não permitir que `JIRA_STATUS_MAP` global force um fluxo único sem intenção explícita.
 - Action added to workflow: Criar e usar `JIRA_IGNORE_STATUS_MAP=1` nos scripts `run_all_projects_*` durante exportação downstream e validar no log a quantidade de etapas por projeto.
+
+- Date: 2026-02-20
+- Context: Gargalo de W1NNER sem etapa `In Progress` no relatório final.
+- User correction: Indicou ausência de `In Progress` no gráfico/tabela gerados.
+- Root cause: Mapeamento legado de `In Progress` não cobria variações reais de status (ex.: `Development`, `In Development`, `Doing`), gerando zero pares `In Progress -> Ready for code review`.
+- Prevention rule: Para cada fluxo legado, validar cobertura de aliases reais de status e checar explicitamente pares consecutivos críticos.
+- Action added to workflow: Após cada ajuste de status map, reprocessar 1 projeto alvo e validar presença das etapas esperadas em `Fato_Gargalos` (não só no CSV intermediário).
