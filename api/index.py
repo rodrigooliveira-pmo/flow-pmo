@@ -14,12 +14,14 @@ try:
     # Dash instance exposes the Flask app in `.server`.
     app = getattr(dash_obj, "server", dash_obj)
 except Exception as exc:  # pragma: no cover - runtime safeguard
+    error_message = str(exc)
     fallback = Flask(__name__)
 
     @fallback.get("/")
-    def _startup_error():
+    @fallback.get("/<path:_path>")
+    def _startup_error(_path=None):
         return Response(
-            f"Falha ao inicializar o Dash ({DASH_MODULE}.{DASH_ATTR}): {exc}",
+            f"Falha ao inicializar o Dash ({DASH_MODULE}.{DASH_ATTR}): {error_message}",
             status=500,
             mimetype="text/plain",
         )
