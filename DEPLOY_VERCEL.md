@@ -24,6 +24,8 @@
   - `FLOW_PMO_MODEL_URL`: URL pública para baixar o modelo `.xlsx` em runtime.
   - `FLOW_PMO_DASHBOARD_OUTPUT_FILE`: caminho do `dashboard_output_*.xlsx`.
   - `FLOW_PMO_DASHBOARD_OUTPUT_URL`: URL pública para baixar o `dashboard_output_*.xlsx` em runtime.
+  - `FLOW_PMO_PORTFOLIO_CSV_FILE`: caminho do `portfolio-bt-ns-YYYYMMDD-data.csv`.
+  - `FLOW_PMO_PORTFOLIO_CSV_URL`: URL pública para baixar o CSV de portfólio em runtime.
   - `FLOW_PMO_DATA_DIR`: pasta principal para buscar arquivos de dados.
   - `FLOW_PMO_DATA_DIRS`: lista de pastas separadas por `:` (Linux/macOS) para busca de CSVs auxiliares.
   - `DATA_FOLDER`: compatibilidade com configuração legada.

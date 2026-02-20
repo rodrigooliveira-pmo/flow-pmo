@@ -60,6 +60,16 @@ def _download_model_from_url(url):
     return out_file
 
 
+def _download_portfolio_csv_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'portfolio-bt-ns-{file_key}-data.csv')
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
 def _resolve_model_file(data_folders):
     explicit_model = os.getenv('FLOW_PMO_MODEL_FILE', '').strip()
     if explicit_model:
@@ -708,6 +718,17 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
 
 def find_latest_portfolio_csv():
+    explicit_csv = os.getenv('FLOW_PMO_PORTFOLIO_CSV_FILE', '').strip()
+    if explicit_csv:
+        candidate = explicit_csv if os.path.isabs(explicit_csv) else os.path.join(os.path.dirname(__file__), explicit_csv)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise RuntimeError(f'FLOW_PMO_PORTFOLIO_CSV_FILE aponta para arquivo inexistente: {candidate}')
+
+    csv_url = os.getenv('FLOW_PMO_PORTFOLIO_CSV_URL', '').strip()
+    if csv_url:
+        return _download_portfolio_csv_from_url(csv_url)
+
     candidates = []
     for folder in DATA_FOLDERS:
         try:
@@ -726,7 +747,8 @@ def build_portfolio_snapshot_from_csv():
     csv_file = find_latest_portfolio_csv()
     if not csv_file:
         raise RuntimeError(
-            f'CSV de portfólio não encontrado. Gere um arquivo {PORTFOLIO_CSV_PREFIX}YYYYMMDD{PORTFOLIO_CSV_SUFFIX} '
+            f'CSV de portfólio não encontrado. Configure FLOW_PMO_PORTFOLIO_CSV_URL ou FLOW_PMO_PORTFOLIO_CSV_FILE, '
+            f'ou gere um arquivo {PORTFOLIO_CSV_PREFIX}YYYYMMDD{PORTFOLIO_CSV_SUFFIX} '
             f'em uma destas pastas: {", ".join(DATA_FOLDERS or [DATA_FOLDER])}.'
         )
 
