@@ -187,3 +187,20 @@
 - Evidence (tests/logs/diff):
   - `git log --since='2026-02-20 00:00' --name-status`
   - `python3 - <<'PY' ... import dashboard_full as d; print(d.MODEL_FILE) ...`
+
+## Current Task (Garantir Fluxos em Fato_Gargalos)
+- [x] Executar pipeline completo e confirmar atualização do `PowerBI_Model_latest.xlsx`
+- [x] Corrigir bloqueio por `JIRA_STATUS_MAP` global em exportação multi-projeto
+- [x] Reprocessar exportações e validar etapas gravadas por projeto na `Fato_Gargalos`
+
+## Review (Garantir Fluxos em Fato_Gargalos)
+- What was validated:
+  - Novo modelo gerado: `/Users/rodrigoalmeidadeoliveira/Documents/Dados/PowerBI_Model_20260220_171029.xlsx`.
+  - `PowerBI_Model_latest.xlsx` atualizado com `Fato_Gargalos` contendo 34 linhas.
+  - Etapas de `W1NNER/S1NC/BEFINANCE` refletindo fluxo legado (triagem/backlog/review/testing/staging/prod).
+  - Etapas de `DATA&ANALYTICS` refletindo fluxo de melhorias/adhoc do DT (`To Do`, `Discovery`, `Development`, `Tech Review`, `In Validation`, `Improvement`).
+- Evidence (tests/logs/diff):
+  - Logs de execução do `run_all_projects_macos.sh` exibindo:
+    - 12 etapas para `W1NNER/S1NC/BF`
+    - 7 etapas para `DT` + mensagem de fluxo por tipo habilitado
+  - Leitura direta da aba `Fato_Gargalos` em `PowerBI_Model_latest.xlsx` após reprocessamento.

@@ -64,6 +64,15 @@ Write-Host "Base URL: $($env:JIRA_BASE_URL)"
 Write-Host "Saída: $OutDir"
 Write-Host "Data: $DateTag"
 
+# The downstream exporter resolves workflow by project/type.
+# Ignore global JIRA_STATUS_MAP here to avoid forcing one flow for all projects.
+$originalJiraStatusMap = $env:JIRA_STATUS_MAP
+if ($env:JIRA_STATUS_MAP) {
+    Write-Host "Ignorando JIRA_STATUS_MAP global durante exportação downstream (fluxo por projeto habilitado)." -ForegroundColor DarkYellow
+}
+Remove-Item -Path Env:JIRA_STATUS_MAP -ErrorAction SilentlyContinue
+$env:JIRA_IGNORE_STATUS_MAP = '1'
+
 foreach ($p in $projects) {
     $outFile = Join-Path $OutDir ("{0}-{1}-data.csv" -f $p.FilePrefix, $DateTag)
 
@@ -82,6 +91,11 @@ foreach ($p in $projects) {
         Write-Host "Arquivo latest atualizado: $bottleneckLatest" -ForegroundColor Green
     }
 }
+
+if ($null -ne $originalJiraStatusMap -and $originalJiraStatusMap -ne '') {
+    $env:JIRA_STATUS_MAP = $originalJiraStatusMap
+}
+Remove-Item -Path Env:JIRA_IGNORE_STATUS_MAP -ErrorAction SilentlyContinue
 
 Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
 

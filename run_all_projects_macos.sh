@@ -138,6 +138,15 @@ echo "Base URL: ${JIRA_BASE_URL}"
 echo "Saida: ${OUT_DIR}"
 echo "Data: ${DATE_TAG}"
 
+# The downstream exporter now resolves workflow by project/type.
+# Ignore global JIRA_STATUS_MAP here to avoid forcing a single flow for all projects.
+ORIGINAL_JIRA_STATUS_MAP="${JIRA_STATUS_MAP-}"
+if [[ -n "${JIRA_STATUS_MAP-}" ]]; then
+    echo "Ignorando JIRA_STATUS_MAP global durante exportacao downstream (fluxo por projeto habilitado)."
+fi
+unset JIRA_STATUS_MAP
+export JIRA_IGNORE_STATUS_MAP=1
+
 for i in "${!PROJECT_KEYS[@]}"; do
     key="${PROJECT_KEYS[$i]}"
     prefix="${PROJECT_PREFIXES[$i]}"
@@ -156,6 +165,11 @@ for i in "${!PROJECT_KEYS[@]}"; do
         echo "Arquivo latest atualizado: ${bottleneck_latest}"
     fi
 done
+
+if [[ -n "${ORIGINAL_JIRA_STATUS_MAP}" ]]; then
+    export JIRA_STATUS_MAP="${ORIGINAL_JIRA_STATUS_MAP}"
+fi
+unset JIRA_IGNORE_STATUS_MAP
 
 echo
 echo "Exportacoes concluidas com sucesso."

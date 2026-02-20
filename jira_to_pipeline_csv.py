@@ -120,8 +120,12 @@ def normalize_text(value: str) -> str:
     return " ".join(no_accents.replace("-", " ").replace("_", " ").split())
 
 
+def env_flag_enabled(name: str) -> bool:
+    return normalize_text(os.getenv(name, "")) in {"1", "true", "yes", "sim", "on"}
+
+
 def resolve_status_map(projects: List[str]) -> Dict[str, List[str]]:
-    env_map = parse_json_env("JIRA_STATUS_MAP", default={})
+    env_map = {} if env_flag_enabled("JIRA_IGNORE_STATUS_MAP") else parse_json_env("JIRA_STATUS_MAP", default={})
     if env_map:
         normalized_env: Dict[str, List[str]] = {}
         for k, v in env_map.items():
@@ -146,7 +150,7 @@ def resolve_status_map(projects: List[str]) -> Dict[str, List[str]]:
 
 
 def should_use_dt_dual_flow(projects: List[str]) -> bool:
-    if os.getenv("JIRA_STATUS_MAP", "").strip():
+    if (not env_flag_enabled("JIRA_IGNORE_STATUS_MAP")) and os.getenv("JIRA_STATUS_MAP", "").strip():
         return False
     normalized_projects = {normalize_project_key(p) for p in projects if p}
     return bool(normalized_projects) and normalized_projects.issubset({"DT"})
