@@ -1679,15 +1679,17 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         demand_vs_capacity_pct = ((demand_total - capacity_total) / capacity_total * 100.0) if capacity_total > 0 else np.nan
         inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
-        if 'TempoBacklog_Dias' in df_arrived_period.columns and not df_arrived_period.empty:
-            commit_times = pd.to_numeric(df_arrived_period['TempoBacklog_Dias'], errors='coerce').dropna()
+        commit_times = pd.Series(dtype='float64')
+        if not df_arrived_period.empty:
+            # Prefer the date-based calculation to avoid stale/zeroed precomputed values.
+            if {'DataBacklog', 'DataInProgress'}.issubset(df_arrived_period.columns):
+                commit_times = (df_arrived_period['DataInProgress'] - df_arrived_period['DataBacklog']).dt.days
+            if 'TempoBacklog_Dias' in df_arrived_period.columns:
+                commit_fallback = pd.to_numeric(df_arrived_period['TempoBacklog_Dias'], errors='coerce')
+                commit_times = commit_times.reindex(df_arrived_period.index) if not commit_times.empty else pd.Series(index=df_arrived_period.index, dtype='float64')
+                commit_times = commit_times.fillna(commit_fallback)
+            commit_times = pd.to_numeric(commit_times, errors='coerce').dropna()
             commit_times = commit_times[commit_times >= 0]
-        elif {'DataBacklog', 'DataInProgress'}.issubset(df_arrived_period.columns):
-            commit_times = (df_arrived_period['DataInProgress'] - df_arrived_period['DataBacklog']).dt.days
-            commit_times = commit_times.dropna()
-            commit_times = commit_times[commit_times >= 0]
-        else:
-            commit_times = pd.Series(dtype='float64')
         time_to_commit_p85 = commit_times.quantile(0.85) if not commit_times.empty else np.nan
 
         tipo_demanda = df_done_period['TipoDemanda'] if 'TipoDemanda' in df_done_period.columns else pd.Series(dtype='object')
@@ -1778,32 +1780,100 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 return ('CRÍTICO', '#c62828')
             return ('EXTREMAMENTE CRÍTICO', '#7f0000')
 
-        cards = []
         wip_cv_status = classify_cv(cv_percent(weekly_hist_df.get('WIP', pd.Series(dtype=float))))
         lt_cv_status = classify_cv(cv_percent(weekly_hist_df.get('LeadTime_P85', pd.Series(dtype=float))))
         throughput_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Throughput', pd.Series(dtype=float))))
         arrivals_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Chegadas', pd.Series(dtype=float))))
-        wip_age_cv_status = classify_cv(cv_percent(weekly_hist_df.get('WIP_Age', pd.Series(dtype=float))))
+        predictability_status = classify_direction(predictability, 1.8, 2.2, lower_is_better=True)
 
         tp_relacao_display = (
             f"{tp_valor_pct:.1f}% x {tp_falha_pct:.1f}%" if pd.notna(tp_valor_pct) and pd.notna(tp_falha_pct) else '—'
         )
         tp_relacao_status = classify_throughput_mix(tp_falha_pct)
 
-        card_specs = [
-            ('WIP médio (semana)', wip_avg, '{:.1f} itens', wip_cv_status),
-            ('Lead Time P85', lead_time_p85, '{:.1f} dias', lt_cv_status),
-            ('Vazão média semanal', throughput_avg, '{:.1f} itens/sem', throughput_cv_status),
-            ('Taxa de chegada média', arrivals_avg, '{:.1f} itens/sem', arrivals_cv_status),
-            ('Eficiência (1 - ρ)', queue_efficiency, '{:.2f}', classify_efficiency(queue_efficiency)),
-            ('Pressão de fluxo (chegada/vazão)', pressure_ratio, '{:.2f}', classify_pressure(pressure_ratio)),
-            ('Aging WIP médio', wip_age, '{:.1f} dias', wip_age_cv_status),
-            ('WIP atual (fim do período)', wip_current, '{:.0f} itens', wip_cv_status),
-            ('Risco Forecasting (P98/Mediana)', risk_forecasting_ratio, '{:.2f}', classify_forecasting_risk(risk_forecasting_ratio)),
-            ('Throughput valor x falha (%)', tp_relacao_display, '{}', tp_relacao_status),
-        ]
+        # Catálogo único de métricas para todo o painel (id único por indicador).
+        metric_catalog = {
+            'demand_total': {'value': demand_total},
+            'capacity_total': {'value': capacity_total},
+            'demand_vs_capacity_pct': {'value': demand_vs_capacity_pct},
+            'inflow_total': {'value': inflow_total},
+            'outflow_total': {'value': throughput_total},
+            'inflow_vs_outflow_pct': {'value': inflow_vs_outflow_pct},
+            'inventory_growth': {'value': inventory_growth},
+            'wip_growth': {'value': wip_growth},
+            'inventory_size': {
+                'title': 'Tamanho do Inventário',
+                'value': inventory_end_count,
+                'format': '{:.0f}',
+                'unit': 'itens de fluxo',
+                'note': f"({inventory_weeks:.1f} semanas de inventário)" if pd.notna(inventory_weeks) else "(sem base de semanas de inventário)",
+            },
+            'commitment_rate': {
+                'title': 'Taxa de Comprometimento',
+                'value': commitment_rate,
+                'format': '{:.0f}%',
+                'unit': 'throughput / demanda',
+            },
+            'time_to_commit_p85': {
+                'title': 'Tempo para Commit (P85)',
+                'value': time_to_commit_p85,
+                'format': '{:.0f}',
+                'unit': 'dias',
+            },
+            'wip_age_avg': {
+                'title': 'WIP Age (médio)',
+                'value': wip_age,
+                'format': '{:.0f}',
+                'unit': 'dias',
+            },
+            'throughput_total': {
+                'title': 'Throughput (total)',
+                'value': throughput_total,
+                'format': '{:.0f}',
+                'unit': 'itens de fluxo',
+                'note': '(período selecionado)',
+            },
+            'wip_avg_week': {'title': 'WIP médio (semana)', 'value': wip_avg, 'format': '{:.1f} itens', 'status': wip_cv_status},
+            'lead_time_p85': {'title': 'Lead Time P85', 'value': lead_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
+            'throughput_avg_week': {'title': 'Vazão média semanal', 'value': throughput_avg, 'format': '{:.1f} itens/sem', 'status': throughput_cv_status},
+            'arrivals_avg_week': {'title': 'Taxa de chegada média', 'value': arrivals_avg, 'format': '{:.1f} itens/sem', 'status': arrivals_cv_status},
+            'flow_efficiency': {'title': 'Eficiência (1 - ρ)', 'value': queue_efficiency, 'format': '{:.2f}', 'status': classify_efficiency(queue_efficiency)},
+            'flow_pressure': {'title': 'Pressão de fluxo (chegada/vazão)', 'value': pressure_ratio, 'format': '{:.2f}', 'status': classify_pressure(pressure_ratio)},
+            'predictability': {'title': 'Previsibilidade (P85/P50)', 'value': predictability, 'format': '{:.2f}', 'status': predictability_status},
+            'wip_current': {'title': 'WIP atual (fim do período)', 'value': wip_current, 'format': '{:.0f} itens', 'status': wip_cv_status},
+            'forecast_risk': {'title': 'Risco Forecasting (P98/Mediana)', 'value': risk_forecasting_ratio, 'format': '{:.2f}', 'status': classify_forecasting_risk(risk_forecasting_ratio)},
+            'throughput_mix': {'title': 'Throughput valor x falha (%)', 'value': tp_relacao_display, 'format': '{}', 'status': tp_relacao_status},
+        }
 
-        for title, raw_value, value_pattern, (status_label, status_color) in card_specs:
+        reference_metric_ids = [
+            'inventory_size',
+            'commitment_rate',
+            'time_to_commit_p85',
+            'wip_age_avg',
+            'throughput_total',
+        ]
+        executive_metric_ids = [
+            'wip_avg_week',
+            'lead_time_p85',
+            'throughput_avg_week',
+            'arrivals_avg_week',
+            'flow_efficiency',
+            'flow_pressure',
+            'predictability',
+            'wip_current',
+            'forecast_risk',
+            'throughput_mix',
+        ]
+        reference_metric_set = set(reference_metric_ids)
+        executive_metric_ids = [mid for mid in executive_metric_ids if mid not in reference_metric_set]
+
+        cards = []
+        for metric_id in executive_metric_ids:
+            metric = metric_catalog[metric_id]
+            title = metric['title']
+            raw_value = metric['value']
+            value_pattern = metric['format']
+            status_label, status_color = metric['status']
             cards.append(
                 html.Div([
                     html.Div(status_label, style={'fontSize': '12px', 'fontWeight': 'bold', 'color': status_color, 'textTransform': 'uppercase'}),
@@ -1830,12 +1900,12 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 )
             )
 
-        demand_capacity_max = max(demand_total, capacity_total, 1.0)
-        demand_bar_h = f"{max(18, int((demand_total / demand_capacity_max) * 92))}px"
-        capacity_bar_h = f"{max(18, int((capacity_total / demand_capacity_max) * 92))}px"
-        inflow_outflow_max = max(inflow_total, throughput_total, 1.0)
-        inflow_bar_h = f"{max(18, int((inflow_total / inflow_outflow_max) * 92))}px"
-        outflow_bar_h = f"{max(18, int((throughput_total / inflow_outflow_max) * 92))}px"
+        demand_capacity_max = max(metric_catalog['demand_total']['value'], metric_catalog['capacity_total']['value'], 1.0)
+        demand_bar_h = f"{max(18, int((metric_catalog['demand_total']['value'] / demand_capacity_max) * 92))}px"
+        capacity_bar_h = f"{max(18, int((metric_catalog['capacity_total']['value'] / demand_capacity_max) * 92))}px"
+        inflow_outflow_max = max(metric_catalog['inflow_total']['value'], metric_catalog['outflow_total']['value'], 1.0)
+        inflow_bar_h = f"{max(18, int((metric_catalog['inflow_total']['value'] / inflow_outflow_max) * 92))}px"
+        outflow_bar_h = f"{max(18, int((metric_catalog['outflow_total']['value'] / inflow_outflow_max) * 92))}px"
 
         ref_panel_bg = '#f3f5f7'
         ref_card_bg = '#f3f5f7'
@@ -1855,6 +1925,29 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 html.Div(style={'width': '7px', 'height': '7px', 'borderRadius': '50%', 'backgroundColor': dot_orange if active_color != dot_orange else dot_gray, 'marginBottom': '6px'}),
                 html.Div(style={'width': '7px', 'height': '7px', 'borderRadius': '50%', 'backgroundColor': dot_gray}),
             ], style={'position': 'absolute', 'top': '10px', 'right': '10px'})
+
+        reference_tile_cards = []
+        for metric_id in reference_metric_ids:
+            metric = metric_catalog[metric_id]
+            tile_children = [
+                html.H6(metric['title'], style={'marginBottom': '4px'}),
+                html.Div(fmt_value(metric['value'], metric['format']), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+            ]
+            if metric.get('unit'):
+                tile_children.append(html.P(metric['unit'], style={'marginBottom': '0'}))
+            if metric.get('note'):
+                tile_children.append(html.P(metric['note'], style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}))
+            reference_tile_cards.append(
+                html.Div(tile_children, style={
+                    'flex': '1 1 150px',
+                    'backgroundColor': ref_card_bg,
+                    'border': ref_border,
+                    'borderRadius': ref_radius,
+                    'padding': '10px',
+                    'minHeight': '135px',
+                    'position': 'relative',
+                })
+            )
 
         flow_reference_cards = html.Div([
             html.H4("Indicadores de Referência do Fluxo", style={'textAlign': 'center', 'marginBottom': '12px', 'marginTop': '8px'}),
@@ -1891,20 +1984,20 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                         ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
                         html.Ul([
                             html.Li(
-                                f"Demanda {abs(demand_vs_capacity_pct):.1f}% acima da capacidade."
-                                if pd.notna(demand_vs_capacity_pct) and demand_vs_capacity_pct >= 0
+                                f"Demanda {abs(metric_catalog['demand_vs_capacity_pct']['value']):.1f}% acima da capacidade."
+                                if pd.notna(metric_catalog['demand_vs_capacity_pct']['value']) and metric_catalog['demand_vs_capacity_pct']['value'] >= 0
                                 else (
-                                    f"Demanda {abs(demand_vs_capacity_pct):.1f}% abaixo da capacidade."
-                                    if pd.notna(demand_vs_capacity_pct)
+                                    f"Demanda {abs(metric_catalog['demand_vs_capacity_pct']['value']):.1f}% abaixo da capacidade."
+                                    if pd.notna(metric_catalog['demand_vs_capacity_pct']['value'])
                                     else "Sem base para comparação."
                                 )
                             ),
                             html.Li(
-                                f"Inventário cresceu em {int(abs(inventory_growth))} itens de fluxo."
-                                if pd.notna(inventory_growth) and inventory_growth >= 0
+                                f"Inventário cresceu em {int(abs(metric_catalog['inventory_growth']['value']))} itens de fluxo."
+                                if pd.notna(metric_catalog['inventory_growth']['value']) and metric_catalog['inventory_growth']['value'] >= 0
                                 else (
-                                    f"Inventário reduziu em {int(abs(inventory_growth))} itens de fluxo."
-                                    if pd.notna(inventory_growth)
+                                    f"Inventário reduziu em {int(abs(metric_catalog['inventory_growth']['value']))} itens de fluxo."
+                                    if pd.notna(metric_catalog['inventory_growth']['value'])
                                     else "Sem base para variação de inventário."
                                 )
                             ),
@@ -1950,15 +2043,19 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                         ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
                         html.Ul([
                             html.Li(
-                                f"Entrada {abs(inflow_vs_outflow_pct):.1f}% acima da saída."
-                                if pd.notna(inflow_vs_outflow_pct) and inflow_vs_outflow_pct >= 0
+                                f"Entrada {abs(metric_catalog['inflow_vs_outflow_pct']['value']):.1f}% acima da saída."
+                                if pd.notna(metric_catalog['inflow_vs_outflow_pct']['value']) and metric_catalog['inflow_vs_outflow_pct']['value'] >= 0
                                 else (
-                                    f"Entrada {abs(inflow_vs_outflow_pct):.1f}% abaixo da saída."
-                                    if pd.notna(inflow_vs_outflow_pct)
+                                    f"Entrada {abs(metric_catalog['inflow_vs_outflow_pct']['value']):.1f}% abaixo da saída."
+                                    if pd.notna(metric_catalog['inflow_vs_outflow_pct']['value'])
                                     else "Sem base para comparação."
                                 )
                             ),
-                            html.Li(f"WIP cresceu em {int(abs(wip_growth))} itens de fluxo." if wip_growth >= 0 else f"WIP reduziu em {int(abs(wip_growth))} itens de fluxo."),
+                            html.Li(
+                                f"WIP cresceu em {int(abs(metric_catalog['wip_growth']['value']))} itens de fluxo."
+                                if metric_catalog['wip_growth']['value'] >= 0
+                                else f"WIP reduziu em {int(abs(metric_catalog['wip_growth']['value']))} itens de fluxo."
+                            ),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
                 ], className='six columns', style={
@@ -1970,41 +2067,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                     'minHeight': '260px',
                 }),
             ], className='row', style={'marginBottom': '12px'}),
-            html.Div([
-                html.Div([
-                    html.H6("Tamanho do Inventário", style={'marginBottom': '4px'}),
-                    html.Div(f"{int(inventory_end_count) if pd.notna(inventory_end_count) else 0}", style={'fontSize': '32px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('itens de fluxo', style={'marginBottom': '0'}),
-                    html.P(
-                        f"({inventory_weeks:.1f} semanas de inventário)" if pd.notna(inventory_weeks) else "(sem base de semanas de inventário)",
-                        style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
-                    ),
-                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-                html.Div([
-                    html.H6("Taxa de Comprometimento", style={'marginBottom': '4px'}),
-                    html.Div(fmt_value(commitment_rate, '{:.0f}%'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('throughput / demanda', style={'fontSize': '12px', 'marginTop': '8px', 'color': '#555'}),
-                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-                html.Div([
-                    html.H6("Tempo para Commit (P85)", style={'marginBottom': '4px'}),
-                    html.Div(fmt_value(time_to_commit_p85, '{:.0f}'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('dias', style={'marginTop': '8px'}),
-                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-                html.Div([
-                    html.H6("WIP Age (médio)", style={'marginBottom': '4px'}),
-                    html.Div(fmt_value(wip_age, '{:.0f}'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('dias', style={'marginTop': '8px'}),
-                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-                html.Div([
-                    html.H6("Throughput (total)", style={'marginBottom': '4px'}),
-                    html.Div(f"{int(throughput_total)}", style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('itens de fluxo', style={'marginBottom': '0'}),
-                    html.P(
-                        f"(média de {throughput_weekly_avg:.1f} itens/semana)",
-                        style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
-                    ),
-                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-            ], style={
+            html.Div(reference_tile_cards, style={
                 'display': 'flex',
                 'flexWrap': 'wrap',
                 'gap': '10px',
