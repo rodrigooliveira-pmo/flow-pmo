@@ -74,6 +74,13 @@ foreach ($p in $projects) {
     if ($LASTEXITCODE -ne 0) {
         throw "Falha na exportação do projeto $($p.Key)."
     }
+
+    $bottleneckOut = Join-Path $OutDir ("{0}-{1}-data_bottlenecks.csv" -f $p.FilePrefix, $DateTag)
+    $bottleneckLatest = Join-Path $OutDir ("{0}-latest-data_bottlenecks.csv" -f $p.FilePrefix)
+    if (Test-Path $bottleneckOut) {
+        Copy-Item -Path $bottleneckOut -Destination $bottleneckLatest -Force
+        Write-Host "Arquivo latest atualizado: $bottleneckLatest" -ForegroundColor Green
+    }
 }
 
 Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
@@ -91,6 +98,10 @@ if ($RunPortfolioExport) {
     if ($LASTEXITCODE -ne 0) {
         throw "Falha na exportação do portfólio (BT/NS)."
     }
+
+    $portfolioLatest = Join-Path $OutDir "portfolio-bt-ns-latest-data.csv"
+    Copy-Item -Path $portfolioOut -Destination $portfolioLatest -Force
+    Write-Host "Arquivo latest atualizado: $portfolioLatest" -ForegroundColor Green
 }
 
 if ($RunMetrics) {

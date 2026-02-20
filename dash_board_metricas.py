@@ -5,6 +5,7 @@ import os
 import csv
 import re
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -80,6 +81,17 @@ def load_class_of_service_rules():
 
 def load_pattern_rules():
     return parse_json_env("PATTERN_RULES", parse_json_env("JIRA_PATTERN_RULES", DEFAULT_PATTERN_RULES))
+
+
+def copy_latest_artifact(source_file, target_file):
+    """Copy a generated artifact to a stable filename."""
+    try:
+        shutil.copy2(source_file, target_file)
+        print(f"Arquivo latest atualizado: {target_file}")
+        return target_file
+    except Exception as exc:
+        print(f"Warning: Não foi possível atualizar {target_file}: {exc}")
+        return None
 
 
 def classify_service_class(row, rules):
@@ -368,6 +380,143 @@ def select_latest_csv_per_project(csv_files):
 
     selected_files = [v['file'] for v in selected_by_project.values()] + selected_unknown
     return sorted(selected_files), sorted(ignored_files)
+
+
+def select_latest_bottleneck_csv_per_project(csv_files):
+    """
+    Keep only the latest bottleneck CSV per detected project.
+    Bottleneck files follow pattern: *-data_bottlenecks.csv
+    """
+    selected_by_project = {}
+    selected_unknown = []
+
+    for file_path in sorted(csv_files):
+        stem_lower = Path(file_path).stem.lower()
+        if "bottleneck" not in stem_lower:
+            continue
+
+        project = detect_project_from_filename(Path(file_path).stem)
+        ts = extract_timestamp_from_filename(file_path)
+        mtime = os.path.getmtime(file_path)
+        score = (
+            ts is not None,
+            ts if ts is not None else datetime.min,
+            mtime,
+        )
+
+        if project == 'UNKNOWN':
+            selected_unknown.append(file_path)
+            continue
+
+        current = selected_by_project.get(project)
+        if current is None or score > current['score']:
+            selected_by_project[project] = {'file': file_path, 'score': score}
+
+    selected_files = [v['file'] for v in selected_by_project.values()] + selected_unknown
+    return sorted(selected_files)
+
+
+def load_bottleneck_table_from_csv_files(csv_files):
+    """
+    Build normalized bottleneck table from generated CSVs.
+    Output columns are compatible with dashboard_full loader.
+    """
+    if not csv_files:
+        return pd.DataFrame()
+
+    required_cols = {'Etapa', 'Qtde Issues', 'Media Dias', 'Mediana Dias', 'P90 Dias'}
+    rows = []
+
+    for csv_file in csv_files:
+        project = detect_project_from_filename(Path(csv_file).stem)
+        if project == 'UNKNOWN':
+            continue
+        try:
+            bdf = pd.read_csv(csv_file, encoding='utf-8-sig')
+        except Exception:
+            try:
+                bdf = pd.read_csv(csv_file, encoding='latin-1')
+            except Exception:
+                continue
+        if not required_cols.issubset(set(bdf.columns)):
+            continue
+
+        normalized = pd.DataFrame({
+            'Projeto': project,
+            'Etapa': bdf['Etapa'].astype(str),
+            'Tempo Médio (dias)': pd.to_numeric(bdf['Media Dias'], errors='coerce'),
+            'Tempo Mediano (dias)': pd.to_numeric(bdf['Mediana Dias'], errors='coerce'),
+            'P90 (dias)': pd.to_numeric(bdf['P90 Dias'], errors='coerce'),
+            'Qtde Itens': pd.to_numeric(bdf['Qtde Issues'], errors='coerce'),
+            'Vazão da Etapa (itens)': pd.to_numeric(bdf['Qtde Issues'], errors='coerce'),
+        }).dropna(subset=['Etapa', 'Tempo Médio (dias)'])
+
+        normalized = normalized[normalized['Tempo Médio (dias)'] >= 0]
+        if normalized.empty:
+            continue
+        normalized['Qtde Itens'] = normalized['Qtde Itens'].fillna(0).astype(int)
+        normalized['Vazão da Etapa (itens)'] = normalized['Vazão da Etapa (itens)'].fillna(0).astype(int)
+        rows.append(normalized)
+
+    if not rows:
+        return pd.DataFrame()
+
+    out = pd.concat(rows, ignore_index=True)
+    out = out.sort_values(['Projeto', 'Tempo Médio (dias)'], ascending=[True, False], ignore_index=True)
+    return out
+
+
+def build_bottleneck_table_from_fact(fact_table, dimensions):
+    """
+    Fallback bottleneck table derived from fact table per project.
+    """
+    if fact_table is None or fact_table.empty:
+        return pd.DataFrame()
+
+    if 'ProjetoID' not in fact_table.columns:
+        return pd.DataFrame()
+
+    project_map = {}
+    if dimensions is not None and 'Dim_Projeto' in dimensions and not dimensions['Dim_Projeto'].empty:
+        project_map = {
+            int(row['ProjetoID']): str(row['NomeProjeto'])
+            for _, row in dimensions['Dim_Projeto'].iterrows()
+            if pd.notna(row.get('ProjetoID')) and pd.notna(row.get('NomeProjeto'))
+        }
+
+    stage_columns = [
+        ('Backlog', 'TempoBacklog_Dias'),
+        ('Execução', 'TempoExecucao_Dias'),
+        ('Bloqueio', 'TempoBloqueioDias'),
+        ('Espera Intermediária', 'TempoEsperaIntermediariaDias'),
+    ]
+
+    rows = []
+    for project_id, proj_df in fact_table.groupby('ProjetoID'):
+        projeto = project_map.get(int(project_id), str(project_id))
+        for stage_name, col in stage_columns:
+            if col not in proj_df.columns:
+                continue
+            series = pd.to_numeric(proj_df[col], errors='coerce').dropna()
+            series = series[series >= 0]
+            if series.empty:
+                continue
+            rows.append({
+                'Projeto': projeto,
+                'Etapa': stage_name,
+                'Tempo Médio (dias)': float(series.mean()),
+                'Tempo Mediano (dias)': float(series.median()),
+                'P90 (dias)': float(series.quantile(0.90)),
+                'Qtde Itens': int(series.shape[0]),
+                'Vazão da Etapa (itens)': int(series.shape[0]),
+            })
+
+    if not rows:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(rows)
+    out = out.sort_values(['Projeto', 'Tempo Médio (dias)'], ascending=[True, False], ignore_index=True)
+    return out
 
 def categorize_work_item_type(tipo_de_problema):
     """
@@ -1918,7 +2067,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
     
     return pd.DataFrame(fact_records)
 
-def save_powerbi_optimized_model(consolidated_data, output_folder):
+def save_powerbi_optimized_model(consolidated_data, output_folder, bottleneck_csv_files=None):
     """
     Save optimized Power BI data model to Excel
     With separate sheets for dimensions and facts
@@ -1932,6 +2081,10 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
     
     print("Gerando tabela de fatos...")
     fact_table = prepare_powerbi_fact_table(consolidated_data, dimensions)
+    print("Gerando tabela de gargalos...")
+    bottleneck_table = load_bottleneck_table_from_csv_files(bottleneck_csv_files or [])
+    if bottleneck_table.empty:
+        bottleneck_table = build_bottleneck_table_from_fact(fact_table, dimensions)
     
     # Create output file
     from datetime import datetime
@@ -1960,6 +2113,10 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
         
         # Write Fact Table
         fact_table.to_excel(writer, sheet_name='Fato_Items', index=False)
+        if not bottleneck_table.empty:
+            bottleneck_table.to_excel(writer, sheet_name='Fato_Gargalos', index=False)
+
+    copy_latest_artifact(output_file, os.path.join(output_folder, "PowerBI_Model_latest.xlsx"))
     
     print("Modelo salvo com sucesso!")
     print(f"\nEstrutura do Modelo Power BI:")
@@ -1978,6 +2135,8 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
     
     print(f"\nFATOS (Fact Table):")
     print(f"  - Fato_Items: {len(fact_table)} registros (work items)")
+    if not bottleneck_table.empty:
+        print(f"  - Fato_Gargalos: {len(bottleneck_table)} registros")
     
     print(f"\nColunas Principais da Tabela de Fatos:")
     print(f"  - Chaves Estrangeiras: ProjetoID, TipoID, ResponsavelID, ComponenteID, PrioridadeID")
@@ -2415,6 +2574,7 @@ def process_multiple_csv_files(input_folder, output_folder):
     # Find all CSV files in the input folder
     all_csv_files = sorted(glob.glob(os.path.join(input_folder, "*.csv")))
     csv_files, ignored_csv_files = select_latest_csv_per_project(all_csv_files)
+    bottleneck_csv_files = select_latest_bottleneck_csv_per_project(all_csv_files)
     
     if not csv_files:
         print(f"No CSV files found in {input_folder}")
@@ -2422,6 +2582,7 @@ def process_multiple_csv_files(input_folder, output_folder):
     
     print(f"Found {len(all_csv_files)} CSV files in folder")
     print(f"Selected {len(csv_files)} latest CSV files for processing")
+    print(f"Selected {len(bottleneck_csv_files)} bottleneck CSV files for model sheet")
     if ignored_csv_files:
         print(f"Ignoring {len(ignored_csv_files)} older CSV files")
         for old_file in ignored_csv_files[:10]:
@@ -2521,7 +2682,11 @@ def process_multiple_csv_files(input_folder, output_folder):
     
     # Save Power BI optimized model
     print("\nOptimizing data model for Power BI...")
-    powerbi_output = save_powerbi_optimized_model(consolidated_data, output_folder)
+    powerbi_output = save_powerbi_optimized_model(
+        consolidated_data,
+        output_folder,
+        bottleneck_csv_files=bottleneck_csv_files,
+    )
     
     # Replace NaN with 0 in numeric columns before writing to Excel
     for df_to_clean in [df_consolidated, df_advanced_flow, df_efficiency_analysis]:
@@ -2586,6 +2751,8 @@ def process_multiple_csv_files(input_folder, output_folder):
             df_pattern_details.to_excel(writer, sheet_name='Padrões Sistêmicos', index=False)
         if not df_pattern_summary.empty:
             df_pattern_summary.to_excel(writer, sheet_name='Resumo Padrões', index=False)
+
+    copy_latest_artifact(output_file, os.path.join(output_folder, "dashboard_output_latest.xlsx"))
     
     print(f"\n{'='*70}")
     print(f"Dashboard completo salvo em: {output_file}")

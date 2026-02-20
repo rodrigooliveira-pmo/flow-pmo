@@ -3,41 +3,40 @@
 ## Current Task
 - [x] Define scope and write detailed specification
 - [x] Validate plan before implementation
-- [x] Implement minimal-impact changes
-- [x] Verify behavior (tests/logs/diff)
+- [x] Add bottleneck data to PowerBI model spreadsheet
+- [x] Change dashboard bottleneck source to spreadsheet first
+- [x] Keep safe fallback behavior (legacy CSV + computed)
+- [x] Verify behavior (syntax/diff) and update docs
 - [x] Review for elegance and root-cause quality
 
 ## Specification
-- Objetivo: preparar o projeto para deploy manual na Vercel (Hobby), sem integração CI/CD por commit, com carga de dados compatível com ambiente serverless.
-- Restrições: manter impacto mínimo no código do dashboard; não alterar regras de negócio do app.
+- Objetivo: consolidar dados de gargalo na mesma planilha Excel dos demais indicadores e fazer o dashboard ler prioritariamente dessa planilha.
+- Restrições:
+  - Manter impacto mínimo no fluxo atual.
+  - Preservar compatibilidade com artefatos legados.
+  - Evitar quebra quando a aba nova não existir.
 - Entregáveis:
-  - Entrada WSGI para Vercel em `api/index.py`.
-  - Configuração `vercel.json` sem auto deploy por commit.
-  - Resolver de arquivo de modelo no `dashboard_full.py` compatível com Vercel:
-    - caminho por env var,
-    - URL por env var (download em `/tmp`),
-    - busca em diretórios configuráveis.
-  - Busca de CSVs auxiliares em múltiplos diretórios configuráveis.
-  - Guia de deploy/manual e variáveis no `DEPLOY_VERCEL.md`.
+  - Aba `Fato_Gargalos` no `PowerBI_Model_*.xlsx`.
+  - Leitura do gargalo no `dashboard_full.py` a partir da aba da planilha.
+  - Fallback mantido para CSV legado e cálculo em memória.
 - Validação:
-  - Compilar os arquivos Python alterados.
-  - Validar JSON do `vercel.json`.
-  - Validar import da entrada `api/index.py`.
+  - Checar sintaxe dos arquivos alterados.
+  - Revisar diff final para confirmar prioridade da nova fonte.
 
 ## Progress Notes
 - Date: 2026-02-20
-- Summary: Deploy manual e carga de dados serverless configurados; app agora suporta modelo por caminho local, URL e múltiplas pastas de dados no runtime da Vercel.
+- Summary: Gargalos agora são gravados na aba `Fato_Gargalos` do `PowerBI_Model_*.xlsx` e o dashboard lê essa aba como fonte primária.
 - Risks:
-  - Sem definir ao menos `FLOW_PMO_MODEL_FILE` ou `FLOW_PMO_MODEL_URL` (ou sem arquivo `PowerBI_Model_*.xlsx` disponível em pasta buscada), o app continuará em fallback de inicialização.
+  - Se o modelo em produção não for atualizado, dashboard continuará no fallback legado.
 
 ## Review
 - What was validated:
   - Sintaxe dos módulos Python alterados.
-  - JSON de configuração da Vercel.
-  - Entrada WSGI carregando com fallback seguro quando o modelo não está disponível.
+  - Sintaxe do script bash de orquestração.
+  - Diff revisado para garantir prioridade da planilha com fallback preservado.
 - Evidence (tests/logs/diff):
-  - `python3 -m py_compile dashboard_full.py api/index.py`
-  - `python3 -m json.tool vercel.json >/dev/null`
-  - `python3 - <<'PY' ... import api.index ... print(type(entry.app).__name__) ... PY` retornando `Flask`.
+  - `python3 -m py_compile dash_board_metricas.py dashboard_full.py api/index.py`
+  - `bash -n run_all_projects_macos.sh`
+  - `git diff -- dash_board_metricas.py dashboard_full.py DEPLOY_VERCEL.md tasks/todo.md`
 - Open issues:
-  - Publicar o arquivo de modelo em storage/URL acessível e configurar a variável na Vercel.
+  - Arquivos `.pyc` em `__pycache__/` continuam marcados no git neste ambiente (não bloqueia funcionalidade).

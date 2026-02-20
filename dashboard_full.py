@@ -70,6 +70,36 @@ def _download_portfolio_csv_from_url(url):
     return out_file
 
 
+def _download_bottleneck_csv_from_url(url, project_key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data_bottlenecks.csv')
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
+def _load_bottleneck_url_map():
+    raw = os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key, value in parsed.items():
+        project_key = str(key).strip().upper()
+        url = str(value).strip()
+        if project_key and url:
+            out[project_key] = url
+    return out
+
+
 def _resolve_model_file(data_folders):
     explicit_model = os.getenv('FLOW_PMO_MODEL_FILE', '').strip()
     if explicit_model:
@@ -119,6 +149,11 @@ dim_responsavel = safe_read_sheet(xls, 'Dim_Responsavel', ['ResponsavelID', 'Res
 dim_prioridade = safe_read_sheet(xls, 'Dim_Prioridade', ['PrioridadeID', 'Prioridade'])
 dim_classe_servico = safe_read_sheet(xls, 'Dim_ClasseServico', ['ClasseServicoID', 'ClasseServico'])
 fato = pd.read_excel(xls, sheet_name='Fato_Items')
+fato_gargalos = safe_read_sheet(
+    xls,
+    'Fato_Gargalos',
+    ['Projeto', 'Etapa', 'Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)', 'Qtde Itens', 'Vazão da Etapa (itens)'],
+)
 
 # Normalize date columns
 for dcol in ['DataBacklog', 'DataInProgress', 'DataDone']:
@@ -994,15 +1029,51 @@ def compute_flow_bottlenecks(df):
     return bottlenecks_df
 
 
+def load_project_bottlenecks_from_model(projeto):
+    """Carrega gargalos da aba Fato_Gargalos do modelo PowerBI."""
+    if not projeto or fato_gargalos.empty or 'Projeto' not in fato_gargalos.columns:
+        return pd.DataFrame()
+
+    local = fato_gargalos.copy()
+    required_cols = {'Etapa', 'Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)', 'Qtde Itens', 'Vazão da Etapa (itens)'}
+    if not required_cols.issubset(set(local.columns)):
+        return pd.DataFrame()
+
+    proj_norm = normalize_text(projeto)
+    local = local[local['Projeto'].astype(str).apply(normalize_text) == proj_norm]
+    if local.empty:
+        return pd.DataFrame()
+
+    for col in ['Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)', 'Qtde Itens', 'Vazão da Etapa (itens)']:
+        local[col] = pd.to_numeric(local[col], errors='coerce')
+    local = local.dropna(subset=['Etapa', 'Tempo Médio (dias)'])
+    local = local[local['Tempo Médio (dias)'] >= 0]
+    if local.empty:
+        return local
+
+    local['Qtde Itens'] = local['Qtde Itens'].fillna(0).astype(int)
+    local['Vazão da Etapa (itens)'] = local['Vazão da Etapa (itens)'].fillna(0).astype(int)
+    return local.sort_values('Tempo Médio (dias)', ascending=False, ignore_index=True)
+
+
 def load_project_bottlenecks_from_csv(projeto):
     """Carrega o CSV de gargalos mais recente do projeto, se existir."""
     if not projeto:
         return pd.DataFrame()
-    prefix = PROJECT_BOTTLENECK_PREFIX.get(str(projeto).strip().upper())
+    project_key = str(projeto).strip().upper()
+    prefix = PROJECT_BOTTLENECK_PREFIX.get(project_key)
     if not prefix:
         return pd.DataFrame()
 
     files = []
+    url_map = _load_bottleneck_url_map()
+    project_csv_url = url_map.get(project_key) or os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL', '').strip()
+    if project_csv_url:
+        try:
+            files.append(_download_bottleneck_csv_from_url(project_csv_url, project_key))
+        except Exception:
+            pass
+
     for folder in DATA_FOLDERS:
         try:
             entries = os.listdir(folder)
@@ -1012,6 +1083,7 @@ def load_project_bottlenecks_from_csv(projeto):
             if name.startswith(prefix) and name.endswith('-data_bottlenecks.csv'):
                 files.append(os.path.join(folder, name))
 
+    files = [path for path in files if os.path.isfile(path)]
     if not files:
         return pd.DataFrame()
 
@@ -2257,7 +2329,9 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         )
 
         # --- 2. Criar Gráficos ---
-        bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
+        bottlenecks_df = load_project_bottlenecks_from_model(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
         if bottlenecks_df.empty:
             bottlenecks_df = compute_flow_bottlenecks(df_flow)
 

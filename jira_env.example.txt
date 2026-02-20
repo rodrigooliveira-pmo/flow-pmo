@@ -9,7 +9,11 @@ JIRA_API_TOKEN=cole_seu_token_aqui
 # JIRA_FIELD_MAP={"blocked_days":"customfield_12345","flagged":"customfield_10021","team":"customfield_10001","effort_tshirt_size":"customfield_12346","organizations":"customfield_10002","sprints":"customfield_10020","epic_name":"customfield_10014","principal":"customfield_10067"}
 
 # Opcional: mapeamento de status Jira -> etapas do fluxo.
-# JIRA_STATUS_MAP={"Sprint Backlog":["Backlog","To Do","Triagem"],"In Progress":["In Progress"],"Done":["Done","Concluído","Concluido"]}
+# Fluxo unificado:
+# - DT melhorias: TO DO -> DISCOVERY -> DEVELOPMENT -> TECH REVIEW -> IN VALIDATION -> IMPROVEMENT -> DONE
+# - DT suporte/bugs/adhoc: TO DO -> DEVELOPMENT -> IN VALIDATION -> DONE
+# - W1NNER/S1NC/BEFINANCE: TRIAGEM -> BACKLOG -> READY TO START -> IN PROGRESS -> READY CODE REVIEW -> CODE REVIEW -> READY TESTING/QA -> TESTING/QA -> READY STAGING -> STAGING -> READY FOR PRODUCTION -> ITENS CONCLUÍDOS
+# JIRA_STATUS_MAP={"Sprint Backlog":["Backlog","TO DO","To Do","Triagem","TRIAGEM","DISCOVERY","READY TO START","Ready to Start"],"In Progress":["In Progress","IN PROGRESS","Em Progresso","Desenvolvimento","DEVELOPMENT"],"Ready to Homologation":["TECH REVIEW","Ready Code Review","READY CODE REVIEW"],"Homologation":["Code Review","CODE REVIEW"],"QA Approved Hml":["IN VALIDATION","In Validation","Ready Testing/QA","READY TESTING/QA"],"Ready To Staging":["IMPROVEMENT","Testing/QA","TESTING/QA"],"In Staging":["Ready Staging","READY STAGING"],"QA Approved Staging":["Staging","STAGING"],"Ready for production":["Ready for production","READY FOR PRODUCTION","Ready for Produção","READY FOR PRODUÇÃO"],"Done":["Done","DONE","Itens Concluídos","ITENS CONCLUÍDOS","Concluído","Concluido"]}
 
 # Opcional (RF-02): políticas explícitas de fluxo por projeto.
 # FLOW_POLICIES={"default":{"wip_limit":12,"wip_age_sle_days":15,"blocked_days_limit":5,"flow_pressure_limit":1.0},"W1NNER":{"wip_limit":10}}

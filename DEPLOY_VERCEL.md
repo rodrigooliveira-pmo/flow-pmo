@@ -34,7 +34,24 @@ Use essas variáveis no projeto da Vercel para trocar módulo/objeto Dash e font
 
 ## Valores que você já pode configurar agora
 - Modelo principal:
-  - `FLOW_PMO_MODEL_URL=https://rd1e5wxyg84pnzxf.private.blob.vercel-storage.com/PowerBI_Model_20260220_114501.xlsx`
+  - `FLOW_PMO_MODEL_URL=https://<SEU_BLOB_PUBLICO>/PowerBI_Model_latest.xlsx`
+- Portfólio:
+  - `FLOW_PMO_PORTFOLIO_CSV_URL=https://<SEU_BLOB_PUBLICO>/portfolio-bt-ns-latest-data.csv`
 - Se quiser subir a versão `dashboard_app.py`:
   - `FLOW_PMO_DASH_MODULE=dashboard_app`
-  - `FLOW_PMO_DASHBOARD_OUTPUT_URL=https://rd1e5wxyg84pnzxf.private.blob.vercel-storage.com/dashboard_output_20260220_114452.xlsx`
+  - `FLOW_PMO_DASHBOARD_OUTPUT_URL=https://<SEU_BLOB_PUBLICO>/dashboard_output_latest.xlsx`
+
+## Fluxo estável (sem trocar variáveis a cada geração)
+1. Gere os arquivos normalmente:
+   - `run_all_projects_macos.sh` ou `run_all_projects.ps1`
+2. O fluxo agora cria automaticamente os arquivos fixos:
+   - `PowerBI_Model_latest.xlsx`
+   - `portfolio-bt-ns-latest-data.csv`
+   - `dashboard_output_latest.xlsx`
+3. Faça upload desses arquivos fixos para o Vercel Blob público, sobrescrevendo o mesmo nome.
+4. Mantenha as mesmas variáveis de ambiente na Vercel (sem editar URLs a cada geração).
+
+## Observação sobre gargalos
+- O dashboard agora lê o ranking de gargalos diretamente da aba `Fato_Gargalos` dentro do `PowerBI_Model_*.xlsx`.
+- A aba é gerada automaticamente pelo `dash_board_metricas.py`.
+- Fallback legado (CSV de gargalos + cálculo em memória) foi mantido para compatibilidade.

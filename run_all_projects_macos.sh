@@ -148,6 +148,13 @@ for i in "${!PROJECT_KEYS[@]}"; do
     echo "Arquivo: ${out_file}"
 
     "$PYTHON_BIN" "$SCRIPT_PATH" --projects "$key" --out "$out_file" --env-file "$ENV_FILE" --workers "$WORKERS"
+
+    bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"
+    bottleneck_latest="${OUT_DIR}/${prefix}-latest-data_bottlenecks.csv"
+    if [[ -f "$bottleneck_out" ]]; then
+        cp -f "$bottleneck_out" "$bottleneck_latest"
+        echo "Arquivo latest atualizado: ${bottleneck_latest}"
+    fi
 done
 
 echo
@@ -161,6 +168,8 @@ if [[ "$RUN_PORTFOLIO_EXPORT" == true ]]; then
     echo "Arquivo: ${portfolio_out}"
 
     "$PYTHON_BIN" "$PORTFOLIO_SCRIPT" --projects BT NS --out "$portfolio_out" --env-file "$ENV_FILE"
+    cp -f "$portfolio_out" "${OUT_DIR}/portfolio-bt-ns-latest-data.csv"
+    echo "Arquivo latest atualizado: ${OUT_DIR}/portfolio-bt-ns-latest-data.csv"
 fi
 
 if [[ "$RUN_METRICS" == true ]]; then
