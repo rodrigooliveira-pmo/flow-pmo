@@ -1772,7 +1772,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             html.Div([
                 html.Div([
                     indicator_dots(dot_teal),
-                    html.P("Demand vs Capacity", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
+                    html.P("Demanda vs Capacidade", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
                     html.Div([
                         html.Div([
                             html.Div([
@@ -1783,7 +1783,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
-                                html.P('Demand', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                                html.P('Demanda', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
                             ], style={'display': 'inline-block', 'width': '50%'}),
                             html.Div([
                                 html.Div(style={
@@ -1793,20 +1793,20 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
-                                html.P('Capacity', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                                html.P('Capacidade', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
                             ], style={'display': 'inline-block', 'width': '50%'}),
                         ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
                         html.Ul([
                             html.Li(
-                                f"Demand {abs(demand_vs_capacity_pct):.1f}% higher than capacity."
+                                f"Demanda {abs(demand_vs_capacity_pct):.1f}% acima da capacidade."
                                 if pd.notna(demand_vs_capacity_pct) and demand_vs_capacity_pct >= 0
                                 else (
-                                    f"Demand {abs(demand_vs_capacity_pct):.1f}% lower than capacity."
+                                    f"Demanda {abs(demand_vs_capacity_pct):.1f}% abaixo da capacidade."
                                     if pd.notna(demand_vs_capacity_pct)
                                     else "Sem base para comparação."
                                 )
                             ),
-                            html.Li(f"Inventory grew by {int(abs(inventory_growth))} flow items." if inventory_growth >= 0 else f"Inventory shrank by {int(abs(inventory_growth))} flow items."),
+                            html.Li(f"Inventário cresceu em {int(abs(inventory_growth))} itens de fluxo." if inventory_growth >= 0 else f"Inventário reduziu em {int(abs(inventory_growth))} itens de fluxo."),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
                     html.Div("FLOWMÁTIKA", style={'position': 'absolute', 'right': '14px', 'bottom': '8px', 'fontSize': '10px', 'color': '#118bd2', 'fontWeight': 'bold'}),
@@ -1820,7 +1820,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 }),
                 html.Div([
                     indicator_dots(dot_orange),
-                    html.P("Inflow vs Outflow", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
+                    html.P("Entrada vs Saída", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
                     html.Div([
                         html.Div([
                             html.Div([
@@ -1831,7 +1831,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
-                                html.P('Inflow', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                                html.P('Entrada', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
                             ], style={'display': 'inline-block', 'width': '50%'}),
                             html.Div([
                                 html.Div(style={
@@ -1841,20 +1841,20 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
-                                html.P('Outflow', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                                html.P('Saída', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
                             ], style={'display': 'inline-block', 'width': '50%'}),
                         ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
                         html.Ul([
                             html.Li(
-                                f"Inflow {abs(inflow_vs_outflow_pct):.1f}% higher than outflow."
+                                f"Entrada {abs(inflow_vs_outflow_pct):.1f}% acima da saída."
                                 if pd.notna(inflow_vs_outflow_pct) and inflow_vs_outflow_pct >= 0
                                 else (
-                                    f"Inflow {abs(inflow_vs_outflow_pct):.1f}% lower than outflow."
+                                    f"Entrada {abs(inflow_vs_outflow_pct):.1f}% abaixo da saída."
                                     if pd.notna(inflow_vs_outflow_pct)
                                     else "Sem base para comparação."
                                 )
                             ),
-                            html.Li(f"WIP grew by {int(abs(inventory_growth))} flow items." if inventory_growth >= 0 else f"WIP shrank by {int(abs(inventory_growth))} flow items."),
+                            html.Li(f"WIP cresceu em {int(abs(inventory_growth))} itens de fluxo." if inventory_growth >= 0 else f"WIP reduziu em {int(abs(inventory_growth))} itens de fluxo."),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
                     html.Div("FLOWMÁTIKA", style={'position': 'absolute', 'right': '14px', 'bottom': '8px', 'fontSize': '10px', 'color': '#118bd2', 'fontWeight': 'bold'}),
@@ -1869,28 +1869,28 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             ], className='row', style={'marginBottom': '12px'}),
             html.Div([
                 html.Div([
-                    html.H6("Inventory Size", style={'marginBottom': '4px'}),
+                    html.H6("Tamanho do Inventário", style={'marginBottom': '4px'}),
                     html.Div(f"{int(wip_end_count)}", style={'fontSize': '32px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('flow items', style={'marginBottom': '0'}),
+                    html.P('itens de fluxo', style={'marginBottom': '0'}),
                     html.P(
                         f"({inventory_weeks:.1f} semanas de inventário)" if pd.notna(inventory_weeks) else "(sem base de semanas de inventário)",
                         style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
                     ),
                 ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
                 html.Div([
-                    html.H6("Commitment Rate", style={'marginBottom': '4px'}),
+                    html.H6("Taxa de Comprometimento", style={'marginBottom': '4px'}),
                     html.Div(fmt_value(commitment_rate, '{:.0f}%'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
                     html.P('throughput / demanda', style={'fontSize': '12px', 'marginTop': '8px', 'color': '#555'}),
                 ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
                 html.Div([
-                    html.H6("Time to Commit (P85)", style={'marginBottom': '4px'}),
+                    html.H6("Tempo para Commit (P85)", style={'marginBottom': '4px'}),
                     html.Div(fmt_value(time_to_commit_p85, '{:.0f}'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
                     html.P('dias', style={'marginTop': '8px'}),
                 ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
                 html.Div([
-                    html.H6("WIP Count", style={'marginBottom': '4px'}),
+                    html.H6("Contagem de WIP", style={'marginBottom': '4px'}),
                     html.Div(f"{int(wip_end_count)}", style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('flow items', style={'marginBottom': '0'}),
+                    html.P('itens de fluxo', style={'marginBottom': '0'}),
                     html.P(
                         f"Média de {wip_per_person:.1f} itens por pessoa ativa" if pd.notna(wip_per_person) else "Sem base por pessoa",
                         style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
@@ -1904,7 +1904,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 html.Div([
                     html.H6("Throughput (total)", style={'marginBottom': '4px'}),
                     html.Div(f"{int(throughput_total)}", style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('flow items', style={'marginBottom': '0'}),
+                    html.P('itens de fluxo', style={'marginBottom': '0'}),
                     html.P(
                         f"(média de {throughput_weekly_avg:.1f} itens/semana)",
                         style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
@@ -1912,7 +1912,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
                 html.Div([
                     html.H6("Flow Efficiency", style={'marginBottom': '4px'}),
-                    html.P("KPI View - Historical View", style={'fontSize': '11px', 'color': '#607d8b', 'marginBottom': '8px'}),
+                    html.P("Visão KPI - Histórico", style={'fontSize': '11px', 'color': '#607d8b', 'marginBottom': '8px'}),
                     html.P(
                         "Em média, itens concluídos ficam ativos apenas",
                         style={'fontSize': '12px', 'marginBottom': '2px', 'color': '#555'}
