@@ -180,6 +180,64 @@ def discover_field_id(base_url: str, email: str, token: str, target_name: str) -
     return ""
 
 
+def discover_effort_tshirt_field_id(base_url: str, email: str, token: str) -> str:
+    try:
+        resp = requests.get(
+            f"{base_url}/rest/api/3/field",
+            auth=(email, token),
+            headers={"Accept": "application/json"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        field_defs = resp.json()
+    except Exception:
+        return ""
+
+    if not isinstance(field_defs, list):
+        return ""
+
+    def norm(txt: str) -> str:
+        return " ".join(str(txt or "").strip().lower().replace("-", " ").split())
+
+    exact_targets = {
+        "effort t shirt size",
+        "effort tshirt size",
+        "t shirt size",
+        "tshirt size",
+    }
+
+    # 1) Match exato/normalizado por nome.
+    for f in field_defs:
+        name = norm((f or {}).get("name") or "")
+        fid = str((f or {}).get("id") or "").strip()
+        if name in exact_targets and fid:
+            return fid
+
+    # 2) Match parcial por palavras-chave no nome.
+    for f in field_defs:
+        name = norm((f or {}).get("name") or "")
+        fid = str((f or {}).get("id") or "").strip()
+        if not fid:
+            continue
+        has_size = "size" in name
+        has_shirt = ("shirt" in name) or ("tshirt" in name)
+        has_effort = "effort" in name
+        if has_size and has_shirt and has_effort:
+            return fid
+
+    # 3) Fallback por schema custom.
+    for f in field_defs:
+        schema = (f or {}).get("schema") or {}
+        schema_custom = str(schema.get("custom") or "").strip().lower()
+        fid = str((f or {}).get("id") or "").strip()
+        if not fid:
+            continue
+        if "tshirt" in schema_custom or "t-shirt" in schema_custom:
+            return fid
+
+    return ""
+
+
 def extract_custom_text(value: Any) -> str:
     if value is None:
         return ""
@@ -213,6 +271,20 @@ def extract_team_from_fields(fields: Dict[str, Any], team_field: str) -> str:
 def is_feature_issue(issue_type_name: str) -> bool:
     tipo = str(issue_type_name or "").strip().lower()
     return tipo in {"feature", "funcionalidade"}
+
+
+def replace_field_in_list(fields: List[str], old_field: str, new_field: str) -> List[str]:
+    out = []
+    seen = set()
+    for f in fields:
+        if old_field and f == old_field:
+            continue
+        if f not in seen:
+            seen.add(f)
+            out.append(f)
+    if new_field and new_field not in seen:
+        out.append(new_field)
+    return out
 
 
 def build_output_row(
@@ -302,6 +374,10 @@ def main() -> int:
         team_field = discover_field_id(base_url=base_url, email=email, token=token, target_name="Team")
         if team_field:
             print(f"Campo Team autodetectado: {team_field}")
+    if not effort_tshirt_field:
+        effort_tshirt_field = discover_effort_tshirt_field_id(base_url=base_url, email=email, token=token)
+        if effort_tshirt_field:
+            print(f"Campo Effort T-shirt size autodetectado: {effort_tshirt_field}")
 
     fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate"]
     if team_field and team_field not in fields:
@@ -329,12 +405,44 @@ def main() -> int:
                     f"Campo Team configurado ({team_field}) não retornou dados. "
                     f"Usando autodetectado ({discovered_team_field}) e repetindo consulta."
                 )
+                old_team_field = team_field
                 team_field = discovered_team_field
-                fields = [f for f in fields if f != team_field]
-                if team_field not in fields:
-                    fields.append(team_field)
+                fields = replace_field_in_list(fields, old_team_field, team_field)
                 issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
                 print(f"Issues reconsultadas: {len(issues)}")
+
+    # Se o customfield de Effort T-shirt Size estiver incorreto/ausente, tenta autodetectar e reconsulta.
+    if issues:
+        sample_size = min(50, len(issues))
+        feature_fields = []
+        for issue in issues[:sample_size]:
+            issue_fields = issue.get("fields", {}) or {}
+            issue_type = str((issue_fields.get("issuetype") or {}).get("name") or "")
+            if is_feature_issue(issue_type):
+                feature_fields.append(issue_fields)
+
+        has_effort_field = False
+        if effort_tshirt_field and feature_fields:
+            for ff in feature_fields:
+                if effort_tshirt_field in ff:
+                    has_effort_field = True
+                    break
+
+        if (not effort_tshirt_field) or (feature_fields and not has_effort_field):
+            discovered_effort_field = discover_effort_tshirt_field_id(base_url=base_url, email=email, token=token)
+            if discovered_effort_field and discovered_effort_field != effort_tshirt_field:
+                if effort_tshirt_field:
+                    print(
+                        f"Campo Effort configurado ({effort_tshirt_field}) não retornou dados. "
+                        f"Usando autodetectado ({discovered_effort_field}) e repetindo consulta."
+                    )
+                else:
+                    print(f"Usando campo Effort T-shirt size autodetectado: {discovered_effort_field}")
+                old_effort_field = effort_tshirt_field
+                effort_tshirt_field = discovered_effort_field
+                fields = replace_field_in_list(fields, old_effort_field, effort_tshirt_field)
+                issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
+                print(f"Issues reconsultadas (effort): {len(issues)}")
 
     issue_team_map: Dict[str, str] = {}
     for issue in issues:
@@ -354,6 +462,14 @@ def main() -> int:
         )
         for issue in issues
     ]
+    features_total = 0
+    features_with_effort = 0
+    for row in rows:
+        if is_feature_issue(row.get("Tipo", "")):
+            features_total += 1
+            if str(row.get("EffortTShirtSize") or "").strip():
+                features_with_effort += 1
+    print(f"Features com Effort T-shirt size preenchido: {features_with_effort}/{features_total}")
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fp:
         writer = csv.DictWriter(fp, fieldnames=CSV_COLUMNS)
