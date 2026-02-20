@@ -40,10 +40,13 @@ def _candidate_data_folders():
     explicit_dir = os.getenv('FLOW_PMO_DATA_DIR', '').strip()
     legacy_override = os.getenv('DATA_FOLDER', '').strip()
     base_dir = os.path.dirname(__file__)
+    home_dir = os.path.expanduser('~')
     return _existing_dirs([
         explicit_dir,
         legacy_override,
         *split_env_dirs,
+        os.path.join(home_dir, 'Documents', 'dados'),
+        os.path.join(home_dir, 'Documents', 'Dados'),
         os.path.join(base_dir, 'data'),
         base_dir,
         LEGACY_DATA_FOLDER,

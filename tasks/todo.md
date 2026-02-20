@@ -32,6 +32,10 @@
 - Summary: Ajustado mapeamento de tipo de demanda para classificar `Ad-hoc` como `Suporte` no processamento de `Tipo de Problema`.
 - Risks:
   - Exportações antigas precisam ser reprocessadas para refletir a nova classificação nos dashboards.
+- Date: 2026-02-20
+- Summary: Corrigida resolução de pasta de dados no `dashboard_full.py` para incluir `~/Documents/dados` e `~/Documents/Dados`, alinhando leitura do modelo com o pipeline de reprocessamento.
+- Risks:
+  - Se produção usar `FLOW_PMO_MODEL_URL`/`FLOW_PMO_MODEL_FILE` apontando para artefato antigo, o ajuste de pastas locais não terá efeito.
 
 ## Review
 - What was validated:
@@ -39,11 +43,13 @@
   - `PowerBI_Model_latest.xlsx` gerado com `Fato_Gargalos` contendo linhas de `DATA&ANALYTICS`.
   - Sintaxe dos módulos Python e shell alterados.
   - Regra de classificação atualizada para mapear `ad-hoc/adhoc/ad hoc` em `Suporte`.
+  - `dashboard_full.py` passou a considerar `~/Documents/dados` e `~/Documents/Dados` na seleção automática do modelo.
 - Evidence (tests/logs/diff):
   - Execução: `DATA_FOLDER=/Users/.../Documents/dados FLOW_PMO_DATA_DIR=/Users/.../Documents/dados python3 dash_board_metricas.py`
   - Verificação da aba `Fato_Gargalos` no `PowerBI_Model_latest.xlsx` com 3 linhas para `DATA&ANALYTICS`.
   - `python3 -m py_compile dash_board_metricas.py dashboard_full.py api/index.py`
   - `bash -n run_all_projects_macos.sh`
   - Diferença na regra: `dash_board_metricas.py` agora inclui `ad-hoc`, `adhoc` e `ad hoc` na categoria `Suporte`.
+  - Diagnóstico: antes do ajuste, `dashboard_full.MODEL_FILE` resolvia para `/Users/.../OneDrive-W1/Documentos/Dados/PowerBI_Model_20260220_151715.xlsx` (modelo antigo com `Tipo=Outro` para parte do DT).
 - Open issues:
   - Necessário publicar o `PowerBI_Model_latest.xlsx` atualizado na Vercel para refletir em produção.
