@@ -176,6 +176,8 @@ if [[ "$RUN_METRICS" == true ]]; then
     [[ -f "$METRICS_SCRIPT" ]] || { echo "Arquivo nao encontrado: $METRICS_SCRIPT"; exit 1; }
     echo
     echo "Executando processamento de metricas..."
+    export DATA_FOLDER="$OUT_DIR"
+    export FLOW_PMO_DATA_DIR="$OUT_DIR"
     "$PYTHON_BIN" "$METRICS_SCRIPT"
 fi
 

@@ -110,6 +110,8 @@ if ($RunMetrics) {
         throw "Arquivo não encontrado: $metricsScript"
     }
 
+    $env:DATA_FOLDER = $OutDir
+    $env:FLOW_PMO_DATA_DIR = $OutDir
     & python $metricsScript
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao executar o processamento de métricas."

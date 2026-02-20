@@ -529,7 +529,7 @@ def categorize_work_item_type(tipo_de_problema):
     tipo_str = str(tipo_de_problema).lower().strip()
     
     # Support is separated from defects/issues/problems.
-    if any(word in tipo_str for word in ['support', 'suporte']):
+    if any(word in tipo_str for word in ['support', 'suporte', 'ad-hoc', 'adhoc', 'ad hoc']):
         return ('Suporte', 'Suporte')
 
     # Defect/Issue/Problem category
@@ -2868,13 +2868,40 @@ def process_multiple_csv_files(input_folder, output_folder):
 
 # Execute the function with the input and output folders
 import platform
-if platform.system() == 'Windows':
-    DATA_FOLDER = r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados'
-else:
-    DATA_FOLDER = os.path.join(os.path.expanduser('~'), 'Library', 'CloudStorage', 'OneDrive-W1', 'Documentos', 'Dados')
 
+
+def resolve_data_folder():
+    env_candidates = [
+        os.getenv('FLOW_PMO_DATA_DIR', '').strip(),
+        os.getenv('DATA_FOLDER', '').strip(),
+    ]
+
+    if platform.system() == 'Windows':
+        default_candidates = [
+            r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados',
+        ]
+    else:
+        home = os.path.expanduser('~')
+        default_candidates = [
+            os.path.join(home, 'Documents', 'dados'),
+            os.path.join(home, 'Documents', 'Dados'),
+            os.path.join(home, 'Library', 'CloudStorage', 'OneDrive-W1', 'Documentos', 'Dados'),
+        ]
+
+    for raw in [*env_candidates, *default_candidates]:
+        if not raw:
+            continue
+        candidate = os.path.abspath(raw)
+        if os.path.isdir(candidate):
+            return candidate
+
+    return os.path.abspath(default_candidates[0])
+
+
+DATA_FOLDER = resolve_data_folder()
 input_folder = DATA_FOLDER
 output_folder = DATA_FOLDER
+print(f"Usando DATA_FOLDER para métricas: {DATA_FOLDER}")
 
 # Tenta remover arquivo antigo se existir
 import os

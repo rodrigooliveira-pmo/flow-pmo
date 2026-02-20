@@ -25,18 +25,25 @@
 
 ## Progress Notes
 - Date: 2026-02-20
-- Summary: Gargalos agora são gravados na aba `Fato_Gargalos` do `PowerBI_Model_*.xlsx` e o dashboard lê essa aba como fonte primária.
+- Summary: Corrigido desalinhamento de diretório de dados; métricas e modelo agora podem usar `DATA_FOLDER`/`FLOW_PMO_DATA_DIR` (mesma pasta de exportação), e `Fato_Gargalos` voltou a incluir `DATA&ANALYTICS`.
 - Risks:
-  - Se o modelo em produção não for atualizado, dashboard continuará no fallback legado.
+  - Se produção continuar apontando para um `PowerBI_Model_latest.xlsx` antigo, a tela seguirá no fallback legado.
+- Date: 2026-02-20
+- Summary: Ajustado mapeamento de tipo de demanda para classificar `Ad-hoc` como `Suporte` no processamento de `Tipo de Problema`.
+- Risks:
+  - Exportações antigas precisam ser reprocessadas para refletir a nova classificação nos dashboards.
 
 ## Review
 - What was validated:
-  - Sintaxe dos módulos Python alterados.
-  - Sintaxe do script bash de orquestração.
-  - Diff revisado para garantir prioridade da planilha com fallback preservado.
+  - Reprocessamento completo em `/Users/.../Documents/dados` com sucesso.
+  - `PowerBI_Model_latest.xlsx` gerado com `Fato_Gargalos` contendo linhas de `DATA&ANALYTICS`.
+  - Sintaxe dos módulos Python e shell alterados.
+  - Regra de classificação atualizada para mapear `ad-hoc/adhoc/ad hoc` em `Suporte`.
 - Evidence (tests/logs/diff):
+  - Execução: `DATA_FOLDER=/Users/.../Documents/dados FLOW_PMO_DATA_DIR=/Users/.../Documents/dados python3 dash_board_metricas.py`
+  - Verificação da aba `Fato_Gargalos` no `PowerBI_Model_latest.xlsx` com 3 linhas para `DATA&ANALYTICS`.
   - `python3 -m py_compile dash_board_metricas.py dashboard_full.py api/index.py`
   - `bash -n run_all_projects_macos.sh`
-  - `git diff -- dash_board_metricas.py dashboard_full.py DEPLOY_VERCEL.md tasks/todo.md`
+  - Diferença na regra: `dash_board_metricas.py` agora inclui `ad-hoc`, `adhoc` e `ad hoc` na categoria `Suporte`.
 - Open issues:
-  - Arquivos `.pyc` em `__pycache__/` continuam marcados no git neste ambiente (não bloqueia funcionalidade).
+  - Necessário publicar o `PowerBI_Model_latest.xlsx` atualizado na Vercel para refletir em produção.
