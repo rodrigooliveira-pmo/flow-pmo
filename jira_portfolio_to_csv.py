@@ -142,6 +142,44 @@ def search_issues(base_url: str, email: str, token: str, jql: str, fields: List[
     raise RuntimeError(f"Falha ao consultar Jira ({', '.join(errors)}).")
 
 
+def discover_field_id(base_url: str, email: str, token: str, target_name: str) -> str:
+    try:
+        resp = requests.get(
+            f"{base_url}/rest/api/3/field",
+            auth=(email, token),
+            headers={"Accept": "application/json"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        field_defs = resp.json()
+    except Exception:
+        return ""
+
+    target = str(target_name or "").strip().lower()
+    if not isinstance(field_defs, list):
+        return ""
+
+    # 1) Match exato por nome visível.
+    for f in field_defs:
+        name = str((f or {}).get("name") or "").strip().lower()
+        fid = str((f or {}).get("id") or "").strip()
+        if name == target and fid:
+            return fid
+
+    # 2) Fallback por schema de Team (varia entre plugins/instâncias).
+    for f in field_defs:
+        schema = (f or {}).get("schema") or {}
+        schema_type = str(schema.get("type") or "").strip().lower()
+        schema_custom = str(schema.get("custom") or "").strip().lower()
+        fid = str((f or {}).get("id") or "").strip()
+        if not fid:
+            continue
+        if "team" in schema_type or "team" in schema_custom:
+            return fid
+
+    return ""
+
+
 def extract_custom_text(value: Any) -> str:
     if value is None:
         return ""
@@ -260,6 +298,10 @@ def main() -> int:
     field_map = parse_json_env("JIRA_FIELD_MAP", default={})
     team_field = str(field_map.get("team") or "").strip()
     effort_tshirt_field = str(field_map.get("effort_tshirt_size") or "").strip()
+    if not team_field:
+        team_field = discover_field_id(base_url=base_url, email=email, token=token, target_name="Team")
+        if team_field:
+            print(f"Campo Team autodetectado: {team_field}")
 
     fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate"]
     if team_field and team_field not in fields:
@@ -270,6 +312,29 @@ def main() -> int:
     print(f"Consultando Jira com JQL: {jql}")
     issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
     print(f"Issues encontradas: {len(issues)}")
+
+    # Se o customfield configurado para TEAM estiver incorreto, tenta autodetectar e consulta novamente.
+    if issues and team_field:
+        has_team_field = False
+        sample_size = min(25, len(issues))
+        for issue in issues[:sample_size]:
+            issue_fields = issue.get("fields", {}) or {}
+            if team_field in issue_fields:
+                has_team_field = True
+                break
+        if not has_team_field:
+            discovered_team_field = discover_field_id(base_url=base_url, email=email, token=token, target_name="Team")
+            if discovered_team_field and discovered_team_field != team_field:
+                print(
+                    f"Campo Team configurado ({team_field}) não retornou dados. "
+                    f"Usando autodetectado ({discovered_team_field}) e repetindo consulta."
+                )
+                team_field = discovered_team_field
+                fields = [f for f in fields if f != team_field]
+                if team_field not in fields:
+                    fields.append(team_field)
+                issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
+                print(f"Issues reconsultadas: {len(issues)}")
 
     issue_team_map: Dict[str, str] = {}
     for issue in issues:
