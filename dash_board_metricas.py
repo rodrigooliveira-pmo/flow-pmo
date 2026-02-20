@@ -4,11 +4,129 @@ import glob
 import os
 import csv
 import re
+import json
 from pathlib import Path
 from datetime import datetime
 
 # Semana padrão do sistema: janelas de segunda (inclusive) até segunda (exclusiva).
 WEEK_DATE_RANGE_FREQ = 'W-MON'
+
+DEFAULT_FLOW_POLICIES = {
+    "default": {
+        "wip_limit": 12,
+        "wip_age_sle_days": 15,
+        "blocked_days_limit": 5,
+        "flow_pressure_limit": 1.0
+    }
+}
+
+DEFAULT_CLASS_OF_SERVICE_RULES = {
+    "expedite_priorities": ["blocker", "critical", "highest", "alta", "urgente"],
+    "fixed_date_keywords": ["fixed date", "deadline", "due date", "prazo", "data fixa"],
+    "intangible_keywords": ["risk", "compliance", "seguranca", "segurança", "regulatory"]
+}
+
+DEFAULT_PATTERN_RULES = {
+    "urgencia_cronica": {"expedite_pct_min": 25.0, "flow_pressure_min": 1.0, "failure_demand_pct_min": 30.0},
+    "burnout": {"expedite_pct_min": 30.0, "flow_pressure_min": 1.15, "failure_demand_pct_min": 35.0},
+    "confianca_comprometida": {"predictability_ratio_min": 2.2, "lead_time_p85_min": 15.0, "failure_demand_pct_min": 30.0},
+    "problema_sistemico_fluxo": {"wip_tp_ratio_min": 2.0, "blocked_rate_min": 12.0, "flow_pressure_min": 1.0},
+    "atrasos_desperdicios": {"discard_rate_min": 8.0, "blocked_rate_min": 10.0, "wip_age_over_p85_min": 1.1},
+    "estagnacao": {"wip_tp_ratio_min": 3.0, "wip_age_over_p85_min": 1.3, "flow_pressure_min": 1.05},
+    "compromisso_prematuro": {"flow_pressure_min": 1.1, "wip_tp_ratio_min": 2.2, "predictability_ratio_min": 2.0},
+}
+
+
+def load_env_file(env_file):
+    """Load KEY=VALUE pairs into environment if file exists."""
+    p = Path(env_file)
+    if not p.exists():
+        return
+    for raw in p.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, v = line.split('=', 1)
+        os.environ[k.strip()] = v.strip()
+
+
+def parse_json_env(name, default):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else default
+    except json.JSONDecodeError:
+        return default
+
+
+def normalize_text(value):
+    txt = str(value or '').strip().lower()
+    translate_map = str.maketrans('áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+    return txt.translate(translate_map)
+
+
+def load_flow_policies():
+    return parse_json_env("FLOW_POLICIES", parse_json_env("JIRA_FLOW_POLICIES", DEFAULT_FLOW_POLICIES))
+
+
+def load_class_of_service_rules():
+    return parse_json_env(
+        "CLASS_OF_SERVICE_RULES",
+        parse_json_env("JIRA_CLASS_OF_SERVICE_RULES", DEFAULT_CLASS_OF_SERVICE_RULES),
+    )
+
+
+def load_pattern_rules():
+    return parse_json_env("PATTERN_RULES", parse_json_env("JIRA_PATTERN_RULES", DEFAULT_PATTERN_RULES))
+
+
+def classify_service_class(row, rules):
+    """Classify class of service from priority/labels/type."""
+    priority = normalize_text(row.get('Prioridade', ''))
+    labels = normalize_text(row.get('Etiquetas', ''))
+    title = normalize_text(row.get('Title', ''))
+    item_type = normalize_text(row.get('Tipo de Problema', row.get('WorkItemSubType', '')))
+
+    expedite_priorities = {normalize_text(x) for x in rules.get('expedite_priorities', [])}
+    fixed_keywords = [normalize_text(x) for x in rules.get('fixed_date_keywords', [])]
+    intangible_keywords = [normalize_text(x) for x in rules.get('intangible_keywords', [])]
+
+    if priority in expedite_priorities:
+        return 'Expedite'
+    if any(k and (k in labels or k in title) for k in fixed_keywords):
+        return 'Fixed Date'
+    if any(k and (k in labels or k in title or k in item_type) for k in intangible_keywords):
+        return 'Intangible'
+    return 'Standard'
+
+
+def is_discarded_item(row):
+    """Heuristic for discarded/cancelled items."""
+    resolution = normalize_text(row.get('Resolução', ''))
+    title = normalize_text(row.get('Title', ''))
+    subtype = normalize_text(row.get('WorkItemSubType', row.get('Tipo de Problema', '')))
+    discard_tokens = [
+        "wont do", "won't do", "cancel", "cancelad", "duplicat", "obsolete",
+        "rejected", "nao sera feito", "nao-fazer", "descart", "invalid"
+    ]
+    txt = f"{resolution} {title} {subtype}"
+    return any(token in txt for token in discard_tokens)
+
+
+def get_project_policy(project, policies):
+    base = dict(policies.get('default', {}))
+    base.update(policies.get(project, {}))
+    return base
+
+
+# Load local env files (if present) for optional policy/rule configuration.
+load_env_file(Path(__file__).with_name('jira_env.txt'))
+load_env_file(Path(__file__).with_name('jira-env.txt'))
+FLOW_POLICIES = load_flow_policies()
+CLASS_OF_SERVICE_RULES = load_class_of_service_rules()
+PATTERN_RULES = load_pattern_rules()
 
 # Try to import openpyxl, fallback to xlsxwriter
 try:
@@ -1186,10 +1304,10 @@ def generate_type_analysis(consolidated_data):
 def generate_quality_metrics(consolidated_data):
     """
     Generate quality and rework metrics:
-    - Taxa de Defeitos Regressivos (approximation)
-    - Eficiência Ponderada
-    - Razão Valor/Custo
     - Debt Ratio
+    - Razão Valor/Custo
+    - Eficiência Média
+    - Itens descartados e taxa de descarte
     """
     metrics_list = []
     
@@ -1203,6 +1321,7 @@ def generate_quality_metrics(consolidated_data):
         defects = len(df_complete[df_complete['WorkItemCategory'] == 'Defeitos'])
         development = len(df_complete[df_complete['WorkItemCategory'] == 'Desenvolvimento'])
         total = len(df_complete)
+        discarded = int(df_complete.apply(is_discarded_item, axis=1).sum()) if total > 0 else 0
         
         # Debt Ratio
         debt_ratio = (defects / total * 100) if total > 0 else 0
@@ -1228,6 +1347,8 @@ def generate_quality_metrics(consolidated_data):
             'Total Itens Completados': total,
             'Defeitos Concluídos': defects,
             'Desenvolvimento Concluído': development,
+            'Itens Descartados': discarded,
+            'Taxa Descarte (%)': round((discarded / total * 100), 2) if total > 0 else 0,
             'Debt Ratio (%)': round(debt_ratio, 2),
             'Value Ratio (%)': round(value_ratio, 2),
             'Razão Valor/Custo': round(valor_custo, 2),
@@ -1568,12 +1689,14 @@ def prepare_powerbi_dimensions(consolidated_data):
     - Dim_Responsavel
     - Dim_Componente
     - Dim_Prioridade
+    - Dim_ClasseServico
     """
     dim_projeto = []
     dim_tipo = []
     dim_responsavel = []
     dim_componente = []
     dim_prioridade = []
+    dim_classe_servico = []
     
     for projeto, df in consolidated_data.items():
         # Projeto dimension
@@ -1617,6 +1740,15 @@ def prepare_powerbi_dimensions(consolidated_data):
                         'PrioridadeID': len(dim_prioridade) + 1,
                         'Prioridade': str(prio)
                     })
+
+        # Classe de servico dimension (RF-11)
+        for _, row in df.iterrows():
+            classe = classify_service_class(row, CLASS_OF_SERVICE_RULES)
+            if classe not in [c['ClasseServico'] for c in dim_classe_servico]:
+                dim_classe_servico.append({
+                    'ClasseServicoID': len(dim_classe_servico) + 1,
+                    'ClasseServico': classe
+                })
     
     # Create Data dimension (from earliest date to latest)
     all_dates = []
@@ -1651,7 +1783,8 @@ def prepare_powerbi_dimensions(consolidated_data):
         'Dim_Tipo': pd.DataFrame(dim_tipo),
         'Dim_Responsavel': pd.DataFrame(dim_responsavel) if dim_responsavel else pd.DataFrame(),
         'Dim_Componente': pd.DataFrame(dim_componente) if dim_componente else pd.DataFrame(),
-        'Dim_Prioridade': pd.DataFrame(dim_prioridade) if dim_prioridade else pd.DataFrame()
+        'Dim_Prioridade': pd.DataFrame(dim_prioridade) if dim_prioridade else pd.DataFrame(),
+        'Dim_ClasseServico': pd.DataFrame(dim_classe_servico) if dim_classe_servico else pd.DataFrame()
     }
 
 def prepare_powerbi_fact_table(consolidated_data, dimensions):
@@ -1667,6 +1800,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
     dim_resp_map = {row['Responsavel']: row['ResponsavelID'] for _, row in dimensions['Dim_Responsavel'].iterrows()} if not dimensions['Dim_Responsavel'].empty else {}
     dim_comp_map = {row['Componente']: row['ComponenteID'] for _, row in dimensions['Dim_Componente'].iterrows()} if not dimensions['Dim_Componente'].empty else {}
     dim_prio_map = {row['Prioridade']: row['PrioridadeID'] for _, row in dimensions['Dim_Prioridade'].iterrows()} if not dimensions['Dim_Prioridade'].empty else {}
+    dim_classe_map = {row['ClasseServico']: row['ClasseServicoID'] for _, row in dimensions['Dim_ClasseServico'].iterrows()} if not dimensions['Dim_ClasseServico'].empty else {}
     
     # Get today's date for WIP calculation
     today = pd.Timestamp.now().date()
@@ -1702,6 +1836,8 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             # Get prioridade
             prioridade = row.get('Prioridade', 'Normal')
             prio_id = dim_prio_map.get(str(prioridade), None) if prioridade and str(prioridade) != 'nan' else None
+            classe_servico = classify_service_class(row, CLASS_OF_SERVICE_RULES)
+            classe_servico_id = dim_classe_map.get(classe_servico, None)
             
             # Calculate metrics
             sprint_backlog_date = row.get('Sprint Backlog')
@@ -1733,6 +1869,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
 
             is_completed = 1 if pd.notna(done_date) else 0
             is_blocked = 1 if row.get('Blocked') == True else 0
+            is_discarded = 1 if is_discarded_item(row) else 0
             
             # Calculate WIP status (is item currently in progress but not done?)
             is_wip = 0
@@ -1754,11 +1891,13 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'ResponsavelNome': responsavel_name,
                 'ComponenteID': comp_id,
                 'PrioridadeID': prio_id,
+                'ClasseServicoID': classe_servico_id,
                 'DataCriacaoID': None,  # Can be linked to Dim_Data
                 'DataInicioProgressoID': None,
                 'DataConclucaoID': None,
                 'Titulo': str(row.get('Title', '')),
                 'WorkItemSubType': str(row.get('WorkItemSubType', 'Outro')),
+                'ClasseServico': classe_servico,
                 'TempoBacklog_Dias': backlog_days,
                 'TempoExecucao_Dias': cycle_days,
                 'LeadTime_Dias': lead_days,
@@ -1768,6 +1907,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'TempoEsperaIntermediariaDias': wait_days_v2,
                 'Concluido': is_completed,
                 'Bloqueado': is_blocked,
+                'Descartado': is_discarded,
                 'StoryPoints': row.get('Story Points'),
                 'DataBacklog': sprint_backlog_date,
                 'DataInProgress': effective_in_progress_date,
@@ -1815,6 +1955,9 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
         
         if not dimensions['Dim_Prioridade'].empty:
             dimensions['Dim_Prioridade'].to_excel(writer, sheet_name='Dim_Prioridade', index=False)
+
+        if not dimensions['Dim_ClasseServico'].empty:
+            dimensions['Dim_ClasseServico'].to_excel(writer, sheet_name='Dim_ClasseServico', index=False)
         
         # Write Fact Table
         fact_table.to_excel(writer, sheet_name='Fato_Items', index=False)
@@ -1831,6 +1974,8 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
         print(f"  - Dim_Componente: {len(dimensions['Dim_Componente'])} registros")
     if not dimensions['Dim_Prioridade'].empty:
         print(f"  - Dim_Prioridade: {len(dimensions['Dim_Prioridade'])} registros")
+    if not dimensions['Dim_ClasseServico'].empty:
+        print(f"  - Dim_ClasseServico: {len(dimensions['Dim_ClasseServico'])} registros")
     
     print(f"\nFATOS (Fact Table):")
     print(f"  - Fato_Items: {len(fact_table)} registros (work items)")
@@ -1848,6 +1993,7 @@ def save_powerbi_optimized_model(consolidated_data, output_folder):
     print(f"Fato_Items[ResponsavelID] → Dim_Responsavel[ResponsavelID]")
     print(f"Fato_Items[ComponenteID] → Dim_Componente[ComponenteID]")
     print(f"Fato_Items[PrioridadeID] → Dim_Prioridade[PrioridadeID]")
+    print(f"Fato_Items[ClasseServicoID] → Dim_ClasseServico[ClasseServicoID]")
     print(f"Fato_Items[DataDone] → Dim_Data[Data] (para análises por data)")
     
     return output_file
@@ -1955,6 +2101,310 @@ def generate_wip_per_person(consolidated_data):
     
     return df_wip
 
+
+def build_flow_policies_table(consolidated_data, policies):
+    rows = []
+    for projeto in sorted(consolidated_data.keys()):
+        p = get_project_policy(projeto, policies)
+        rows.append({
+            'Projeto': projeto,
+            'WIP Limit': p.get('wip_limit'),
+            'WIP Age SLE (dias)': p.get('wip_age_sle_days'),
+            'Blocked Days Limit': p.get('blocked_days_limit'),
+            'Flow Pressure Limit': p.get('flow_pressure_limit'),
+        })
+    return pd.DataFrame(rows)
+
+
+def generate_policy_violations(consolidated_data, policies):
+    """Generate weekly policy compliance view (RF-02)."""
+    start_date = pd.Timestamp('2024-01-01')
+    end_date = pd.Timestamp('2026-03-10')
+    weeks = pd.date_range(start=start_date, end=end_date, freq=WEEK_DATE_RANGE_FREQ)
+    rows = []
+
+    for projeto, df in consolidated_data.items():
+        policy = get_project_policy(projeto, policies)
+        wip_limit = policy.get('wip_limit')
+        wip_age_limit = policy.get('wip_age_sle_days')
+        blocked_limit = policy.get('blocked_days_limit')
+        pressure_limit = policy.get('flow_pressure_limit')
+
+        if 'ID' in df.columns:
+            df = df.drop_duplicates(subset=['ID'], keep='first')
+
+        for i in range(len(weeks) - 1):
+            week_start = weeks[i]
+            week_end = weeks[i + 1]
+            arrivals = df[(df['In Progress'] >= week_start) & (df['In Progress'] < week_end)]
+            finished = df[(df['Done'] >= week_start) & (df['Done'] < week_end)]
+            wip_items = df[(df['In Progress'] < week_end) & ((df['Done'] >= week_end) | (df['Done'].isna()))]
+            wip = len(wip_items)
+            throughput = len(finished)
+            pressure = (len(arrivals) / throughput) if throughput > 0 else np.nan
+            wip_age = (week_end - wip_items['In Progress']).dt.days.mean() if not wip_items.empty else 0
+
+            blocked_over_limit = 0
+            if blocked_limit is not None and 'Blocked Days' in wip_items.columns:
+                blocked_days = pd.to_numeric(wip_items['Blocked Days'], errors='coerce').fillna(0)
+                blocked_over_limit = int((blocked_days > float(blocked_limit)).sum())
+
+            breach_wip = (wip_limit is not None) and (wip > float(wip_limit))
+            breach_wip_age = (wip_age_limit is not None) and (wip_age > float(wip_age_limit))
+            breach_pressure = (
+                pressure_limit is not None and pd.notna(pressure) and pressure > float(pressure_limit)
+            )
+            breach_blocked = blocked_over_limit > 0
+            breach_count = int(breach_wip) + int(breach_wip_age) + int(breach_pressure) + int(breach_blocked)
+
+            rows.append({
+                'Projeto': projeto,
+                'Week Start': week_start.date(),
+                'WIP': wip,
+                'WIP Age Médio (dias)': round(float(wip_age), 2) if pd.notna(wip_age) else 0.0,
+                'Chegadas': len(arrivals),
+                'Throughput': throughput,
+                'Pressão de Fluxo': round(float(pressure), 3) if pd.notna(pressure) else np.nan,
+                'Blocked>Limite': blocked_over_limit,
+                'Violou WIP Limit': int(breach_wip),
+                'Violou WIP Age SLE': int(breach_wip_age),
+                'Violou Flow Pressure': int(breach_pressure),
+                'Violou Blocked Days': int(breach_blocked),
+                'Total Violações': breach_count,
+                'Status Politica': 'Crítico' if breach_count >= 2 else ('Atenção' if breach_count == 1 else 'OK'),
+            })
+
+    return pd.DataFrame(rows)
+
+
+def generate_executive_report_artifacts(
+    output_folder,
+    timestamp,
+    df_flow_health,
+    df_quality,
+    df_policy_violations,
+):
+    """Export executive report (RF-14) in XLSX/CSV/Markdown with trends and risk evidence."""
+    if df_flow_health.empty:
+        return pd.DataFrame(), None, None
+
+    policy_counts = (
+        df_policy_violations.groupby('Projeto', as_index=False)['Total Violações'].sum()
+        if not df_policy_violations.empty
+        else pd.DataFrame(columns=['Projeto', 'Total Violações'])
+    )
+
+    summary = df_flow_health.merge(
+        df_quality[['Projeto', 'Debt Ratio (%)', 'Taxa Descarte (%)']] if not df_quality.empty else pd.DataFrame(columns=['Projeto']),
+        on='Projeto',
+        how='left',
+    )
+    summary = summary.merge(policy_counts, on='Projeto', how='left')
+    summary['Total Violações'] = summary['Total Violações'].fillna(0).astype(int)
+    summary['Debt Ratio (%)'] = summary.get('Debt Ratio (%)', pd.Series(dtype='float64')).fillna(0)
+    summary['Taxa Descarte (%)'] = summary.get('Taxa Descarte (%)', pd.Series(dtype='float64')).fillna(0)
+
+    def classify_risk(row):
+        risks = 0
+        if row.get('Ratio Chegada/Throughput', 0) > 1:
+            risks += 1
+        if row.get('Crescimento WIP (%)', 0) > 10:
+            risks += 1
+        if row.get('Debt Ratio (%)', 0) > 35:
+            risks += 1
+        if row.get('Taxa Descarte (%)', 0) > 10:
+            risks += 1
+        if row.get('Total Violações', 0) > 0:
+            risks += 1
+        if risks >= 3:
+            return 'Crítico'
+        if risks >= 1:
+            return 'Atenção'
+        return 'OK'
+
+    summary['Risco Executivo'] = summary.apply(classify_risk, axis=1)
+    summary = summary.sort_values(['Risco Executivo', 'Projeto'], ascending=[False, True]).reset_index(drop=True)
+
+    csv_path = os.path.join(output_folder, f"executive_report_{timestamp}.csv")
+    md_path = os.path.join(output_folder, f"executive_report_{timestamp}.md")
+    summary.to_csv(csv_path, index=False, encoding='utf-8')
+
+    lines = [
+        "# Relatório Executivo de Métricas de Fluxo",
+        "",
+        f"Gerado em: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "## Resumo por Projeto",
+        "",
+        "| Projeto | Ratio Chegada/Throughput | Crescimento WIP (%) | Debt Ratio (%) | Taxa Descarte (%) | Violações de Política | Risco Executivo |",
+        "|---|---:|---:|---:|---:|---:|---|",
+    ]
+    for _, row in summary.iterrows():
+        lines.append(
+            f"| {row.get('Projeto','')} | {row.get('Ratio Chegada/Throughput',0):.2f} | "
+            f"{row.get('Crescimento WIP (%)',0):.2f} | {row.get('Debt Ratio (%)',0):.2f} | "
+            f"{row.get('Taxa Descarte (%)',0):.2f} | {int(row.get('Total Violações',0))} | "
+            f"{row.get('Risco Executivo','')} |"
+        )
+    lines.extend(["", "## Evidências usadas", "", "- Saúde de fluxo (chegada/throughput, crescimento de WIP).", "- Qualidade (Debt Ratio e taxa de descarte).", "- Violações de políticas de fluxo (WIP, WIP Age SLE, bloqueios e pressão de fluxo)."])
+    Path(md_path).write_text("\n".join(lines), encoding='utf-8')
+
+    return summary, csv_path, md_path
+
+
+def _safe_pct(numerator, denominator):
+    if denominator is None or denominator == 0:
+        return 0.0
+    return float(numerator) / float(denominator) * 100.0
+
+
+def _safe_ratio(numerator, denominator):
+    if denominator is None or denominator == 0:
+        return np.nan
+    return float(numerator) / float(denominator)
+
+
+def generate_systemic_pattern_detection(consolidated_data, rules):
+    """
+    RF-08/RF-09: detect configurable systemic patterns from weekly flow signals.
+    Returns:
+    - detailed detections per project/week/pattern
+    - summary per project/pattern
+    """
+    start_date = pd.Timestamp('2025-01-01')
+    end_date = pd.Timestamp('2026-03-10')
+    weeks = pd.date_range(start=start_date, end=end_date, freq=WEEK_DATE_RANGE_FREQ)
+
+    pattern_labels = {
+        "urgencia_cronica": "Times operando em estado de urgência",
+        "burnout": "Times em processo de burnout",
+        "confianca_comprometida": "Times comprometendo a confiança do cliente",
+        "problema_sistemico_fluxo": "Times com problemas sistêmicos de fluxo",
+        "atrasos_desperdicios": "Times com atrasos e desperdícios",
+        "estagnacao": "Times estagnados",
+        "compromisso_prematuro": "Times com compromisso prematuro",
+    }
+
+    details = []
+
+    for projeto, df in consolidated_data.items():
+        if 'ID' in df.columns:
+            df = df.drop_duplicates(subset=['ID'], keep='first')
+        if df.empty:
+            continue
+
+        for i in range(len(weeks) - 1):
+            week_start = weeks[i]
+            week_end = weeks[i + 1]
+
+            arrivals = df[(df['In Progress'] >= week_start) & (df['In Progress'] < week_end)]
+            finished = df[(df['Done'] >= week_start) & (df['Done'] < week_end)]
+            wip_items = df[(df['In Progress'] < week_end) & ((df['Done'] >= week_end) | (df['Done'].isna()))]
+
+            throughput = len(finished)
+            inflow = len(arrivals)
+            flow_pressure = _safe_ratio(inflow, throughput)
+            wip = len(wip_items)
+            wip_tp_ratio = _safe_ratio(wip, throughput)
+
+            lead_times = compute_valid_lead_series(finished)
+            lt_p85 = float(lead_times.quantile(0.85)) if not lead_times.empty else 0.0
+            lt_p50 = float(lead_times.quantile(0.50)) if not lead_times.empty else 0.0
+            predictability_ratio = _safe_ratio(lt_p85, lt_p50) if lt_p50 > 0 else np.nan
+
+            type_counts = finished['WorkItemCategory'].value_counts() if 'WorkItemCategory' in finished.columns else pd.Series(dtype='int64')
+            defects = int(type_counts.get('Defeitos', 0))
+            failure_demand_pct = _safe_pct(defects, throughput)
+
+            expedite_arrivals = 0
+            if not arrivals.empty:
+                cls = arrivals.apply(lambda r: classify_service_class(r, CLASS_OF_SERVICE_RULES), axis=1)
+                expedite_arrivals = int((cls == 'Expedite').sum())
+            expedite_pct = _safe_pct(expedite_arrivals, inflow)
+
+            blocked_rate = 0.0
+            if not wip_items.empty and 'Blocked' in wip_items.columns:
+                blocked_rate = _safe_pct(int((wip_items['Blocked'] == True).sum()), len(wip_items))
+
+            discard_rate = 0.0
+            if throughput > 0:
+                discarded = int(finished.apply(is_discarded_item, axis=1).sum())
+                discard_rate = _safe_pct(discarded, throughput)
+
+            wip_age = (week_end - wip_items['In Progress']).dt.days.mean() if not wip_items.empty else 0.0
+            wip_age_over_p85 = _safe_ratio(wip_age, lt_p85) if lt_p85 > 0 else np.nan
+
+            signals = {
+                "expedite_pct": float(expedite_pct),
+                "flow_pressure": float(flow_pressure) if pd.notna(flow_pressure) else np.nan,
+                "failure_demand_pct": float(failure_demand_pct),
+                "predictability_ratio": float(predictability_ratio) if pd.notna(predictability_ratio) else np.nan,
+                "lead_time_p85": float(lt_p85),
+                "wip_tp_ratio": float(wip_tp_ratio) if pd.notna(wip_tp_ratio) else np.nan,
+                "blocked_rate": float(blocked_rate),
+                "discard_rate": float(discard_rate),
+                "wip_age_over_p85": float(wip_age_over_p85) if pd.notna(wip_age_over_p85) else np.nan,
+                "inflow": inflow,
+                "throughput": throughput,
+                "wip": wip,
+            }
+
+            for pattern_key, threshold_map in rules.items():
+                rule_hits = []
+                for metric, threshold in threshold_map.items():
+                    if metric.endswith('_max'):
+                        signal_name = metric[:-4]
+                        value = signals.get(signal_name, np.nan)
+                        if pd.notna(value) and value <= float(threshold):
+                            rule_hits.append(f"{signal_name}<={threshold}")
+                    else:
+                        signal_name = metric.replace('_min', '')
+                        value = signals.get(signal_name, np.nan)
+                        if pd.notna(value) and value >= float(threshold):
+                            rule_hits.append(f"{signal_name}>={threshold}")
+
+                min_hits = max(1, int(np.ceil(len(threshold_map) * 0.6)))
+                matched = len(rule_hits) >= min_hits
+                if not matched:
+                    continue
+
+                severity = 'Atenção'
+                if len(rule_hits) >= len(threshold_map):
+                    severity = 'Crítico'
+
+                details.append({
+                    'Projeto': projeto,
+                    'Week Start': week_start.date(),
+                    'Padrão': pattern_labels.get(pattern_key, pattern_key),
+                    'PatternKey': pattern_key,
+                    'Severidade': severity,
+                    'Regras Acionadas': " | ".join(rule_hits),
+                    'Expedite (%)': round(signals['expedite_pct'], 2),
+                    'Pressure (λ/μ)': round(signals['flow_pressure'], 3) if pd.notna(signals['flow_pressure']) else np.nan,
+                    'Failure Demand (%)': round(signals['failure_demand_pct'], 2),
+                    'Predictability (P85/P50)': round(signals['predictability_ratio'], 2) if pd.notna(signals['predictability_ratio']) else np.nan,
+                    'Lead Time P85': round(signals['lead_time_p85'], 2),
+                    'WIP/Throughput': round(signals['wip_tp_ratio'], 2) if pd.notna(signals['wip_tp_ratio']) else np.nan,
+                    'Blocked (%)': round(signals['blocked_rate'], 2),
+                    'Discard (%)': round(signals['discard_rate'], 2),
+                    'WIP Age / LT P85': round(signals['wip_age_over_p85'], 2) if pd.notna(signals['wip_age_over_p85']) else np.nan,
+                    'Chegadas': inflow,
+                    'Throughput': throughput,
+                    'WIP': wip,
+                })
+
+    details_df = pd.DataFrame(details)
+    if details_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    summary_df = (
+        details_df.groupby(['Projeto', 'Padrão', 'Severidade'], as_index=False)
+        .size()
+        .rename(columns={'size': 'Ocorrências'})
+        .sort_values(['Projeto', 'Ocorrências'], ascending=[True, False])
+    )
+    return details_df, summary_df
+
 def process_multiple_csv_files(input_folder, output_folder):
     """
     Process all CSV files and consolidate into a single sheet with advanced metrics.
@@ -2052,10 +2502,23 @@ def process_multiple_csv_files(input_folder, output_folder):
     print("Generating comprehensive trend analysis...")
     df_trends_comprehensive = generate_comprehensive_trend_analysis(consolidated_data)
     df_throughput_by_type = generate_throughput_by_type_weekly(consolidated_data)
+    df_flow_policies = build_flow_policies_table(consolidated_data, FLOW_POLICIES)
+    df_policy_violations = generate_policy_violations(consolidated_data, FLOW_POLICIES)
+    df_pattern_details, df_pattern_summary = generate_systemic_pattern_detection(consolidated_data, PATTERN_RULES)
     
     # Generate efficiency and wait time analysis
     print("Generating efficiency and wait time analysis...")
     df_efficiency_analysis = generate_efficiency_wait_time_analysis(consolidated_data)
+
+    # Generate executive report artifacts (RF-14)
+    print("Generating executive report artifacts...")
+    df_executive_summary, executive_csv, executive_md = generate_executive_report_artifacts(
+        output_folder=output_folder,
+        timestamp=timestamp,
+        df_flow_health=df_flow_health,
+        df_quality=df_quality,
+        df_policy_violations=df_policy_violations,
+    )
     
     # Save Power BI optimized model
     print("\nOptimizing data model for Power BI...")
@@ -2108,6 +2571,22 @@ def process_multiple_csv_files(input_folder, output_folder):
         # WIP per Person
         if not df_wip_person.empty:
             df_wip_person.to_excel(writer, sheet_name='WIP por Pessoa', index=False)
+
+        # RF-02: explicit flow policies and compliance tracking
+        if not df_flow_policies.empty:
+            df_flow_policies.to_excel(writer, sheet_name='Políticas Fluxo', index=False)
+        if not df_policy_violations.empty:
+            df_policy_violations.to_excel(writer, sheet_name='Violacoes Politicas', index=False)
+
+        # RF-14: executive report inside workbook
+        if not df_executive_summary.empty:
+            df_executive_summary.to_excel(writer, sheet_name='Relatorio Executivo', index=False)
+
+        # RF-08/RF-09: systemic pattern detection
+        if not df_pattern_details.empty:
+            df_pattern_details.to_excel(writer, sheet_name='Padrões Sistêmicos', index=False)
+        if not df_pattern_summary.empty:
+            df_pattern_summary.to_excel(writer, sheet_name='Resumo Padrões', index=False)
     
     print(f"\n{'='*70}")
     print(f"Dashboard completo salvo em: {output_file}")
@@ -2117,6 +2596,10 @@ def process_multiple_csv_files(input_folder, output_folder):
     print(f"\nMODELO POWER BI (Otimizado para Importação):")
     print(f"Arquivo: {powerbi_output}")
     print(f"Estrutura: Tabelas relacionadas (Fato + Dimensões)")
+    if executive_csv and executive_md:
+        print(f"\nRelatórios executivos exportados:")
+        print(f"  - CSV: {executive_csv}")
+        print(f"  - Markdown: {executive_md}")
     
     # Show column structure
     print(f"\nEstrutura de Abas Criadas:")

@@ -25,6 +25,7 @@ CSV_COLUMNS = [
     "Titulo",
     "Projeto",
     "Team",
+    "EffortTShirtSize",
     "Tipo",
     "Status",
     "ParentID",
@@ -171,10 +172,16 @@ def extract_team_from_fields(fields: Dict[str, Any], team_field: str) -> str:
     return ""
 
 
+def is_feature_issue(issue_type_name: str) -> bool:
+    tipo = str(issue_type_name or "").strip().lower()
+    return tipo in {"feature", "funcionalidade"}
+
+
 def build_output_row(
     base_url: str,
     issue: Dict[str, Any],
     team_field: str,
+    effort_tshirt_field: str,
     issue_team_map: Dict[str, str],
 ) -> Dict[str, str]:
     fields = issue.get("fields", {}) or {}
@@ -187,12 +194,17 @@ def build_output_row(
     if not parent_team and parent_id:
         parent_team = str(issue_team_map.get(parent_id) or "")
     team_text = own_team or parent_team
+    issue_type_name = str((fields.get("issuetype") or {}).get("name") or "")
+    effort_tshirt_size = ""
+    if effort_tshirt_field and is_feature_issue(issue_type_name):
+        effort_tshirt_size = extract_custom_text(fields.get(effort_tshirt_field)).strip()
     return {
         "ID": key,
         "Titulo": str(fields.get("summary") or ""),
         "Projeto": str((fields.get("project") or {}).get("key") or ""),
         "Team": team_text,
-        "Tipo": str((fields.get("issuetype") or {}).get("name") or ""),
+        "EffortTShirtSize": effort_tshirt_size,
+        "Tipo": issue_type_name,
         "Status": str((fields.get("status") or {}).get("name") or ""),
         "ParentID": parent_id,
         "ParentTipo": str((parent_fields.get("issuetype") or {}).get("name") or ""),
@@ -247,10 +259,13 @@ def main() -> int:
 
     field_map = parse_json_env("JIRA_FIELD_MAP", default={})
     team_field = str(field_map.get("team") or "").strip()
+    effort_tshirt_field = str(field_map.get("effort_tshirt_size") or "").strip()
 
     fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate"]
     if team_field and team_field not in fields:
         fields.append(team_field)
+    if effort_tshirt_field and effort_tshirt_field not in fields:
+        fields.append(effort_tshirt_field)
 
     print(f"Consultando Jira com JQL: {jql}")
     issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
@@ -269,6 +284,7 @@ def main() -> int:
             base_url=base_url,
             issue=issue,
             team_field=team_field,
+            effort_tshirt_field=effort_tshirt_field,
             issue_team_map=issue_team_map,
         )
         for issue in issues

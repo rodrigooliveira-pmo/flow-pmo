@@ -3,6 +3,7 @@ from dash import dcc, html, Input, Output, dash_table
 import plotly.express as px
 import pandas as pd
 import os
+import json
 import numpy as np
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -31,6 +32,7 @@ def safe_read_sheet(excel_file, sheet_name, default_cols):
 
 dim_responsavel = safe_read_sheet(xls, 'Dim_Responsavel', ['ResponsavelID', 'Responsavel'])
 dim_prioridade = safe_read_sheet(xls, 'Dim_Prioridade', ['PrioridadeID', 'Prioridade'])
+dim_classe_servico = safe_read_sheet(xls, 'Dim_ClasseServico', ['ClasseServicoID', 'ClasseServico'])
 fato = pd.read_excel(xls, sheet_name='Fato_Items')
 
 # Normalize date columns
@@ -51,9 +53,19 @@ if not dim_responsavel.empty:
     fato = fato.merge(dim_responsavel, how='left', left_on='ResponsavelID', right_on='ResponsavelID')
 if not dim_prioridade.empty:
     fato = fato.merge(dim_prioridade, how='left', left_on='PrioridadeID', right_on='PrioridadeID')
+if not dim_classe_servico.empty and 'ClasseServicoID' in fato.columns:
+    fato = fato.merge(dim_classe_servico, how='left', left_on='ClasseServicoID', right_on='ClasseServicoID')
 # Friendly column names
-rename_map = {'NomeProjeto': 'Projeto', 'Tipo': 'Tipo', 'Responsavel': 'Responsavel', 'Prioridade': 'Prioridade'}
+rename_map = {
+    'NomeProjeto': 'Projeto',
+    'Tipo': 'Tipo',
+    'Responsavel': 'Responsavel',
+    'Prioridade': 'Prioridade',
+    'ClasseServico': 'ClasseServico',
+}
 fato.rename(columns={k: v for k, v in rename_map.items() if k in fato.columns}, inplace=True)
+if 'ClasseServico' not in fato.columns:
+    fato['ClasseServico'] = 'Standard'
 
 # Semana padrão do sistema: semana ISO (segunda a domingo).
 WEEK_DATE_RANGE_FREQ = 'W-MON'
@@ -84,11 +96,167 @@ PORTFOLIO_COLOR_THRESHOLDS = {
     'aging_features_comp_40': {'green_max': 0, 'yellow_max': 8},
 }
 
+DEFAULT_PATTERN_RULES = {
+    "urgencia_cronica": {"expedite_pct_min": 25.0, "flow_pressure_min": 1.0, "failure_demand_pct_min": 30.0},
+    "burnout": {"expedite_pct_min": 30.0, "flow_pressure_min": 1.15, "failure_demand_pct_min": 35.0},
+    "confianca_comprometida": {"predictability_ratio_min": 2.2, "lead_time_p85_min": 15.0, "failure_demand_pct_min": 30.0},
+    "problema_sistemico_fluxo": {"wip_tp_ratio_min": 2.0, "blocked_rate_min": 12.0, "flow_pressure_min": 1.0},
+    "atrasos_desperdicios": {"discard_rate_min": 8.0, "blocked_rate_min": 10.0, "wip_age_over_p85_min": 1.1},
+    "estagnacao": {"wip_tp_ratio_min": 3.0, "wip_age_over_p85_min": 1.3, "flow_pressure_min": 1.05},
+    "compromisso_prematuro": {"flow_pressure_min": 1.1, "wip_tp_ratio_min": 2.2, "predictability_ratio_min": 2.0},
+}
+
 
 def normalize_text(value):
     txt = str(value or '').strip().lower()
     translate_map = str.maketrans('áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
     return txt.translate(translate_map)
+
+
+def parse_json_env(name, default):
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return default
+    try:
+        val = json.loads(raw)
+        return val if isinstance(val, dict) else default
+    except json.JSONDecodeError:
+        return default
+
+
+def load_env_file(env_file):
+    p = os.path.join(os.path.dirname(__file__), env_file)
+    if not os.path.exists(p):
+        return
+    try:
+        with open(p, 'r', encoding='utf-8') as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, v = line.split('=', 1)
+                os.environ[k.strip()] = v.strip()
+    except Exception:
+        return
+
+
+def load_pattern_rules():
+    return parse_json_env("PATTERN_RULES", parse_json_env("JIRA_PATTERN_RULES", DEFAULT_PATTERN_RULES))
+
+
+load_env_file('jira_env.txt')
+load_env_file('jira-env.txt')
+PATTERN_RULES = load_pattern_rules()
+
+
+def _safe_ratio(num, den):
+    if den is None or den == 0:
+        return np.nan
+    return float(num) / float(den)
+
+
+def _safe_pct(num, den):
+    if den is None or den == 0:
+        return 0.0
+    return float(num) / float(den) * 100.0
+
+
+def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
+    pattern_labels = {
+        "urgencia_cronica": "Times operando em estado de urgência",
+        "burnout": "Times em processo de burnout",
+        "confianca_comprometida": "Times comprometendo a confiança do cliente",
+        "problema_sistemico_fluxo": "Times com problemas sistêmicos de fluxo",
+        "atrasos_desperdicios": "Times com atrasos e desperdícios",
+        "estagnacao": "Times estagnados",
+        "compromisso_prematuro": "Times com compromisso prematuro",
+    }
+    weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
+    rows = []
+    if len(weeks) < 2:
+        return pd.DataFrame(), pd.DataFrame()
+
+    for i in range(len(weeks) - 1):
+        week_start = weeks[i]
+        week_end = weeks[i + 1]
+        arrivals = df_source[(df_source['DataInProgress'] >= week_start) & (df_source['DataInProgress'] < week_end)]
+        done = df_source[(df_source['DataDone'] >= week_start) & (df_source['DataDone'] < week_end)]
+        wip = df_source[(df_source['DataInProgress'] < week_end) & ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))]
+
+        tp = len(done)
+        inflow = len(arrivals)
+        flow_pressure = _safe_ratio(inflow, tp)
+        wip_tp_ratio = _safe_ratio(len(wip), tp)
+        lead_times = done['LeadTime_Dias'].dropna() if 'LeadTime_Dias' in done.columns else pd.Series(dtype='float64')
+        lt_p85 = lead_times.quantile(0.85) if not lead_times.empty else 0.0
+        lt_p50 = lead_times.quantile(0.50) if not lead_times.empty else 0.0
+        predictability = _safe_ratio(lt_p85, lt_p50) if lt_p50 > 0 else np.nan
+
+        defects = len(done[done['Tipo'] == 'Defeitos']) if 'Tipo' in done.columns else 0
+        failure_pct = _safe_pct(defects, tp)
+        expedite_arrivals = len(arrivals[arrivals['ClasseServico'] == 'Expedite']) if 'ClasseServico' in arrivals.columns else 0
+        expedite_pct = _safe_pct(expedite_arrivals, inflow)
+        blocked_rate = _safe_pct(wip['Bloqueado'].sum(), len(wip)) if 'Bloqueado' in wip.columns and len(wip) > 0 else 0.0
+        discard_rate = _safe_pct(done['Descartado'].sum(), tp) if 'Descartado' in done.columns and tp > 0 else 0.0
+        wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0.0
+        wip_age_over_p85 = _safe_ratio(wip_age, lt_p85) if lt_p85 > 0 else np.nan
+
+        signals = {
+            "expedite_pct": float(expedite_pct),
+            "flow_pressure": float(flow_pressure) if pd.notna(flow_pressure) else np.nan,
+            "failure_demand_pct": float(failure_pct),
+            "predictability_ratio": float(predictability) if pd.notna(predictability) else np.nan,
+            "lead_time_p85": float(lt_p85),
+            "wip_tp_ratio": float(wip_tp_ratio) if pd.notna(wip_tp_ratio) else np.nan,
+            "blocked_rate": float(blocked_rate),
+            "discard_rate": float(discard_rate),
+            "wip_age_over_p85": float(wip_age_over_p85) if pd.notna(wip_age_over_p85) else np.nan,
+            "inflow": inflow,
+            "throughput": tp,
+            "wip": len(wip),
+        }
+
+        for pattern_key, thresholds in rules.items():
+            hits = []
+            for metric, threshold in thresholds.items():
+                signal_name = metric.replace('_min', '').replace('_max', '')
+                value = signals.get(signal_name, np.nan)
+                if metric.endswith('_max'):
+                    if pd.notna(value) and value <= float(threshold):
+                        hits.append(f"{signal_name}<={threshold}")
+                else:
+                    if pd.notna(value) and value >= float(threshold):
+                        hits.append(f"{signal_name}>={threshold}")
+            min_hits = max(1, int(np.ceil(len(thresholds) * 0.6)))
+            if len(hits) < min_hits:
+                continue
+            severity = 'Crítico' if len(hits) >= len(thresholds) else 'Atenção'
+            rows.append({
+                'Semana': week_start.date(),
+                'Padrão': pattern_labels.get(pattern_key, pattern_key),
+                'Severidade': severity,
+                'Regras Acionadas': ' | '.join(hits),
+                'Expedite (%)': round(signals['expedite_pct'], 2),
+                'Pressure (λ/μ)': round(signals['flow_pressure'], 3) if pd.notna(signals['flow_pressure']) else np.nan,
+                'Failure Demand (%)': round(signals['failure_demand_pct'], 2),
+                'Predictability (P85/P50)': round(signals['predictability_ratio'], 2) if pd.notna(signals['predictability_ratio']) else np.nan,
+                'Lead Time P85': round(signals['lead_time_p85'], 2),
+                'WIP/Throughput': round(signals['wip_tp_ratio'], 2) if pd.notna(signals['wip_tp_ratio']) else np.nan,
+                'Blocked (%)': round(signals['blocked_rate'], 2),
+                'Discard (%)': round(signals['discard_rate'], 2),
+                'WIP Age / LT P85': round(signals['wip_age_over_p85'], 2) if pd.notna(signals['wip_age_over_p85']) else np.nan,
+            })
+
+    details = pd.DataFrame(rows)
+    if details.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    summary = (
+        details.groupby(['Padrão', 'Severidade'], as_index=False)
+        .size()
+        .rename(columns={'size': 'Ocorrências'})
+        .sort_values('Ocorrências', ascending=False)
+    )
+    return details, summary
 
 
 def compute_portfolio_snapshot(df, updated_at_label):
@@ -122,15 +290,6 @@ def compute_portfolio_snapshot(df, updated_at_label):
             return 'Média'
         return 'Alta'
 
-    def map_portfolio_label(value):
-        raw = str(value or '').strip()
-        key = normalize_text(raw)
-        if key == 'bt':
-            return 'Épico'
-        if key == 'ns':
-            return 'Feature'
-        return raw
-
     def status_contains(series_norm, terms):
         if series_norm.empty:
             return pd.Series(dtype=bool)
@@ -144,8 +303,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'updated_at': updated_at_label,
             'metrics': {'epics_sem_features': 0, 'features_sem_epico': 0, 'features_sem_filhos': 0, 'features_sem_mov_15': 0, 'features_sem_mov_30': 0},
             'groups': {
-                'epicos_por_projeto_status': pd.DataFrame(),
-                'features_por_projeto_status': pd.DataFrame(),
+                'epicos_por_team_status': pd.DataFrame(),
+                'features_por_team_status': pd.DataFrame(),
                 'epicos_por_complexidade': pd.DataFrame(),
                 'features_por_complexidade': pd.DataFrame(),
                 'epicos_fluxo_etapas': pd.DataFrame(),
@@ -157,6 +316,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'aging_us_comp_20': pd.DataFrame(),
                 'aging_features_comp_40': pd.DataFrame(),
                 'executive_tiles': pd.DataFrame(),
+                'epicos_detalhe': pd.DataFrame(),
+                'features_detalhe': pd.DataFrame(),
             },
         }
 
@@ -192,9 +353,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
         df['Team'] = df['ID'].apply(resolve_team)
 
-    df['ProjetoAgrupado'] = df['Team']
-    df.loc[df['ProjetoAgrupado'] == '', 'ProjetoAgrupado'] = df.loc[df['ProjetoAgrupado'] == '', 'Projeto']
-    df['ProjetoAgrupado'] = df['ProjetoAgrupado'].map(map_portfolio_label)
+    df['TeamDisplay'] = df['Team'].fillna('').astype(str).str.strip()
+    df.loc[df['TeamDisplay'] == '', 'TeamDisplay'] = 'Sem TEAM'
 
     df['TipoNorm'] = df['Tipo'].map(normalize_text)
     df['ProjetoNorm'] = df['Projeto'].map(normalize_text)
@@ -280,8 +440,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
     pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 15, 'Quadrante'] = 'Q2 Pendências'
     pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 30, 'Quadrante'] = 'Q3 Pendências'
     pendencias_q_por_time = (
-        group_count(pendencias, ['Quadrante', 'ProjetoAgrupado'], 'WorkItems')
-        .rename(columns={'ProjetoAgrupado': 'Projeto'})
+        group_count(pendencias, ['Quadrante', 'TeamDisplay'], 'WorkItems')
+        .rename(columns={'TeamDisplay': 'Team'})
     )
 
     # Aging WIP - quatro indicadores no padrão dos exemplos.
@@ -296,13 +456,13 @@ def compute_portfolio_snapshot(df, updated_at_label):
         features_compromissadas['IsInProgress'] = features_compromissadas['ID'].map(in_progress_map)
         features_compromissadas = features_compromissadas[features_compromissadas['IsInProgress'] == True].copy()
 
-    aging_us_20 = group_count(us_in_progress[us_in_progress['AgingDiasSemAlteracao'] > 20], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    aging_features_40 = group_count(features_in_progress[features_in_progress['AgingDiasSemAlteracao'] > 40], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    aging_us_comp_20 = group_count(us_compromissadas[us_compromissadas['AgingDiasSemAlteracao'] > 20], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    aging_us_20 = group_count(us_in_progress[us_in_progress['AgingDiasSemAlteracao'] > 20], ['TeamDisplay'], 'WorkItems').rename(columns={'TeamDisplay': 'Team'})
+    aging_features_40 = group_count(features_in_progress[features_in_progress['AgingDiasSemAlteracao'] > 40], ['TeamDisplay'], 'WorkItems').rename(columns={'TeamDisplay': 'Team'})
+    aging_us_comp_20 = group_count(us_compromissadas[us_compromissadas['AgingDiasSemAlteracao'] > 20], ['TeamDisplay'], 'WorkItems').rename(columns={'TeamDisplay': 'Team'})
     aging_features_comp_40 = (
-        group_count(features_compromissadas[features_compromissadas['AgingDiasSemAlteracao'] > 40], ['ProjetoAgrupado'], 'WorkItems').rename(columns={'ProjetoAgrupado': 'Projeto'})
+        group_count(features_compromissadas[features_compromissadas['AgingDiasSemAlteracao'] > 40], ['TeamDisplay'], 'WorkItems').rename(columns={'TeamDisplay': 'Team'})
         if not features_compromissadas.empty
-        else pd.DataFrame(columns=['Projeto', 'WorkItems'])
+        else pd.DataFrame(columns=['Team', 'WorkItems'])
     )
 
     epic_feature_counts = (
@@ -323,12 +483,12 @@ def compute_portfolio_snapshot(df, updated_at_label):
     epics['Complexidade'] = epics['QtdItensFluxo'].apply(complexidade_epico)
     epics_sem_features = epics[epics['QtdFeatures'] == 0].copy()
 
-    epicos_por_projeto_status = group_count(epics, ['ProjetoAgrupado', 'Status'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    features_por_projeto_status = group_count(features, ['ProjetoAgrupado', 'Status'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    epicos_por_complexidade = group_count(epics, ['ProjetoAgrupado', 'Complexidade'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    features_por_complexidade = group_count(features, ['ProjetoAgrupado', 'Complexidade'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    epicos_por_team_total = group_count(epics, ['ProjetoAgrupado'], 'QtdEpicos').rename(columns={'ProjetoAgrupado': 'Projeto'})
-    features_por_team_total = group_count(features, ['ProjetoAgrupado'], 'QtdFeatures').rename(columns={'ProjetoAgrupado': 'Projeto'})
+    epicos_por_team_status = group_count(epics, ['TeamDisplay', 'Status'], 'QtdEpicos').rename(columns={'TeamDisplay': 'Team'})
+    features_por_team_status = group_count(features, ['TeamDisplay', 'Status'], 'QtdFeatures').rename(columns={'TeamDisplay': 'Team'})
+    epicos_por_complexidade = group_count(epics, ['TeamDisplay', 'Complexidade'], 'QtdEpicos').rename(columns={'TeamDisplay': 'Team'})
+    features_por_complexidade = group_count(features, ['TeamDisplay', 'Complexidade'], 'QtdFeatures').rename(columns={'TeamDisplay': 'Team'})
+    epicos_por_team_total = group_count(epics, ['TeamDisplay'], 'QtdEpicos').rename(columns={'TeamDisplay': 'Team'})
+    features_por_team_total = group_count(features, ['TeamDisplay'], 'QtdFeatures').rename(columns={'TeamDisplay': 'Team'})
 
     epic_flow_items = pd.DataFrame(columns=['EpicID', 'Status'])
     if not features_with_epic.empty:
@@ -343,23 +503,41 @@ def compute_portfolio_snapshot(df, updated_at_label):
         ], ignore_index=True)
 
     if epic_flow_items.empty:
-        epicos_fluxo_etapas = pd.DataFrame(columns=['EpicID', 'Titulo', 'Projeto', 'Complexidade', 'TotalItens'])
+        epicos_fluxo_etapas = pd.DataFrame(columns=['EpicID', 'Titulo', 'Team', 'Complexidade', 'TotalItens'])
     else:
-        epics_info = epics[['ID', 'Titulo', 'ProjetoAgrupado', 'Complexidade']].copy()
+        epics_info = epics[['ID', 'Titulo', 'TeamDisplay', 'Complexidade']].copy()
         epics_info.rename(columns={'ID': 'EpicID'}, inplace=True)
-        epics_info.rename(columns={'ProjetoAgrupado': 'Projeto'}, inplace=True)
+        epics_info.rename(columns={'TeamDisplay': 'Team'}, inplace=True)
         epicos_fluxo_etapas = (
             epic_flow_items
             .pivot_table(index='EpicID', columns='Status', values='Status', aggfunc='count', fill_value=0)
             .reset_index()
         )
         epicos_fluxo_etapas = epics_info.merge(epicos_fluxo_etapas, on='EpicID', how='left').fillna(0)
-        stage_cols = [c for c in epicos_fluxo_etapas.columns if c not in {'EpicID', 'Titulo', 'Projeto', 'Complexidade'}]
+        stage_cols = [c for c in epicos_fluxo_etapas.columns if c not in {'EpicID', 'Titulo', 'Team', 'Complexidade'}]
         if stage_cols:
             epicos_fluxo_etapas['TotalItens'] = epicos_fluxo_etapas[stage_cols].sum(axis=1).astype(int)
         else:
             epicos_fluxo_etapas['TotalItens'] = 0
         epicos_fluxo_etapas = epicos_fluxo_etapas.sort_values('TotalItens', ascending=False, ignore_index=True)
+
+    # Visões detalhadas separadas (épicos x features) para reduzir mistura de contexto.
+    epic_title_map = epics.set_index('ID')['Titulo'] if not epics.empty else pd.Series(dtype='object')
+    features['EpicTitulo'] = features['EpicID'].map(epic_title_map).fillna('')
+    features['DiasSemMovimentacao'] = (
+        (now_utc - features['UltimaMovimentacao']).dt.days
+        if 'UltimaMovimentacao' in features.columns else np.nan
+    )
+    epicos_detalhe = (
+        epics[['TeamDisplay', 'ID', 'Titulo', 'Status', 'Complexidade', 'QtdFeatures', 'QtdItensFluxo', 'Link']]
+        .rename(columns={'TeamDisplay': 'Team', 'ID': 'EpicID'})
+        .sort_values(['Team', 'QtdItensFluxo', 'QtdFeatures'], ascending=[True, False, False], ignore_index=True)
+    )
+    features_detalhe = (
+        features[['TeamDisplay', 'ID', 'Titulo', 'Status', 'Complexidade', 'EpicID', 'EpicTitulo', 'QtdFilhos', 'DiasSemMovimentacao', 'Link']]
+        .rename(columns={'TeamDisplay': 'Team', 'ID': 'FeatureID'})
+        .sort_values(['Team', 'QtdFilhos', 'DiasSemMovimentacao'], ascending=[True, False, False], ignore_index=True)
+    )
 
     # Cards executivos no estilo "mosaico".
     sem_team = int((df['Team'].str.strip() == '').sum())
@@ -389,8 +567,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'total_features': int(len(features)),
         },
         'groups': {
-            'epicos_por_projeto_status': epicos_por_projeto_status,
-            'features_por_projeto_status': features_por_projeto_status,
+            'epicos_por_team_status': epicos_por_team_status,
+            'features_por_team_status': features_por_team_status,
             'epicos_por_complexidade': epicos_por_complexidade,
             'features_por_complexidade': features_por_complexidade,
             'epicos_fluxo_etapas': epicos_fluxo_etapas,
@@ -402,6 +580,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'aging_us_comp_20': aging_us_comp_20,
             'aging_features_comp_40': aging_features_comp_40,
             'executive_tiles': executive_tiles,
+            'epicos_detalhe': epicos_detalhe,
+            'features_detalhe': features_detalhe,
         },
     }
 
@@ -455,6 +635,30 @@ def get_portfolio_snapshot():
         PORTFOLIO_CACHE['data'] = None
         PORTFOLIO_CACHE['error'] = str(exc)
         return None, str(exc)
+
+def get_portfolio_team_filter_options():
+    default_options = [{'label': 'Todos os Teams', 'value': '__ALL__'}]
+    snapshot, error = get_portfolio_snapshot()
+    if error or not snapshot:
+        return default_options
+
+    groups = snapshot.get('groups', {})
+    frames = [
+        groups.get('epicos_por_team_total', pd.DataFrame()),
+        groups.get('features_por_team_total', pd.DataFrame()),
+    ]
+    teams = set()
+    for frame in frames:
+        if frame is None or frame.empty or 'Team' not in frame.columns:
+            continue
+        for team in frame['Team'].dropna().astype(str):
+            t = team.strip()
+            if t:
+                teams.add(t)
+
+    for team in sorted(teams):
+        default_options.append({'label': team, 'value': team})
+    return default_options
 
 
 def portfolio_table_component(df, title, table_id):
@@ -527,6 +731,56 @@ def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=N
     fig.add_trace(go.Scatter(x=x_list, y=list(ma5), mode='lines', name=f'{name_prefix}MM(5)',
                              line=dict(dash='solid', width=2, color='purple')), **kwargs)
     return fig
+
+
+def classify_urgency_label(row):
+    """Classifica urgência priorizando Classe de Serviço e usando Prioridade como fallback."""
+    classe_servico = normalize_text(row.get('ClasseServico', ''))
+    prioridade = normalize_text(row.get('Prioridade', ''))
+
+    if classe_servico:
+        if any(k in classe_servico for k in ['expedite', 'urgente', 'urgent', 'critical', 'critico']):
+            return 'Urgente'
+        if any(k in classe_servico for k in ['fixed date', 'fixed_date', 'deadline', 'prazo', 'data fixa']):
+            return 'Data Fixa'
+        if any(k in classe_servico for k in ['intang', 'risco', 'risk', 'compliance', 'regulatorio', 'regulatory']):
+            return 'Intangível'
+        if any(k in classe_servico for k in ['standard', 'padrao', 'normal', 'default']):
+            return 'Padrão'
+        return str(row.get('ClasseServico'))
+
+    if prioridade:
+        if any(k in prioridade for k in ['blocker', 'critical', 'highest', 'high', 'alta', 'urgente', 'critica']):
+            return 'Urgente'
+        if any(k in prioridade for k in ['medium', 'media', 'normal']):
+            return 'Média'
+        if any(k in prioridade for k in ['low', 'lowest', 'baixa']):
+            return 'Baixa'
+        return str(row.get('Prioridade'))
+
+    return 'Não classificado'
+
+
+def build_throughput_breakdown(df, dimension_col, dimension_label):
+    """Monta DataFrame com contagem e percentual para breakdown de throughput."""
+    if df.empty or dimension_col not in df.columns:
+        return pd.DataFrame(columns=[dimension_col, 'Throughput', 'Percentual', 'Barra'])
+
+    breakdown = (
+        df[dimension_col]
+        .fillna('Não classificado')
+        .astype(str)
+        .value_counts()
+        .reset_index()
+        .rename(columns={'index': dimension_col, 'count': 'Throughput'})
+    )
+    total = breakdown['Throughput'].sum()
+    if total > 0:
+        breakdown['Percentual'] = (breakdown['Throughput'] / total) * 100
+    else:
+        breakdown['Percentual'] = 0.0
+    breakdown['Barra'] = dimension_label
+    return breakdown
 
 def calculate_mm1_metrics(arrival_rate, service_rate):
     """Calcula indicadores de fila M/M/1 para taxa de chegada e vazão."""
@@ -683,6 +937,7 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         tp_total = len(finished)
         tp_dev = len(finished[finished['Tipo'] == 'Desenvolvimento']) if tp_total > 0 else 0
         tp_def = len(finished[finished['Tipo'] == 'Defeitos']) if tp_total > 0 else 0
+        tp_discard = int(finished['Descartado'].sum()) if 'Descartado' in finished.columns else 0
 
         wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0
         avg_lt = finished['LeadTime_Dias'].dropna().mean() if tp_total > 0 and 'LeadTime_Dias' in finished.columns else 0
@@ -691,7 +946,11 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         _, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
         if pd.isna(avg_eff):
             avg_eff = 0
+        median_lt = finished['LeadTime_Dias'].dropna().quantile(0.50) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
         p85_lt = finished['LeadTime_Dias'].dropna().quantile(0.85) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
+        mttr = finished[finished['Tipo'] == 'Defeitos']['LeadTime_Dias'].dropna().mean() if tp_def > 0 and 'LeadTime_Dias' in finished.columns else 0
+        if pd.isna(mttr):
+            mttr = 0
 
         rows['Taxa de chegada / semana'][week_label] = str(len(arrived))
         rows['Throughput / semana'][week_label] = str(tp_total)
@@ -701,13 +960,13 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if pd.notna(avg_eff) else '0.000'
         rows['% Demanda de Valor'][week_label] = f"{tp_dev / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['% Demanda de Falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
-        rows['Qtd. Itens Descartados'][week_label] = '—'
+        rows['Qtd. Itens Descartados'][week_label] = str(tp_discard)
         rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if p85_lt else '0'
-        rows['DDP'][week_label] = '—'
-        rows['Frequência de Deploy'][week_label] = '—'
-        rows['Lead time para mudanças'][week_label] = '—'
-        rows['Taxa de demanda de falha'][week_label] = '—'
-        rows['MTTR'][week_label] = '—'
+        rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if p85_lt else '0'
+        rows['Frequência de Deploy'][week_label] = str(tp_dev)
+        rows['Lead time para mudanças'][week_label] = f"{avg_lt:.0f}" if avg_lt else '0'
+        rows['Taxa de demanda de falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
+        rows['MTTR'][week_label] = f"{mttr:.0f}" if mttr else '0'
 
     return metric_names, rows
 
@@ -723,7 +982,17 @@ app.layout = html.Div([
                                                             show_outside_days=True)], style={'display':'inline-block', 'marginRight':'20px'}),
         html.Div([html.Label('Projeto:'), dcc.Dropdown(id='filter-projeto', options=[{'label':p,'value':p} for p in unique_sorted(fato['Projeto'])], value=unique_sorted(fato['Projeto'])[0] if len(unique_sorted(fato['Projeto']))>0 else None, clearable=False)], style={'width':'20%', 'display':'inline-block'}),
         html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['Tipo'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([html.Label('Classe Serviço:'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([
+            html.Label('Team (Portfólio):'),
+            dcc.Dropdown(
+                id='filter-portfolio-team',
+                options=get_portfolio_team_filter_options(),
+                value='__ALL__',
+                clearable=False
+            )
+        ], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
     ], style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px'}),
 
     dcc.Tabs(id='tabs', value='tab-performance', children=[
@@ -737,8 +1006,9 @@ app.layout = html.Div([
         dcc.Tab(label='Análise Dimensional', value='tab-dim'),
         dcc.Tab(label='Análise Tipos', value='tab-tipos'),
         dcc.Tab(label='Tendências', value='tab-tendencias'),
-        dcc.Tab(label='Throughput por Tipo', value='tab-throughput-tipo'),
+        dcc.Tab(label='Throughput Breakdown', value='tab-throughput-breakdown'),
         dcc.Tab(label='Análise Eficiência', value='tab-eficiencia'),
+        dcc.Tab(label='Padrões Sistêmicos', value='tab-padroes'),
         dcc.Tab(label='WIP por Pessoa', value='tab-wip'),
         dcc.Tab(label='Estatística Descritiva', value='tab-estatistica'),
         dcc.Tab(label='Capacidade de Fila', value='tab-fila-capacidade'),
@@ -747,7 +1017,7 @@ app.layout = html.Div([
     html.Div(id='tab-content')
 ])
 
-def filter_df(df, start_date, end_date, projeto, tipo, responsavel):
+def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsavel):
     d = df.copy()
     if start_date:
         d = d[d['DataDone'] >= pd.to_datetime(start_date)]
@@ -757,13 +1027,25 @@ def filter_df(df, start_date, end_date, projeto, tipo, responsavel):
         d = d[d['Projeto'] == projeto]
     if tipo:
         d = d[d['Tipo'] == tipo]
+    if classe_servico:
+        d = d[d['ClasseServico'] == classe_servico]
     if responsavel:
         d = d[d['Responsavel'] == responsavel]
     return d
 
-@app.callback(Output('tab-content', 'children'), Input('tabs', 'value'), Input('date-range', 'start_date'), Input('date-range', 'end_date'), Input('filter-projeto', 'value'), Input('filter-tipo', 'value'), Input('filter-responsavel', 'value'))
-def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
-    df = filter_df(fato, start_date, end_date, projeto, tipo, responsavel)
+@app.callback(
+    Output('tab-content', 'children'),
+    Input('tabs', 'value'),
+    Input('date-range', 'start_date'),
+    Input('date-range', 'end_date'),
+    Input('filter-projeto', 'value'),
+    Input('filter-tipo', 'value'),
+    Input('filter-classe-servico', 'value'),
+    Input('filter-responsavel', 'value'),
+    Input('filter-portfolio-team', 'value')
+)
+def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, portfolio_team):
+    df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
 
     # Padrão de cores para os tipos de demanda
     color_map = {
@@ -843,11 +1125,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 ),
             ], style={'padding': '20px'})
 
-        metrics = snapshot['metrics']
         groups = snapshot['groups']
 
-        epicos_status = groups.get('epicos_por_projeto_status', pd.DataFrame())
-        features_status = groups.get('features_por_projeto_status', pd.DataFrame())
+        epicos_status = groups.get('epicos_por_team_status', pd.DataFrame())
+        features_status = groups.get('features_por_team_status', pd.DataFrame())
         epicos_complexidade = groups.get('epicos_por_complexidade', pd.DataFrame())
         features_complexidade = groups.get('features_por_complexidade', pd.DataFrame())
         epicos_fluxo_etapas = groups.get('epicos_fluxo_etapas', pd.DataFrame())
@@ -859,6 +1140,38 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         executive_tiles = groups.get('executive_tiles', pd.DataFrame())
         epicos_por_team_total = groups.get('epicos_por_team_total', pd.DataFrame())
         features_por_team_total = groups.get('features_por_team_total', pd.DataFrame())
+        epicos_detalhe = groups.get('epicos_detalhe', pd.DataFrame())
+        features_detalhe = groups.get('features_detalhe', pd.DataFrame())
+
+        selected_team = str(portfolio_team or '__ALL__')
+
+        def filter_by_team(df_source, team_col='Team'):
+            if df_source is None or df_source.empty or selected_team == '__ALL__':
+                return df_source
+            if team_col not in df_source.columns:
+                return df_source
+            return df_source[df_source[team_col] == selected_team].copy()
+
+        epicos_status = filter_by_team(epicos_status)
+        features_status = filter_by_team(features_status)
+        epicos_complexidade = filter_by_team(epicos_complexidade)
+        features_complexidade = filter_by_team(features_complexidade)
+        epicos_fluxo_etapas = filter_by_team(epicos_fluxo_etapas)
+        pendencias_q_por_time = filter_by_team(pendencias_q_por_time)
+        aging_us_20 = filter_by_team(aging_us_20)
+        aging_features_40 = filter_by_team(aging_features_40)
+        aging_us_comp_20 = filter_by_team(aging_us_comp_20)
+        aging_features_comp_40 = filter_by_team(aging_features_comp_40)
+        epicos_por_team_total = filter_by_team(epicos_por_team_total)
+        features_por_team_total = filter_by_team(features_por_team_total)
+        epicos_detalhe = filter_by_team(epicos_detalhe)
+        features_detalhe = filter_by_team(features_detalhe)
+
+        if selected_team != '__ALL__':
+            if not executive_tiles.empty:
+                sem_team_val = int((selected_team == 'Sem TEAM'))
+                executive_tiles = executive_tiles.copy()
+                executive_tiles.loc[executive_tiles['Indicador'] == 'Sem TEAM', 'Valor'] = sem_team_val
 
         def grouped_chart(df_group, x_col, y_col, color_col, title):
             if df_group is None or df_group.empty:
@@ -911,7 +1224,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             if df_metric is None or df_metric.empty:
                 return html.Div([html.H4(title), html.P('Sem dados para exibição.')])
             cards = [
-                render_tile(row['Projeto'], row['WorkItems'], threshold_key=threshold_key)
+                render_tile(row['Team'], row['WorkItems'], threshold_key=threshold_key)
                 for _, row in df_metric.sort_values('WorkItems', ascending=False).iterrows()
             ]
             return html.Div([
@@ -935,7 +1248,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                     cards.append(render_tile('Sem dados', 0, threshold_key=q, empty_gray=True))
                 else:
                     for _, row in d.sort_values('WorkItems', ascending=False).iterrows():
-                        cards.append(render_tile(row['Projeto'], row['WorkItems'], threshold_key=q))
+                        cards.append(render_tile(row['Team'], row['WorkItems'], threshold_key=q))
                 blocks.append(html.Div([
                     html.H4(q, style={'minWidth': '150px'}),
                     html.Div(cards, style={
@@ -986,7 +1299,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             cards = []
             for _, row in df_team.sort_values(value_col, ascending=False).iterrows():
                 cards.append(html.Div([
-                    html.Div(str(row['Projeto']), style={'fontSize': '16px', 'fontWeight': 'bold'}),
+                    html.Div(str(row['Team']), style={'fontSize': '16px', 'fontWeight': 'bold'}),
                     html.Div(str(int(row[value_col] or 0)), style={'fontSize': '54px', 'lineHeight': '1.1'}),
                     html.Div('Work items', style={'fontSize': '13px', 'opacity': 0.9}),
                 ], style={
@@ -1005,19 +1318,28 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 })
             ], style={'marginTop': '12px'})
 
+        total_epicos_visao = int(epicos_por_team_total['QtdEpicos'].sum()) if epicos_por_team_total is not None and not epicos_por_team_total.empty else 0
+        total_features_visao = int(features_por_team_total['QtdFeatures'].sum()) if features_por_team_total is not None and not features_por_team_total.empty else 0
+        epicos_sem_features_visao = int((epicos_detalhe['QtdFeatures'] == 0).sum()) if epicos_detalhe is not None and not epicos_detalhe.empty else 0
+        features_sem_epico_visao = int((features_detalhe['EpicID'].fillna('').astype(str).str.strip() == '').sum()) if features_detalhe is not None and not features_detalhe.empty else 0
+        features_sem_filhos_visao = int((features_detalhe['QtdFilhos'] == 0).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
+        features_sem_mov_15_visao = int((features_detalhe['DiasSemMovimentacao'] > 15).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
+        features_sem_mov_30_visao = int((features_detalhe['DiasSemMovimentacao'] > 30).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
+        scope_label = 'Todos os teams' if selected_team == '__ALL__' else selected_team
+
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
-                f"Atualizado em: {snapshot['updated_at']} | Fonte: CSV local de portfólio",
+                f"Atualizado em: {snapshot['updated_at']} | Escopo: {scope_label} | Fonte: CSV local de portfólio",
                 style={'textAlign': 'center', 'color': '#666'}
             ),
             html.Div([
-                create_kpi_card('Total de épicos', f"{metrics.get('total_epicos', 0)}", class_name='two columns'),
-                create_kpi_card('Total de features', f"{metrics.get('total_features', 0)}", class_name='two columns'),
-                create_kpi_card('Épicos sem features', f"{metrics['epics_sem_features']}", class_name='two columns'),
-                create_kpi_card('Features sem épico', f"{metrics['features_sem_epico']}", class_name='two columns'),
-                create_kpi_card('Features sem filhos', f"{metrics['features_sem_filhos']}", class_name='two columns'),
-                create_kpi_card('Sem movimento 15d / 30d', f"{metrics['features_sem_mov_15']} / {metrics['features_sem_mov_30']}", class_name='two columns'),
+                create_kpi_card('Total de épicos', f"{total_epicos_visao}", class_name='two columns'),
+                create_kpi_card('Total de features', f"{total_features_visao}", class_name='two columns'),
+                create_kpi_card('Épicos sem features', f"{epicos_sem_features_visao}", class_name='two columns'),
+                create_kpi_card('Features sem épico', f"{features_sem_epico_visao}", class_name='two columns'),
+                create_kpi_card('Features sem filhos', f"{features_sem_filhos_visao}", class_name='two columns'),
+                create_kpi_card('Sem movimento 15d / 30d', f"{features_sem_mov_15_visao} / {features_sem_mov_30_visao}", class_name='two columns'),
             ], className='row'),
 
             render_q_pendencias_grid(pendencias_q_por_time),
@@ -1053,13 +1375,18 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                         epicos_status,
                         x_col='Status',
                         y_col='QtdEpicos',
-                        color_col='Projeto',
-                        title='Épicos por projeto e etapa de fluxo'
+                        color_col='Team',
+                        title='Épicos por TEAM e etapa de fluxo'
                     ),
                     portfolio_table_component(
                         epicos_complexidade,
-                        'Épicos por projeto e complexidade',
+                        'Épicos por TEAM e complexidade',
                         'table-portfolio-epicos-complexidade'
+                    ),
+                    portfolio_table_component(
+                        epicos_detalhe,
+                        'Backlog de Épicos (detalhado)',
+                        'table-portfolio-epicos-detalhe'
                     ),
                 ], className='six columns'),
                 html.Div([
@@ -1068,13 +1395,18 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                         features_status,
                         x_col='Status',
                         y_col='QtdFeatures',
-                        color_col='Projeto',
-                        title='Features por projeto e etapa de fluxo'
+                        color_col='Team',
+                        title='Features por TEAM e etapa de fluxo'
                     ),
                     portfolio_table_component(
                         features_complexidade,
-                        'Features por projeto e complexidade',
+                        'Features por TEAM e complexidade',
                         'table-portfolio-features-complexidade'
+                    ),
+                    portfolio_table_component(
+                        features_detalhe,
+                        'Backlog de Features (detalhado)',
+                        'table-portfolio-features-detalhe'
                     ),
                 ], className='six columns'),
             ], className='row', style={'marginTop': '20px'}),
@@ -1195,6 +1527,22 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             (df_signal_base['DataDone'] >= start_ts) &
             (df_signal_base['DataDone'] <= end_ts)
         ]
+        df_arrived_period = df_signal_base[
+            (df_signal_base['DataInProgress'] >= start_ts) &
+            (df_signal_base['DataInProgress'] <= end_ts)
+        ]
+        if 'DataBacklog' in df_signal_base.columns:
+            df_demand_period = df_signal_base[
+                (df_signal_base['DataBacklog'] >= start_ts) &
+                (df_signal_base['DataBacklog'] <= end_ts)
+            ]
+        else:
+            df_demand_period = df_arrived_period
+
+        df_wip_start = df_signal_base[
+            (df_signal_base['DataInProgress'] < start_ts) &
+            ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
+        ]
         df_wip_end = df_signal_base[
             (df_signal_base['DataInProgress'] <= end_ts) &
             ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
@@ -1205,6 +1553,16 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         wip_avg = weekly_df['WIP'].mean() if not weekly_df.empty else np.nan
         wip_current = float(weekly_df['WIP'].iloc[-1]) if not weekly_df.empty else np.nan
         wip_age = (end_ts - df_wip_end['DataInProgress']).dt.days.mean() if not df_wip_end.empty else np.nan
+        throughput_total = float(len(df_done_period))
+        inflow_total = float(len(df_arrived_period))
+        demand_total = float(len(df_demand_period))
+        capacity_total = throughput_total
+        wip_start_count = float(len(df_wip_start))
+        wip_end_count = float(len(df_wip_end))
+        inventory_growth = wip_end_count - wip_start_count
+        weeks_count = max(1, len(weeks) - 1)
+        throughput_weekly_avg = throughput_total / weeks_count if weeks_count > 0 else np.nan
+        inventory_weeks = (wip_end_count / throughput_weekly_avg) if throughput_weekly_avg > 0 else np.nan
 
         lead_time_p85 = np.nan
         lead_time_p50 = np.nan
@@ -1218,6 +1576,28 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
         wip_tp_ratio = wip_avg / throughput_avg if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
         predictability = lead_time_p85 / lead_time_p50 if pd.notna(lead_time_p85) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
         risk_forecasting_ratio = lead_time_p98 / lead_time_p50 if pd.notna(lead_time_p98) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
+        demand_vs_capacity_pct = ((demand_total - capacity_total) / capacity_total * 100.0) if capacity_total > 0 else np.nan
+        inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
+        commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
+        if 'TempoBacklog_Dias' in df_arrived_period.columns and not df_arrived_period.empty:
+            commit_times = pd.to_numeric(df_arrived_period['TempoBacklog_Dias'], errors='coerce').dropna()
+            commit_times = commit_times[commit_times >= 0]
+        elif {'DataBacklog', 'DataInProgress'}.issubset(df_arrived_period.columns):
+            commit_times = (df_arrived_period['DataInProgress'] - df_arrived_period['DataBacklog']).dt.days
+            commit_times = commit_times.dropna()
+            commit_times = commit_times[commit_times >= 0]
+        else:
+            commit_times = pd.Series(dtype='float64')
+        time_to_commit_p85 = commit_times.quantile(0.85) if not commit_times.empty else np.nan
+        flow_efficiency_pct = np.nan
+        if 'Eficiencia' in df_done_period.columns and not df_done_period['Eficiencia'].dropna().empty:
+            flow_efficiency_pct = float(df_done_period['Eficiencia'].dropna().mean() * 100.0)
+        elif pd.notna(queue_efficiency):
+            flow_efficiency_pct = float(queue_efficiency * 100.0)
+        active_people_count = 0
+        if 'Responsavel' in df_wip_end.columns:
+            active_people_count = int(df_wip_end['Responsavel'].dropna().nunique())
+        wip_per_person = (wip_end_count / active_people_count) if active_people_count > 0 else np.nan
 
         tipo_norm = df_done_period['Tipo'].map(normalize_text) if 'Tipo' in df_done_period.columns else pd.Series(dtype='object')
         tp_valor = tipo_norm.apply(
@@ -1363,6 +1743,198 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 )
             )
 
+        demand_capacity_max = max(demand_total, capacity_total, 1.0)
+        demand_bar_h = f"{max(18, int((demand_total / demand_capacity_max) * 92))}px"
+        capacity_bar_h = f"{max(18, int((capacity_total / demand_capacity_max) * 92))}px"
+        inflow_outflow_max = max(inflow_total, throughput_total, 1.0)
+        inflow_bar_h = f"{max(18, int((inflow_total / inflow_outflow_max) * 92))}px"
+        outflow_bar_h = f"{max(18, int((throughput_total / inflow_outflow_max) * 92))}px"
+
+        ref_panel_bg = '#f3f5f7'
+        ref_card_bg = '#f3f5f7'
+        ref_border = '1px solid #2b9be8'
+        ref_radius = '12px'
+        muted_txt = '#7b8694'
+        title_txt = '#3d4b59'
+        dot_gray = '#b8c0c8'
+        dot_orange = '#f1b236'
+        dot_teal = '#33b7b2'
+
+        def indicator_dots(active_color):
+            return html.Div([
+                html.Div(style={'width': '7px', 'height': '7px', 'borderRadius': '50%', 'backgroundColor': active_color, 'marginBottom': '6px'}),
+                html.Div(style={'width': '7px', 'height': '7px', 'borderRadius': '50%', 'backgroundColor': dot_orange if active_color != dot_orange else dot_gray, 'marginBottom': '6px'}),
+                html.Div(style={'width': '7px', 'height': '7px', 'borderRadius': '50%', 'backgroundColor': dot_gray}),
+            ], style={'position': 'absolute', 'top': '10px', 'right': '10px'})
+
+        flow_reference_cards = html.Div([
+            html.H4("Indicadores de Referência do Fluxo", style={'textAlign': 'center', 'marginBottom': '12px', 'marginTop': '8px'}),
+            html.Div([
+                html.Div([
+                    indicator_dots(dot_teal),
+                    html.P("Demand vs Capacity", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
+                    html.Div([
+                        html.Div([
+                            html.Div([
+                                html.Div(style={
+                                    'width': '38px',
+                                    'height': demand_bar_h,
+                                    'backgroundColor': '#2cb3ad',
+                                    'borderRadius': '0',
+                                    'margin': '0 auto',
+                                }),
+                                html.P('Demand', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                            ], style={'display': 'inline-block', 'width': '50%'}),
+                            html.Div([
+                                html.Div(style={
+                                    'width': '38px',
+                                    'height': capacity_bar_h,
+                                    'backgroundColor': '#176ea4',
+                                    'borderRadius': '0',
+                                    'margin': '0 auto',
+                                }),
+                                html.P('Capacity', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                            ], style={'display': 'inline-block', 'width': '50%'}),
+                        ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
+                        html.Ul([
+                            html.Li(
+                                f"Demand {abs(demand_vs_capacity_pct):.1f}% higher than capacity."
+                                if pd.notna(demand_vs_capacity_pct) and demand_vs_capacity_pct >= 0
+                                else (
+                                    f"Demand {abs(demand_vs_capacity_pct):.1f}% lower than capacity."
+                                    if pd.notna(demand_vs_capacity_pct)
+                                    else "Sem base para comparação."
+                                )
+                            ),
+                            html.Li(f"Inventory grew by {int(abs(inventory_growth))} flow items." if inventory_growth >= 0 else f"Inventory shrank by {int(abs(inventory_growth))} flow items."),
+                        ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
+                    html.Div("FLOWMÁTIKA", style={'position': 'absolute', 'right': '14px', 'bottom': '8px', 'fontSize': '10px', 'color': '#118bd2', 'fontWeight': 'bold'}),
+                ], className='six columns', style={
+                    'position': 'relative',
+                    'backgroundColor': ref_card_bg,
+                    'border': ref_border,
+                    'borderRadius': ref_radius,
+                    'padding': '12px 12px 22px 12px',
+                    'minHeight': '260px',
+                }),
+                html.Div([
+                    indicator_dots(dot_orange),
+                    html.P("Inflow vs Outflow", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
+                    html.Div([
+                        html.Div([
+                            html.Div([
+                                html.Div(style={
+                                    'width': '38px',
+                                    'height': inflow_bar_h,
+                                    'backgroundColor': '#5aa2d3',
+                                    'borderRadius': '0',
+                                    'margin': '0 auto',
+                                }),
+                                html.P('Inflow', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                            ], style={'display': 'inline-block', 'width': '50%'}),
+                            html.Div([
+                                html.Div(style={
+                                    'width': '38px',
+                                    'height': outflow_bar_h,
+                                    'backgroundColor': '#1e5f9e',
+                                    'borderRadius': '0',
+                                    'margin': '0 auto',
+                                }),
+                                html.P('Outflow', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                            ], style={'display': 'inline-block', 'width': '50%'}),
+                        ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
+                        html.Ul([
+                            html.Li(
+                                f"Inflow {abs(inflow_vs_outflow_pct):.1f}% higher than outflow."
+                                if pd.notna(inflow_vs_outflow_pct) and inflow_vs_outflow_pct >= 0
+                                else (
+                                    f"Inflow {abs(inflow_vs_outflow_pct):.1f}% lower than outflow."
+                                    if pd.notna(inflow_vs_outflow_pct)
+                                    else "Sem base para comparação."
+                                )
+                            ),
+                            html.Li(f"WIP grew by {int(abs(inventory_growth))} flow items." if inventory_growth >= 0 else f"WIP shrank by {int(abs(inventory_growth))} flow items."),
+                        ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
+                    html.Div("FLOWMÁTIKA", style={'position': 'absolute', 'right': '14px', 'bottom': '8px', 'fontSize': '10px', 'color': '#118bd2', 'fontWeight': 'bold'}),
+                ], className='six columns', style={
+                    'position': 'relative',
+                    'backgroundColor': ref_card_bg,
+                    'border': ref_border,
+                    'borderRadius': ref_radius,
+                    'padding': '12px 12px 22px 12px',
+                    'minHeight': '260px',
+                }),
+            ], className='row', style={'marginBottom': '12px'}),
+            html.Div([
+                html.Div([
+                    html.H6("Inventory Size", style={'marginBottom': '4px'}),
+                    html.Div(f"{int(wip_end_count)}", style={'fontSize': '32px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P('flow items', style={'marginBottom': '0'}),
+                    html.P(
+                        f"({inventory_weeks:.1f} semanas de inventário)" if pd.notna(inventory_weeks) else "(sem base de semanas de inventário)",
+                        style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
+                    ),
+                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
+                html.Div([
+                    html.H6("Commitment Rate", style={'marginBottom': '4px'}),
+                    html.Div(fmt_value(commitment_rate, '{:.0f}%'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P('throughput / demanda', style={'fontSize': '12px', 'marginTop': '8px', 'color': '#555'}),
+                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
+                html.Div([
+                    html.H6("Time to Commit (P85)", style={'marginBottom': '4px'}),
+                    html.Div(fmt_value(time_to_commit_p85, '{:.0f}'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P('dias', style={'marginTop': '8px'}),
+                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
+                html.Div([
+                    html.H6("WIP Count", style={'marginBottom': '4px'}),
+                    html.Div(f"{int(wip_end_count)}", style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P('flow items', style={'marginBottom': '0'}),
+                    html.P(
+                        f"Média de {wip_per_person:.1f} itens por pessoa ativa" if pd.notna(wip_per_person) else "Sem base por pessoa",
+                        style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
+                    ),
+                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
+                html.Div([
+                    html.H6("WIP Age (médio)", style={'marginBottom': '4px'}),
+                    html.Div(fmt_value(wip_age, '{:.0f}'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P('dias', style={'marginTop': '8px'}),
+                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
+                html.Div([
+                    html.H6("Throughput (total)", style={'marginBottom': '4px'}),
+                    html.Div(f"{int(throughput_total)}", style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P('flow items', style={'marginBottom': '0'}),
+                    html.P(
+                        f"(média de {throughput_weekly_avg:.1f} itens/semana)",
+                        style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
+                    ),
+                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
+                html.Div([
+                    html.H6("Flow Efficiency", style={'marginBottom': '4px'}),
+                    html.P("KPI View - Historical View", style={'fontSize': '11px', 'color': '#607d8b', 'marginBottom': '8px'}),
+                    html.P(
+                        "Em média, itens concluídos ficam ativos apenas",
+                        style={'fontSize': '12px', 'marginBottom': '2px', 'color': '#555'}
+                    ),
+                    html.Div(fmt_value(flow_efficiency_pct, '{:.0f}%'), style={'fontSize': '44px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.P("do tempo", style={'fontSize': '12px', 'marginTop': '4px', 'color': '#555'}),
+                ], style={
+                    'backgroundColor': '#fff',
+                    'border': '1px solid #d7e8f7',
+                    'borderRadius': '10px',
+                    'padding': '10px',
+                    'minHeight': '135px',
+                    'flex': '1 1 220px',
+                }),
+            ], style={
+                'display': 'flex',
+                'flexWrap': 'wrap',
+                'gap': '10px',
+                'marginTop': '8px',
+            }),
+        ], style={'maxWidth': '1200px', 'margin': '0 auto 20px auto', 'padding': '0 6px', 'backgroundColor': ref_panel_bg})
+
         return html.Div([
             html.H3("Painel Principal de Gestão de Fluxo", style={'textAlign': 'center'}),
             html.P(
@@ -1372,6 +1944,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 "Eficiência (1-rho) inversa: OK >=0.20, Atenção >=0.10 e <0.20, Crítico >=0.05 e <0.10, Extremamente Crítico <0.05.",
                 style={'textAlign': 'center', 'color': '#666', 'marginBottom': '20px'}
             ),
+            flow_reference_cards,
             html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
         ])
 
@@ -1471,6 +2044,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 cycle_hist_component = dcc.Graph(figure=fig_cycle_hist)
 
         # --- 3. Ranking de Gargalos por Etapa ---
+        fig_lead_time_breakdown = {}
+        lead_time_breakdown_component = html.P(
+            'Sem dados suficientes para calcular o breakdown percentual de lead time por etapa.'
+        )
         if bottlenecks_df.empty:
             fig_bottlenecks = {}
             bottlenecks_table = html.P('Sem dados suficientes para calcular gargalos por etapa.')
@@ -1517,12 +2094,55 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
                 style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
             )
 
+            breakdown_df = bottlenecks_df[['Etapa', 'Tempo Médio (dias)']].copy()
+            total_lead_time = breakdown_df['Tempo Médio (dias)'].sum()
+            if total_lead_time > 0:
+                breakdown_df['Percentual'] = (breakdown_df['Tempo Médio (dias)'] / total_lead_time) * 100
+                breakdown_df['Barra'] = 'Lead Time'
+
+                color_map = {
+                    'Backlog': '#4C78A8',
+                    'Execução': '#59A14F',
+                    'Bloqueio': '#E45756',
+                    'Espera Intermediária': '#F28E2B',
+                }
+                stage_order = breakdown_df['Etapa'].tolist()
+                fig_lead_time_breakdown = px.bar(
+                    breakdown_df,
+                    x='Percentual',
+                    y='Barra',
+                    color='Etapa',
+                    orientation='h',
+                    text=breakdown_df['Percentual'].map(lambda v: f'{v:.1f}%'),
+                    title='Lead Time Breakdown por Etapa do Fluxo (%)',
+                    labels={'Percentual': '% do Lead Time', 'Barra': ''},
+                    color_discrete_map=color_map,
+                    category_orders={'Etapa': stage_order},
+                    template='plotly_white',
+                    height=320,
+                )
+                fig_lead_time_breakdown.update_layout(
+                    barmode='stack',
+                    xaxis=dict(range=[0, 100], ticksuffix='%'),
+                    yaxis=dict(showticklabels=False),
+                    legend_title_text='Etapa do Fluxo',
+                    margin=dict(l=60, r=40, t=70, b=50),
+                )
+                fig_lead_time_breakdown.update_traces(
+                    textposition='inside',
+                    insidetextanchor='middle',
+                    hovertemplate='Etapa: %{fullData.name}<br>% Lead Time: %{x:.1f}%<extra></extra>',
+                )
+                lead_time_breakdown_component = dcc.Graph(figure=fig_lead_time_breakdown)
+
         return html.Div([
             html.H3("Análise Avançada de Fluxo", style={'textAlign': 'center'}),
             html.Div(kpi_table, style={'width': '50%', 'margin': 'auto', 'marginBottom': '30px'}),
             html.H4("Indicador de Gargalo do Fluxo", style={'textAlign': 'center', 'marginTop': '10px'}),
             html.Div(bottlenecks_table, style={'width': '70%', 'margin': 'auto', 'marginBottom': '20px'}),
             dcc.Graph(figure=fig_bottlenecks),
+            html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
+            lead_time_breakdown_component,
             cycle_hist_component,
         ])
 
@@ -1838,16 +2458,128 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             dcc.Graph(figure=fig_wip_lt)
         ])
 
-    if tab == 'tab-throughput-tipo':
-        tp = df.dropna(subset=['DataDone']).copy()
-        tp['Semana'] = weekly_bucket_start(tp['DataDone'])
-        tp = tp.groupby(['Semana', 'Tipo']).size().reset_index(name='Throughput')
-        fig = px.line(tp, x='Semana', y='Throughput', color='Tipo', title='Throughput por Tipo (semanal)', color_discrete_map=color_map)
-        # Adiciona linhas estatísticas para o throughput total por semana
-        tp_total = tp.groupby('Semana')['Throughput'].sum().reset_index()
-        add_statistical_lines(fig, tp_total['Semana'], tp_total['Throughput'], name_prefix='Total ')
-        fig.update_layout(height=600, xaxis_tickangle=-45, margin=dict(b=130))
-        return html.Div([dcc.Graph(figure=fig)])
+    if tab == 'tab-throughput-breakdown':
+        tp_done = df.dropna(subset=['DataDone']).copy()
+        if tp_done.empty:
+            return html.Div('Sem dados de Throughput para exibir para o período e filtros selecionados.')
+
+        tp_done['Semana'] = weekly_bucket_start(tp_done['DataDone'])
+        tp_weekly = tp_done.groupby('Semana').size().reset_index(name='Throughput')
+        fig_tp_weekly = px.line(
+            tp_weekly,
+            x='Semana',
+            y='Throughput',
+            title='Throughput Semanal',
+            markers=True,
+        )
+        add_statistical_lines(fig_tp_weekly, tp_weekly['Semana'], tp_weekly['Throughput'], name_prefix='Total ')
+        fig_tp_weekly.update_layout(height=500, xaxis_tickangle=-45, margin=dict(b=100))
+
+        type_breakdown = build_throughput_breakdown(tp_done, 'Tipo', 'Throughput por Tipo de Demanda')
+        type_order = type_breakdown['Tipo'].tolist()
+        fig_type_breakdown = px.bar(
+            type_breakdown,
+            x='Percentual',
+            y='Barra',
+            color='Tipo',
+            orientation='h',
+            text=type_breakdown['Percentual'].map(lambda v: f'{v:.1f}%'),
+            title='Throughput Breakdown por Tipo de Demanda (%)',
+            labels={'Percentual': '% do Throughput', 'Barra': ''},
+            color_discrete_map=color_map,
+            category_orders={'Tipo': type_order},
+            template='plotly_white',
+            height=320,
+        )
+        fig_type_breakdown.update_layout(
+            barmode='stack',
+            xaxis=dict(range=[0, 100], ticksuffix='%'),
+            yaxis=dict(showticklabels=False),
+            legend_title_text='Tipo de Demanda',
+            margin=dict(l=60, r=40, t=70, b=50),
+        )
+        fig_type_breakdown.update_traces(
+            textposition='inside',
+            insidetextanchor='middle',
+            hovertemplate='Tipo: %{fullData.name}<br>% Throughput: %{x:.1f}%<extra></extra>',
+        )
+
+        tp_done['ClassificacaoUrgencia'] = tp_done.apply(classify_urgency_label, axis=1)
+        urgency_breakdown = build_throughput_breakdown(
+            tp_done,
+            'ClassificacaoUrgencia',
+            'Throughput por Classificação de Urgência'
+        )
+        urgency_order = urgency_breakdown['ClassificacaoUrgencia'].tolist()
+        urgency_color_map = {
+            'Urgente': '#E45756',
+            'Data Fixa': '#F28E2B',
+            'Padrão': '#4C78A8',
+            'Média': '#72B7B2',
+            'Baixa': '#54A24B',
+            'Intangível': '#B279A2',
+            'Não classificado': '#9D9D9D',
+        }
+        fig_urgency_breakdown = px.bar(
+            urgency_breakdown,
+            x='Percentual',
+            y='Barra',
+            color='ClassificacaoUrgencia',
+            orientation='h',
+            text=urgency_breakdown['Percentual'].map(lambda v: f'{v:.1f}%'),
+            title='Throughput Breakdown por Classificação de Urgência (%)',
+            labels={'Percentual': '% do Throughput', 'Barra': ''},
+            color_discrete_map=urgency_color_map,
+            category_orders={'ClassificacaoUrgencia': urgency_order},
+            template='plotly_white',
+            height=320,
+        )
+        fig_urgency_breakdown.update_layout(
+            barmode='stack',
+            xaxis=dict(range=[0, 100], ticksuffix='%'),
+            yaxis=dict(showticklabels=False),
+            legend_title_text='Classificação de Urgência',
+            margin=dict(l=60, r=40, t=70, b=50),
+        )
+        fig_urgency_breakdown.update_traces(
+            textposition='inside',
+            insidetextanchor='middle',
+            hovertemplate='Urgência: %{fullData.name}<br>% Throughput: %{x:.1f}%<extra></extra>',
+        )
+
+        type_table = type_breakdown.copy()
+        type_table['Percentual'] = type_table['Percentual'].map(lambda v: f'{v:.1f}%')
+        urgency_table = urgency_breakdown.copy()
+        urgency_table['Percentual'] = urgency_table['Percentual'].map(lambda v: f'{v:.1f}%')
+
+        throughput_avg = tp_weekly['Throughput'].mean() if not tp_weekly.empty else 0.0
+        return html.Div([
+            html.H3("Throughput Consolidado", style={'textAlign': 'center'}),
+            html.Div([
+                create_kpi_card('Throughput Total', f"{len(tp_done)}", class_name='four columns'),
+                create_kpi_card('Média Semanal', f"{throughput_avg:.1f}", class_name='four columns'),
+                create_kpi_card('Semanas com Entrega', f"{tp_weekly['Semana'].nunique()}", class_name='four columns'),
+            ], className='row'),
+            dcc.Graph(figure=fig_tp_weekly),
+            html.H4("Breakdown por Tipo de Demanda", style={'textAlign': 'center', 'marginTop': '10px'}),
+            dcc.Graph(figure=fig_type_breakdown),
+            dash_table.DataTable(
+                columns=[{"name": i, "id": i} for i in type_table.columns],
+                data=type_table.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            ),
+            html.H4("Breakdown por Classificação de Urgência", style={'textAlign': 'center', 'marginTop': '20px'}),
+            dcc.Graph(figure=fig_urgency_breakdown),
+            dash_table.DataTable(
+                columns=[{"name": i, "id": i} for i in urgency_table.columns],
+                data=urgency_table.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            ),
+        ])
 
     if tab == 'tab-eficiencia':
         if df.empty:
@@ -1955,6 +2687,99 @@ def render_tab(tab, start_date, end_date, projeto, tipo, responsavel):
             dcc.Graph(figure=fig_scatter_eff),
             html.H4("Análise Detalhada por Item", style={'textAlign': 'center', 'marginTop': '40px'}),
             detail_table
+        ])
+
+    if tab == 'tab-padroes':
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+
+        df_patterns = fato.copy()
+        if projeto:
+            df_patterns = df_patterns[df_patterns['Projeto'] == projeto]
+        if tipo:
+            df_patterns = df_patterns[df_patterns['Tipo'] == tipo]
+        if classe_servico:
+            df_patterns = df_patterns[df_patterns['ClasseServico'] == classe_servico]
+        if responsavel:
+            df_patterns = df_patterns[df_patterns['Responsavel'] == responsavel]
+
+        if df_patterns.empty:
+            return html.Div('Sem dados para detectar padrões no filtro selecionado.')
+
+        details, summary = detect_systemic_patterns(df_patterns, start_ts, end_ts, PATTERN_RULES)
+        if details.empty:
+            return html.Div([
+                html.H3('Padrões Sistêmicos', style={'textAlign': 'center'}),
+                html.P(
+                    'Nenhum padrão detectado com as regras configuradas para o período/filtros.',
+                    style={'textAlign': 'center', 'color': '#555'}
+                ),
+            ])
+
+        criticos = int((details['Severidade'] == 'Crítico').sum())
+        atencao = int((details['Severidade'] == 'Atenção').sum())
+        semanas_afetadas = int(details['Semana'].nunique())
+
+        kpis = html.Div([
+            create_kpi_card('Ocorrências Críticas', criticos, class_name='four columns'),
+            create_kpi_card('Ocorrências Atenção', atencao, class_name='four columns'),
+            create_kpi_card('Semanas com Sinal', semanas_afetadas, class_name='four columns'),
+        ], className='row')
+
+        fig_summary = px.bar(
+            summary,
+            x='Padrão',
+            y='Ocorrências',
+            color='Severidade',
+            barmode='group',
+            title='Padrões Detectados por Severidade',
+            color_discrete_map={'Crítico': '#c62828', 'Atenção': '#f9a825'}
+        )
+        fig_summary.update_layout(height=520, xaxis_tickangle=-25, margin=dict(b=140))
+
+        details_view = details.sort_values(['Semana', 'Severidade'], ascending=[False, True])
+        table_summary = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in summary.columns],
+            data=summary.to_dict('records'),
+            style_cell={'textAlign': 'left', 'padding': '6px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            page_size=12,
+        )
+        table_details = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in details_view.columns],
+            data=details_view.to_dict('records'),
+            style_cell={
+                'textAlign': 'left',
+                'padding': '6px',
+                'minWidth': '120px',
+                'maxWidth': '260px',
+                'whiteSpace': 'normal'
+            },
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[
+                {'if': {'filter_query': '{Severidade} = "Crítico"'}, 'backgroundColor': '#fdecea'},
+                {'if': {'filter_query': '{Severidade} = "Atenção"'}, 'backgroundColor': '#fff8e1'},
+            ],
+            page_size=12,
+            filter_action='native',
+            sort_action='native',
+        )
+
+        return html.Div([
+            html.H3('Padrões Sistêmicos Detectados', style={'textAlign': 'center'}),
+            html.P(
+                'Detecção automática por regras configuráveis (PATTERN_RULES/JIRA_PATTERN_RULES). '
+                'Inclui urgência crônica, burnout, confiança comprometida, problema sistêmico de fluxo, '
+                'atrasos/desperdícios, estagnação e compromisso prematuro.',
+                style={'textAlign': 'center', 'color': '#555'}
+            ),
+            kpis,
+            dcc.Graph(figure=fig_summary),
+            html.H4('Resumo de Ocorrências', style={'marginTop': '16px'}),
+            table_summary,
+            html.H4('Detalhamento Semanal', style={'marginTop': '16px'}),
+            table_details,
         ])
 
     if tab == 'tab-wip':

@@ -731,7 +731,7 @@ def main() -> int:
     parser.add_argument(
         "--bottleneck-chart",
         default="",
-        help="HTML opcional com gráfico de barras de gargalos (default: <out>_bottlenecks.html)",
+        help="HTML opcional com gráfico de barras de gargalos (somente se informado).",
     )
     args = parser.parse_args()
 
@@ -884,14 +884,15 @@ def main() -> int:
         return 0
 
     bottleneck_out = args.bottleneck_out or build_default_artifact_path(args.out, "_bottlenecks.csv")
-    bottleneck_chart = args.bottleneck_chart or build_default_artifact_path(args.out, "_bottlenecks.html")
+    bottleneck_chart = args.bottleneck_chart.strip()
 
     write_bottleneck_csv(bottleneck_out, summary)
     print(f"Ranking de gargalos salvo em: {bottleneck_out}")
 
-    chart_written = write_bottleneck_bar_chart(bottleneck_chart, summary)
-    if chart_written:
-        print(f"Gráfico de gargalos salvo em: {bottleneck_chart}")
+    if bottleneck_chart:
+        chart_written = write_bottleneck_bar_chart(bottleneck_chart, summary)
+        if chart_written:
+            print(f"Gráfico de gargalos salvo em: {bottleneck_chart}")
 
     print("Top 5 gargalos (maior para menor):")
     for item in summary[:5]:

@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUT_DIR="${HOME}/Documents/Dados"
+DATE_TAG="$(date +%Y%m%d)"
+ENV_FILE="${SCRIPT_DIR}/jira_env.txt"
+WORKERS=8
+RUN_PORTFOLIO_EXPORT=true
+RUN_METRICS=true
+OPEN_DASHBOARD=true
+
+usage() {
+    cat <<'EOF_HELP'
+Uso: ./run_all_projects_macos.sh [opcoes]
+
+Opcoes:
+  --out-dir PATH            Diretorio de saida (padrao: ~/Documents/Dados)
+  --date-tag YYYYMMDD       Tag de data para os arquivos (padrao: data atual)
+  --env-file PATH           Arquivo com variaveis JIRA_*
+  --workers N               Numero de workers para exportacao (padrao: 8)
+  --run-portfolio-export    Executa exportacao de portfolio (padrao)
+  --no-run-portfolio-export Nao executa exportacao de portfolio
+  --run-metrics             Executa metricas (padrao)
+  --no-run-metrics          Nao executa metricas
+  --open-dashboard          Abre dashboard no navegador (padrao)
+  --no-open-dashboard       Nao abre dashboard
+  -h, --help                Mostra esta ajuda
+EOF_HELP
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --out-dir)
+            OUT_DIR="$2"
+            shift 2
+            ;;
+        --date-tag)
+            DATE_TAG="$2"
+            shift 2
+            ;;
+        --env-file)
+            ENV_FILE="$2"
+            shift 2
+            ;;
+        --workers)
+            WORKERS="$2"
+            shift 2
+            ;;
+        --run-portfolio-export)
+            RUN_PORTFOLIO_EXPORT=true
+            shift
+            ;;
+        --no-run-portfolio-export)
+            RUN_PORTFOLIO_EXPORT=false
+            shift
+            ;;
+        --run-metrics)
+            RUN_METRICS=true
+            shift
+            ;;
+        --no-run-metrics)
+            RUN_METRICS=false
+            shift
+            ;;
+        --open-dashboard)
+            OPEN_DASHBOARD=true
+            shift
+            ;;
+        --no-open-dashboard)
+            OPEN_DASHBOARD=false
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Opcao desconhecida: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+import_env_file() {
+    local path="$1"
+    [[ -f "$path" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+
+        local key="${line%%=*}"
+        local value="${line#*=}"
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+
+        if [[ -n "$key" && -n "$value" && -z "${!key:-}" ]]; then
+            export "$key=$value"
+        fi
+    done < "$path"
+}
+
+import_env_file "$ENV_FILE"
+
+if [[ -z "${JIRA_BASE_URL:-}" || -z "${JIRA_EMAIL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
+    echo "Defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN (ou preencha o arquivo $ENV_FILE) antes de executar."
+    exit 1
+fi
+
+PYTHON_BIN="python3"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+fi
+
+SCRIPT_PATH="${SCRIPT_DIR}/jira_to_pipeline_csv.py"
+PORTFOLIO_SCRIPT="${SCRIPT_DIR}/jira_portfolio_to_csv.py"
+METRICS_SCRIPT="${SCRIPT_DIR}/dash_board_metricas.py"
+DASHBOARD_SCRIPT="${SCRIPT_DIR}/dashboard_full.py"
+
+[[ -f "$SCRIPT_PATH" ]] || { echo "Arquivo nao encontrado: $SCRIPT_PATH"; exit 1; }
+mkdir -p "$OUT_DIR"
+
+PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
+PROJECT_PREFIXES=("w1nner-downstream" "s1nc-downstream" "befinance-downstream" "dataanalytics-downstream")
+
+echo "Iniciando exportacao Jira -> CSV..."
+echo "Base URL: ${JIRA_BASE_URL}"
+echo "Saida: ${OUT_DIR}"
+echo "Data: ${DATE_TAG}"
+
+for i in "${!PROJECT_KEYS[@]}"; do
+    key="${PROJECT_KEYS[$i]}"
+    prefix="${PROJECT_PREFIXES[$i]}"
+    out_file="${OUT_DIR}/${prefix}-${DATE_TAG}-data.csv"
+
+    echo
+    echo "Projeto: ${key}"
+    echo "Arquivo: ${out_file}"
+
+    "$PYTHON_BIN" "$SCRIPT_PATH" --projects "$key" --out "$out_file" --env-file "$ENV_FILE" --workers "$WORKERS"
+done
+
+echo
+echo "Exportacoes concluidas com sucesso."
+
+if [[ "$RUN_PORTFOLIO_EXPORT" == true ]]; then
+    [[ -f "$PORTFOLIO_SCRIPT" ]] || { echo "Arquivo nao encontrado: $PORTFOLIO_SCRIPT"; exit 1; }
+    portfolio_out="${OUT_DIR}/portfolio-bt-ns-${DATE_TAG}-data.csv"
+    echo
+    echo "Exportando CSV de portfolio (BT/NS)..."
+    echo "Arquivo: ${portfolio_out}"
+
+    "$PYTHON_BIN" "$PORTFOLIO_SCRIPT" --projects BT NS --out "$portfolio_out" --env-file "$ENV_FILE"
+fi
+
+if [[ "$RUN_METRICS" == true ]]; then
+    [[ -f "$METRICS_SCRIPT" ]] || { echo "Arquivo nao encontrado: $METRICS_SCRIPT"; exit 1; }
+    echo
+    echo "Executando processamento de metricas..."
+    "$PYTHON_BIN" "$METRICS_SCRIPT"
+fi
+
+if [[ "$OPEN_DASHBOARD" == true ]]; then
+    [[ -f "$DASHBOARD_SCRIPT" ]] || { echo "Arquivo nao encontrado: $DASHBOARD_SCRIPT"; exit 1; }
+    echo
+    echo "Iniciando dashboard web..."
+    (
+        cd "$SCRIPT_DIR"
+        "$PYTHON_BIN" "$DASHBOARD_SCRIPT" >/dev/null 2>&1 &
+    )
+    sleep 6
+    open "http://127.0.0.1:8050" >/dev/null 2>&1 || true
+    echo "Dashboard aberto em http://127.0.0.1:8050"
+fi
