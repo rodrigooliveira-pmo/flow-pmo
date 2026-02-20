@@ -112,6 +112,32 @@ def normalize_text(value):
     translate_map = str.maketrans('áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
     return txt.translate(translate_map)
 
+TYPE_SUPPORT = 'Suporte'
+TYPE_ISSUES = 'Issues/Defeitos/Problemas'
+TYPE_DEV = 'Desenvolvimento'
+TYPE_OTHER = 'Outro'
+
+
+def canonicalize_demand_type(tipo, subtype=None):
+    tipo_norm = normalize_text(tipo)
+    subtype_norm = normalize_text(subtype)
+
+    if tipo_norm in {'suporte', 'support'} or subtype_norm in {'suporte', 'support'}:
+        return TYPE_SUPPORT
+    if tipo_norm in {'defeitos', 'defeito', 'bug', 'issue', 'issues', 'problema', 'problemas'}:
+        return TYPE_ISSUES
+    if tipo_norm == normalize_text(TYPE_ISSUES):
+        return TYPE_ISSUES
+    if tipo_norm in {'desenvolvimento', 'development'}:
+        return TYPE_DEV
+    if tipo_norm in {'outro', 'other'}:
+        return TYPE_OTHER
+    return str(tipo) if str(tipo or '').strip() else TYPE_OTHER
+
+
+def is_failure_demand_type(tipo):
+    return canonicalize_demand_type(tipo) == TYPE_ISSUES
+
 
 def parse_json_env(name, default):
     raw = os.getenv(name, '').strip()
@@ -192,7 +218,7 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
         lt_p50 = lead_times.quantile(0.50) if not lead_times.empty else 0.0
         predictability = _safe_ratio(lt_p85, lt_p50) if lt_p50 > 0 else np.nan
 
-        defects = len(done[done['Tipo'] == 'Defeitos']) if 'Tipo' in done.columns else 0
+        defects = len(done[done['TipoDemanda'] == TYPE_ISSUES]) if 'TipoDemanda' in done.columns else 0
         failure_pct = _safe_pct(defects, tp)
         expedite_arrivals = len(arrivals[arrivals['ClasseServico'] == 'Expedite']) if 'ClasseServico' in arrivals.columns else 0
         expedite_pct = _safe_pct(expedite_arrivals, inflow)
@@ -415,7 +441,17 @@ def compute_portfolio_snapshot(df, updated_at_label):
     # Aging e classes de fluxo para indicadores em tiles.
     done_terms = {'done', 'concluido', 'concluida', 'closed', 'resolved'}
     backlog_terms = {'backlog', 'to do', 'todo', 'triagem'}
-    in_progress_terms = {'in progress', 'homolog', 'staging', 'ready', 'progress', 'desenvolvimento'}
+    in_progress_terms = {
+        'in progress',
+        'in progess',
+        'homolog',
+        'staging',
+        'ready',
+        'progress',
+        'desenvolvimento',
+        'business review',
+        '%',
+    }
 
     df['UltimaMovimentacaoItem'] = df['StatusChangedAt']
     df.loc[df['UltimaMovimentacaoItem'].isna(), 'UltimaMovimentacaoItem'] = df.loc[df['UltimaMovimentacaoItem'].isna(), 'UpdatedAt']
@@ -424,6 +460,9 @@ def compute_portfolio_snapshot(df, updated_at_label):
     is_done = status_contains(df['StatusNorm'], done_terms)
     is_backlog = status_contains(df['StatusNorm'], backlog_terms)
     is_in_progress = status_contains(df['StatusNorm'], in_progress_terms) & (~is_done)
+    # Fallback: se a taxonomia de status vier fora do dicionário, considera "aberto e não backlog" como em processo.
+    if not bool(is_in_progress.any()):
+        is_in_progress = (~is_done) & (~is_backlog)
     is_open = (~is_done)
 
     df['IsOpen'] = is_open
@@ -445,9 +484,15 @@ def compute_portfolio_snapshot(df, updated_at_label):
     )
 
     # Aging WIP - quatro indicadores no padrão dos exemplos.
-    us_in_progress = df[df['IsUS'] & df['IsInProgress']].copy()
+    has_us_items = bool(df['IsUS'].any())
+    if has_us_items:
+        us_in_progress = df[df['IsUS'] & df['IsInProgress']].copy()
+        us_compromissadas = df[df['IsUS'] & df['IsInProgress'] & (~df['IsBacklog'])].copy()
+    else:
+        # No snapshot de portfólio BT/NS costuma não haver US; usa Épicos como proxy operacional.
+        us_in_progress = df[df['TipoNorm'].isin(epic_types) & df['IsInProgress']].copy()
+        us_compromissadas = df[df['TipoNorm'].isin(epic_types) & df['IsInProgress'] & (~df['IsBacklog'])].copy()
     features_in_progress = df[df['IsFeature'] & df['IsInProgress']].copy()
-    us_compromissadas = df[df['IsUS'] & df['IsInProgress'] & (~df['IsBacklog'])].copy()
     features_compromissadas = features_with_epic[features_with_epic['Status'].notna()].copy()
     if not features_compromissadas.empty:
         age_map = df.set_index('ID')['AgingDiasSemAlteracao']
@@ -582,6 +627,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'executive_tiles': executive_tiles,
             'epicos_detalhe': epicos_detalhe,
             'features_detalhe': features_detalhe,
+            'has_us_items': has_us_items,
         },
     }
 
@@ -935,8 +981,8 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         ]
 
         tp_total = len(finished)
-        tp_dev = len(finished[finished['Tipo'] == 'Desenvolvimento']) if tp_total > 0 else 0
-        tp_def = len(finished[finished['Tipo'] == 'Defeitos']) if tp_total > 0 else 0
+        tp_dev = len(finished[finished['TipoDemanda'] == TYPE_DEV]) if tp_total > 0 else 0
+        tp_def = len(finished[finished['TipoDemanda'] == TYPE_ISSUES]) if tp_total > 0 else 0
         tp_discard = int(finished['Descartado'].sum()) if 'Descartado' in finished.columns else 0
 
         wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0
@@ -948,7 +994,7 @@ def compute_weekly_service_metrics(df_projeto, weeks):
             avg_eff = 0
         median_lt = finished['LeadTime_Dias'].dropna().quantile(0.50) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
         p85_lt = finished['LeadTime_Dias'].dropna().quantile(0.85) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
-        mttr = finished[finished['Tipo'] == 'Defeitos']['LeadTime_Dias'].dropna().mean() if tp_def > 0 and 'LeadTime_Dias' in finished.columns else 0
+        mttr = finished[finished['TipoDemanda'] == TYPE_ISSUES]['LeadTime_Dias'].dropna().mean() if tp_def > 0 and 'LeadTime_Dias' in finished.columns else 0
         if pd.isna(mttr):
             mttr = 0
 
@@ -970,6 +1016,11 @@ def compute_weekly_service_metrics(df_projeto, weeks):
 
     return metric_names, rows
 
+fato['TipoDemanda'] = fato.apply(
+    lambda row: canonicalize_demand_type(row.get('Tipo'), row.get('WorkItemSubType')),
+    axis=1
+)
+
 min_date = fato['DataDone'].min() if 'DataDone' in fato.columns else pd.to_datetime('2023-01-01')
 max_date = fato['DataDone'].max() if 'DataDone' in fato.columns else pd.to_datetime('today')
 
@@ -981,7 +1032,7 @@ app.layout = html.Div([
                                                             month_format='MMMM YYYY',
                                                             show_outside_days=True)], style={'display':'inline-block', 'marginRight':'20px'}),
         html.Div([html.Label('Projeto:'), dcc.Dropdown(id='filter-projeto', options=[{'label':p,'value':p} for p in unique_sorted(fato['Projeto'])], value=unique_sorted(fato['Projeto'])[0] if len(unique_sorted(fato['Projeto']))>0 else None, clearable=False)], style={'width':'20%', 'display':'inline-block'}),
-        html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['Tipo'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['TipoDemanda'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Classe Serviço:'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([
@@ -1026,7 +1077,7 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
     if projeto:
         d = d[d['Projeto'] == projeto]
     if tipo:
-        d = d[d['Tipo'] == tipo]
+        d = d[d['TipoDemanda'] == tipo]
     if classe_servico:
         d = d[d['ClasseServico'] == classe_servico]
     if responsavel:
@@ -1049,9 +1100,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
 
     # Padrão de cores para os tipos de demanda
     color_map = {
-        'Desenvolvimento': 'green', # Demanda de Valor
-        'Defeitos': 'red',         # Demanda de Falha
-        'Outro': 'lightgray'       # Outros tipos
+        TYPE_DEV: 'green',           # Demanda de Valor
+        TYPE_ISSUES: 'red',          # Demanda de Falha
+        TYPE_SUPPORT: 'orange',      # Suporte
+        TYPE_OTHER: 'lightgray'      # Outros tipos
     }
 
     if tab == 'tab-performance':
@@ -1142,6 +1194,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         features_por_team_total = groups.get('features_por_team_total', pd.DataFrame())
         epicos_detalhe = groups.get('epicos_detalhe', pd.DataFrame())
         features_detalhe = groups.get('features_detalhe', pd.DataFrame())
+        has_us_items = bool(groups.get('has_us_items', False))
 
         selected_team = str(portfolio_team or '__ALL__')
 
@@ -1166,6 +1219,14 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         features_por_team_total = filter_by_team(features_por_team_total)
         epicos_detalhe = filter_by_team(epicos_detalhe)
         features_detalhe = filter_by_team(features_detalhe)
+        available_teams = []
+        for frame in [epicos_por_team_total, features_por_team_total]:
+            if frame is None or frame.empty or 'Team' not in frame.columns:
+                continue
+            for t in frame['Team'].dropna().astype(str):
+                team = t.strip()
+                if team and team not in available_teams:
+                    available_teams.append(team)
 
         if selected_team != '__ALL__':
             if not executive_tiles.empty:
@@ -1221,12 +1282,19 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             })
 
         def render_tiles_by_team(df_metric, title, threshold_key):
+            cards = []
             if df_metric is None or df_metric.empty:
-                return html.Div([html.H4(title), html.P('Sem dados para exibição.')])
-            cards = [
-                render_tile(row['Team'], row['WorkItems'], threshold_key=threshold_key)
-                for _, row in df_metric.sort_values('WorkItems', ascending=False).iterrows()
-            ]
+                if not available_teams:
+                    return html.Div([html.H4(title), html.P('Sem dados para exibição.')])
+                cards = [
+                    render_tile(team, 0, threshold_key=threshold_key, empty_gray=True)
+                    for team in available_teams
+                ]
+            else:
+                cards = [
+                    render_tile(row['Team'], row['WorkItems'], threshold_key=threshold_key)
+                    for _, row in df_metric.sort_values('WorkItems', ascending=False).iterrows()
+                ]
             return html.Div([
                 html.H4(title, style={'textAlign': 'left'}),
                 html.Div(cards, style={
@@ -1326,6 +1394,16 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         features_sem_mov_15_visao = int((features_detalhe['DiasSemMovimentacao'] > 15).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
         features_sem_mov_30_visao = int((features_detalhe['DiasSemMovimentacao'] > 30).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
         scope_label = 'Todos os teams' if selected_team == '__ALL__' else selected_team
+        aging_label_us_20 = (
+            'US com mais de 20 dias em processo sem alteração'
+            if has_us_items else
+            'Épicos com mais de 20 dias em processo sem alteração'
+        )
+        aging_label_us_comp_20 = (
+            'US compromissadas a mais de 20 dias e em processo'
+            if has_us_items else
+            'Épicos compromissados a mais de 20 dias e em processo'
+        )
 
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
@@ -1347,11 +1425,11 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             html.Div([
                 html.H3('Indicador 2 - Aging WIP por TEAM', style={'textAlign': 'left'}),
                 html.Div([
-                    html.Div(render_tiles_by_team(aging_us_20, 'US com mais de 20 dias em processo sem alteração', threshold_key='aging_us_20'), className='six columns'),
+                    html.Div(render_tiles_by_team(aging_us_20, aging_label_us_20, threshold_key='aging_us_20'), className='six columns'),
                     html.Div(render_tiles_by_team(aging_features_40, 'Features com mais de 40 dias em processo sem alteração', threshold_key='aging_features_40'), className='six columns'),
                 ], className='row'),
                 html.Div([
-                    html.Div(render_tiles_by_team(aging_us_comp_20, 'US compromissadas a mais de 20 dias e em processo', threshold_key='aging_us_comp_20'), className='six columns'),
+                    html.Div(render_tiles_by_team(aging_us_comp_20, aging_label_us_comp_20, threshold_key='aging_us_comp_20'), className='six columns'),
                     html.Div(render_tiles_by_team(aging_features_comp_40, 'Features compromissadas a mais de 40 dias e em processo', threshold_key='aging_features_comp_40'), className='six columns'),
                 ], className='row'),
             ], style={'marginTop': '20px'}),
@@ -1427,7 +1505,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             df_signal_base = df_signal_base[df_signal_base['Projeto'] == projeto]
         if tipo:
-            df_signal_base = df_signal_base[df_signal_base['Tipo'] == tipo]
+            df_signal_base = df_signal_base[df_signal_base['TipoDemanda'] == tipo]
         if responsavel:
             df_signal_base = df_signal_base[df_signal_base['Responsavel'] == responsavel]
 
@@ -1436,7 +1514,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             df_threshold_base = df_threshold_base[df_threshold_base['Projeto'] == projeto]
         if tipo:
-            df_threshold_base = df_threshold_base[df_threshold_base['Tipo'] == tipo]
+            df_threshold_base = df_threshold_base[df_threshold_base['TipoDemanda'] == tipo]
 
         weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
         if len(weeks) < 2:
@@ -1532,12 +1610,27 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             (df_signal_base['DataInProgress'] <= end_ts)
         ]
         if 'DataBacklog' in df_signal_base.columns:
+            demand_date = df_signal_base['DataBacklog'].copy()
+            if 'DataInProgress' in df_signal_base.columns:
+                demand_date = demand_date.fillna(df_signal_base['DataInProgress'])
             df_demand_period = df_signal_base[
-                (df_signal_base['DataBacklog'] >= start_ts) &
-                (df_signal_base['DataBacklog'] <= end_ts)
+                (demand_date >= start_ts) &
+                (demand_date <= end_ts)
             ]
+            df_inventory_start = df_signal_base[
+                (df_signal_base['DataBacklog'] < start_ts) &
+                ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
+            ]
+            df_inventory_end = df_signal_base[
+                (df_signal_base['DataBacklog'] <= end_ts) &
+                ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
+            ]
+            use_backlog_for_inventory = True
+            demand_label = "itens que entraram no sistema no período (backlog/início)"
         else:
             df_demand_period = df_arrived_period
+            use_backlog_for_inventory = False
+            demand_label = "itens que iniciaram o fluxo no período"
 
         df_wip_start = df_signal_base[
             (df_signal_base['DataInProgress'] < start_ts) &
@@ -1547,6 +1640,9 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             (df_signal_base['DataInProgress'] <= end_ts) &
             ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
         ]
+        if not use_backlog_for_inventory:
+            df_inventory_start = df_wip_start.copy()
+            df_inventory_end = df_wip_end.copy()
 
         throughput_avg = weekly_df['Throughput'].mean() if not weekly_df.empty else np.nan
         arrivals_avg = weekly_df['Chegadas'].mean() if not weekly_df.empty else np.nan
@@ -1559,10 +1655,14 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         capacity_total = throughput_total
         wip_start_count = float(len(df_wip_start))
         wip_end_count = float(len(df_wip_end))
-        inventory_growth = wip_end_count - wip_start_count
+        inventory_start_count = float(len(df_inventory_start)) if isinstance(df_inventory_start, pd.DataFrame) else np.nan
+        inventory_end_count = float(len(df_inventory_end)) if isinstance(df_inventory_end, pd.DataFrame) else np.nan
+        inventory_growth = inventory_end_count - inventory_start_count if pd.notna(inventory_start_count) and pd.notna(inventory_end_count) else np.nan
+        wip_growth = wip_end_count - wip_start_count
         weeks_count = max(1, len(weeks) - 1)
         throughput_weekly_avg = throughput_total / weeks_count if weeks_count > 0 else np.nan
-        inventory_weeks = (wip_end_count / throughput_weekly_avg) if throughput_weekly_avg > 0 else np.nan
+        inventory_weeks = (inventory_end_count / throughput_weekly_avg) if throughput_weekly_avg > 0 and pd.notna(inventory_end_count) else np.nan
+        capacity_label = "itens concluídos no período (throughput)"
 
         lead_time_p85 = np.nan
         lead_time_p50 = np.nan
@@ -1589,23 +1689,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         else:
             commit_times = pd.Series(dtype='float64')
         time_to_commit_p85 = commit_times.quantile(0.85) if not commit_times.empty else np.nan
-        flow_efficiency_pct = np.nan
-        if 'Eficiencia' in df_done_period.columns and not df_done_period['Eficiencia'].dropna().empty:
-            flow_efficiency_pct = float(df_done_period['Eficiencia'].dropna().mean() * 100.0)
-        elif pd.notna(queue_efficiency):
-            flow_efficiency_pct = float(queue_efficiency * 100.0)
-        active_people_count = 0
-        if 'Responsavel' in df_wip_end.columns:
-            active_people_count = int(df_wip_end['Responsavel'].dropna().nunique())
-        wip_per_person = (wip_end_count / active_people_count) if active_people_count > 0 else np.nan
 
-        tipo_norm = df_done_period['Tipo'].map(normalize_text) if 'Tipo' in df_done_period.columns else pd.Series(dtype='object')
-        tp_valor = tipo_norm.apply(
-            lambda x: ('valor' in x) or ('desenvol' in x) or ('feature' in x) or ('funcional' in x)
-        ).sum() if not tipo_norm.empty else 0
-        tp_falha = tipo_norm.apply(
-            lambda x: ('falha' in x) or ('defeit' in x) or ('bug' in x)
-        ).sum() if not tipo_norm.empty else 0
+        tipo_demanda = df_done_period['TipoDemanda'] if 'TipoDemanda' in df_done_period.columns else pd.Series(dtype='object')
+        tp_valor = int((tipo_demanda == TYPE_DEV).sum()) if not tipo_demanda.empty else 0
+        tp_falha = int((tipo_demanda == TYPE_ISSUES).sum()) if not tipo_demanda.empty else 0
         tp_base_valor_falha = tp_valor + tp_falha
         tp_valor_pct = (tp_valor / tp_base_valor_falha * 100.0) if tp_base_valor_falha > 0 else np.nan
         tp_falha_pct = (tp_falha / tp_base_valor_falha * 100.0) if tp_base_valor_falha > 0 else np.nan
@@ -1756,6 +1843,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         ref_radius = '12px'
         muted_txt = '#7b8694'
         title_txt = '#3d4b59'
+        bar_primary = '#2cb3ad'
+        bar_secondary = '#176ea4'
         dot_gray = '#b8c0c8'
         dot_orange = '#f1b236'
         dot_teal = '#33b7b2'
@@ -1773,13 +1862,17 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 html.Div([
                     indicator_dots(dot_teal),
                     html.P("Demanda vs Capacidade", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
+                    html.P(
+                        f"Demanda = {demand_label}. Capacidade = {capacity_label}.",
+                        style={'fontSize': '12px', 'color': '#5f6e7b', 'marginTop': '-6px', 'marginBottom': '8px'}
+                    ),
                     html.Div([
                         html.Div([
                             html.Div([
                                 html.Div(style={
                                     'width': '38px',
                                     'height': demand_bar_h,
-                                    'backgroundColor': '#2cb3ad',
+                                    'backgroundColor': bar_primary,
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
@@ -1789,7 +1882,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                 html.Div(style={
                                     'width': '38px',
                                     'height': capacity_bar_h,
-                                    'backgroundColor': '#176ea4',
+                                    'backgroundColor': bar_secondary,
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
@@ -1806,10 +1899,17 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                     else "Sem base para comparação."
                                 )
                             ),
-                            html.Li(f"Inventário cresceu em {int(abs(inventory_growth))} itens de fluxo." if inventory_growth >= 0 else f"Inventário reduziu em {int(abs(inventory_growth))} itens de fluxo."),
+                            html.Li(
+                                f"Inventário cresceu em {int(abs(inventory_growth))} itens de fluxo."
+                                if pd.notna(inventory_growth) and inventory_growth >= 0
+                                else (
+                                    f"Inventário reduziu em {int(abs(inventory_growth))} itens de fluxo."
+                                    if pd.notna(inventory_growth)
+                                    else "Sem base para variação de inventário."
+                                )
+                            ),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
-                    html.Div("FLOWMÁTIKA", style={'position': 'absolute', 'right': '14px', 'bottom': '8px', 'fontSize': '10px', 'color': '#118bd2', 'fontWeight': 'bold'}),
                 ], className='six columns', style={
                     'position': 'relative',
                     'backgroundColor': ref_card_bg,
@@ -1821,13 +1921,17 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 html.Div([
                     indicator_dots(dot_orange),
                     html.P("Entrada vs Saída", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
+                    html.P(
+                        "Entrada = itens que iniciaram execução no período. Saída = itens concluídos no período.",
+                        style={'fontSize': '12px', 'color': '#5f6e7b', 'marginTop': '-6px', 'marginBottom': '8px'}
+                    ),
                     html.Div([
                         html.Div([
                             html.Div([
                                 html.Div(style={
                                     'width': '38px',
                                     'height': inflow_bar_h,
-                                    'backgroundColor': '#5aa2d3',
+                                    'backgroundColor': bar_primary,
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
@@ -1837,7 +1941,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                 html.Div(style={
                                     'width': '38px',
                                     'height': outflow_bar_h,
-                                    'backgroundColor': '#1e5f9e',
+                                    'backgroundColor': bar_secondary,
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
@@ -1854,10 +1958,9 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                                     else "Sem base para comparação."
                                 )
                             ),
-                            html.Li(f"WIP cresceu em {int(abs(inventory_growth))} itens de fluxo." if inventory_growth >= 0 else f"WIP reduziu em {int(abs(inventory_growth))} itens de fluxo."),
+                            html.Li(f"WIP cresceu em {int(abs(wip_growth))} itens de fluxo." if wip_growth >= 0 else f"WIP reduziu em {int(abs(wip_growth))} itens de fluxo."),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
-                    html.Div("FLOWMÁTIKA", style={'position': 'absolute', 'right': '14px', 'bottom': '8px', 'fontSize': '10px', 'color': '#118bd2', 'fontWeight': 'bold'}),
                 ], className='six columns', style={
                     'position': 'relative',
                     'backgroundColor': ref_card_bg,
@@ -1870,7 +1973,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             html.Div([
                 html.Div([
                     html.H6("Tamanho do Inventário", style={'marginBottom': '4px'}),
-                    html.Div(f"{int(wip_end_count)}", style={'fontSize': '32px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
+                    html.Div(f"{int(inventory_end_count) if pd.notna(inventory_end_count) else 0}", style={'fontSize': '32px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
                     html.P('itens de fluxo', style={'marginBottom': '0'}),
                     html.P(
                         f"({inventory_weeks:.1f} semanas de inventário)" if pd.notna(inventory_weeks) else "(sem base de semanas de inventário)",
@@ -1888,15 +1991,6 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                     html.P('dias', style={'marginTop': '8px'}),
                 ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
                 html.Div([
-                    html.H6("Contagem de WIP", style={'marginBottom': '4px'}),
-                    html.Div(f"{int(wip_end_count)}", style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P('itens de fluxo', style={'marginBottom': '0'}),
-                    html.P(
-                        f"Média de {wip_per_person:.1f} itens por pessoa ativa" if pd.notna(wip_per_person) else "Sem base por pessoa",
-                        style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
-                    ),
-                ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-                html.Div([
                     html.H6("WIP Age (médio)", style={'marginBottom': '4px'}),
                     html.Div(fmt_value(wip_age, '{:.0f}'), style={'fontSize': '38px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
                     html.P('dias', style={'marginTop': '8px'}),
@@ -1910,23 +2004,6 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                         style={'fontSize': '12px', 'marginTop': '6px', 'color': '#555'}
                     ),
                 ], style={'flex': '1 1 150px', 'backgroundColor': ref_card_bg, 'border': ref_border, 'borderRadius': ref_radius, 'padding': '10px', 'minHeight': '135px', 'position': 'relative'}),
-                html.Div([
-                    html.H6("Flow Efficiency", style={'marginBottom': '4px'}),
-                    html.P("Visão KPI - Histórico", style={'fontSize': '11px', 'color': '#607d8b', 'marginBottom': '8px'}),
-                    html.P(
-                        "Em média, itens concluídos ficam ativos apenas",
-                        style={'fontSize': '12px', 'marginBottom': '2px', 'color': '#555'}
-                    ),
-                    html.Div(fmt_value(flow_efficiency_pct, '{:.0f}%'), style={'fontSize': '44px', 'fontWeight': 'bold', 'lineHeight': '1.0'}),
-                    html.P("do tempo", style={'fontSize': '12px', 'marginTop': '4px', 'color': '#555'}),
-                ], style={
-                    'backgroundColor': '#fff',
-                    'border': '1px solid #d7e8f7',
-                    'borderRadius': '10px',
-                    'padding': '10px',
-                    'minHeight': '135px',
-                    'flex': '1 1 220px',
-                }),
             ], style={
                 'display': 'flex',
                 'flexWrap': 'wrap',
@@ -1956,7 +2033,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             df_flow = df_flow[df_flow['Projeto'] == projeto]
         if tipo:
-            df_flow = df_flow[df_flow['Tipo'] == tipo]
+            df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
         if responsavel:
             df_flow = df_flow[df_flow['Responsavel'] == responsavel]
 
@@ -2265,8 +2342,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             return html.Div('Sem dados para exibir para o período e filtros selecionados.')
 
         # --- 1. Calcular Métricas de Qualidade ---
-        defects_count = len(df[df['Tipo'] == 'Defeitos'])
-        development_count = len(df[df['Tipo'] == 'Desenvolvimento'])
+        defects_count = len(df[df['TipoDemanda'] == TYPE_ISSUES])
+        development_count = len(df[df['TipoDemanda'] == TYPE_DEV])
         total_completed = len(df)
 
         metrics = {}
@@ -2279,7 +2356,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             arrivals_base = arrivals_base[arrivals_base['Projeto'] == projeto]
         if tipo:
-            arrivals_base = arrivals_base[arrivals_base['Tipo'] == tipo]
+            arrivals_base = arrivals_base[arrivals_base['TipoDemanda'] == tipo]
         if responsavel:
             arrivals_base = arrivals_base[arrivals_base['Responsavel'] == responsavel]
         arrivals_count = len(arrivals_base[
@@ -2302,10 +2379,10 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         )
 
         # --- 2. Criar Gráfico ---
-        by_tipo = df.groupby('Tipo').size().reset_index(name='Count')
-        fig_pie = px.pie(by_tipo, names='Tipo', values='Count',
+        by_tipo = df.groupby('TipoDemanda').size().reset_index(name='Count')
+        fig_pie = px.pie(by_tipo, names='TipoDemanda', values='Count',
                          title='Distribuição do Throughput por Tipo',
-                         color='Tipo', color_discrete_map=color_map)
+                         color='TipoDemanda', color_discrete_map=color_map)
         fig_pie.update_layout(height=500)
 
         razao_explicacao = html.Div([
@@ -2348,7 +2425,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
 
             # Defect Rate
             total_by_dim = df_filtered.groupby(dim_col).size()
-            defects_by_dim = df_filtered[df_filtered['Tipo'] == 'Defeitos'].groupby(dim_col).size()
+            defects_by_dim = df_filtered[df_filtered['TipoDemanda'] == TYPE_ISSUES].groupby(dim_col).size()
             defect_rate_df = (defects_by_dim / total_by_dim * 100).fillna(0).reset_index(name='Taxa de Defeitos (%)')
             defect_rate_df = defect_rate_df[defect_rate_df[dim_col].isin(by_dim_tp[dim_col])]
 
@@ -2378,16 +2455,16 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         return html.Div(graphs)
 
     if tab == 'tab-tipos':
-        by_tipo = df.groupby('Tipo').agg({'ItemID':'count', 'LeadTime_Dias':'median'}).rename(columns={'ItemID':'Throughput','LeadTime_Dias':'LeadTime_Mediano'}).reset_index()
+        by_tipo = df.groupby('TipoDemanda').agg({'ItemID':'count', 'LeadTime_Dias':'median'}).rename(columns={'ItemID':'Throughput','LeadTime_Dias':'LeadTime_Mediano'}).reset_index()
         
         graphs = []
         # % por Tipo de Problema (Bug, Feature, Tarefa, Suporte) -> Usando a coluna 'Tipo'
-        fig_pie = px.pie(by_tipo, names='Tipo', values='Throughput', title='Distribuição do Throughput por Tipo', color='Tipo', color_discrete_map=color_map)
+        fig_pie = px.pie(by_tipo, names='TipoDemanda', values='Throughput', title='Distribuição do Throughput por Tipo', color='TipoDemanda', color_discrete_map=color_map)
         fig_pie.update_layout(height=500)
         graphs.append(dcc.Graph(figure=fig_pie))
 
         # Lead Time por Tipo
-        fig_lt = px.bar(by_tipo, x='Tipo', y='LeadTime_Mediano', title='Lead Time Mediano por Tipo', color='Tipo', color_discrete_map=color_map)
+        fig_lt = px.bar(by_tipo, x='TipoDemanda', y='LeadTime_Mediano', title='Lead Time Mediano por Tipo', color='TipoDemanda', color_discrete_map=color_map)
         fig_lt.update_layout(height=500)
         graphs.append(dcc.Graph(figure=fig_lt))
 
@@ -2475,19 +2552,25 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         add_statistical_lines(fig_tp_weekly, tp_weekly['Semana'], tp_weekly['Throughput'], name_prefix='Total ')
         fig_tp_weekly.update_layout(height=500, xaxis_tickangle=-45, margin=dict(b=100))
 
-        type_breakdown = build_throughput_breakdown(tp_done, 'Tipo', 'Throughput por Tipo de Demanda')
-        type_order = type_breakdown['Tipo'].tolist()
+        type_breakdown = build_throughput_breakdown(tp_done, 'TipoDemanda', 'Throughput por Tipo de Demanda')
+        desired_type_order = [TYPE_ISSUES, TYPE_SUPPORT, TYPE_DEV, TYPE_OTHER]
+        if not type_breakdown.empty:
+            type_breakdown['_ord'] = type_breakdown['TipoDemanda'].apply(
+                lambda t: desired_type_order.index(t) if t in desired_type_order else len(desired_type_order)
+            )
+            type_breakdown = type_breakdown.sort_values(['_ord', 'Throughput'], ascending=[True, False]).drop(columns=['_ord'])
+        type_order = type_breakdown['TipoDemanda'].tolist()
         fig_type_breakdown = px.bar(
             type_breakdown,
             x='Percentual',
             y='Barra',
-            color='Tipo',
+            color='TipoDemanda',
             orientation='h',
             text=type_breakdown['Percentual'].map(lambda v: f'{v:.1f}%'),
             title='Throughput Breakdown por Tipo de Demanda (%)',
             labels={'Percentual': '% do Throughput', 'Barra': ''},
             color_discrete_map=color_map,
-            category_orders={'Tipo': type_order},
+            category_orders={'TipoDemanda': type_order},
             template='plotly_white',
             height=320,
         )
@@ -2547,7 +2630,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             hovertemplate='Urgência: %{fullData.name}<br>% Throughput: %{x:.1f}%<extra></extra>',
         )
 
-        type_table = type_breakdown.copy()
+        type_table = type_breakdown.copy().rename(columns={'TipoDemanda': 'Tipo'})
         type_table['Percentual'] = type_table['Percentual'].map(lambda v: f'{v:.1f}%')
         urgency_table = urgency_breakdown.copy()
         urgency_table['Percentual'] = urgency_table['Percentual'].map(lambda v: f'{v:.1f}%')
@@ -2609,7 +2692,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             flow_base = flow_base[flow_base['Projeto'] == projeto]
         if tipo:
-            flow_base = flow_base[flow_base['Tipo'] == tipo]
+            flow_base = flow_base[flow_base['TipoDemanda'] == tipo]
         if responsavel:
             flow_base = flow_base[flow_base['Responsavel'] == responsavel]
 
@@ -2671,13 +2754,13 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         fig_breakdown.update_layout(barmode='stack', yaxis_title=None, yaxis_showticklabels=False, legend_title_text='Componente')
 
         fig_scatter_eff = px.scatter(df_eff, x='Eficiencia', y='EficienciaAjustada',
-                                     color='Tipo', hover_data=['ItemID'], title='Eficiência de Fluxo (1-ρ) por Semana de Referência',
+                                     color='TipoDemanda', hover_data=['ItemID'], title='Eficiência de Fluxo (1-ρ) por Semana de Referência',
                                      labels={'Eficiencia': 'Eficiência de Fluxo (1-ρ)', 'EficienciaAjustada': 'Eficiência de Fluxo (1-ρ)'}, color_discrete_map=color_map)
         fig_scatter_eff.update_layout(height=550)
         fig_scatter_eff.add_shape(type='line', x0=0, y0=0, x1=1, y1=1, line=dict(color='grey', width=2, dash='dash'))
 
         # --- 3. Criar Tabela Detalhada ---
-        table_cols = ['ItemID', 'Projeto', 'Tipo', 'LeadTime_Dias', 'TempoBacklog_Dias', 'TempoExecucao_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias', 'Outros Tempos (dias)', 'Eficiencia', 'EficienciaAjustada', 'Diferença Eficiência']
+        table_cols = ['ItemID', 'Projeto', 'TipoDemanda', 'LeadTime_Dias', 'TempoBacklog_Dias', 'TempoExecucao_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias', 'Outros Tempos (dias)', 'Eficiencia', 'EficienciaAjustada', 'Diferença Eficiência']
         available_cols = [c for c in table_cols if c in df_eff.columns]
         detail_table = dash_table.DataTable(id='table-eficiencia-detalhada', columns=[{"name": i, "id": i} for i in available_cols], data=df_eff[available_cols].to_dict('records'), page_size=15, filter_action="native", sort_action="native", style_table={'overflowX': 'auto'}, style_cell={'minWidth': '100px', 'width': '150px', 'maxWidth': '180px', 'textAlign': 'center'})
 
@@ -2697,7 +2780,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             df_patterns = df_patterns[df_patterns['Projeto'] == projeto]
         if tipo:
-            df_patterns = df_patterns[df_patterns['Tipo'] == tipo]
+            df_patterns = df_patterns[df_patterns['TipoDemanda'] == tipo]
         if classe_servico:
             df_patterns = df_patterns[df_patterns['ClasseServico'] == classe_servico]
         if responsavel:
@@ -2873,7 +2956,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             df_base = df_base[df_base['Projeto'] == projeto]
         if tipo:
-            df_base = df_base[df_base['Tipo'] == tipo]
+            df_base = df_base[df_base['TipoDemanda'] == tipo]
         if responsavel:
             df_base = df_base[df_base['Responsavel'] == responsavel]
         # Itens concluídos no período (para Lead Time)
@@ -3078,7 +3161,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
         if projeto:
             df_capacity_base = df_capacity_base[df_capacity_base['Projeto'] == projeto]
         if tipo:
-            df_capacity_base = df_capacity_base[df_capacity_base['Tipo'] == tipo]
+            df_capacity_base = df_capacity_base[df_capacity_base['TipoDemanda'] == tipo]
         if responsavel:
             df_capacity_base = df_capacity_base[df_capacity_base['Responsavel'] == responsavel]
 

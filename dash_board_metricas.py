@@ -371,7 +371,7 @@ def select_latest_csv_per_project(csv_files):
 
 def categorize_work_item_type(tipo_de_problema):
     """
-    Categorize work item types into defects or development.
+    Categorize work item types into support, defects/issues/problems, development or other.
     Returns tuple: (main_category, sub_category)
     """
     if pd.isna(tipo_de_problema):
@@ -379,14 +379,13 @@ def categorize_work_item_type(tipo_de_problema):
     
     tipo_str = str(tipo_de_problema).lower().strip()
     
-    # Defect/Problem category
-    if any(word in tipo_str for word in ['bug', 'problema', 'support', 'suporte', 'defeito', 'issue']):
-        if 'support' in tipo_str or 'suporte' in tipo_str:
-            return ('Defeitos', 'Suporte')
-        elif 'bug' in tipo_str:
-            return ('Defeitos', 'Bug')
-        else:
-            return ('Defeitos', 'Problema')
+    # Support is separated from defects/issues/problems.
+    if any(word in tipo_str for word in ['support', 'suporte']):
+        return ('Suporte', 'Suporte')
+
+    # Defect/Issue/Problem category
+    if any(word in tipo_str for word in ['bug', 'problema', 'defeito', 'issue']):
+        return ('Defeitos', 'Issues/Defeitos/Problemas')
     
     # Development category
     elif any(word in tipo_str for word in ['feature', 'história', 'tarefa', 'task', 'melhoria', 'improvement']):
