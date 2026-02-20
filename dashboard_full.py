@@ -5,6 +5,8 @@ import pandas as pd
 import os
 import json
 import numpy as np
+import hashlib
+import urllib.request
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -12,13 +14,86 @@ from datetime import datetime, timedelta
 # --- Config ---
 import platform
 if platform.system() == 'Windows':
-    DATA_FOLDER = r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados'
+    LEGACY_DATA_FOLDER = r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados'
 else:
-    DATA_FOLDER = os.path.join(os.path.expanduser('~'), 'Library', 'CloudStorage', 'OneDrive-W1', 'Documentos', 'Dados')
-model_files = [os.path.join(DATA_FOLDER, f) for f in os.listdir(DATA_FOLDER) if f.startswith('PowerBI_Model_') and f.endswith('.xlsx')]
-if not model_files:
-    raise FileNotFoundError('PowerBI model file not found in DATA_FOLDER')
-MODEL_FILE = max(model_files, key=os.path.getctime)
+    LEGACY_DATA_FOLDER = os.path.join(os.path.expanduser('~'), 'Library', 'CloudStorage', 'OneDrive-W1', 'Documentos', 'Dados')
+
+
+def _existing_dirs(paths):
+    out = []
+    seen = set()
+    for raw in paths:
+        if not raw:
+            continue
+        p = os.path.abspath(raw.strip())
+        if p in seen:
+            continue
+        seen.add(p)
+        if os.path.isdir(p):
+            out.append(p)
+    return out
+
+
+def _candidate_data_folders():
+    env_dirs = os.getenv('FLOW_PMO_DATA_DIRS', '').strip()
+    split_env_dirs = [p for p in env_dirs.split(os.pathsep) if p.strip()]
+    explicit_dir = os.getenv('FLOW_PMO_DATA_DIR', '').strip()
+    legacy_override = os.getenv('DATA_FOLDER', '').strip()
+    base_dir = os.path.dirname(__file__)
+    return _existing_dirs([
+        explicit_dir,
+        legacy_override,
+        *split_env_dirs,
+        os.path.join(base_dir, 'data'),
+        base_dir,
+        LEGACY_DATA_FOLDER,
+    ])
+
+
+def _download_model_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'PowerBI_Model_{file_key}.xlsx')
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
+def _resolve_model_file(data_folders):
+    explicit_model = os.getenv('FLOW_PMO_MODEL_FILE', '').strip()
+    if explicit_model:
+        candidate = explicit_model if os.path.isabs(explicit_model) else os.path.join(os.path.dirname(__file__), explicit_model)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise FileNotFoundError(f'FLOW_PMO_MODEL_FILE aponta para arquivo inexistente: {candidate}')
+
+    model_url = os.getenv('FLOW_PMO_MODEL_URL', '').strip()
+    if model_url:
+        return _download_model_from_url(model_url)
+
+    model_files = []
+    for folder in data_folders:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            if name.startswith('PowerBI_Model_') and name.endswith('.xlsx'):
+                model_files.append(os.path.join(folder, name))
+    if model_files:
+        return max(model_files, key=os.path.getctime)
+
+    raise FileNotFoundError(
+        'Arquivo de modelo não encontrado. Configure FLOW_PMO_MODEL_FILE ou FLOW_PMO_MODEL_URL, '
+        'ou adicione PowerBI_Model_*.xlsx em uma destas pastas: '
+        + ', '.join(data_folders or ['(nenhuma pasta encontrada)'])
+    )
+
+
+DATA_FOLDERS = _candidate_data_folders()
+DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
+MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
 
 # Load model
 xls = pd.ExcelFile(MODEL_FILE)
@@ -633,14 +708,15 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
 
 def find_latest_portfolio_csv():
-    try:
-        candidates = [
-            os.path.join(DATA_FOLDER, f)
-            for f in os.listdir(DATA_FOLDER)
-            if f.startswith(PORTFOLIO_CSV_PREFIX) and f.endswith(PORTFOLIO_CSV_SUFFIX)
-        ]
-    except Exception:
-        return None
+    candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            if name.startswith(PORTFOLIO_CSV_PREFIX) and name.endswith(PORTFOLIO_CSV_SUFFIX):
+                candidates.append(os.path.join(folder, name))
     if not candidates:
         return None
     return max(candidates, key=os.path.getctime)
@@ -650,7 +726,8 @@ def build_portfolio_snapshot_from_csv():
     csv_file = find_latest_portfolio_csv()
     if not csv_file:
         raise RuntimeError(
-            f'CSV de portfólio não encontrado. Gere um arquivo {PORTFOLIO_CSV_PREFIX}YYYYMMDD{PORTFOLIO_CSV_SUFFIX} em {DATA_FOLDER}.'
+            f'CSV de portfólio não encontrado. Gere um arquivo {PORTFOLIO_CSV_PREFIX}YYYYMMDD{PORTFOLIO_CSV_SUFFIX} '
+            f'em uma destas pastas: {", ".join(DATA_FOLDERS or [DATA_FOLDER])}.'
         )
 
     df = pd.read_csv(csv_file)
@@ -903,14 +980,15 @@ def load_project_bottlenecks_from_csv(projeto):
     if not prefix:
         return pd.DataFrame()
 
-    try:
-        files = [
-            os.path.join(DATA_FOLDER, f)
-            for f in os.listdir(DATA_FOLDER)
-            if f.startswith(prefix) and f.endswith('-data_bottlenecks.csv')
-        ]
-    except Exception:
-        return pd.DataFrame()
+    files = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            if name.startswith(prefix) and name.endswith('-data_bottlenecks.csv'):
+                files.append(os.path.join(folder, name))
 
     if not files:
         return pd.DataFrame()

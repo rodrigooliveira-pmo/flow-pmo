@@ -4,6 +4,8 @@ import plotly.express as px
 import pandas as pd
 import glob
 import os
+import hashlib
+import urllib.request
 
 # --- 1. CONFIGURAÇÃO E CARREGAMENTO DE DADOS ---
 
@@ -14,15 +16,81 @@ def find_latest_file(folder, prefix):
         return None
     return max(files, key=os.path.getctime)
 
-DATA_FOLDER = r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados'
-DASHBOARD_FILE_PATH = find_latest_file(DATA_FOLDER, 'dashboard_output_')
+if os.name == 'nt':
+    LEGACY_DATA_FOLDER = r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados'
+else:
+    LEGACY_DATA_FOLDER = os.path.join(os.path.expanduser('~'), 'Library', 'CloudStorage', 'OneDrive-W1', 'Documentos', 'Dados')
 
-if not DASHBOARD_FILE_PATH:
-    print(f"ERRO: Nenhum arquivo 'dashboard_output_*.xlsx' foi encontrado na pasta '{DATA_FOLDER}'.")
-    print("Por favor, execute o script 'dash_board_metricas.py' primeiro.")
-    exit()
 
-print(f"Carregando dados do arquivo: {DASHBOARD_FILE_PATH}")
+def _existing_dirs(paths):
+    out = []
+    seen = set()
+    for raw in paths:
+        if not raw:
+            continue
+        p = os.path.abspath(raw.strip())
+        if p in seen:
+            continue
+        seen.add(p)
+        if os.path.isdir(p):
+            out.append(p)
+    return out
+
+
+def _candidate_data_folders():
+    env_dirs = os.getenv('FLOW_PMO_DATA_DIRS', '').strip()
+    split_env_dirs = [p for p in env_dirs.split(os.pathsep) if p.strip()]
+    explicit_dir = os.getenv('FLOW_PMO_DATA_DIR', '').strip()
+    legacy_override = os.getenv('DATA_FOLDER', '').strip()
+    base_dir = os.path.dirname(__file__)
+    return _existing_dirs([
+        explicit_dir,
+        legacy_override,
+        *split_env_dirs,
+        os.path.join(base_dir, 'data'),
+        base_dir,
+        LEGACY_DATA_FOLDER,
+    ])
+
+
+def _download_dashboard_output_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'dashboard_output_{file_key}.xlsx')
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
+def _resolve_dashboard_file(data_folders):
+    explicit_file = os.getenv('FLOW_PMO_DASHBOARD_OUTPUT_FILE', '').strip()
+    if explicit_file:
+        candidate = explicit_file if os.path.isabs(explicit_file) else os.path.join(os.path.dirname(__file__), explicit_file)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise FileNotFoundError(f'FLOW_PMO_DASHBOARD_OUTPUT_FILE aponta para arquivo inexistente: {candidate}')
+
+    file_url = os.getenv('FLOW_PMO_DASHBOARD_OUTPUT_URL', '').strip()
+    if file_url:
+        return _download_dashboard_output_from_url(file_url)
+
+    for folder in data_folders:
+        match = find_latest_file(folder, 'dashboard_output_')
+        if match:
+            return match
+
+    raise FileNotFoundError(
+        "Nenhum arquivo 'dashboard_output_*.xlsx' foi encontrado. Configure FLOW_PMO_DASHBOARD_OUTPUT_FILE "
+        "ou FLOW_PMO_DASHBOARD_OUTPUT_URL, ou adicione o arquivo em uma destas pastas: "
+        + ', '.join(data_folders or ['(nenhuma pasta encontrada)'])
+    )
+
+
+DATA_FOLDERS = _candidate_data_folders()
+DASHBOARD_FILE_PATH = _resolve_dashboard_file(DATA_FOLDERS)
+
+print(f'Carregando dados do arquivo: {DASHBOARD_FILE_PATH}')
 
 # Carrega todas as abas do arquivo Excel para um dicionário de DataFrames
 try:
@@ -33,8 +101,7 @@ try:
         dfs[sheet] = pd.read_excel(xls, sheet_name=sheet)
     print(f"Abas carregadas com sucesso: {list(dfs.keys())}")
 except FileNotFoundError:
-    print(f"ERRO: O arquivo '{DASHBOARD_FILE_PATH}' não foi encontrado.")
-    exit()
+    raise
 
 # --- 2. FUNÇÕES AUXILIARES PARA GERAR LAYOUTS DAS ABAS ---
 
