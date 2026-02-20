@@ -111,6 +111,12 @@ def classify_service_class(row, rules):
         return 'Fixed Date'
     if any(k and (k in labels or k in title or k in item_type) for k in intangible_keywords):
         return 'Intangible'
+    # Default class follows the item's project priority instead of hardcoded "Standard".
+    raw_priority = row.get('Prioridade', '')
+    if pd.notna(raw_priority):
+        priority_value = str(raw_priority).strip()
+        if priority_value and priority_value.lower() != 'nan':
+            return priority_value
     return 'Standard'
 
 
@@ -464,6 +470,29 @@ def load_bottleneck_table_from_csv_files(csv_files):
     out = pd.concat(rows, ignore_index=True)
     out = out.sort_values(['Projeto', 'Tempo Médio (dias)'], ascending=[True, False], ignore_index=True)
     return out
+
+
+def save_consolidated_bottlenecks_workbook(bottleneck_table, output_folder, timestamp):
+    """
+    Export consolidated bottleneck data to a dedicated workbook.
+    Source: selected *_bottlenecks.csv files already normalized by project.
+    """
+    if bottleneck_table is None or bottleneck_table.empty:
+        return None
+
+    output_file = os.path.join(output_folder, f"bottlenecks_consolidado_{timestamp}.xlsx")
+    export_df = bottleneck_table.copy()
+    export_df = export_df.sort_values(['Projeto', 'Tempo Médio (dias)'], ascending=[True, False], ignore_index=True)
+
+    with pd.ExcelWriter(output_file, engine=excel_engine) as writer:
+        export_df.to_excel(writer, sheet_name='Gargalos Consolidado', index=False)
+        for projeto, proj_df in export_df.groupby('Projeto', sort=True):
+            sheet_name = f"Gargalos_{str(projeto)}"[:31]
+            proj_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    copy_latest_artifact(output_file, os.path.join(output_folder, "bottlenecks_consolidado_latest.xlsx"))
+    print(f"Planilha consolidada de gargalos salva em: {output_file}")
+    return output_file
 
 
 def build_bottleneck_table_from_fact(fact_table, dimensions):
@@ -2636,6 +2665,7 @@ def process_multiple_csv_files(input_folder, output_folder):
     # Create Excel file with timestamp to avoid conflicts
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_file = os.path.join(output_folder, f"dashboard_output_{timestamp}.xlsx")
+    bottlenecks_workbook = None
     
     # Try to remove old file if exists
     try:
@@ -2687,6 +2717,17 @@ def process_multiple_csv_files(input_folder, output_folder):
         output_folder,
         bottleneck_csv_files=bottleneck_csv_files,
     )
+
+    # Requested artifact: consolidate selected *_bottlenecks.csv files in one workbook.
+    bottleneck_table_from_csv = load_bottleneck_table_from_csv_files(bottleneck_csv_files)
+    if bottleneck_table_from_csv.empty:
+        print("Aviso: não foi possível consolidar *_bottlenecks.csv (sem dados válidos).")
+    else:
+        bottlenecks_workbook = save_consolidated_bottlenecks_workbook(
+            bottleneck_table=bottleneck_table_from_csv,
+            output_folder=output_folder,
+            timestamp=timestamp,
+        )
     
     # Replace NaN with 0 in numeric columns before writing to Excel
     for df_to_clean in [df_consolidated, df_advanced_flow, df_efficiency_analysis]:
@@ -2762,6 +2803,9 @@ def process_multiple_csv_files(input_folder, output_folder):
     print(f"\nMODELO POWER BI (Otimizado para Importação):")
     print(f"Arquivo: {powerbi_output}")
     print(f"Estrutura: Tabelas relacionadas (Fato + Dimensões)")
+    if bottlenecks_workbook:
+        print(f"\nPlanilha única de gargalos:")
+        print(f"Arquivo: {bottlenecks_workbook}")
     if executive_csv and executive_md:
         print(f"\nRelatórios executivos exportados:")
         print(f"  - CSV: {executive_csv}")

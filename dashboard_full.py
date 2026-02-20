@@ -7,6 +7,7 @@ import json
 import numpy as np
 import hashlib
 import urllib.request
+import urllib.parse
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -103,6 +104,16 @@ def _load_bottleneck_url_map():
     return out
 
 
+def _url_filename_matches_project(url, expected_prefix):
+    """Validate if URL filename seems to belong to the expected project prefix."""
+    if not url or not expected_prefix:
+        return False
+    parsed = urllib.parse.urlparse(str(url).strip())
+    filename = os.path.basename(parsed.path or '').lower()
+    prefix = str(expected_prefix).strip().lower()
+    return filename.startswith(prefix) and filename.endswith('-data_bottlenecks.csv')
+
+
 def _resolve_model_file(data_folders):
     explicit_model = os.getenv('FLOW_PMO_MODEL_FILE', '').strip()
     if explicit_model:
@@ -178,6 +189,26 @@ if not dim_prioridade.empty:
     fato = fato.merge(dim_prioridade, how='left', left_on='PrioridadeID', right_on='PrioridadeID')
 if not dim_classe_servico.empty and 'ClasseServicoID' in fato.columns:
     fato = fato.merge(dim_classe_servico, how='left', left_on='ClasseServicoID', right_on='ClasseServicoID')
+
+
+def resolve_service_class(classe_servico, prioridade):
+    """Use explicit service classes first; fallback to priority instead of generic Standard."""
+    classe_text = ''
+    if pd.notna(classe_servico):
+        classe_text = str(classe_servico).strip()
+
+    classe_norm = ''.join(ch for ch in classe_text.lower() if ch.isalnum() or ch.isspace()).strip()
+    if classe_text and classe_norm and classe_norm not in {'standard', 'padrao', 'normal', 'default'}:
+        return classe_text
+
+    if pd.notna(prioridade):
+        prioridade_text = str(prioridade).strip()
+        if prioridade_text and prioridade_text.lower() != 'nan':
+            return prioridade_text
+
+    if classe_text and classe_text.lower() != 'nan':
+        return classe_text
+    return 'Standard'
 # Friendly column names
 rename_map = {
     'NomeProjeto': 'Projeto',
@@ -188,7 +219,10 @@ rename_map = {
 }
 fato.rename(columns={k: v for k, v in rename_map.items() if k in fato.columns}, inplace=True)
 if 'ClasseServico' not in fato.columns:
-    fato['ClasseServico'] = 'Standard'
+    fato['ClasseServico'] = np.nan
+if 'Prioridade' not in fato.columns:
+    fato['Prioridade'] = np.nan
+fato['ClasseServico'] = fato.apply(lambda row: resolve_service_class(row.get('ClasseServico'), row.get('Prioridade')), axis=1)
 
 # Semana padrão do sistema: semana ISO (segunda a domingo).
 WEEK_DATE_RANGE_FREQ = 'W-MON'
@@ -1070,7 +1104,11 @@ def load_project_bottlenecks_from_csv(projeto):
 
     files = []
     url_map = _load_bottleneck_url_map()
-    project_csv_url = url_map.get(project_key) or os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL', '').strip()
+    project_csv_url = url_map.get(project_key, '').strip()
+    if not project_csv_url:
+        global_csv_url = os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL', '').strip()
+        if _url_filename_matches_project(global_csv_url, prefix):
+            project_csv_url = global_csv_url
     if project_csv_url:
         try:
             files.append(_download_bottleneck_csv_from_url(project_csv_url, project_key))
@@ -1208,7 +1246,7 @@ app.layout = html.Div([
                                                             show_outside_days=True)], style={'display':'inline-block', 'marginRight':'20px'}),
         html.Div([html.Label('Projeto:'), dcc.Dropdown(id='filter-projeto', options=[{'label':p,'value':p} for p in unique_sorted(fato['Projeto'])], value=unique_sorted(fato['Projeto'])[0] if len(unique_sorted(fato['Projeto']))>0 else None, clearable=False)], style={'width':'20%', 'display':'inline-block'}),
         html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['TipoDemanda'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
-        html.Div([html.Label('Classe Serviço:'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([html.Label('Classe Serviço (Prioridade):'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([
             html.Label('Team (Portfólio):'),

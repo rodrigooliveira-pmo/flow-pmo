@@ -22,6 +22,8 @@
 - Dados:
   - `FLOW_PMO_MODEL_FILE`: caminho do modelo `.xlsx` (absoluto ou relativo ao projeto).
   - `FLOW_PMO_MODEL_URL`: URL pública para baixar o modelo `.xlsx` em runtime.
+  - `FLOW_PMO_BOTTLENECK_CSV_URL_MAP`: mapa JSON de URLs de gargalo por projeto (ex.: `{"W1NNER":"https://.../w1nner-downstream-latest-data_bottlenecks.csv","DATA&ANALYTICS":"https://.../dataanalytics-downstream-latest-data_bottlenecks.csv"}`).
+  - `FLOW_PMO_BOTTLENECK_CSV_URL`: fallback legado com URL única; só é aplicado quando o nome do arquivo corresponde ao prefixo do projeto filtrado.
   - `FLOW_PMO_DASHBOARD_OUTPUT_FILE`: caminho do `dashboard_output_*.xlsx`.
   - `FLOW_PMO_DASHBOARD_OUTPUT_URL`: URL pública para baixar o `dashboard_output_*.xlsx` em runtime.
   - `FLOW_PMO_PORTFOLIO_CSV_FILE`: caminho do `portfolio-bt-ns-YYYYMMDD-data.csv`.

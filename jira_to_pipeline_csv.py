@@ -22,11 +22,12 @@ import os
 import sys
 import threading
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from statistics import median
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import requests
 
@@ -44,20 +45,39 @@ DEFAULT_STATUS_MAP: Dict[str, List[str]] = {
     "Done": ["Done", "Concluído", "Concluido"],
 }
 
-CSV_COLUMNS = [
+LEGACY_PRODUCTS_STATUS_MAP: Dict[str, List[str]] = {
+    "Triagem": ["Triagem"],
+    "Backlog": ["Backlog", "To Do", "Sprint Backlog"],
+    "Ready for development": ["Ready for development", "Ready For Development"],
+    "In Progress": ["In Progress", "Em Progresso", "Desenvolvimento"],
+    "Ready for code review": ["Ready for code review", "Ready For Code Review"],
+    "Code Review": ["Code Review", "Code review"],
+    "Ready for testing/qa": ["Ready for testing/qa", "Ready for Testing/QA", "Ready for test/qa"],
+    "Testing / QA": ["Testing / QA", "Testing/QA", "Testing /Qa", "QA", "Testing"],
+    "Ready to staging": ["Ready to staging", "Ready To Staging"],
+    "Staging": ["Staging", "In Staging"],
+    "Ready for production": ["Ready for production", "Ready For Production"],
+    "Done": ["Done", "Concluído", "Concluido"],
+}
+
+DT_IMPROVEMENT_STATUS_MAP: Dict[str, List[str]] = {
+    "To Do": ["To Do", "A fazer", "A Fazer"],
+    "Discovery": ["Discovery"],
+    "Development": ["Development", "Desenvolvimento"],
+    "Tech Review": ["Tech Review"],
+    "In Validation": ["In Validation", "Em validacao", "Em validação"],
+    "Improvement": ["Improvement", "Melhoria"],
+    "Done": ["Done", "Concluído", "Concluido"],
+}
+
+DT_ADHOC_STAGE_ORDER = ["To Do", "Development", "In Validation", "Done"]
+DT_IMPROVEMENT_STAGE_ORDER = ["To Do", "Discovery", "Development", "Tech Review", "In Validation", "Improvement", "Done"]
+DT_ADHOC_TYPE_HINTS = {"adhoc", "ad hoc", "bug", "incidente", "incident"}
+
+METADATA_COLUMNS = [
     "ID",
     "Link",
     "Title",
-    "Sprint Backlog",
-    "In Progress",
-    "Ready to Homologation",
-    "Homologation",
-    "QA Approved Hml",
-    "Ready To Staging",
-    "In Staging",
-    "QA Approved Staging",
-    "Ready for production",
-    "Done",
     "Tipo de Problema",
     "Prioridade",
     "Versões de correção",
@@ -77,6 +97,67 @@ CSV_COLUMNS = [
     "Principal",
     "Afeta as versões",
 ]
+
+
+def build_csv_columns(stage_order: List[str]) -> List[str]:
+    return ["ID", "Link", "Title", *stage_order, *METADATA_COLUMNS[3:]]
+
+
+def normalize_project_key(project: str) -> str:
+    key = str(project or "").strip().upper()
+    aliases = {
+        "W1NNRI": "W1NNR",
+        "W1SFT": "S1NC",
+        "DA": "DT",
+    }
+    return aliases.get(key, key)
+
+
+def normalize_text(value: str) -> str:
+    raw = str(value or "").strip().lower()
+    nfkd = unicodedata.normalize("NFKD", raw)
+    no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    return " ".join(no_accents.replace("-", " ").replace("_", " ").split())
+
+
+def resolve_status_map(projects: List[str]) -> Dict[str, List[str]]:
+    env_map = parse_json_env("JIRA_STATUS_MAP", default={})
+    if env_map:
+        normalized_env: Dict[str, List[str]] = {}
+        for k, v in env_map.items():
+            if isinstance(v, list):
+                normalized_env[str(k)] = [str(item) for item in v]
+            else:
+                normalized_env[str(k)] = [str(v)]
+        return normalized_env
+
+    normalized_projects = {normalize_project_key(p) for p in projects if p}
+    if not normalized_projects:
+        return DEFAULT_STATUS_MAP
+
+    if normalized_projects.issubset({"W1NNR", "S1NC", "BF"}):
+        return LEGACY_PRODUCTS_STATUS_MAP
+
+    if normalized_projects.issubset({"DT"}):
+        return DT_IMPROVEMENT_STATUS_MAP
+
+    # Mixed flows in one export should use explicit env override to avoid ambiguous stage order.
+    return DEFAULT_STATUS_MAP
+
+
+def should_use_dt_dual_flow(projects: List[str]) -> bool:
+    if os.getenv("JIRA_STATUS_MAP", "").strip():
+        return False
+    normalized_projects = {normalize_project_key(p) for p in projects if p}
+    return bool(normalized_projects) and normalized_projects.issubset({"DT"})
+
+
+def resolve_dt_stage_order_for_row(row: Dict[str, str]) -> List[str]:
+    issue_type = normalize_text(row.get("Tipo de Problema", ""))
+    for hint in DT_ADHOC_TYPE_HINTS:
+        if hint in issue_type:
+            return DT_ADHOC_STAGE_ORDER
+    return DT_IMPROVEMENT_STAGE_ORDER
 
 
 def parse_json_env(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
@@ -482,6 +563,8 @@ def build_issue_row(
     issue: Dict[str, Any],
     status_dates: Dict[str, str],
     field_map: Dict[str, str],
+    stage_order: List[str],
+    csv_columns: List[str],
 ) -> Dict[str, str]:
     fields = issue.get("fields", {})
 
@@ -539,16 +622,6 @@ def build_issue_row(
         "ID": key,
         "Link": f"{base_url}/browse/{key}" if key else "",
         "Title": str(fields.get("summary") or ""),
-        "Sprint Backlog": status_dates.get("Sprint Backlog", ""),
-        "In Progress": status_dates.get("In Progress", ""),
-        "Ready to Homologation": status_dates.get("Ready to Homologation", ""),
-        "Homologation": status_dates.get("Homologation", ""),
-        "QA Approved Hml": status_dates.get("QA Approved Hml", ""),
-        "Ready To Staging": status_dates.get("Ready To Staging", ""),
-        "In Staging": status_dates.get("In Staging", ""),
-        "QA Approved Staging": status_dates.get("QA Approved Staging", ""),
-        "Ready for production": status_dates.get("Ready for production", ""),
-        "Done": status_dates.get("Done", ""),
         "Tipo de Problema": str(safe_get(fields, "issuetype", "name") or ""),
         "Prioridade": str(safe_get(fields, "priority", "name") or ""),
         "Versões de correção": format_list(fix_versions),
@@ -569,7 +642,10 @@ def build_issue_row(
         "Afeta as versões": format_list(affected_versions),
     }
 
-    for c in CSV_COLUMNS:
+    for stage in stage_order:
+        row[stage] = status_dates.get(stage, "")
+
+    for c in csv_columns:
         row.setdefault(c, "")
     return row
 
@@ -612,15 +688,26 @@ def percentile(values: List[float], q: float) -> float:
 def compute_bottleneck_summary(
     rows: List[Dict[str, str]],
     stage_order: List[str],
+    row_stage_order_resolver: Optional[Callable[[Dict[str, str]], List[str]]] = None,
 ) -> List[Dict[str, float | int | str]]:
-    stage_durations: Dict[str, List[float]] = {
-        stage_order[i]: [] for i in range(len(stage_order) - 1)
-    }
+    stage_durations: Dict[str, List[float]] = {}
+    for i in range(len(stage_order) - 1):
+        stage_durations.setdefault(stage_order[i], [])
 
     for row in rows:
-        for i in range(len(stage_order) - 1):
-            current_stage = stage_order[i]
-            next_stage = stage_order[i + 1]
+        current_order = stage_order
+        if row_stage_order_resolver is not None:
+            try:
+                resolved = row_stage_order_resolver(row)
+                if isinstance(resolved, list) and len(resolved) >= 2:
+                    current_order = resolved
+            except Exception:
+                current_order = stage_order
+
+        for i in range(len(current_order) - 1):
+            current_stage = current_order[i]
+            next_stage = current_order[i + 1]
+            stage_durations.setdefault(current_stage, [])
             start_dt = parse_pipeline_date(row.get(current_stage, ""))
             end_dt = parse_pipeline_date(row.get(next_stage, ""))
             if not start_dt or not end_dt:
@@ -746,7 +833,16 @@ def main() -> int:
         return 2
 
     field_map = parse_json_env("JIRA_FIELD_MAP", default={})
-    status_map = parse_json_env("JIRA_STATUS_MAP", default=DEFAULT_STATUS_MAP)
+    status_map = resolve_status_map(args.projects)
+    stage_order = list(status_map.keys())
+    csv_columns = build_csv_columns(stage_order)
+    print(f"Fluxo de status aplicado ({len(stage_order)} etapas): {', '.join(stage_order)}")
+    dt_dual_flow_enabled = should_use_dt_dual_flow(args.projects)
+    if dt_dual_flow_enabled:
+        print(
+            "Fluxo DT por tipo habilitado: melhorias (To Do -> Discovery -> Development -> Tech Review -> "
+            "In Validation -> Improvement -> Done) e ad-hoc/bug/incidente (To Do -> Development -> In Validation -> Done)."
+        )
 
     fields_to_fetch = [
         "summary",
@@ -830,7 +926,14 @@ def main() -> int:
                 status_map,
                 normalized_status_map=normalized_status_map,
             )
-            row = build_issue_row(base_url=base_url, issue=issue_data, status_dates=status_dates, field_map=field_map)
+            row = build_issue_row(
+                base_url=base_url,
+                issue=issue_data,
+                status_dates=status_dates,
+                field_map=field_map,
+                stage_order=stage_order,
+                csv_columns=csv_columns,
+            )
             return index, row, None
         except Exception as exc:
             return index, None, f"{key}: {exc}"
@@ -870,14 +973,17 @@ def main() -> int:
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=csv_columns)
         writer.writeheader()
         writer.writerows(rows)
 
     print(f"CSV gerado: {args.out}")
 
-    stage_order = list(status_map.keys())
-    summary = compute_bottleneck_summary(rows=rows, stage_order=stage_order)
+    summary = compute_bottleneck_summary(
+        rows=rows,
+        stage_order=stage_order,
+        row_stage_order_resolver=resolve_dt_stage_order_for_row if dt_dual_flow_enabled else None,
+    )
 
     if not summary:
         print("Aviso: sem dados suficientes para calcular gargalo por etapa.")
