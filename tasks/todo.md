@@ -1,5 +1,55 @@
 ﻿# Task Plan
 
+## Current Task (Unificar abas de análise em Análise Fluxo)
+- [x] Consolidar as abas `Análise Dimensional`, `Análise Tipos` e `Análise Eficiência` em uma única aba `Análise Fluxo`
+- [x] Garantir que os gráficos/tabela das três análises sejam renderizados na aba unificada
+- [x] Validar sintaxe do dashboard e registrar evidências/review
+
+## Specification (Unificar abas de análise em Análise Fluxo)
+- Objetivo: simplificar a navegação do dashboard consolidando três abas de análise em uma única aba chamada `Análise Fluxo`.
+- Escopo:
+  - `dashboard_app.py`
+- Critério de aceite:
+  - As abas separadas `Análise Dimensional`, `Análise Tipos` e `Análise Eficiência` deixam de aparecer na navegação.
+  - Existe uma aba `Análise Fluxo`.
+  - A aba `Análise Fluxo` exibe os gráficos de dimensional, os gráficos/detalhes de tipos e a tabela de eficiência.
+
+## Review (Unificar abas de análise em Análise Fluxo)
+- What was validated:
+  - `dashboard_app.py` removeu as três tabs separadas (`Análise Dimensional`, `Análise Tipos`, `Análise Eficiência`) e adicionou a tab única `Análise Fluxo`.
+  - A nova tab `Análise Fluxo` renderiza, em sequência, o layout dimensional (gráficos), o layout de tipos (gráficos + tabela) e a tabela de eficiência filtrada por projeto.
+  - Os callbacks existentes de `Análise Dimensional` e `Análise Tipos` continuam reutilizados, sem trocar IDs dos gráficos.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_app.py`
+  - `git diff -- dashboard_app.py tasks/todo.md`
+- Suggested commit message:
+  - `refactor(dashboard): merge dimensional type and efficiency analysis tabs into analise fluxo`
+
+## Current Task (Unificar abas Estabilidade/Saúde/Qualidade)
+- [x] Consolidar as abas `Estabilidade`, `Saúde Fluxo` e `Qualidade` em uma única aba `Saúde do Fluxo`
+- [x] Garantir que os gráficos/conteúdos das três abas sejam renderizados na aba unificada
+- [x] Validar sintaxe do dashboard e registrar evidências/review
+
+## Specification (Unificar abas Estabilidade/Saúde/Qualidade)
+- Objetivo: simplificar a navegação consolidando as visualizações de estabilidade, saúde de fluxo e qualidade em uma única aba chamada `Saúde do Fluxo`.
+- Escopo:
+  - `dashboard_full.py`
+- Critério de aceite:
+  - A navegação não exibe abas separadas `Estabilidade` e `Qualidade`.
+  - Existe uma aba `Saúde do Fluxo`.
+  - A aba `Saúde do Fluxo` mostra os gráficos/tabelas das três análises.
+
+## Review (Unificar abas Estabilidade/Saúde/Qualidade)
+- What was validated:
+  - A lista `SERVICE_TABS` deixou de exibir abas separadas `Estabilidade` e `Qualidade`.
+  - A aba única foi renomeada para `Saúde do Fluxo`.
+  - A renderização de `tab-saude` passou a incluir os conteúdos de `tab-estabilidade` e `tab-qualidade` via reutilização da função `render_tab(...)`, preservando os gráficos e tabelas existentes.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `refactor(dashboard): merge stability flow-health and quality tabs into one`
+
 ## Current Task (Aba CFD + Quadro Sumário por Ponto)
 - [x] Criar aba dedicada `CFD`
 - [x] Mover gráfico CFD para a nova aba (remover da aba `Fluxo`)

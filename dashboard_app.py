@@ -206,6 +206,30 @@ def create_layout_analise_tipos(df_filtered):
         create_generic_datatable(df_filtered, 'table-analise-tipos', 'Dados Detalhados por Tipo')
     ])
 
+def create_layout_analise_fluxo(selected_project):
+    """Consolida análises dimensional, tipos e eficiência em uma única aba."""
+    df_tipos = dfs.get('Análise Tipos')
+    if df_tipos is not None and not df_tipos.empty and 'Projeto' in df_tipos.columns:
+        df_tipos = df_tipos[df_tipos['Projeto'] == selected_project].copy()
+
+    df_eff = dfs.get('Análise Eficiência')
+    if df_eff is not None and not df_eff.empty and 'Projeto' in df_eff.columns:
+        df_eff = df_eff[df_eff['Projeto'] == selected_project].copy()
+
+    return html.Div([
+        html.H3('Análise Fluxo', style={'marginTop': '20px'}),
+        html.P(
+            'Visualizações consolidadas de análise dimensional, tipos e eficiência de fluxo.',
+            style={'color': '#666', 'marginTop': '-8px'}
+        ),
+        html.Hr(),
+        create_layout_dimensional(),
+        html.Hr(),
+        create_layout_analise_tipos(df_tipos),
+        html.Hr(),
+        create_generic_datatable(df_eff, 'table-analise-eficiencia-fluxo', 'Análise Eficiência de Fluxo')
+    ])
+
 def create_layout_tendencias():
     """Cria o layout para a aba de Tendências."""
     return html.Div([
@@ -252,12 +276,10 @@ app.layout = html.Div(children=[
         dcc.Tab(label='Adv - Estabilidade', value='tab-3-estabilidade'),
         dcc.Tab(label='Adv - Saúde Fluxo', value='tab-4-saude'),
         dcc.Tab(label='Adv - Qualidade', value='tab-5-qualidade'),
-        dcc.Tab(label='Análise Dimensional', value='tab-6-dimensional'),
-        dcc.Tab(label='Análise Tipos', value='tab-7-tipos'),
+        dcc.Tab(label='Análise Fluxo', value='tab-6-analise-fluxo'),
         dcc.Tab(label='Tendências', value='tab-8-tendencias'),
         dcc.Tab(label='Tendências Completas', value='tab-9-tendencias-comp'),
         dcc.Tab(label='Throughput por Tipo', value='tab-10-throughput-tipo'),
-        dcc.Tab(label='Análise Eficiência', value='tab-11-eficiencia'),
         dcc.Tab(label='WIP por Pessoa', value='tab-12-wip-pessoa'),
         dcc.Tab(label='Lead Time', value='tab-13-lead-time'),
     ]),
@@ -286,17 +308,18 @@ def render_tab_content(tab, selected_project):
         'tab-3-estabilidade': ('Adv - Estabilidade', 'table'),
         'tab-4-saude': ('Adv - Saúde Fluxo', 'table'),
         'tab-5-qualidade': ('Adv - Qualidade', 'table'),
-        'tab-6-dimensional': ('Análise Dimensional', 'dimensional'), # Gráfico
-        'tab-7-tipos': ('Análise Tipos', 'tipos'), # Gráfico
+        'tab-6-analise-fluxo': (None, 'analise_fluxo'), # Consolida gráficos/tabela
         'tab-8-tendencias': ('Tendências', 'tendencias'),
         'tab-9-tendencias-comp': ('Tendências Completas', 'table'),
         'tab-10-throughput-tipo': ('Throughput por Tipo', 'throughput_tipo'), # Gráfico
-        'tab-11-eficiencia': ('Análise Eficiência', 'table'),
         'tab-12-wip-pessoa': ('WIP por Pessoa', 'wip_pessoa'), # Gráfico
         'tab-13-lead-time': ('Análise Eficiência', 'lead_time'), # Gráficos de Lead Time
     }
 
     sheet_name, layout_type = tab_map.get(tab, (None, None))
+
+    if layout_type == 'analise_fluxo':
+        return create_layout_analise_fluxo(selected_project)
 
     if not sheet_name or sheet_name not in dfs:
         return html.Div(f"Aba '{sheet_name}' não encontrada no arquivo de dados.")

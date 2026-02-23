@@ -284,9 +284,7 @@ SERVICE_TABS = [
     ('Lead Time', 'tab-lead-time'),
     ('Fluxo', 'tab-fluxo'),
     ('CFD', 'tab-cfd'),
-    ('Estabilidade', 'tab-estabilidade'),
-    ('Saúde Fluxo', 'tab-saude'),
-    ('Qualidade', 'tab-qualidade'),
+    ('Saúde do Fluxo', 'tab-saude'),
     ('Análise Dimensional', 'tab-dim'),
     ('Análise Tipos', 'tab-tipos'),
     ('Tendências', 'tab-tendencias'),
@@ -4050,6 +4048,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             html.Div(kpi_table, style={'width': '50%', 'margin': 'auto', 'marginBottom': '30px'}),
             dcc.Graph(figure=fig_flow),
             dcc.Graph(figure=fig_wip_trend),
+            html.Hr(style={'margin': '30px 0'}),
+            render_tab(main_view, 'tab-estabilidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team),
+            html.Hr(style={'margin': '30px 0'}),
+            render_tab(main_view, 'tab-qualidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team),
         ])
 
     if tab == 'tab-qualidade':
