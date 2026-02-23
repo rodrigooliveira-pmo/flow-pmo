@@ -3038,14 +3038,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if len(weeks) < 2:
             return html.Div('Período muito curto para análise semanal.')
 
+        strict_stage_start = bool(leadtime_meta.get('enabled', False))
+
         def selected_flow_start_series(df_local):
             if df_local is None or getattr(df_local, 'empty', True):
                 return pd.Series(dtype='datetime64[ns]')
             s = pd.to_datetime(df_local.get('LeadStart_Selected'), errors='coerce')
-            if 'DataBacklog' in df_local.columns:
-                s = s.fillna(df_local['DataBacklog'])
-            if 'DataInProgress' in df_local.columns:
-                s = s.fillna(df_local['DataInProgress'])
+            if not strict_stage_start:
+                if 'DataBacklog' in df_local.columns:
+                    s = s.fillna(df_local['DataBacklog'])
+                if 'DataInProgress' in df_local.columns:
+                    s = s.fillna(df_local['DataInProgress'])
             return s
 
         def build_weekly_metrics(df_source, start_ref, end_ref):
@@ -3066,7 +3069,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     (df_source['DataDone'] < week_end)
                 ]
                 wip_items = df_source[
-                    (df_source['DataInProgress'] < week_end) &
+                    (flow_start < week_end) &
                     ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))
                 ]
 
@@ -3087,7 +3090,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'Chegadas': ar,
                     'Throughput': tp,
                     'WIP': wip,
-                    'WIP_Age': (week_end - wip_items['DataInProgress']).dt.days.mean() if wip > 0 else np.nan,
+                    'WIP_Age': (week_end - pd.to_datetime(wip_items.get('LeadStart_Selected'), errors='coerce')).dt.days.mean() if wip > 0 else np.nan,
                     'LeadTime_P85': lt_p85,
                     'FlowEfficiency': flow_eff_w,
                     'Pressure': pressure_w,
@@ -3112,7 +3115,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ]
             throughput = len(done_week[done_time_eligible_mask(done_week)]) if not done_week.empty else 0
             wip = len(df_signal_base[
-                (df_signal_base['DataInProgress'] < week_end) &
+                (signal_flow_start < week_end) &
                 ((df_signal_base['DataDone'] >= week_end) | pd.isna(df_signal_base['DataDone']))
             ])
             weekly_rows.append({
@@ -3168,11 +3171,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             demand_label = "itens que iniciaram o fluxo no período"
 
         df_wip_start = df_signal_base[
-            (df_signal_base['DataInProgress'] < start_ts) &
+            (demand_date < start_ts) &
             ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
         ]
         df_wip_end = df_signal_base[
-            (df_signal_base['DataInProgress'] <= end_ts) &
+            (demand_date <= end_ts) &
             ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
         ]
         if not use_backlog_for_inventory:
@@ -3183,7 +3186,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         arrivals_avg = weekly_df['Chegadas'].mean() if not weekly_df.empty else np.nan
         wip_avg = weekly_df['WIP'].mean() if not weekly_df.empty else np.nan
         wip_current = float(weekly_df['WIP'].iloc[-1]) if not weekly_df.empty else np.nan
-        wip_age = (end_ts - df_wip_end['DataInProgress']).dt.days.mean() if not df_wip_end.empty else np.nan
+        wip_age = (
+            end_ts - pd.to_datetime(df_wip_end.get('LeadStart_Selected'), errors='coerce')
+        ).dt.days.mean() if not df_wip_end.empty else np.nan
         throughput_total = float(len(df_done_period_eligible))
         inflow_total = float(len(df_arrived_period))
         demand_total = float(len(df_demand_period))

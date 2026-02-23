@@ -856,6 +856,46 @@
     - `['Backlog']`: `lead_p85=2`, `arrivals/compromisso=180`, `commit_n=37`
     - `['In progress']`: `lead_p85=25`, `arrivals/compromisso=179`, `commit_n=0` (sem base backlog->compromisso para essa seleção)
 
+## Current Task (WIP/WIP Age sensíveis ao filtro no Painel)
+- [x] Aplicar início selecionado (`LeadStart_Selected`) às contagens de WIP semanais e WIP atual
+- [x] Aplicar início selecionado ao cálculo de WIP Age no painel
+- [x] Validar impacto comparativo por seleção de etapas
+
+## Review (WIP/WIP Age sensíveis ao filtro no Painel)
+- What was validated:
+  - `tab-painel-3x3` passou a calcular `WIP` e `WIP Age` a partir do início selecionado do fluxo (`LeadStart_Selected`), não mais fixo em `DataInProgress`.
+  - `Lead Time P85` do painel continua corretamente dependente do filtro; quando parece estável, normalmente é porque `In progress` ainda está incluído nas etapas selecionadas e domina a primeira data disponível dos itens.
+  - Exemplo W1NNER (2026-01-01 a 2026-02-23):
+    - `['Backlog']` -> `Lead P85=2`, `WIP Age≈133.9`
+    - `['In progress']` -> `Lead P85=25`, `WIP Age≈29.6`
+    - `WIP` (contagem no fim) pode permanecer igual no mesmo período se todos os itens vivos já tiverem cruzado ambas as etapas antes da data final.
+  - Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Validação local comparativa (`Backlog` vs `In progress`) confirmando alteração em `Lead Time P85` e `WIP Age`
+
+## Current Task (Corrigir Datas de Etapa no CSV Local W1NNER)
+- [x] Diagnosticar divergência de WIP/WIP Age com CSVs do Actionable
+- [x] Corrigir exportador para suportar datas de etapa por última entrada (`latest`)
+- [x] Validar alinhamento com Actionable em amostra W1NNER
+- [x] Regenerar CSV local `w1nner-downstream-20260223-data.csv` e `latest`
+
+## Review (Corrigir Datas de Etapa no CSV Local W1NNER)
+- What was validated:
+  - Causa raiz das datas antecipadas: exportador usava **primeira entrada histórica por etapa**, enquanto o Actionable (para o cenário analisado) reflete **última entrada** nas etapas do workflow selecionado.
+  - `jira_to_pipeline_csv.py` agora suporta modo de datas por etapa (`first|latest`) e passou a usar `latest` por padrão (`JIRA_STATUS_DATE_MODE`, default `latest`).
+  - Comparação com `Analytics-filtered_2026-02-23 (1).csv`:
+    - `WIP` Actionable = `43`
+    - CSV W1NNER regenerado (legado + latest) = `43` (mesma regra)
+    - `WIP Age` médio ficou praticamente alinhado (`~8.7` local vs `~8.53` Actionable) no CSV regenerado
+  - Divergência residual de 1 item em uma comparação intermediária foi atribuída a diferença de snapshot (`W1NNR-2158` vs `W1NNR-2150`), não à regra de cálculo.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile jira_to_pipeline_csv.py`
+  - Teste unitário local da função `extract_first_status_dates(..., date_mode='first|latest')`
+  - Extração real:
+    - `/tmp/w1nner-downstream-legacy-latestdates.csv`
+    - `/Users/rodrigoalmeidadeoliveira/Documents/dados/w1nner-downstream-20260223-data.csv`
+    - `/Users/rodrigoalmeidadeoliveira/Documents/dados/w1nner-downstream-latest-data.csv`
+
 ## Current Task (Aba Lead Time Dedicada no dashboard_app)
 - [x] Criar nova aba `Lead Time` no `dashboard_app.py`
 - [x] Implementar gráfico de distribuição de Lead Time com curva acumulada e linhas de percentis/média

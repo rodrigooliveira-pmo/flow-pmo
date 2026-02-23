@@ -108,3 +108,10 @@ Use this file after any user correction.
 - Root cause: A correção inicial aplicou o filtro às métricas de Lead Time, mas deixou indicadores de referência (demanda/entrada/tempo para commit) presos à semântica antiga (`DataInProgress` / backlog fixo).
 - Prevention rule: Quando um filtro semântico redefine o “início do fluxo”, revisar também todos os KPIs/gráficos derivados de chegada/compromisso no mesmo painel, não apenas percentis de lead time.
 - Action added to workflow: Em filtros de etapa/fluxo, mapear por aba quais métricas usam data de início, data de fim e WIP para validar dependência correta do filtro.
+
+- Date: 2026-02-23
+- Context: Usuário pediu que WIP e WIP Age também fossem afetados pelo filtro de etapas no Painel.
+- User correction: Informou explicitamente que WIP/WIP Age representam trabalho vivo e devem usar a mesma semântica de início selecionado.
+- Root cause: Mantive `WIP` e `WIP Age` ancorados em `DataInProgress`, enquanto o painel já estava adotando `LeadStart_Selected` para outras métricas de compromisso.
+- Prevention rule: Se o filtro redefine "quando o trabalho entra no fluxo medido", aplicar isso também às métricas de WIP/WIP Age da mesma tela (salvo regra de negócio explícita em contrário).
+- Action added to workflow: Em auditorias de filtros semânticos, testar separadamente impacto em `Lead Time`, `Chegadas`, `WIP` e `WIP Age`.

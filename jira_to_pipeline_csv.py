@@ -542,12 +542,16 @@ def extract_first_status_dates(
     changelog: List[Dict[str, Any]],
     status_map: Dict[str, List[str]],
     normalized_status_map: Optional[Dict[str, set[str]]] = None,
+    date_mode: str = "first",
 ) -> Dict[str, str]:
+    mode = str(date_mode or "first").strip().lower()
+    if mode not in {"first", "latest"}:
+        mode = "first"
     normalized = normalized_status_map or {
         col: {name.strip().lower() for name in names}
         for col, names in status_map.items()
     }
-    first_dates: Dict[str, Optional[str]] = {col: None for col in status_map.keys()}
+    status_dates: Dict[str, Optional[str]] = {col: None for col in status_map.keys()}
     done_col_names = {"done", "concluido", "concluído", "itens concluídos", "itens concluidos"}
     done_status_names = {
         "done",
@@ -573,7 +577,7 @@ def extract_first_status_dates(
                 # prefer changelog transition date (or resolution date fallback).
                 if col in done_columns:
                     continue
-                first_dates[col] = created
+                status_dates[col] = created
 
     sorted_changes = sorted(changelog, key=lambda h: h.get("created") or "")
     for history in sorted_changes:
@@ -585,8 +589,13 @@ def extract_first_status_dates(
             if not to_status:
                 continue
             for col, allowed in normalized.items():
-                if to_status in allowed and first_dates[col] is None:
-                    first_dates[col] = when
+                if to_status not in allowed:
+                    continue
+                if mode == "first":
+                    if status_dates[col] is None:
+                        status_dates[col] = when
+                else:
+                    status_dates[col] = when
 
     # Fallback for terminal status when changelog transition is unavailable.
     resolution_date = issue_fields.get("resolutiondate")
@@ -594,10 +603,15 @@ def extract_first_status_dates(
         current_status_norm = str(current_status).strip().lower()
         for col in done_columns:
             allowed = normalized.get(col, set())
-            if current_status_norm in allowed and first_dates.get(col) is None:
-                first_dates[col] = resolution_date
+            if current_status_norm not in allowed:
+                continue
+            if mode == "first":
+                if status_dates.get(col) is None:
+                    status_dates[col] = resolution_date
+            else:
+                status_dates[col] = resolution_date
 
-    return {k: format_jira_datetime(v) for k, v in first_dates.items()}
+    return {k: format_jira_datetime(v) for k, v in status_dates.items()}
 
 
 def extract_first_transition_date(
@@ -1078,6 +1092,11 @@ def main() -> int:
         col: {name.strip().lower() for name in names}
         for col, names in status_map.items()
     }
+    status_date_mode = str(os.getenv("JIRA_STATUS_DATE_MODE", "latest") or "latest").strip().lower()
+    if status_date_mode not in {"first", "latest"}:
+        print(f"Valor inválido em JIRA_STATUS_DATE_MODE={status_date_mode!r}; usando 'latest'.")
+        status_date_mode = "latest"
+    print(f"Modo de datas por etapa (status): {status_date_mode}")
     worker_local = threading.local()
 
     def get_worker_client() -> JiraClient:
@@ -1115,6 +1134,7 @@ def main() -> int:
                 changelog,
                 status_map,
                 normalized_status_map=normalized_status_map,
+                date_mode=status_date_mode,
             )
             cancelled_date = extract_first_transition_date(
                 issue_data.get("fields", {}),
