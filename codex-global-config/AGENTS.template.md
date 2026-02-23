@@ -22,6 +22,7 @@ Copy this file to the root of a new repository as `AGENTS.md`.
 3. Mark progress as work advances.
 4. Add review notes with evidence.
 5. After any user correction, append a new entry to `tasks/lessons.md`.
+6. At the end of each prompt execution, generate a suggested commit message text.
 
 ## Self-Improvement Loop
 1. Capture correction pattern.

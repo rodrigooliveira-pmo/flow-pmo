@@ -44,6 +44,7 @@
 - Explain changes: add concise high-level summaries per step.
 - Document results: include a review section in `tasks/todo.md`.
 - Capture lessons: update `tasks/lessons.md` after user corrections.
+- At the end of each prompt execution, generate a suggested commit message text summarizing the change.
 
 ## Core Principles
 - Simplicity first: solve with minimal complexity and minimal surface area.
