@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-23
+- Context: CFD detalhado exato usando CSV downstream por projeto.
+- User correction: Indicou que o gráfico estava mostrando itens fora do filtro selecionado (ex.: itens não finalizados no recorte), apesar do período/filtros aplicados na aba.
+- Root cause: O modo detalhado lia o CSV downstream inteiro do projeto sem restringir pelos `ItemID`s já filtrados em `df_flow`.
+- Prevention rule: Quando uma visualização combina fonte agregada/curada (`fato`) com fonte auxiliar por projeto (CSV downstream), sempre aplicar interseção por ID com o dataset filtrado da tela.
+- Action added to workflow: Em gráficos detalhados por CSV downstream, passar explicitamente `ItemID`s filtrados da UI para evitar divergência de escopo.
+
+- Date: 2026-02-23
 - Context: Comparação visual do CFD com a ferramenta Actionable Agile.
 - User correction: Indicou que o CFD local estava menos legível e com paleta apagada, pedindo um visual mais entendível e cores mais vivas.
 - Root cause: A renderização usava preenchimento de curvas cumulativas e paleta genérica/pastel, o que reduzia contraste entre bandas.

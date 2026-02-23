@@ -1176,13 +1176,21 @@ def _detect_stage_date_columns(items_df, bottlenecks_df=None):
     return ordered
 
 
-def build_detailed_cfd_exact_dataframe(df_cfd_macro, projeto=None, bottlenecks_df=None):
+def build_detailed_cfd_exact_dataframe(df_cfd_macro, projeto=None, bottlenecks_df=None, filtered_item_ids=None):
     """Build exact stage-level CFD from project downstream CSV timestamps per stage."""
     if df_cfd_macro is None or df_cfd_macro.empty or not projeto:
         return pd.DataFrame(), []
     items_df = load_project_downstream_items_csv(projeto)
     if items_df.empty:
         return pd.DataFrame(), []
+
+    if filtered_item_ids is not None and 'ID' in items_df.columns:
+        allowed_ids = {str(x).strip() for x in filtered_item_ids if pd.notna(x) and str(x).strip()}
+        if not allowed_ids:
+            return pd.DataFrame(), []
+        items_df = items_df[items_df['ID'].astype(str).str.strip().isin(allowed_ids)].copy()
+        if items_df.empty:
+            return pd.DataFrame(), []
 
     stage_cols = _detect_stage_date_columns(items_df, bottlenecks_df=bottlenecks_df)
     if len(stage_cols) < 2:
@@ -1268,7 +1276,7 @@ def _cfd_stage_color(stage_name):
     return vivid_defaults[int(digest[:8], 16) % len(vivid_defaults)]
 
 
-def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
+def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_ids=None):
     """Creates a CFD with macro mode and optional detailed stage mode (exact from downstream CSV)."""
     if df_cfd is None or df_cfd.empty:
         return {}
@@ -1311,7 +1319,12 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
         macro_trace_indices.append(len(fig.data) - 1)
 
     detailed_trace_indices = []
-    detailed_df, detailed_stages = build_detailed_cfd_exact_dataframe(df_cfd, projeto=projeto, bottlenecks_df=bottlenecks_df)
+    detailed_df, detailed_stages = build_detailed_cfd_exact_dataframe(
+        df_cfd,
+        projeto=projeto,
+        bottlenecks_df=bottlenecks_df,
+        filtered_item_ids=filtered_item_ids,
+    )
     if not detailed_df.empty and detailed_stages:
         reversed_plot_order = list(reversed(detailed_stages))
         color_by_stage = {
@@ -3125,7 +3138,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
         df_cfd, _ = build_cfd_dataframe(df_flow, start_ts=start_ts, end_ts=end_ts)
         if not df_cfd.empty:
-            fig_cfd = create_cfd_figure(df_cfd, bottlenecks_df=bottlenecks_df, projeto=projeto)
+            fig_cfd = create_cfd_figure(
+                df_cfd,
+                bottlenecks_df=bottlenecks_df,
+                projeto=projeto,
+                filtered_item_ids=df_flow.get('ItemID', pd.Series(dtype=str)).tolist(),
+            )
             if isinstance(fig_cfd, go.Figure):
                 cfd_component = dcc.Graph(figure=fig_cfd)
 
