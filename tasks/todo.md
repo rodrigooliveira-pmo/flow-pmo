@@ -1,5 +1,32 @@
 ﻿# Task Plan
 
+## Current Task (Filtro de etapas vazio em produção)
+- [x] Diagnosticar por que o dropdown `Etapas Lead Time (Comprometimento)` fica sem opções em produção
+- [x] Implementar fallback de opções usando etapas de gargalo/modelo quando CSV downstream não existir
+- [x] Validar sintaxe e registrar evidências/review
+
+## Specification (Filtro de etapas vazio em produção)
+- Objetivo: evitar dropdown vazio no filtro de etapas de Lead Time em produção quando o CSV downstream detalhado do projeto não estiver disponível.
+- Escopo:
+  - `dashboard_full.py`
+- Critério de aceite:
+  - O dropdown `filter-leadtime-stages` exibe opções de etapas para o projeto selecionado mesmo sem `*-data.csv`, usando fallback disponível (`Fato_Gargalos`/CSV de gargalos).
+  - O comportamento atual de cálculo permanece: sem downstream detalhado, o dashboard continua usando a coluna do modelo (`LeadTime_Dias`/`DataBacklog`) como fallback.
+  - A UI não quebra quando não houver nenhuma fonte de etapas.
+
+## Review (Filtro de etapas vazio em produção)
+- What was validated:
+  - `dashboard_full.py` agora resolve as etapas do filtro via helper único com fallback em ordem: downstream detalhado -> `Fato_Gargalos` (modelo) -> CSV de gargalos.
+  - O callback `update_leadtime_stage_filter_options(...)` deixou de retornar vazio quando o downstream não existe, desde que haja etapas em gargalos/modelo.
+  - Ajuste de robustez: no fallback por gargalos, a UI só remove a etapa final do conjunto selecionável quando encontra uma etapa terminal explícita (evita excluir uma etapa arbitrária).
+  - O resumo do Lead Time (`build_leadtime_stage_selection_summary`) passou a refletir a origem das etapas e avisar quando está em modo fallback do modelo.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dashboard): fallback lead-time stage filter options when downstream csv is unavailable`
+
+
 ## Current Task (Unificar abas de análise em Análise Fluxo)
 - [x] Consolidar as abas `Análise Dimensional`, `Análise Tipos` e `Análise Eficiência` em uma única aba `Análise Fluxo`
 - [x] Garantir que os gráficos/tabela das três análises sejam renderizados na aba unificada

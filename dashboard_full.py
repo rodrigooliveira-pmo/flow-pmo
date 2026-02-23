@@ -1943,14 +1943,60 @@ def get_default_lead_time_start_stages(stage_cols):
     return [stage_cols[0]]
 
 
-def get_downstream_done_stage_column(stage_cols):
-    """Detect terminal done/finalization stage column in downstream CSV."""
+def get_explicit_done_stage_column(stage_cols):
+    """Detect terminal done/finalization stage column only when explicitly named."""
     available_lower = {str(c).strip().lower(): c for c in stage_cols}
     for cand in LEAD_TIME_END_STAGE_CANDIDATES:
         hit = available_lower.get(cand.strip().lower())
         if hit:
             return hit
+    return None
+
+
+def get_downstream_done_stage_column(stage_cols):
+    """Detect terminal done/finalization stage column in downstream CSV."""
+    explicit_done = get_explicit_done_stage_column(stage_cols)
+    if explicit_done:
+        return explicit_done
     return stage_cols[-1] if stage_cols else None
+
+
+def get_leadtime_stage_filter_columns(projeto):
+    """
+    Resolve stage columns/options for the Lead Time stage filter.
+    Preference order:
+    1) downstream item CSV (exact stage date columns)
+    2) bottlenecks from model (`Fato_Gargalos`)
+    3) bottlenecks CSV
+    Returns: (stage_cols, source_tag)
+    """
+    items_df = load_project_downstream_items_csv(projeto)
+    if not items_df.empty:
+        bottlenecks_df = load_project_bottlenecks_from_model(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
+        stage_cols = _detect_stage_date_columns(items_df, bottlenecks_df=bottlenecks_df)
+        if not stage_cols:
+            stage_cols = get_downstream_workflow_stage_columns(items_df)
+        if stage_cols:
+            return stage_cols, 'downstream'
+
+    for loader in (load_project_bottlenecks_from_model, load_project_bottlenecks_from_csv):
+        bdf = loader(projeto)
+        if bdf is None or bdf.empty or 'Etapa' not in bdf.columns:
+            continue
+        seen = set()
+        stage_cols = []
+        for raw in bdf['Etapa'].astype(str).tolist():
+            stage = str(raw).strip()
+            if not stage or stage in seen:
+                continue
+            seen.add(stage)
+            stage_cols.append(stage)
+        if stage_cols:
+            return stage_cols, 'bottlenecks'
+
+    return [], 'none'
 
 
 def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
@@ -2024,13 +2070,14 @@ def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
 
 def build_leadtime_stage_selection_summary(projeto, selected_start_stages):
     """UI summary of active Lead Time stage selection (commitment -> finalization)."""
-    items_df = load_project_downstream_items_csv(projeto)
-    stage_cols = get_downstream_workflow_stage_columns(items_df) if not items_df.empty else []
+    stage_cols, stage_source = get_leadtime_stage_filter_columns(projeto)
     done_col = get_downstream_done_stage_column(stage_cols) if stage_cols else 'Itens concluídos'
-    selected = [s for s in (selected_start_stages or []) if s in stage_cols and s != done_col]
+    done_col_for_selection = done_col if stage_source == 'downstream' else get_explicit_done_stage_column(stage_cols)
+    selected = [s for s in (selected_start_stages or []) if s in stage_cols and s != done_col_for_selection]
     auto_mode = False
     if not selected:
-        selected = get_default_lead_time_start_stages([s for s in stage_cols if s != done_col]) if stage_cols else []
+        selectable_stage_cols = [s for s in stage_cols if s != done_col_for_selection]
+        selected = get_default_lead_time_start_stages(selectable_stage_cols) if stage_cols else []
         auto_mode = True
 
     chips = []
@@ -2051,7 +2098,9 @@ def build_leadtime_stage_selection_summary(projeto, selected_start_stages):
         ))
 
     footer_note = "Seleção padrão automática" if auto_mode else "Seleção definida no filtro"
-    if not stage_cols:
+    if stage_source == 'bottlenecks':
+        footer_note = "Etapas carregadas de gargalos/modelo; cálculo usa fallback do modelo sem CSV downstream"
+    elif not stage_cols:
         footer_note = "CSV downstream do projeto não encontrado; usando coluna do modelo"
 
     return html.Div([
@@ -2372,11 +2421,10 @@ def handle_main_menu_navigation(_portfolio_clicks, _services_clicks, _home_click
     State('filter-leadtime-stages', 'value'),
 )
 def update_leadtime_stage_filter_options(projeto, current_value):
-    items_df = load_project_downstream_items_csv(projeto)
-    if items_df.empty:
+    stage_cols, stage_source = get_leadtime_stage_filter_columns(projeto)
+    if not stage_cols:
         return [], []
-    stage_cols = get_downstream_workflow_stage_columns(items_df)
-    done_col = get_downstream_done_stage_column(stage_cols)
+    done_col = get_downstream_done_stage_column(stage_cols) if stage_source == 'downstream' else get_explicit_done_stage_column(stage_cols)
     start_candidates = [c for c in stage_cols if c != done_col]
     options = [{'label': c, 'value': c} for c in start_candidates]
     current = [v for v in (current_value or []) if v in start_candidates]
