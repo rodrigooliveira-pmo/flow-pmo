@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-23
+- Context: Pedido para unificar abas `Análise Dimensional`, `Análise Tipos` e `Análise Eficiência` sob `Análise Fluxo`.
+- User correction: Informou que as abas não foram unificadas após minha entrega.
+- Root cause: Apliquei a mudança no arquivo errado (`dashboard_app.py`) enquanto a interface em uso era `dashboard_full.py`.
+- Prevention rule: Em qualquer alteração de navegação/abas, confirmar o dashboard ativo pelos labels exibidos e pela estrutura de tabs antes de editar.
+- Action added to workflow: Comparar labels da UI com `SERVICE_TABS`/`dcc.Tabs` do arquivo alvo e validar no diff que a navegação correta foi alterada.
+
+- Date: 2026-02-23
 - Context: Correção de escopo do CFD detalhado após filtrar por IDs do `df_flow`.
 - User correction: Informou que o erro persistia porque ainda apareciam itens não finalizados no período filtrado.
 - Root cause: Usei IDs de `df_flow` (semântica de fluxo: inclui WIP no período), mas o usuário esperava o recorte de concluídos do filtro global (`df`, filtrado por `DataDone`).

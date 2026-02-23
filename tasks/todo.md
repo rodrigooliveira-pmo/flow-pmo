@@ -8,7 +8,7 @@
 ## Specification (Unificar abas de análise em Análise Fluxo)
 - Objetivo: simplificar a navegação do dashboard consolidando três abas de análise em uma única aba chamada `Análise Fluxo`.
 - Escopo:
-  - `dashboard_app.py`
+  - `dashboard_full.py`
 - Critério de aceite:
   - As abas separadas `Análise Dimensional`, `Análise Tipos` e `Análise Eficiência` deixam de aparecer na navegação.
   - Existe uma aba `Análise Fluxo`.
@@ -16,12 +16,12 @@
 
 ## Review (Unificar abas de análise em Análise Fluxo)
 - What was validated:
-  - `dashboard_app.py` removeu as três tabs separadas (`Análise Dimensional`, `Análise Tipos`, `Análise Eficiência`) e adicionou a tab única `Análise Fluxo`.
-  - A nova tab `Análise Fluxo` renderiza, em sequência, o layout dimensional (gráficos), o layout de tipos (gráficos + tabela) e a tabela de eficiência filtrada por projeto.
-  - Os callbacks existentes de `Análise Dimensional` e `Análise Tipos` continuam reutilizados, sem trocar IDs dos gráficos.
+  - `dashboard_full.py` removeu as três tabs separadas (`Análise Dimensional`, `Análise Tipos`, `Análise Eficiência`) da lista `SERVICE_TABS` e adicionou a tab única `Análise Fluxo`.
+  - A nova tab `Análise Fluxo` renderiza, em sequência, os conteúdos existentes de `tab-dim`, `tab-tipos` e `tab-eficiencia` via reutilização de `render_tab(...)`.
+  - Correção de escopo aplicada após feedback: a mudança visível foi feita no dashboard ativo (`dashboard_full.py`).
 - Evidence (tests/logs/diff):
-  - `python3 -m py_compile dashboard_app.py`
-  - `git diff -- dashboard_app.py tasks/todo.md`
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
 - Suggested commit message:
   - `refactor(dashboard): merge dimensional type and efficiency analysis tabs into analise fluxo`
 

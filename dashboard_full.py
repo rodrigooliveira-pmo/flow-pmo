@@ -285,11 +285,9 @@ SERVICE_TABS = [
     ('Fluxo', 'tab-fluxo'),
     ('CFD', 'tab-cfd'),
     ('Saúde do Fluxo', 'tab-saude'),
-    ('Análise Dimensional', 'tab-dim'),
-    ('Análise Tipos', 'tab-tipos'),
+    ('Análise Fluxo', 'tab-analise-fluxo'),
     ('Tendências', 'tab-tendencias'),
     ('Throughput Breakdown', 'tab-throughput-breakdown'),
-    ('Análise Eficiência', 'tab-eficiencia'),
     ('Padrões Sistêmicos', 'tab-padroes'),
     ('WIP por Pessoa', 'tab-wip'),
     ('Estatística Descritiva', 'tab-estatistica'),
@@ -2301,7 +2299,13 @@ app.layout = html.Div([
     ], id='filters-panel', style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px'}),
 
     html.Div(
-        dcc.Tabs(id='tabs', value='tab-performance', children=build_service_tabs()),
+        dcc.Tabs(
+            id='tabs',
+            value='tab-performance',
+            children=build_service_tabs(),
+            mobile_breakpoint=0,
+            parent_style={'overflowX': 'auto'}
+        ),
         id='tabs-wrapper',
         style={'display': 'none'}
     ),
@@ -4128,6 +4132,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 html.Div(dcc.Graph(figure=fig_pie), className='six columns'),
             ], className='row'),
             razao_explicacao,
+        ])
+
+    if tab == 'tab-analise-fluxo':
+        return html.Div([
+            html.H3("Análise Fluxo", style={'textAlign': 'center'}),
+            html.P(
+                "Consolidação das análises dimensional, por tipos e eficiência de fluxo.",
+                style={'textAlign': 'center', 'color': '#666', 'marginTop': '-8px'}
+            ),
+            html.Hr(),
+            render_tab(main_view, 'tab-dim', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team),
+            html.Hr(),
+            render_tab(main_view, 'tab-tipos', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team),
+            html.Hr(),
+            render_tab(main_view, 'tab-eficiencia', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team),
         ])
 
     if tab == 'tab-dim':
