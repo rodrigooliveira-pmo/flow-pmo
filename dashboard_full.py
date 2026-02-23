@@ -1,5 +1,6 @@
 import dash
-from dash import dcc, html, Input, Output, dash_table
+from dash import dcc, html, Input, Output, State, dash_table
+from dash.exceptions import PreventUpdate
 import plotly.express as px
 import pandas as pd
 import os
@@ -258,6 +259,33 @@ PROJECT_BOTTLENECK_PREFIX = {
 PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
 PORTFOLIO_CACHE = {'fetched_at': None, 'data': None, 'error': None}
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
+PORTFOLIO_TAB_VALUE = 'tab-portfolio'
+SERVICE_TABS = [
+    ('Performance do Serviço', 'tab-performance'),
+    ('Painel Fluxo', 'tab-painel-3x3'),
+    ('Fluxo', 'tab-fluxo'),
+    ('Estabilidade', 'tab-estabilidade'),
+    ('Saúde Fluxo', 'tab-saude'),
+    ('Qualidade', 'tab-qualidade'),
+    ('Análise Dimensional', 'tab-dim'),
+    ('Análise Tipos', 'tab-tipos'),
+    ('Tendências', 'tab-tendencias'),
+    ('Throughput Breakdown', 'tab-throughput-breakdown'),
+    ('Análise Eficiência', 'tab-eficiencia'),
+    ('Padrões Sistêmicos', 'tab-padroes'),
+    ('WIP por Pessoa', 'tab-wip'),
+    ('Estatística Descritiva', 'tab-estatistica'),
+    ('Capacidade de Fila', 'tab-fila-capacidade'),
+]
+SERVICE_TAB_VALUES = {value for _, value in SERVICE_TABS}
+
+
+def build_service_tabs():
+    return [dcc.Tab(label=label, value=value) for label, value in SERVICE_TABS]
+
+
+def build_portfolio_tab():
+    return [dcc.Tab(label='Portfólio', value=PORTFOLIO_TAB_VALUE)]
 PORTFOLIO_CSV_SUFFIX = '-data.csv'
 PORTFOLIO_COLOR_THRESHOLDS = {
     'Q1 Pendências': {'green_max': 2, 'yellow_max': 8},
@@ -966,6 +994,107 @@ def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=N
     return fig
 
 
+def build_cfd_dataframe(df_source, start_ts=None, end_ts=None):
+    """Builds CFD series using macro stages and cumulative stacking (right-to-left sum)."""
+    if df_source is None or getattr(df_source, 'empty', True):
+        return pd.DataFrame(), ['Backlog', 'Em Progresso', 'Pronto']
+
+    date_cols = [c for c in ['DataBacklog', 'DataInProgress', 'DataDone'] if c in df_source.columns]
+    if not date_cols:
+        return pd.DataFrame(), ['Backlog', 'Em Progresso', 'Pronto']
+
+    valid_dates = [pd.to_datetime(df_source[c], errors='coerce').dropna() for c in date_cols]
+    valid_dates = [s for s in valid_dates if not s.empty]
+    if not valid_dates:
+        return pd.DataFrame(), ['Backlog', 'Em Progresso', 'Pronto']
+
+    inferred_start = min(s.min() for s in valid_dates)
+    inferred_end = max(s.max() for s in valid_dates)
+    start_point = pd.to_datetime(start_ts if pd.notna(start_ts) else inferred_start).normalize()
+    end_point = pd.to_datetime(end_ts if pd.notna(end_ts) else inferred_end).normalize()
+    if pd.isna(start_point) or pd.isna(end_point) or end_point < start_point:
+        return pd.DataFrame(), ['Backlog', 'Em Progresso', 'Pronto']
+
+    weekly_points = pd.date_range(start=start_point, end=end_point, freq=WEEK_DATE_RANGE_FREQ)
+    snapshots = pd.DatetimeIndex(sorted(set([start_point, end_point, *list(weekly_points)])))
+    if snapshots.empty:
+        snapshots = pd.DatetimeIndex([start_point, end_point]).unique().sort_values()
+
+    data_backlog = pd.to_datetime(df_source['DataBacklog'], errors='coerce') if 'DataBacklog' in df_source.columns else pd.Series(pd.NaT, index=df_source.index)
+    data_in_progress = pd.to_datetime(df_source['DataInProgress'], errors='coerce') if 'DataInProgress' in df_source.columns else pd.Series(pd.NaT, index=df_source.index)
+    data_done = pd.to_datetime(df_source['DataDone'], errors='coerce') if 'DataDone' in df_source.columns else pd.Series(pd.NaT, index=df_source.index)
+
+    rows = []
+    for snapshot in snapshots:
+        backlog_count = int(((data_backlog <= snapshot) & (data_in_progress.isna() | (data_in_progress > snapshot))).sum()) if 'DataBacklog' in df_source.columns else 0
+        in_progress_count = int(((data_in_progress <= snapshot) & (data_done.isna() | (data_done > snapshot))).sum()) if 'DataInProgress' in df_source.columns else 0
+        done_count = int((data_done <= snapshot).sum()) if 'DataDone' in df_source.columns else 0
+        rows.append({
+            'Data': snapshot,
+            'Backlog_raw': backlog_count,
+            'Em Progresso_raw': in_progress_count,
+            'Pronto_raw': done_count,
+        })
+
+    cfd = pd.DataFrame(rows)
+    if cfd.empty:
+        return cfd, ['Backlog', 'Em Progresso', 'Pronto']
+
+    # Algoritmo do CFD: acumular da direita para a esquerda (Pronto -> Em Progresso -> Backlog).
+    cfd['Pronto'] = cfd['Pronto_raw']
+    cfd['Em Progresso'] = cfd['Pronto_raw'] + cfd['Em Progresso_raw']
+    cfd['Backlog'] = cfd['Em Progresso'] + cfd['Backlog_raw']
+
+    return cfd, ['Backlog', 'Em Progresso', 'Pronto']
+
+
+def create_cfd_figure(df_cfd):
+    """Creates a cumulative flow diagram using cumulative lines and filled areas."""
+    if df_cfd is None or df_cfd.empty:
+        return {}
+
+    color_map = {
+        'Pronto': '#2ca02c',
+        'Em Progresso': '#ff7f0e',
+        'Backlog': '#1f77b4',
+    }
+    raw_col_map = {
+        'Pronto': 'Pronto_raw',
+        'Em Progresso': 'Em Progresso_raw',
+        'Backlog': 'Backlog_raw',
+    }
+
+    fig = go.Figure()
+    for idx, stage in enumerate(['Pronto', 'Em Progresso', 'Backlog']):
+        fig.add_trace(go.Scatter(
+            x=df_cfd['Data'],
+            y=df_cfd[stage],
+            mode='lines',
+            name=stage,
+            line=dict(width=2, color=color_map[stage]),
+            fill='tozeroy' if idx == 0 else 'tonexty',
+            customdata=df_cfd[[raw_col_map[stage]]].values,
+            hovertemplate=(
+                'Data: %{x|%Y-%m-%d}<br>'
+                f'Faixa: {stage}<br>'
+                'Acumulado CFD: %{y}<br>'
+                'Itens na etapa: %{customdata[0]}<extra></extra>'
+            ),
+        ))
+
+    fig.update_layout(
+        title='Cumulative Flow Diagram (CFD)',
+        xaxis_title='Data',
+        yaxis_title='Itens acumulados',
+        template='plotly_white',
+        height=520,
+        margin=dict(t=60, b=90),
+        xaxis_tickangle=-45,
+        legend_title_text='Etapa',
+    )
+    return fig
+
+
 def classify_urgency_label(row):
     """Classifica urgência priorizando Classe de Serviço e usando Prioridade como fallback."""
     classe_servico = normalize_text(row.get('ClasseServico', ''))
@@ -1254,6 +1383,7 @@ min_date = fato['DataDone'].min() if 'DataDone' in fato.columns else pd.to_datet
 max_date = fato['DataDone'].max() if 'DataDone' in fato.columns else pd.to_datetime('today')
 
 app.layout = html.Div([
+    dcc.Store(id='main-view', data='home'),
     html.Div([
         html.H1('Dashboard de Métricas - Full', style={'margin': '0'}),
         html.Span(
@@ -1275,6 +1405,82 @@ app.layout = html.Div([
         'flexWrap': 'wrap',
         'marginBottom': '12px'
     }),
+    html.Div(
+        id='main-menu-panel',
+        children=[
+            html.H3('Tela Principal', style={'marginTop': '0', 'marginBottom': '8px'}),
+            html.P(
+                'Escolha o módulo que deseja acessar.',
+                style={'marginTop': '0', 'color': '#555'}
+            ),
+            html.Div([
+                html.Button(
+                    'Porfólio',
+                    id='btn-menu-portfolio',
+                    n_clicks=0,
+                    style={
+                        'padding': '12px 20px',
+                        'fontWeight': 'bold',
+                        'borderRadius': '10px',
+                        'border': '1px solid #0b5cab',
+                        'backgroundColor': '#e9f2ff',
+                        'color': '#0b3d75',
+                        'cursor': 'pointer',
+                    }
+                ),
+                html.Button(
+                    'Serviços (Value Stream)',
+                    id='btn-menu-services',
+                    n_clicks=0,
+                    style={
+                        'padding': '12px 20px',
+                        'fontWeight': 'bold',
+                        'borderRadius': '10px',
+                        'border': '1px solid #0f766e',
+                        'backgroundColor': '#ecfdf5',
+                        'color': '#115e59',
+                        'cursor': 'pointer',
+                    }
+                ),
+            ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'justifyContent': 'center'}),
+        ],
+        style={
+            'maxWidth': '720px',
+            'margin': '0 auto 16px auto',
+            'padding': '20px',
+            'border': '1px solid #e5e7eb',
+            'borderRadius': '14px',
+            'backgroundColor': '#fafafa',
+            'textAlign': 'center',
+            'boxShadow': '0 4px 14px rgba(0,0,0,0.04)',
+        }
+    ),
+    html.Div(
+        id='main-nav-panel',
+        children=[
+            html.Button(
+                'Voltar ao menu principal',
+                id='btn-menu-home',
+                n_clicks=0,
+                style={
+                    'padding': '8px 12px',
+                    'borderRadius': '8px',
+                    'border': '1px solid #d1d5db',
+                    'backgroundColor': '#fff',
+                    'cursor': 'pointer'
+                }
+            ),
+            html.Span(id='main-nav-context', style={'fontWeight': 'bold', 'color': '#374151'}),
+        ],
+        style={
+            'display': 'none',
+            'justifyContent': 'center',
+            'alignItems': 'center',
+            'gap': '12px',
+            'marginBottom': '12px',
+            'flexWrap': 'wrap'
+        }
+    ),
     html.Div([
         html.Div([html.Label('Período:'), dcc.DatePickerRange(id='date-range', start_date=min_date, end_date=max_date,
                                                             display_format='YYYY-MM-DD',
@@ -1293,26 +1499,13 @@ app.layout = html.Div([
                 clearable=False
             )
         ], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
-    ], style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px'}),
+    ], id='filters-panel', style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px'}),
 
-    dcc.Tabs(id='tabs', value='tab-performance', children=[
-        dcc.Tab(label='Performance do Serviço', value='tab-performance'),
-        dcc.Tab(label='Portfólio', value='tab-portfolio'),
-        dcc.Tab(label='Painel Fluxo', value='tab-painel-3x3'),
-        dcc.Tab(label='Fluxo', value='tab-fluxo'),
-        dcc.Tab(label='Estabilidade', value='tab-estabilidade'),
-        dcc.Tab(label='Saúde Fluxo', value='tab-saude'),
-        dcc.Tab(label='Qualidade', value='tab-qualidade'),
-        dcc.Tab(label='Análise Dimensional', value='tab-dim'),
-        dcc.Tab(label='Análise Tipos', value='tab-tipos'),
-        dcc.Tab(label='Tendências', value='tab-tendencias'),
-        dcc.Tab(label='Throughput Breakdown', value='tab-throughput-breakdown'),
-        dcc.Tab(label='Análise Eficiência', value='tab-eficiencia'),
-        dcc.Tab(label='Padrões Sistêmicos', value='tab-padroes'),
-        dcc.Tab(label='WIP por Pessoa', value='tab-wip'),
-        dcc.Tab(label='Estatística Descritiva', value='tab-estatistica'),
-        dcc.Tab(label='Capacidade de Fila', value='tab-fila-capacidade'),
-    ]),
+    html.Div(
+        dcc.Tabs(id='tabs', value='tab-performance', children=build_service_tabs()),
+        id='tabs-wrapper',
+        style={'display': 'none'}
+    ),
 
     html.Div(id='tab-content')
 ])
@@ -1333,8 +1526,77 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
         d = d[d['Responsavel'] == responsavel]
     return d
 
+
+@app.callback(
+    Output('main-view', 'data'),
+    Output('tabs', 'value'),
+    Input('btn-menu-portfolio', 'n_clicks'),
+    Input('btn-menu-services', 'n_clicks'),
+    Input('btn-menu-home', 'n_clicks'),
+    State('tabs', 'value'),
+    prevent_initial_call=True
+)
+def handle_main_menu_navigation(_portfolio_clicks, _services_clicks, _home_clicks, current_tab):
+    triggered_id = dash.ctx.triggered_id
+    if not triggered_id:
+        raise PreventUpdate
+
+    if triggered_id == 'btn-menu-portfolio':
+        return 'portfolio', PORTFOLIO_TAB_VALUE
+
+    if triggered_id == 'btn-menu-services':
+        next_tab = current_tab if current_tab in SERVICE_TAB_VALUES else 'tab-performance'
+        return 'services', next_tab
+
+    if triggered_id == 'btn-menu-home':
+        next_tab = current_tab if current_tab in SERVICE_TAB_VALUES else 'tab-performance'
+        return 'home', next_tab
+
+    raise PreventUpdate
+
+
+@app.callback(
+    Output('main-menu-panel', 'style'),
+    Output('main-nav-panel', 'style'),
+    Output('main-nav-context', 'children'),
+    Output('filters-panel', 'style'),
+    Output('tabs-wrapper', 'style'),
+    Output('tabs', 'children'),
+    Input('main-view', 'data')
+)
+def update_main_navigation_layout(main_view):
+    menu_style = {
+        'maxWidth': '720px',
+        'margin': '0 auto 16px auto',
+        'padding': '20px',
+        'border': '1px solid #e5e7eb',
+        'borderRadius': '14px',
+        'backgroundColor': '#fafafa',
+        'textAlign': 'center',
+        'boxShadow': '0 4px 14px rgba(0,0,0,0.04)',
+    }
+    nav_style = {
+        'display': 'flex',
+        'justifyContent': 'center',
+        'alignItems': 'center',
+        'gap': '12px',
+        'marginBottom': '12px',
+        'flexWrap': 'wrap'
+    }
+    filters_style = {'display': 'flex', 'justifyContent': 'center', 'gap': '10px', 'marginBottom': '20px'}
+    hidden_style = {'display': 'none'}
+
+    if main_view == 'portfolio':
+        return hidden_style, nav_style, 'Módulo: Porfólio', filters_style, hidden_style, build_portfolio_tab()
+
+    if main_view == 'services':
+        return hidden_style, nav_style, 'Módulo: Serviços (Value Stream)', filters_style, {}, build_service_tabs()
+
+    return menu_style, hidden_style, '', hidden_style, hidden_style, build_service_tabs()
+
 @app.callback(
     Output('tab-content', 'children'),
+    Input('main-view', 'data'),
     Input('tabs', 'value'),
     Input('date-range', 'start_date'),
     Input('date-range', 'end_date'),
@@ -1344,7 +1606,26 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
     Input('filter-responsavel', 'value'),
     Input('filter-portfolio-team', 'value')
 )
-def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, portfolio_team):
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, portfolio_team):
+    if main_view in (None, 'home'):
+        return html.Div(
+            'Selecione "Porfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
+            style={
+                'textAlign': 'center',
+                'color': '#666',
+                'padding': '18px',
+                'border': '1px dashed #d1d5db',
+                'borderRadius': '10px',
+                'maxWidth': '720px',
+                'margin': '0 auto'
+            }
+        )
+
+    if main_view == 'portfolio':
+        tab = PORTFOLIO_TAB_VALUE
+    elif tab not in SERVICE_TAB_VALUES:
+        tab = 'tab-performance'
+
     df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
 
     # Padrão de cores para os tipos de demanda
@@ -1411,7 +1692,7 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             html.Div(id='performance-metric-chart')
         ])
 
-    if tab == 'tab-portfolio':
+    if tab == PORTFOLIO_TAB_VALUE:
         snapshot, error = get_portfolio_snapshot()
         if error:
             return html.Div([
@@ -2434,6 +2715,15 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
                 )
                 cycle_hist_component = dcc.Graph(figure=fig_cycle_hist)
 
+        cfd_component = html.P(
+            'Sem dados suficientes para montar o Cumulative Flow Diagram (CFD).'
+        )
+        df_cfd, _ = build_cfd_dataframe(df_flow, start_ts=start_ts, end_ts=end_ts)
+        if not df_cfd.empty:
+            fig_cfd = create_cfd_figure(df_cfd)
+            if isinstance(fig_cfd, go.Figure):
+                cfd_component = dcc.Graph(figure=fig_cfd)
+
         # --- 3. Ranking de Gargalos por Etapa ---
         fig_lead_time_breakdown = {}
         lead_time_breakdown_component = html.P(
@@ -2534,6 +2824,8 @@ def render_tab(tab, start_date, end_date, projeto, tipo, classe_servico, respons
             dcc.Graph(figure=fig_bottlenecks),
             html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
             lead_time_breakdown_component,
+            html.H4("Cumulative Flow Diagram (CFD)", style={'textAlign': 'center', 'marginTop': '20px'}),
+            cfd_component,
             cycle_hist_component,
         ])
 

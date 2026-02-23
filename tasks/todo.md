@@ -1,5 +1,35 @@
 # Task Plan
 
+## Current Task (Cumulative Flow Diagram)
+- [x] Definir especificação e plano detalhado do CFD na aba de Fluxo
+- [x] Implementar cálculo das séries cumulativas por etapa (Backlog / Em Progresso / Pronto)
+- [x] Adicionar gráfico `Cumulative Flow Diagram (CFD)` no `dashboard_full.py`
+- [x] Validar sintaxe e revisar diff
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Cumulative Flow Diagram)
+- Objetivo: adicionar um gráfico `Cumulative Flow Diagram (CFD)` na aba `Fluxo` para visualizar a evolução acumulada das etapas ao longo do tempo.
+- Escopo:
+  - `dashboard_full.py` (cálculo das séries do CFD e renderização do gráfico na UI).
+- Premissas:
+  - Usar os timestamps já disponíveis no modelo (`DataBacklog`, `DataInProgress`, `DataDone`) e filtros globais aplicados.
+  - Se não houver histórico detalhado por status, representar macrofases de fluxo (`Backlog`, `Em Progresso`, `Pronto`).
+- Critério de aceite:
+  - O gráfico aparece na aba `Fluxo` sem quebrar os gráficos existentes.
+  - O CFD respeita filtros (projeto, tipo, responsável, período).
+  - Há fallback seguro com mensagem quando faltarem datas suficientes.
+
+## Review (Cumulative Flow Diagram)
+- What was validated:
+  - Aba `Fluxo` passou a renderizar o gráfico `Cumulative Flow Diagram (CFD)` após o breakdown de lead time.
+  - Cálculo usa macrofases (`Backlog`, `Em Progresso`, `Pronto`) com acumulação da direita para a esquerda (algoritmo de CFD).
+  - Fallback com mensagem é exibido quando faltam dados temporais suficientes.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Diff em `dashboard_full.py` (helpers `build_cfd_dataframe`/`create_cfd_figure` + integração em `tab-fluxo`)
+- Suggested commit message:
+  - `feat(dashboard): add cumulative flow diagram (CFD) to fluxo tab`
+
 ## Current Task (Data da Última Carga no Cabeçalho)
 - [x] Definir fonte da data de carga exibida no dashboard
 - [x] Implementar cálculo/formatação no `dashboard_full.py`
@@ -228,3 +258,32 @@
     - 12 etapas para `W1NNER/S1NC/BF`
     - 7 etapas para `DT` + mensagem de fluxo por tipo habilitado
   - Leitura direta da aba `Fato_Gargalos` em `PowerBI_Model_latest.xlsx` após reprocessamento.
+
+## Current Task (Tela Principal com Menu Porfólio/Serviços)
+- [x] Definir especificação e plano da navegação principal
+- [x] Implementar tela principal com 2 botões (`Porfólio` e `Serviços (Value Stream)`)
+- [x] Separar acesso ao `Portfólio` das demais abas (Value Stream)
+- [x] Validar sintaxe e revisar diff
+
+## Specification (Tela Principal com Menu Porfólio/Serviços)
+- Objetivo: criar uma tela principal que funcione como menu de entrada, com dois botões para abrir `Porfólio` ou `Serviços (Value Stream)`.
+- Escopo:
+  - `dashboard_full.py` (layout e callbacks de navegação).
+- Restrições:
+  - Manter o conteúdo atual das abas sem refatoração ampla.
+  - `Portfólio` deve ficar acessível separado das demais abas de serviço.
+- Critério de aceite:
+  - Tela inicial aparece com 2 botões.
+  - Botão `Porfólio` abre somente a visão de portfólio.
+  - Botão `Serviços (Value Stream)` abre o conjunto das abas operacionais.
+  - Usuário consegue voltar ao menu principal.
+
+## Review (Tela Principal com Menu Porfólio/Serviços)
+- What was validated:
+  - Dashboard passa a abrir em uma tela principal com os botões `Porfólio` e `Serviços (Value Stream)`.
+  - Navegação por botões controla o contexto (`home`, `portfolio`, `services`) sem refatorar o conteúdo das abas existentes.
+  - `Portfólio` ficou separado do conjunto de abas de serviços (em `services`, as abas exibidas excluem `Portfólio`).
+  - Botão `Voltar ao menu principal` foi adicionado para retornar à tela inicial.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Diff em `dashboard_full.py` (novo menu principal, store de navegação e callbacks de layout/roteamento)
