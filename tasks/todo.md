@@ -1,5 +1,36 @@
 # Task Plan
 
+## Current Task (CFD Detalhado por Etapas)
+- [x] Definir abordagem do modo detalhado (estimado por gargalos) e registrar limitações
+- [x] Implementar opção `Macro` x `Detalhado por Etapas` no gráfico CFD
+- [x] Reutilizar etapas do fluxo a partir de `Fato_Gargalos`/gargalos do projeto
+- [x] Validar sintaxe e revisar diff
+- [x] Atualizar review e sugestão de commit
+
+## Specification (CFD Detalhado por Etapas)
+- Objetivo: adicionar no CFD uma opção de visualização detalhada por etapas do fluxo (usando as etapas do gráfico de gargalos).
+- Escopo:
+  - `dashboard_full.py` (cálculo estimado das bandas por etapa e toggle no gráfico).
+- Premissas:
+  - O modelo não possui timestamps por etapa por item; portanto o modo detalhado será estimado usando pesos derivados de `Fato_Gargalos` (`Tempo Médio (dias)` por `Etapa`).
+  - O modo macro permanece como visão exata e padrão.
+- Critério de aceite:
+  - Usuário consegue alternar entre `Macro` e `Detalhado por Etapas` no mesmo CFD.
+  - Legenda do modo detalhado usa nomes de etapas de `bottlenecks_df`.
+  - Quando não houver gargalos suficientes, o gráfico permanece em modo macro sem quebrar.
+
+## Review (CFD Detalhado por Etapas)
+- What was validated:
+  - CFD passou a expor botões `Macro (exato)` e `Detalhado por Etapas (estimado)` no próprio gráfico.
+  - Modo detalhado usa nomes de etapas vindos de `bottlenecks_df` (`Fato_Gargalos`/fallbacks) e mantém `Pronto` como banda final.
+  - Quando há gargalos, o gráfico monta `updatemenus`; sem gargalos, mantém macro e mostra aviso de indisponibilidade do modo detalhado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Smoke test local: `create_cfd_figure(...)` retornou `Figure` com `8` traces e botões `Macro (exato)` / `Detalhado por Etapas (estimado)`
+  - Diff em `dashboard_full.py` (helpers `_flow_stage_sort_key`, `build_detailed_cfd_estimated_dataframe` e upgrade de `create_cfd_figure`)
+- Suggested commit message:
+  - `feat(dashboard): add stage-detailed CFD mode using bottleneck-based estimation`
+
 ## Current Task (Cumulative Flow Diagram)
 - [x] Definir especificação e plano detalhado do CFD na aba de Fluxo
 - [x] Implementar cálculo das séries cumulativas por etapa (Backlog / Em Progresso / Pronto)

@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-02-23
+- Context: Entrega inicial de CFD na aba de fluxo atendeu parcialmente, mas ficou em macrofases.
+- User correction: Pediu opção de detalhamento por etapas do fluxo, alinhada ao gráfico de gargalos.
+- Root cause: Implementei primeiro com granularidade macro (Backlog/Em Progresso/Pronto) sem expor uma opção de detalhamento e sem alinhar explicitamente com a estrutura de etapas já usada em gargalos.
+- Prevention rule: Ao criar visualização nova baseada em fluxo, validar antes se o usuário espera granularidade macro ou por etapa e alinhar com os artefatos existentes (`Fato_Gargalos`) quando houver referência visual/funcional.
+- Action added to workflow: Em pedidos de gráficos de fluxo, comparar a nova visualização com os gráficos de gargalo/etapas existentes e oferecer modo macro + detalhado quando os dados suportarem.
+
 - Date: 2026-02-20
 - Context: Diagnóstico de gargalos em produção ainda divergente após ajustes de status.
 - User correction: Indicou que "ainda não funcionou" e forneceu CSVs corretos em `/Users/.../Documents/dados`.

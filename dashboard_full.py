@@ -1048,39 +1048,172 @@ def build_cfd_dataframe(df_source, start_ts=None, end_ts=None):
     return cfd, ['Backlog', 'Em Progresso', 'Pronto']
 
 
-def create_cfd_figure(df_cfd):
-    """Creates a cumulative flow diagram using cumulative lines and filled areas."""
+def _flow_stage_sort_key(stage_name):
+    stage = str(stage_name or '').strip().lower()
+    order_hints = [
+        ('triag', 10),
+        ('to do', 15),
+        ('todo', 15),
+        ('backlog', 20),
+        ('discover', 25),
+        ('refin', 30),
+        ('ready', 40),
+        ('develop', 50),
+        ('progress', 50),
+        ('exec', 50),
+        ('coding', 50),
+        ('code review', 60),
+        ('review', 60),
+        ('test', 70),
+        ('qa', 70),
+        ('valid', 80),
+        ('homolog', 80),
+        ('staging', 90),
+        ('improvement', 95),
+        ('prod', 100),
+        ('done', 110),
+    ]
+    for hint, score in order_hints:
+        if hint in stage:
+            return (score, stage)
+    return (999, stage)
+
+
+def build_detailed_cfd_estimated_dataframe(df_cfd_macro, bottlenecks_df):
+    """Estimate detailed stage bands using bottleneck stage weights when per-stage timestamps are unavailable."""
+    if df_cfd_macro is None or df_cfd_macro.empty or bottlenecks_df is None or bottlenecks_df.empty:
+        return pd.DataFrame(), []
+
+    required = {'Etapa', 'Tempo Médio (dias)'}
+    if not required.issubset(set(bottlenecks_df.columns)):
+        return pd.DataFrame(), []
+
+    stage_weights = bottlenecks_df.copy()
+    stage_weights['Etapa'] = stage_weights['Etapa'].astype(str).str.strip()
+    stage_weights = stage_weights[stage_weights['Etapa'] != '']
+    if stage_weights.empty:
+        return pd.DataFrame(), []
+
+    stage_weights['Tempo Médio (dias)'] = pd.to_numeric(stage_weights['Tempo Médio (dias)'], errors='coerce')
+    if 'Vazão da Etapa (itens)' in stage_weights.columns:
+        stage_weights['Vazão da Etapa (itens)'] = pd.to_numeric(stage_weights['Vazão da Etapa (itens)'], errors='coerce')
+    else:
+        stage_weights['Vazão da Etapa (itens)'] = np.nan
+
+    stage_weights = (
+        stage_weights
+        .groupby('Etapa', as_index=False)
+        .agg({'Tempo Médio (dias)': 'mean', 'Vazão da Etapa (itens)': 'sum'})
+    )
+
+    # Avoid duplicating the final done band when a stage name already represents "done".
+    done_aliases = {'done', 'pronto', 'concluido', 'concluído'}
+    stage_weights = stage_weights[
+        ~stage_weights['Etapa'].str.lower().isin(done_aliases)
+    ].copy()
+    if stage_weights.empty:
+        return pd.DataFrame(), []
+
+    stage_weights = stage_weights.sort_values('Etapa', key=lambda s: s.map(_flow_stage_sort_key)).reset_index(drop=True)
+
+    weights = stage_weights['Tempo Médio (dias)'].fillna(0).clip(lower=0)
+    if float(weights.sum()) <= 0:
+        weights = stage_weights['Vazão da Etapa (itens)'].fillna(0).clip(lower=0)
+    if float(weights.sum()) <= 0:
+        weights = pd.Series(np.ones(len(stage_weights)), index=stage_weights.index, dtype='float64')
+
+    weights = weights / weights.sum()
+    stages = stage_weights['Etapa'].tolist()
+
+    detailed = pd.DataFrame({'Data': df_cfd_macro['Data']})
+    open_items = (pd.to_numeric(df_cfd_macro.get('Backlog_raw'), errors='coerce').fillna(0) +
+                  pd.to_numeric(df_cfd_macro.get('Em Progresso_raw'), errors='coerce').fillna(0))
+    detailed['Pronto_raw'] = pd.to_numeric(df_cfd_macro.get('Pronto_raw'), errors='coerce').fillna(0)
+
+    for idx, stage in enumerate(stages):
+        detailed[f'raw::{stage}'] = open_items * float(weights.iloc[idx])
+
+    cumulative_next = detailed['Pronto_raw'].copy()
+    detailed['cum::Pronto'] = cumulative_next
+    for stage in reversed(stages):
+        cumulative_next = cumulative_next + detailed[f'raw::{stage}']
+        detailed[f'cum::{stage}'] = cumulative_next
+
+    return detailed, stages
+
+
+def create_cfd_figure(df_cfd, bottlenecks_df=None):
+    """Creates a CFD with macro mode and optional detailed stage mode (estimated from bottlenecks)."""
     if df_cfd is None or df_cfd.empty:
         return {}
 
-    color_map = {
+    fig = go.Figure()
+    macro_colors = {
         'Pronto': '#2ca02c',
         'Em Progresso': '#ff7f0e',
         'Backlog': '#1f77b4',
     }
-    raw_col_map = {
+    macro_raw_map = {
         'Pronto': 'Pronto_raw',
         'Em Progresso': 'Em Progresso_raw',
         'Backlog': 'Backlog_raw',
     }
 
-    fig = go.Figure()
+    macro_trace_indices = []
     for idx, stage in enumerate(['Pronto', 'Em Progresso', 'Backlog']):
-        fig.add_trace(go.Scatter(
+        trace = go.Scatter(
             x=df_cfd['Data'],
             y=df_cfd[stage],
             mode='lines',
             name=stage,
-            line=dict(width=2, color=color_map[stage]),
+            line=dict(width=2, color=macro_colors[stage]),
             fill='tozeroy' if idx == 0 else 'tonexty',
-            customdata=df_cfd[[raw_col_map[stage]]].values,
+            customdata=df_cfd[[macro_raw_map[stage]]].values,
             hovertemplate=(
+                'Modo: Macro (exato)<br>'
                 'Data: %{x|%Y-%m-%d}<br>'
                 f'Faixa: {stage}<br>'
                 'Acumulado CFD: %{y}<br>'
                 'Itens na etapa: %{customdata[0]}<extra></extra>'
             ),
-        ))
+            visible=True,
+        )
+        fig.add_trace(trace)
+        macro_trace_indices.append(len(fig.data) - 1)
+
+    detailed_trace_indices = []
+    detailed_df, detailed_stages = build_detailed_cfd_estimated_dataframe(df_cfd, bottlenecks_df)
+    if not detailed_df.empty and detailed_stages:
+        palette = (px.colors.qualitative.Set3 + px.colors.qualitative.Pastel +
+                   px.colors.qualitative.Safe + px.colors.qualitative.Plotly)
+        detailed_sequence = detailed_stages + ['Pronto']
+        reversed_plot_order = list(reversed(detailed_sequence))
+        color_by_stage = {
+            stage: palette[i % len(palette)] for i, stage in enumerate(detailed_stages)
+        }
+        color_by_stage['Pronto'] = '#2ca02c'
+
+        for idx, stage in enumerate(reversed_plot_order):
+            y_col = f'cum::{stage}'
+            raw_col = 'Pronto_raw' if stage == 'Pronto' else f'raw::{stage}'
+            fig.add_trace(go.Scatter(
+                x=detailed_df['Data'],
+                y=detailed_df[y_col],
+                mode='lines',
+                name=stage,
+                line=dict(width=1.8, color=color_by_stage.get(stage, '#666')),
+                fill='tozeroy' if idx == 0 else 'tonexty',
+                customdata=detailed_df[[raw_col]].values,
+                hovertemplate=(
+                    'Modo: Detalhado por Etapas (estimado)<br>'
+                    'Data: %{x|%Y-%m-%d}<br>'
+                    f'Faixa: {stage}<br>'
+                    'Acumulado CFD: %{y:.2f}<br>'
+                    'Itens na etapa (estimado): %{customdata[0]:.2f}<extra></extra>'
+                ),
+                visible=False,
+            ))
+            detailed_trace_indices.append(len(fig.data) - 1)
 
     fig.update_layout(
         title='Cumulative Flow Diagram (CFD)',
@@ -1092,6 +1225,59 @@ def create_cfd_figure(df_cfd):
         xaxis_tickangle=-45,
         legend_title_text='Etapa',
     )
+
+    if detailed_trace_indices:
+        total_traces = len(fig.data)
+        macro_visible = [i in macro_trace_indices for i in range(total_traces)]
+        detailed_visible = [i in detailed_trace_indices for i in range(total_traces)]
+        fig.update_layout(
+            updatemenus=[{
+                'type': 'buttons',
+                'direction': 'right',
+                'x': 0.01,
+                'y': 1.18,
+                'showactive': True,
+                'buttons': [
+                    {
+                        'label': 'Macro (exato)',
+                        'method': 'update',
+                        'args': [
+                            {'visible': macro_visible},
+                            {'annotations': [{
+                                'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
+                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
+                            }]}
+                        ]
+                    },
+                    {
+                        'label': 'Detalhado por Etapas (estimado)',
+                        'method': 'update',
+                        'args': [
+                            {'visible': detailed_visible},
+                            {'annotations': [{
+                                'text': 'Detalhado (estimado): distribui itens em aberto pelas etapas usando pesos de tempo médio do gráfico de gargalos.',
+                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
+                            }]}
+                        ]
+                    },
+                ],
+            }],
+            annotations=[{
+                'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
+                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
+            }],
+        )
+    else:
+        fig.update_layout(
+            annotations=[{
+                'text': 'Modo detalhado indisponível para os filtros atuais (sem dados de gargalos suficientes).',
+                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#777'}
+            }]
+        )
     return fig
 
 
@@ -1419,13 +1605,15 @@ app.layout = html.Div([
                     id='btn-menu-portfolio',
                     n_clicks=0,
                     style={
-                        'padding': '12px 20px',
+                        'padding': '14px 20px',
                         'fontWeight': 'bold',
                         'borderRadius': '10px',
                         'border': '1px solid #0b5cab',
                         'backgroundColor': '#e9f2ff',
                         'color': '#0b3d75',
                         'cursor': 'pointer',
+                        'minWidth': '240px',
+                        'textAlign': 'center',
                     }
                 ),
                 html.Button(
@@ -1433,16 +1621,27 @@ app.layout = html.Div([
                     id='btn-menu-services',
                     n_clicks=0,
                     style={
-                        'padding': '12px 20px',
+                        'padding': '14px 20px',
                         'fontWeight': 'bold',
                         'borderRadius': '10px',
                         'border': '1px solid #0f766e',
                         'backgroundColor': '#ecfdf5',
                         'color': '#115e59',
                         'cursor': 'pointer',
+                        'minWidth': '240px',
+                        'textAlign': 'center',
                     }
                 ),
-            ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'justifyContent': 'center'}),
+            ], style={
+                'display': 'flex',
+                'gap': '12px',
+                'flexWrap': 'wrap',
+                'justifyContent': 'center',
+                'alignItems': 'center',
+                'width': '100%',
+                'maxWidth': '560px',
+                'margin': '8px auto 0 auto',
+            }),
         ],
         style={
             'maxWidth': '720px',
@@ -1453,6 +1652,9 @@ app.layout = html.Div([
             'backgroundColor': '#fafafa',
             'textAlign': 'center',
             'boxShadow': '0 4px 14px rgba(0,0,0,0.04)',
+            'display': 'flex',
+            'flexDirection': 'column',
+            'alignItems': 'center',
         }
     ),
     html.Div(
@@ -2720,7 +2922,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
         df_cfd, _ = build_cfd_dataframe(df_flow, start_ts=start_ts, end_ts=end_ts)
         if not df_cfd.empty:
-            fig_cfd = create_cfd_figure(df_cfd)
+            fig_cfd = create_cfd_figure(df_cfd, bottlenecks_df=bottlenecks_df)
             if isinstance(fig_cfd, go.Figure):
                 cfd_component = dcc.Graph(figure=fig_cfd)
 
