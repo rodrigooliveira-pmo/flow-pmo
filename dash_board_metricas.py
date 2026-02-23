@@ -233,11 +233,37 @@ def compute_valid_lead_days(done_date, sprint_backlog_date):
     return lead_days if lead_days >= 0 else None
 
 
+def is_time_eligible_done_row(row):
+    """Eligible for time metrics only if item has no cancellation marker/history."""
+    cancelled_dt = row.get('Data Cancelled', pd.NaT)
+    if pd.notna(cancelled_dt):
+        return False
+    cancelled_flag = row.get('Cancelado', 0)
+    try:
+        if pd.notna(cancelled_flag) and int(cancelled_flag) == 1:
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def time_eligible_done_mask(df):
+    """Mask for items eligible to time metrics: done without cancellation history."""
+    mask = pd.Series(True, index=df.index)
+    if 'Data Cancelled' in df.columns:
+        mask &= df['Data Cancelled'].isna()
+    if 'Cancelado' in df.columns:
+        cancelado_num = pd.to_numeric(df['Cancelado'], errors='coerce').fillna(0)
+        mask &= cancelado_num.eq(0)
+    return mask
+
+
 def compute_valid_lead_series(df):
     """Return non-negative lead times for dataframe rows with Done and Sprint Backlog."""
     if 'Done' not in df.columns or 'Sprint Backlog' not in df.columns:
         return pd.Series(dtype='float64')
-    lt_days = (df['Done'] - df['Sprint Backlog']).dt.days
+    eligible_df = df[time_eligible_done_mask(df)] if len(df) else df
+    lt_days = (eligible_df['Done'] - eligible_df['Sprint Backlog']).dt.days
     return lt_days[lt_days >= 0]
 
 
@@ -724,6 +750,11 @@ def load_and_consolidate_all_data(csv_files):
             if 'Blocked Days' in df.columns:
                 df['Blocked Days'] = pd.to_numeric(df['Blocked Days'], errors='coerce').fillna(0)
 
+            # Explicit eligibility for time metrics: Done rows without cancellation history.
+            df['ElegivelTempoConcluido'] = time_eligible_done_mask(df).astype(int)
+            if 'Done' in df.columns:
+                df['DoneSemCancelamento'] = df['Done'].where(df['ElegivelTempoConcluido'].eq(1), pd.NaT)
+
             # Add project column and rows count
             df['Projeto'] = projeto
             report['rows'] = len(df)
@@ -829,19 +860,20 @@ def generate_consolidated_dashboard(consolidated_data):
                 ]
                 avg_wip_age = (week_end - wip_at_end['In Progress']).dt.days.mean() if not wip_at_end.empty else 0
 
-                # Lead Time & Efficiency
-                if not finished.empty:
-                    lt_days = compute_valid_lead_series(finished)
+                # Lead Time & Efficiency (time metrics exclude items with cancellation history)
+                finished_time_eligible = finished[time_eligible_done_mask(finished)] if not finished.empty else finished
+                if not finished_time_eligible.empty:
+                    lt_days = compute_valid_lead_series(finished_time_eligible)
                     avg_lead_time = lt_days.mean() if not lt_days.empty else 0
                     p85_lead_time = lt_days.quantile(0.85) if not lt_days.empty else 0
                     
                     # Detect wait stage columns for this dataframe
-                    wait_columns = detect_wait_stage_columns(finished)
+                    wait_columns = detect_wait_stage_columns(finished_time_eligible)
                     
                     effs_simple = []
                     effs_adjusted = []
                     
-                    for _, row in finished.iterrows():
+                    for _, row in finished_time_eligible.iterrows():
                         td_total = row['Done'] - row['Sprint Backlog']
                         td_exec = row['Done'] - row['In Progress']
 
@@ -2036,12 +2068,17 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             effective_in_progress_date = resolve_in_progress_date(row)
 
             backlog_days = (effective_in_progress_date - sprint_backlog_date).days if pd.notna(sprint_backlog_date) and pd.notna(effective_in_progress_date) else None
+            eligible_time_metrics = is_time_eligible_done_row(row)
             cycle_days = (done_date - effective_in_progress_date).days if pd.notna(effective_in_progress_date) and pd.notna(done_date) else None
             lead_days = compute_valid_lead_days(done_date, sprint_backlog_date)
+            if not eligible_time_metrics:
+                cycle_days = None
+                lead_days = None
             lead_time_inconsistente = (
                 pd.notna(sprint_backlog_date)
                 and pd.notna(done_date)
                 and lead_days is None
+                and eligible_time_metrics
             )
             
             week_ref = week_start_monday(done_date if pd.notna(done_date) else effective_in_progress_date)
@@ -2098,6 +2135,8 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'TempoEsperaIntermediariaDias': wait_days_v2,
                 'Concluido': is_completed,
                 'Cancelado': is_cancelled,
+                'ElegivelTempoConcluido': 1 if eligible_time_metrics else 0,
+                'ConcluidoSemCancelamento': 1 if (is_completed and eligible_time_metrics) else 0,
                 'Bloqueado': is_blocked,
                 'Descartado': is_discarded,
                 'StoryPoints': row.get('Story Points'),

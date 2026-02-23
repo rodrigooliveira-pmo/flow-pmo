@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-23
+- Context: Comparação visual do CFD com a ferramenta Actionable Agile.
+- User correction: Indicou que o CFD local estava menos legível e com paleta apagada, pedindo um visual mais entendível e cores mais vivas.
+- Root cause: A renderização usava preenchimento de curvas cumulativas e paleta genérica/pastel, o que reduzia contraste entre bandas.
+- Prevention rule: Em gráficos de áreas empilhadas (especialmente CFD), priorizar `stackgroup`, paleta com alto contraste e `hover x unified` antes de considerar o visual final.
+- Action added to workflow: Ao entregar visualizações de fluxo, comparar legibilidade com referência do usuário (cores, legenda, densidade visual, leitura de bandas) e iterar no estilo.
+
+- Date: 2026-02-23
 - Context: Ajuste solicitado após adicionar modo detalhado do CFD como estimado por gargalos.
 - User correction: Informou que o CSV downstream por projeto (`*_data.csv`) já contém datas por etapa/transição do item, viabilizando CFD detalhado exato.
 - Root cause: Assumi limitação do modelo consolidado (`Fato_Items`/`Fato_Gargalos`) sem verificar a fonte downstream por projeto disponível no fluxo atual.

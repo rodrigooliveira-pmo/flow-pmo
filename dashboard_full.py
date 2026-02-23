@@ -6,6 +6,7 @@ import pandas as pd
 import os
 import json
 import numpy as np
+import math
 import hashlib
 import urllib.request
 import urllib.parse
@@ -414,9 +415,9 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
         inflow = len(arrivals)
         flow_pressure = _safe_ratio(inflow, tp)
         wip_tp_ratio = _safe_ratio(len(wip), tp)
-        lead_times = done['LeadTime_Dias'].dropna() if 'LeadTime_Dias' in done.columns else pd.Series(dtype='float64')
-        lt_p85 = lead_times.quantile(0.85) if not lead_times.empty else 0.0
-        lt_p50 = lead_times.quantile(0.50) if not lead_times.empty else 0.0
+        lead_times = time_metric_series(done, 'LeadTime_Dias')
+        lt_p85 = exact_empirical_percentile(lead_times, 0.85) if not lead_times.empty else 0.0
+        lt_p50 = exact_empirical_percentile(lead_times, 0.50) if not lead_times.empty else 0.0
         predictability = _safe_ratio(lt_p85, lt_p50) if lt_p50 > 0 else np.nan
 
         defects = len(done[done['TipoDemanda'] == TYPE_ISSUES]) if 'TipoDemanda' in done.columns else 0
@@ -967,14 +968,91 @@ def unique_sorted(col):
 def weekly_bucket_start(date_series):
     return date_series.dt.to_period(WEEK_PERIOD).dt.start_time
 
+
+def done_time_eligible_mask(df):
+    """Rows eligible for time metrics: done/completed rows without cancellation history."""
+    if df is None or getattr(df, 'empty', True):
+        return pd.Series(dtype=bool)
+    mask = pd.Series(True, index=df.index)
+    if 'ElegivelTempoConcluido' in df.columns:
+        elig = pd.to_numeric(df['ElegivelTempoConcluido'], errors='coerce').fillna(0)
+        mask &= elig.eq(1)
+    else:
+        if 'Cancelado' in df.columns:
+            cancelado = pd.to_numeric(df['Cancelado'], errors='coerce').fillna(0)
+            mask &= cancelado.eq(0)
+        if 'DataCancelled' in df.columns:
+            mask &= pd.to_datetime(df['DataCancelled'], errors='coerce').isna()
+    return mask
+
+
+def time_metric_series(df, column, positive_only=False, non_negative=False):
+    """Numeric series for time metrics with exact eligibility filter (done without cancellation)."""
+    if df is None or getattr(df, 'empty', True) or column not in df.columns:
+        return pd.Series(dtype='float64')
+    base = df
+    if column in {'LeadTime_Dias', 'TempoExecucao_Dias', 'TempoBacklog_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias'}:
+        base = df[done_time_eligible_mask(df)]
+    s = pd.to_numeric(base[column], errors='coerce').dropna()
+    if positive_only:
+        s = s[s > 0]
+    elif non_negative:
+        s = s[s >= 0]
+    return s
+
+
+def exact_empirical_percentile(values, q):
+    """Nearest-rank empirical percentile (no interpolation)."""
+    s = pd.Series(values).dropna()
+    if s.empty:
+        return np.nan
+    q = float(q)
+    if q <= 0:
+        return float(s.min())
+    if q >= 1:
+        return float(s.max())
+    ordered = s.sort_values().reset_index(drop=True)
+    rank = max(1, min(len(ordered), math.ceil(q * len(ordered))))
+    return float(ordered.iloc[rank - 1])
+
+
+def exact_percentile_map(values, quantiles):
+    return {q: exact_empirical_percentile(values, q) for q in quantiles}
+
+
+def exact_percentile_band_summary(values, cutoffs=(0.50, 0.70, 0.85, 0.95)):
+    """Build exact percentile-band summary using nearest-rank cumulative positions."""
+    s = pd.Series(values).dropna().sort_values().reset_index(drop=True)
+    if s.empty:
+        return pd.DataFrame(columns=['Percentile band', 'Items in range', 'Cumulative items', 'Cycle Time (Days)'])
+    n = len(s)
+    cutoffs = [float(c) for c in cutoffs]
+    cum_counts = [max(0, min(n, math.ceil(c * n))) for c in cutoffs] + [n]
+    # enforce monotonicity
+    for i in range(1, len(cum_counts)):
+        cum_counts[i] = max(cum_counts[i], cum_counts[i - 1])
+    labels = ['0-50%', '51-70%', '71-85%', '86-95%', '95%+']
+    thresholds = [exact_empirical_percentile(s, c) for c in cutoffs] + [float(s.max())]
+    ranges = []
+    prev = 0
+    for c in cum_counts:
+        ranges.append(c - prev)
+        prev = c
+    return pd.DataFrame({
+        'Percentile band': labels,
+        'Items in range': ranges,
+        'Cumulative items': cum_counts,
+        'Cycle Time (Days)': [int(round(x)) if pd.notna(x) else None for x in thresholds],
+    })
+
 def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=None):
     """Adiciona linhas de percentil 15, 85, 95, média e média móvel (5 períodos) a um gráfico de tendência."""
     y_series = pd.Series(y_values.values if hasattr(y_values, 'values') else y_values).dropna()
     if y_series.empty:
         return fig
-    p15 = y_series.quantile(0.15)
-    p85 = y_series.quantile(0.85)
-    p95 = y_series.quantile(0.95)
+    p15 = exact_empirical_percentile(y_series, 0.15)
+    p85 = exact_empirical_percentile(y_series, 0.85)
+    p95 = exact_empirical_percentile(y_series, 0.95)
     mean_val = y_series.mean()
     ma5 = y_series.rolling(5, min_periods=1).mean()
     kwargs = {}
@@ -1150,6 +1228,46 @@ def build_detailed_cfd_exact_dataframe(df_cfd_macro, projeto=None, bottlenecks_d
     return detailed, stages
 
 
+def _hex_to_rgba(hex_color, alpha):
+    color = str(hex_color or '').strip().lstrip('#')
+    if len(color) != 6:
+        return f'rgba(120,120,120,{alpha})'
+    try:
+        r = int(color[0:2], 16)
+        g = int(color[2:4], 16)
+        b = int(color[4:6], 16)
+    except ValueError:
+        return f'rgba(120,120,120,{alpha})'
+    return f'rgba({r},{g},{b},{alpha})'
+
+
+def _cfd_stage_color(stage_name):
+    stage = normalize_text(stage_name)
+    vivid_defaults = [
+        '#ff9800', '#00bcd4', '#cddc39', '#8bc34a', '#9c27b0', '#03a9f4',
+        '#ff5722', '#795548', '#e91e63', '#607d8b', '#3f51b5', '#009688',
+    ]
+    mapping_rules = [
+        (['done', 'pronto', 'concluido', 'concluído'], '#d50000'),
+        (['backlog'], '#ff9800'),
+        (['triag'], '#4db6ac'),
+        (['ready to start', 'ready for dev', 'ready for development', 'ready for de'], '#26c6da'),
+        (['in progress', 'inprogress', 'development', 'execucao', 'execução'], '#c0ca33'),
+        (['ready for code review'], '#ef5350'),
+        (['code review'], '#43a047'),
+        (['ready for testing', 'ready for test', 'qa'], '#1e88e5'),
+        (['testing / qa', 'testing/qa', 'testing qa'], '#8d6e63'),
+        (['ready to staging', 'ready for staging'], '#b8860b'),
+        (['staging'], '#00897b'),
+        (['ready for production', 'production'], '#7cb342'),
+    ]
+    for keys, color in mapping_rules:
+        if any(k in stage for k in keys):
+            return color
+    digest = hashlib.sha256(str(stage_name).encode('utf-8')).hexdigest()
+    return vivid_defaults[int(digest[:8], 16) % len(vivid_defaults)]
+
+
 def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
     """Creates a CFD with macro mode and optional detailed stage mode (exact from downstream CSV)."""
     if df_cfd is None or df_cfd.empty:
@@ -1157,9 +1275,9 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
 
     fig = go.Figure()
     macro_colors = {
-        'Pronto': '#2ca02c',
-        'Em Progresso': '#ff7f0e',
-        'Backlog': '#1f77b4',
+        'Pronto': '#d50000',
+        'Em Progresso': '#c0ca33',
+        'Backlog': '#ff9800',
     }
     macro_raw_map = {
         'Pronto': 'Pronto_raw',
@@ -1168,21 +1286,24 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
     }
 
     macro_trace_indices = []
-    for idx, stage in enumerate(['Pronto', 'Em Progresso', 'Backlog']):
+    for stage in ['Pronto', 'Em Progresso', 'Backlog']:
+        stage_color = macro_colors[stage]
+        raw_col = macro_raw_map[stage]
         trace = go.Scatter(
             x=df_cfd['Data'],
-            y=df_cfd[stage],
+            y=df_cfd[raw_col],
             mode='lines',
             name=stage,
-            line=dict(width=2, color=macro_colors[stage]),
-            fill='tozeroy' if idx == 0 else 'tonexty',
-            customdata=df_cfd[[macro_raw_map[stage]]].values,
+            line=dict(width=1.8, color=stage_color),
+            stackgroup='macro',
+            fillcolor=_hex_to_rgba(stage_color, 0.82),
+            customdata=df_cfd[[raw_col, stage]].values,
             hovertemplate=(
                 'Modo: Macro (exato)<br>'
                 'Data: %{x|%Y-%m-%d}<br>'
                 f'Faixa: {stage}<br>'
-                'Acumulado CFD: %{y}<br>'
-                'Itens na etapa: %{customdata[0]}<extra></extra>'
+                'Itens na etapa: %{y:.0f}<br>'
+                'Total acumulado: %{customdata[1]:.0f}<extra></extra>'
             ),
             visible=True,
         )
@@ -1192,32 +1313,32 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
     detailed_trace_indices = []
     detailed_df, detailed_stages = build_detailed_cfd_exact_dataframe(df_cfd, projeto=projeto, bottlenecks_df=bottlenecks_df)
     if not detailed_df.empty and detailed_stages:
-        palette = (px.colors.qualitative.Set3 + px.colors.qualitative.Pastel +
-                   px.colors.qualitative.Safe + px.colors.qualitative.Plotly)
         reversed_plot_order = list(reversed(detailed_stages))
         color_by_stage = {
-            stage: palette[i % len(palette)] for i, stage in enumerate(detailed_stages)
+            stage: _cfd_stage_color(stage) for stage in detailed_stages
         }
         if 'Done' in color_by_stage:
-            color_by_stage['Done'] = '#2ca02c'
+            color_by_stage['Done'] = '#d50000'
 
         for idx, stage in enumerate(reversed_plot_order):
-            y_col = f'cum::{stage}'
             raw_col = f'raw::{stage}'
+            line_color = color_by_stage.get(stage, '#666')
+            total_col = f'cum::{stage}'
             fig.add_trace(go.Scatter(
                 x=detailed_df['Data'],
-                y=detailed_df[y_col],
+                y=detailed_df[raw_col],
                 mode='lines',
                 name=stage,
-                line=dict(width=1.8, color=color_by_stage.get(stage, '#666')),
-                fill='tozeroy' if idx == 0 else 'tonexty',
-                customdata=detailed_df[[raw_col]].values,
+                line=dict(width=1.35, color=line_color),
+                stackgroup='detailed',
+                fillcolor=_hex_to_rgba(line_color, 0.86),
+                customdata=detailed_df[[total_col]].values,
                 hovertemplate=(
                     'Modo: Detalhado por Etapas (exato)<br>'
                     'Data: %{x|%Y-%m-%d}<br>'
                     f'Faixa: {stage}<br>'
-                    'Acumulado CFD: %{y:.0f}<br>'
-                    'Itens na etapa: %{customdata[0]:.0f}<extra></extra>'
+                    'Itens na etapa: %{y:.0f}<br>'
+                    'Total acumulado: %{customdata[0]:.0f}<extra></extra>'
                 ),
                 visible=False,
             ))
@@ -1226,12 +1347,41 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
     fig.update_layout(
         title='Cumulative Flow Diagram (CFD)',
         xaxis_title='Data',
-        yaxis_title='Itens acumulados',
+        yaxis_title='Itens',
         template='plotly_white',
-        height=520,
-        margin=dict(t=60, b=90),
-        xaxis_tickangle=-45,
+        height=600,
+        margin=dict(t=110, b=150, l=70, r=30),
         legend_title_text='Etapa',
+        paper_bgcolor='#ffffff',
+        plot_bgcolor='#ffffff',
+        hovermode='x unified',
+        hoverlabel=dict(bgcolor='white'),
+        xaxis=dict(
+            tickformat='%d/%m/%Y',
+            showgrid=True,
+            gridcolor='rgba(15,23,42,0.08)',
+            linecolor='rgba(15,23,42,0.15)',
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='rgba(15,23,42,0.08)',
+            zeroline=False,
+            linecolor='rgba(15,23,42,0.15)',
+            rangemode='tozero',
+        ),
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=-0.22,
+            xanchor='left',
+            x=0,
+            bgcolor='rgba(255,255,255,0.92)',
+            bordercolor='rgba(15,23,42,0.10)',
+            borderwidth=1,
+            entrywidth=150,
+            entrywidthmode='pixels',
+            traceorder='normal',
+        ),
     )
 
     if detailed_trace_indices:
@@ -1242,9 +1392,12 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
             updatemenus=[{
                 'type': 'buttons',
                 'direction': 'right',
-                'x': 0.01,
-                'y': 1.18,
+                'x': 0.0,
+                'y': 1.28,
                 'showactive': True,
+                'bgcolor': 'rgba(255,255,255,0.95)',
+                'bordercolor': 'rgba(15,23,42,0.15)',
+                'borderwidth': 1,
                 'buttons': [
                     {
                         'label': 'Macro (exato)',
@@ -1253,7 +1406,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
                             {'visible': macro_visible},
                             {'annotations': [{
                                 'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
-                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
                                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
                             }]}
                         ]
@@ -1265,7 +1418,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
                             {'visible': detailed_visible},
                             {'annotations': [{
                                 'text': 'Detalhado (exato): usa datas por etapa do CSV downstream do projeto.',
-                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
                                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
                             }]}
                         ]
@@ -1274,7 +1427,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
             }],
             annotations=[{
                 'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
-                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
             }],
         )
@@ -1282,7 +1435,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
         fig.update_layout(
             annotations=[{
                 'text': 'Modo detalhado indisponível: selecione um projeto com CSV downstream (`*-data.csv`) contendo datas por etapa.',
-                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
+                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#777'}
             }]
         )
@@ -1577,8 +1730,9 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         _, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
         if pd.isna(avg_eff):
             avg_eff = 0
-        median_lt = finished['LeadTime_Dias'].dropna().quantile(0.50) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
-        p85_lt = finished['LeadTime_Dias'].dropna().quantile(0.85) if tp_total > 0 and 'LeadTime_Dias' in finished.columns and not finished['LeadTime_Dias'].dropna().empty else 0
+        lt_finished = time_metric_series(finished, 'LeadTime_Dias')
+        median_lt = exact_empirical_percentile(lt_finished, 0.50) if tp_total > 0 and not lt_finished.empty else 0
+        p85_lt = exact_empirical_percentile(lt_finished, 0.85) if tp_total > 0 and not lt_finished.empty else 0
         mttr = finished[finished['TipoDemanda'] == TYPE_ISSUES]['LeadTime_Dias'].dropna().mean() if tp_def > 0 and 'LeadTime_Dias' in finished.columns else 0
         if pd.isna(mttr):
             mttr = 0
@@ -2316,9 +2470,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
                 lt_p85 = np.nan
                 lt_p50 = np.nan
-                if 'LeadTime_Dias' in done.columns and not done['LeadTime_Dias'].dropna().empty:
-                    lt_p85 = done['LeadTime_Dias'].quantile(0.85)
-                    lt_p50 = done['LeadTime_Dias'].quantile(0.50)
+                lt_done = time_metric_series(done, 'LeadTime_Dias')
+                if not lt_done.empty:
+                    lt_p85 = exact_empirical_percentile(lt_done, 0.85)
+                    lt_p50 = exact_empirical_percentile(lt_done, 0.50)
 
                 tp = len(done)
                 ar = len(arrived)
@@ -2377,7 +2532,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         df_done_period = df_signal_base[
             (df_signal_base['DataDone'] >= start_ts) &
             (df_signal_base['DataDone'] <= end_ts)
-        ]
+        ].copy()
         df_arrived_period = df_signal_base[
             (df_signal_base['DataInProgress'] >= start_ts) &
             (df_signal_base['DataInProgress'] <= end_ts)
@@ -2440,10 +2595,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         lead_time_p85 = np.nan
         lead_time_p50 = np.nan
         lead_time_p98 = np.nan
-        if 'LeadTime_Dias' in df_done_period.columns and not df_done_period['LeadTime_Dias'].dropna().empty:
-            lead_time_p85 = df_done_period['LeadTime_Dias'].quantile(0.85)
-            lead_time_p50 = df_done_period['LeadTime_Dias'].quantile(0.50)
-            lead_time_p98 = df_done_period['LeadTime_Dias'].quantile(0.98)
+        lt_done_period = time_metric_series(df_done_period, 'LeadTime_Dias')
+        if not lt_done_period.empty:
+            lead_time_p85 = exact_empirical_percentile(lt_done_period, 0.85)
+            lead_time_p50 = exact_empirical_percentile(lt_done_period, 0.50)
+            lead_time_p98 = exact_empirical_percentile(lt_done_period, 0.98)
 
         pressure_ratio, queue_efficiency = calculate_flow_efficiency(arrivals_avg, throughput_avg)
         wip_tp_ratio = wip_avg / throughput_avg if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
@@ -2463,7 +2619,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 commit_times = commit_times.fillna(commit_fallback)
             commit_times = pd.to_numeric(commit_times, errors='coerce').dropna()
             commit_times = commit_times[commit_times >= 0]
-        time_to_commit_p85 = commit_times.quantile(0.85) if not commit_times.empty else np.nan
+        time_to_commit_p85 = exact_empirical_percentile(commit_times, 0.85) if not commit_times.empty else np.nan
 
         tipo_demanda = df_done_period['TipoDemanda'] if 'TipoDemanda' in df_done_period.columns else pd.Series(dtype='object')
         tp_valor = int((tipo_demanda == TYPE_DEV).sum()) if not tipo_demanda.empty else 0
@@ -2882,14 +3038,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # --- 1. Calcular Métricas ---
         metrics = {}
-        tempo_exec = pd.to_numeric(df_flow['TempoExecucao_Dias'], errors='coerce').dropna() if 'TempoExecucao_Dias' in df_flow.columns else pd.Series(dtype='float64')
-        tempo_exec = tempo_exec[tempo_exec >= 0]
-        tempo_backlog = pd.to_numeric(df_flow['TempoBacklog_Dias'], errors='coerce').dropna() if 'TempoBacklog_Dias' in df_flow.columns else pd.Series(dtype='float64')
-        tempo_backlog = tempo_backlog[tempo_backlog >= 0]
-        tempo_bloqueio = pd.to_numeric(df_flow['TempoBloqueioDias'], errors='coerce').dropna() if 'TempoBloqueioDias' in df_flow.columns else pd.Series(dtype='float64')
-        tempo_bloqueio = tempo_bloqueio[tempo_bloqueio >= 0]
-        tempo_espera = pd.to_numeric(df_flow['TempoEsperaIntermediariaDias'], errors='coerce').dropna() if 'TempoEsperaIntermediariaDias' in df_flow.columns else pd.Series(dtype='float64')
-        tempo_espera = tempo_espera[tempo_espera >= 0]
+        tempo_exec = time_metric_series(df_flow, 'TempoExecucao_Dias', non_negative=True)
+        tempo_backlog = time_metric_series(df_flow, 'TempoBacklog_Dias', non_negative=True)
+        tempo_bloqueio = time_metric_series(df_flow, 'TempoBloqueioDias', non_negative=True)
+        tempo_espera = time_metric_series(df_flow, 'TempoEsperaIntermediariaDias', non_negative=True)
 
         if not tempo_exec.empty:
             metrics['Cycle Time Médio (dias)'] = tempo_exec.mean()
@@ -2940,9 +3092,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         cycle_hist_component = html.P(
             'Sem dados válidos de Cycle Time (> 0 dias) para o período e filtros selecionados.'
         )
+        cycle_band_table_component = html.P(
+            'Sem dados suficientes para calcular bandas percentílicas exatas de Cycle Time.'
+        )
         if 'TempoExecucao_Dias' in df_flow.columns:
-            cycle_series = pd.to_numeric(df_flow['TempoExecucao_Dias'], errors='coerce').dropna()
-            cycle_series = cycle_series[cycle_series > 0]
+            cycle_series = time_metric_series(df_flow, 'TempoExecucao_Dias', positive_only=True)
             if not cycle_series.empty:
                 cycle_df = pd.DataFrame({'TempoExecucao_Dias': cycle_series})
                 fig_cycle_hist = px.histogram(
@@ -2957,6 +3111,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     yaxis=dict(title='Quantidade de itens'),
                 )
                 cycle_hist_component = dcc.Graph(figure=fig_cycle_hist)
+                cycle_bands_df = exact_percentile_band_summary(cycle_series)
+                cycle_band_table_component = dash_table.DataTable(
+                    columns=[{"name": i, "id": i} for i in cycle_bands_df.columns],
+                    data=cycle_bands_df.to_dict('records'),
+                    style_cell={'textAlign': 'center', 'padding': '6px'},
+                    style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                    style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+                )
 
         cfd_component = html.P(
             'Sem dados suficientes para montar o Cumulative Flow Diagram (CFD).'
@@ -3070,6 +3232,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             html.H4("Cumulative Flow Diagram (CFD)", style={'textAlign': 'center', 'marginTop': '20px'}),
             cfd_component,
             cycle_hist_component,
+            html.H4("Bandas Percentílicas Exatas (Cycle Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
+            cycle_band_table_component,
         ])
 
     if tab == 'tab-estabilidade':
@@ -3087,10 +3251,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             metrics['Coeficiente de Variação (%)'] = (tp_weekly['Throughput'].std() / tp_weekly['Throughput'].mean()) * 100
 
         # Lead Time
-        lead_times = df['LeadTime_Dias'].dropna()
-        metrics['Lead Time P50 (dias)'] = lead_times.quantile(0.50)
-        metrics['Lead Time P75 (dias)'] = lead_times.quantile(0.75)
-        metrics['Lead Time P95 (dias)'] = lead_times.quantile(0.95)
+        lead_times = time_metric_series(df, 'LeadTime_Dias')
+        metrics['Lead Time P50 (dias)'] = exact_empirical_percentile(lead_times, 0.50)
+        metrics['Lead Time P75 (dias)'] = exact_empirical_percentile(lead_times, 0.75)
+        metrics['Lead Time P95 (dias)'] = exact_empirical_percentile(lead_times, 0.95)
 
         # Intervalo de Confiança 95% para o Lead Time
         lt_mean = lead_times.mean()
@@ -3113,7 +3277,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         fig_throughput_trend = px.line(tp_weekly, x='Semana', y='Throughput', title='Throughput Semanal', markers=True)
         add_statistical_lines(fig_throughput_trend, tp_weekly['Semana'], tp_weekly['Throughput'])
         fig_throughput_trend.update_layout(height=550, xaxis_tickangle=-45, margin=dict(b=130))
-        fig_lead_time_dist = px.box(df, y='LeadTime_Dias', title='Distribuição de Lead Time e Percentis', points="all")
+        df_lt_plot = df[done_time_eligible_mask(df)].copy()
+        fig_lead_time_dist = px.box(df_lt_plot, y='LeadTime_Dias', title='Distribuição de Lead Time e Percentis', points="all")
         fig_lead_time_dist.update_layout(height=500)
 
         return html.Div([
@@ -3145,8 +3310,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         metrics['Ratio Chegada/Throughput'] = arrivals_count / throughput_count if throughput_count > 0 else 0
         metrics['Crescimento WIP (%)'] = ((wip_end_count - wip_start_count) / wip_start_count * 100) if wip_start_count > 0 else (wip_end_count * 100 if wip_end_count > 0 else 0)
         
-        p85_lt = throughput_df['LeadTime_Dias'].quantile(0.85) if not throughput_df.empty else 0
-        metrics['Itens Vencidos (>P85)'] = len(throughput_df[throughput_df['LeadTime_Dias'] > p85_lt]) if p85_lt > 0 else 0
+        lt_throughput = time_metric_series(throughput_df, 'LeadTime_Dias')
+        p85_lt = exact_empirical_percentile(lt_throughput, 0.85) if not lt_throughput.empty else 0
+        metrics['Itens Vencidos (>P85)'] = (
+            len(throughput_df[done_time_eligible_mask(throughput_df) & (pd.to_numeric(throughput_df['LeadTime_Dias'], errors='coerce') > p85_lt)])
+            if p85_lt > 0 else 0
+        )
 
         kpi_data = [{'Métrica': k, 'Valor': f"{v:.2f}"} for k, v in metrics.items()]
         kpi_table = dash_table.DataTable(columns=[{"name": i, "id": i} for i in ['Métrica', 'Valor']], data=kpi_data, style_cell={'textAlign': 'left', 'padding': '5px'}, style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'})
@@ -3833,26 +4002,28 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         df_done = df_base[
             (df_base['DataDone'] >= start_date_ts) &
             (df_base['DataDone'] <= end_date_ts)
-        ]
+        ].copy()
+        df_done = df_done[done_time_eligible_mask(df_done)]
 
         # --- 1. Estatísticas de Lead Time ---
         lead_time_stats = {}
         if not df_done.empty and 'LeadTime_Dias' in df_done.columns and not df_done['LeadTime_Dias'].dropna().empty:
-            lt = df_done['LeadTime_Dias'].dropna()
+            lt = time_metric_series(df_done, 'LeadTime_Dias')
+            lt_exact = exact_percentile_map(lt, [0.25, 0.50, 0.75, 0.85, 0.95]) if not lt.empty else {}
             lead_time_stats = {
                 'Contagem': int(len(lt)),
                 'Média': f"{lt.mean():.2f}",
-                'Mediana (P50)': f"{lt.median():.2f}",
+                'Mediana (P50)': f"{lt_exact.get(0.50, np.nan):.2f}",
                 'Desvio Padrão': f"{lt.std():.2f}",
                 'Mínimo': f"{lt.min():.2f}",
                 'Máximo': f"{lt.max():.2f}",
-                'P25': f"{lt.quantile(0.25):.2f}",
-                'P75': f"{lt.quantile(0.75):.2f}",
-                'P85': f"{lt.quantile(0.85):.2f}",
-                'P95': f"{lt.quantile(0.95):.2f}",
+                'P25': f"{lt_exact.get(0.25, np.nan):.2f}",
+                'P75': f"{lt_exact.get(0.75, np.nan):.2f}",
+                'P85': f"{lt_exact.get(0.85, np.nan):.2f}",
+                'P95': f"{lt_exact.get(0.95, np.nan):.2f}",
                 'Coef. Variação (%)': f"{(lt.std() / lt.mean() * 100):.2f}" if lt.mean() > 0 else '—',
                 'Amplitude': f"{lt.max() - lt.min():.2f}",
-                'IQR (P75-P25)': f"{lt.quantile(0.75) - lt.quantile(0.25):.2f}",
+                'IQR (P75-P25)': f"{lt_exact.get(0.75, np.nan) - lt_exact.get(0.25, np.nan):.2f}",
                 'Assimetria (Skewness)': f"{lt.skew():.2f}",
                 'Curtose': f"{lt.kurtosis():.2f}",
             }
@@ -3874,9 +4045,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                                        title='Distribuição do Lead Time (dias)',
                                        labels={'LeadTime_Dias': 'Lead Time (dias)', 'count': 'Frequência'},
                                        height=500)
-            lt_mean_val = df_done['LeadTime_Dias'].mean()
-            lt_median_val = df_done['LeadTime_Dias'].median()
-            lt_p85_val = df_done['LeadTime_Dias'].quantile(0.85)
+            lt_hist_series = time_metric_series(df_done, 'LeadTime_Dias')
+            lt_mean_val = lt_hist_series.mean()
+            lt_median_val = exact_empirical_percentile(lt_hist_series, 0.50)
+            lt_p85_val = exact_empirical_percentile(lt_hist_series, 0.85)
             fig_lt_hist.add_vline(x=lt_mean_val, line_dash="dash", line_color="red", annotation_text=f"Média: {lt_mean_val:.1f}")
             fig_lt_hist.add_vline(x=lt_median_val, line_dash="dash", line_color="blue", annotation_text=f"Mediana: {lt_median_val:.1f}")
             fig_lt_hist.add_vline(x=lt_p85_val, line_dash="dash", line_color="orange", annotation_text=f"P85: {lt_p85_val:.1f}")
@@ -3900,10 +4072,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Desvio Padrão': f"{tp.std():.2f}",
                 'Mínimo / Semana': int(tp.min()),
                 'Máximo / Semana': int(tp.max()),
-                'P25': f"{tp.quantile(0.25):.2f}",
-                'P75': f"{tp.quantile(0.75):.2f}",
-                'P85': f"{tp.quantile(0.85):.2f}",
-                'P95': f"{tp.quantile(0.95):.2f}",
+                'P25': f"{exact_empirical_percentile(tp, 0.25):.2f}",
+                'P75': f"{exact_empirical_percentile(tp, 0.75):.2f}",
+                'P85': f"{exact_empirical_percentile(tp, 0.85):.2f}",
+                'P95': f"{exact_empirical_percentile(tp, 0.95):.2f}",
                 'Coef. Variação (%)': f"{(tp.std() / tp.mean() * 100):.2f}" if tp.mean() > 0 else '—',
             }
 
@@ -3955,10 +4127,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Desvio Padrão': f"{w.std():.2f}",
                 'Mínimo': int(w.min()),
                 'Máximo': int(w.max()),
-                'P25': f"{w.quantile(0.25):.2f}",
-                'P75': f"{w.quantile(0.75):.2f}",
-                'P85': f"{w.quantile(0.85):.2f}",
-                'P95': f"{w.quantile(0.95):.2f}",
+                'P25': f"{exact_empirical_percentile(w, 0.25):.2f}",
+                'P75': f"{exact_empirical_percentile(w, 0.75):.2f}",
+                'P85': f"{exact_empirical_percentile(w, 0.85):.2f}",
+                'P95': f"{exact_empirical_percentile(w, 0.95):.2f}",
                 'Coef. Variação (%)': f"{(w.std() / w.mean() * 100):.2f}" if w.mean() > 0 else '—',
                 'WIP Atual (última semana)': int(w.iloc[-1]) if len(w) > 0 else '—',
             }

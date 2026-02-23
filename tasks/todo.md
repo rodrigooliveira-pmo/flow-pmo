@@ -1,5 +1,135 @@
 ﻿# Task Plan
 
+## Current Task (Percentil Exato + Elegibilidade Done)
+- [x] Implementar helper único de percentil empírico exato no `dashboard_full.py`
+- [x] Aplicar helper a P50/P70/P85/P95 e bandas percentílicas no dashboard
+- [x] Adicionar colunas de elegibilidade (Done sem cancelamento) no `dash_board_metricas.py`
+- [x] Garantir que cálculos de tempo usem filtro elegível
+- [x] Validar sintaxe e registrar evidências
+
+## Specification (Percentil Exato + Elegibilidade Done)
+- Objetivo: tornar os cálculos estatísticos de tempo mais precisos, sem interpolação, e excluir itens cancelados das métricas de conclusão.
+- Decisões:
+  - Percentis no dashboard: método empírico exato (nearest-rank), sem `quantile(linear)`.
+  - População de tempo (lead/cycle): apenas itens com `Done` no período e sem `DataCancelled`.
+  - Pipeline deve expor elegibilidade explícita para evitar ambiguidades (`Done sem cancelamento`).
+- Escopo:
+  - `dashboard_full.py`
+  - `dash_board_metricas.py`
+- Critério de aceite:
+  - Helper único implementado e reutilizado.
+  - Bandas percentílicas usam contagem/rank exatos.
+  - Itens cancelados ficam fora dos cálculos de tempo de concluídos.
+
+## Review (Percentil Exato + Elegibilidade Done)
+- What was validated:
+  - `dashboard_full.py` ganhou helper único de percentil empírico exato (nearest-rank, sem interpolação) e helper de bandas percentílicas exatas.
+  - KPIs/estatísticas de tempo no dashboard passaram a usar percentis exatos (P50/P75/P85/P95/P98 e linhas estatísticas P15/P85/P95 onde aplicável).
+  - Aba de Fluxo agora exibe tabela `Bandas Percentílicas Exatas (Cycle Time)` com:
+    - `Percentile band`
+    - `Items in range`
+    - `Cumulative items`
+    - `Cycle Time (Days)`
+  - `dashboard_full.py` aplica filtro de elegibilidade temporal (`done_time_eligible_mask`) para excluir itens com cancelamento de séries de tempo (`LeadTime_Dias`, `TempoExecucao_Dias`, etc.).
+  - `dash_board_metricas.py` agora expõe colunas explícitas de elegibilidade:
+    - `ElegivelTempoConcluido`
+    - `DoneSemCancelamento`
+    - `ConcluidoSemCancelamento` (na `Fato_Items`)
+  - `dash_board_metricas.py` zera (`None`) `LeadTime_Dias` e `TempoExecucao_Dias` para itens com histórico de cancelamento ao montar a `Fato_Items`.
+  - Métricas semanais em `generate_consolidated_dashboard(...)` continuam contando throughput normalmente, mas calculam Lead Time/Eficiência usando apenas itens elegíveis (sem cancelamento).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py dash_board_metricas.py`
+  - Smoke test local dos helpers em `dashboard_full.py`:
+    - `exact_empirical_percentile([1,2,3,4,100], 0.50/0.70/0.95)` => `3 / 4 / 100`
+    - `exact_percentile_band_summary(...)` retornou tabela de faixas com contagem cumulativa e threshold por banda
+  - Diff em `dashboard_full.py`:
+    - helpers `done_time_eligible_mask`, `time_metric_series`, `exact_empirical_percentile`, `exact_percentile_band_summary`
+    - uso dos helpers em KPIs/abas de estatística/saúde/fluxo
+  - Diff em `dash_board_metricas.py`:
+    - helpers `is_time_eligible_done_row`, `time_eligible_done_mask`
+    - colunas de elegibilidade e exclusão de cancelados das métricas de tempo
+- Suggested commit message:
+  - `feat(metrics): use exact empirical percentiles and exclude cancelled items from done-time stats`
+
+## Current Task (Validação Lead Time / Cycle Time W1NNER)
+- [x] Verificar fórmulas de lead time/cycle time no código
+- [x] Calcular distribuição para W1NNER no período 2026-01-01 a 2026-02-23
+- [x] Comparar com dados de produção informados (190 itens e bandas percentílicas)
+- [x] Documentar conclusão e possíveis diferenças de critério
+
+## Specification (Validação Lead Time / Cycle Time W1NNER)
+- Objetivo: confirmar se os cálculos do sistema estão corretos frente aos dados de produção fornecidos para W1NNER.
+- Referência de produção (fornecida pelo usuário):
+  - 190 work items completed
+  - Período: 01/01/2026 a 23/02/2026 (54 dias)
+  - Bandas percentílicas e cycle time (dias): 50%=7, 70%=11, 85%=22, 95%=38, 95%+=274
+- Escopo:
+  - `dash_board_metricas.py`
+  - `dashboard_full.py`
+  - Modelo local (`PowerBI_Model_latest.xlsx`) se disponível
+- Critério de aceite:
+  - Resposta esclarece se o cálculo do sistema bate com a referência e, se não bater, explica a diferença de critério (lead vs cycle, janela, filtro, cancelados, etc.).
+
+## Review (Validação Lead Time / Cycle Time W1NNER)
+- What was validated:
+  - O código calcula **Lead Time** e **Cycle Time** com fórmulas coerentes:
+    - `LeadTime_Dias = DataDone - DataBacklog`
+    - `TempoExecucao_Dias (Cycle Time) = DataDone - DataInProgress`
+  - A tabela enviada pelo usuário é de **Cycle Time**, não de Lead Time (apesar da pergunta mencionar lead time).
+  - A comparação direta com o modelo local de produção (`/Users/rodrigoalmeidadeoliveira/Documents/dados/PowerBI_Model_20260223_105715.xlsx`) não bate, principalmente por diferença de critério/filtro (itens com histórico de cancelamento e dataset ainda contaminado por `DataDone` em itens cancelados).
+  - Extração factual atualizada do W1NNER (`/tmp/w1nner-downstream-factual-20260223-legacyflow.csv`, com `JIRA_IGNORE_STATUS_MAP=1`) mostrou:
+    - 297 itens com `Itens concluídos` no período
+    - 119 com histórico de cancelamento (`Data Cancelled`)
+    - 182 com cycle time factual não nulo (`Itens concluídos - In progress`)
+  - Quando exclui itens com histórico de cancelamento, os percentis ficam bem mais próximos da referência em cauda:
+    - `P95 ≈ 41` e `max = 273` (referência: `38` e `274`)
+    - ainda não fecha em `190` itens nem nos percentis menores (`P50/P70/P85`) por diferença de critério de inclusão/início.
+- Evidence (tests/logs/diff):
+  - Fórmulas no código:
+    - `dash_board_metricas.py:2093` (`TempoExecucao_Dias`)
+    - `dash_board_metricas.py:2094` (`LeadTime_Dias`)
+  - Percentis no dashboard/modelo usam `quantile(...)` em séries (ex.: `dashboard_full.py:3166`-`3168` para lead time).
+  - Inspeção do modelo local (`PowerBI_Model_20260223_105715.xlsx`) para W1NNER em `2026-01-01` a `2026-02-23`:
+    - `W1NNER_DONE_COUNT = 297`
+    - `Cancelado = 119` (soma no período)
+  - Extração Jira factual W1NNER com fluxo correto:
+    - `/tmp/w1nner-downstream-factual-20260223-legacyflow.csv`
+    - `Issues encontradas: 2026`
+    - `COMPLETED_ROWS_BY_DONE = 297`
+    - `CYCLE_NON_NULL = 182`
+  - Comparação factual (W1NNER, ciclo `Itens concluídos - In progress`):
+    - Todos os concluídos com cycle válido: `P50=10`, `P70=20`, `P85≈36.85`, `P95≈236.95`, `max=686`
+    - Excluindo histórico de cancelamento: `P50=9`, `P70=17`, `P85=25`, `P95≈41.4`, `max=273`
+- Suggested commit message:
+  - `chore: validate w1nner lead-time and cycle-time calculations against production`
+
+## Current Task (Refino Visual do CFD)
+- [x] Definir ajustes de legibilidade e paleta do CFD
+- [x] Implementar layout/cores mais legíveis no `dashboard_full.py`
+- [x] Validar sintaxe e smoke test
+- [x] Atualizar review e sugestão de commit
+
+## Specification (Refino Visual do CFD)
+- Objetivo: melhorar legibilidade do `Cumulative Flow Diagram (CFD)` com paleta de cores mais viva e layout mais compreensível.
+- Escopo:
+  - `dashboard_full.py` (apenas visualização do gráfico CFD; sem alterar regras de cálculo).
+- Critério de aceite:
+  - Cores do CFD ficam mais contrastantes/vivas.
+  - Leitura do gráfico melhora (grade, legenda, hover, botões/título).
+  - Modos `Macro` e `Detalhado` continuam funcionando.
+
+## Review (Refino Visual do CFD)
+- What was validated:
+  - CFD passou a usar áreas empilhadas (`stackgroup`) por faixa, melhorando leitura visual das bandas em macro e detalhado.
+  - Paleta foi trocada por cores mais vivas/contrastantes, com mapeamento por etapa (ex.: `Done` vermelho, `Backlog` laranja).
+  - Layout melhorado com `hovermode='x unified'`, legenda horizontal inferior, grid mais suave e botões posicionados acima do gráfico.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Smoke test local: `create_cfd_figure(...)` retornou figura com botões dos dois modos e `stackgroup` ativo
+  - Diff em `dashboard_full.py` (helpers `_hex_to_rgba`/`_cfd_stage_color` + refino visual de `create_cfd_figure`)
+- Suggested commit message:
+  - `style(dashboard): improve CFD readability with vivid colors and stacked areas`
+
 ## Current Task (Batch Changelog Detalhado por Projeto)
 - [x] Definir formato/nomes dos artefatos de changelog detalhado em modo batch
 - [x] Implementar exportação opcional de changelog real no `jira_to_pipeline_csv.py`
