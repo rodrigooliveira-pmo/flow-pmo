@@ -1,10 +1,10 @@
 ﻿# Task Plan
 
 ## Current Task (Batch Changelog Detalhado por Projeto)
-- [ ] Definir formato/nomes dos artefatos de changelog detalhado em modo batch
-- [ ] Implementar exportação opcional de changelog real no `jira_to_pipeline_csv.py`
-- [ ] Expor flag no `run_all_projects_macos.sh` para gerar changelog detalhado por projeto
-- [ ] Validar sintaxe/ajuda e registrar evidências
+- [x] Definir formato/nomes dos artefatos de changelog detalhado em modo batch
+- [x] Implementar exportação opcional de changelog real no `jira_to_pipeline_csv.py`
+- [x] Expor flag no `run_all_projects_macos.sh` para gerar changelog detalhado por projeto
+- [x] Validar sintaxe/ajuda e registrar evidências
 
 ## Specification (Batch Changelog Detalhado por Projeto)
 - Objetivo: criar uma opção no fluxo batch para extrair o changelog detalhado e real (baseado no histórico do Jira) em arquivos separados por projeto.
@@ -19,9 +19,14 @@
 
 ## Review (Batch Changelog Detalhado por Projeto)
 - What was validated:
-  - Pendente.
+  - `jira_to_pipeline_csv.py` agora aceita `--detailed-changelog-out` para exportar transições reais de status do Jira (changelog) em CSV opcional por execução.
+  - O CSV detalhado contém linhas por transição de status com contexto da issue (`Projeto`, `Issue Key`, `Title`, `Tipo de Problema`) e dados do histórico (`History Created`, `Author`, `From Status`, `To Status`).
+  - `run_all_projects_macos.sh` ganhou flag batch `--run-detailed-changelog-export` (default desabilitado) para gerar um arquivo de changelog detalhado por projeto e atualizar o respectivo `latest`.
 - Evidence (tests/logs/diff):
-  - Pendente.
+  - `python3 -m py_compile jira_to_pipeline_csv.py`
+  - `bash -n run_all_projects_macos.sh`
+  - `./run_all_projects_macos.sh --help` mostra `--run-detailed-changelog-export` / `--no-run-detailed-changelog-export`
+  - `python3 jira_to_pipeline_csv.py --help` mostra `--detailed-changelog-out`
 - Suggested commit message:
   - `feat(batch): add optional per-project detailed Jira changelog export`
 

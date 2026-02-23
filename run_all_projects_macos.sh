@@ -10,6 +10,7 @@ WORKERS=8
 RUN_PORTFOLIO_EXPORT=true
 RUN_METRICS=true
 OPEN_DASHBOARD=true
+RUN_DETAILED_CHANGELOG_EXPORT=false
 
 usage() {
     cat <<'EOF_HELP'
@@ -26,6 +27,8 @@ Opcoes:
   --no-run-metrics          Nao executa metricas
   --open-dashboard          Abre dashboard no navegador (padrao)
   --no-open-dashboard       Nao abre dashboard
+  --run-detailed-changelog-export    Gera CSV de changelog detalhado real por projeto
+  --no-run-detailed-changelog-export Nao gera CSV de changelog detalhado (padrao)
   -h, --help                Mostra esta ajuda
 EOF_HELP
 }
@@ -70,6 +73,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-open-dashboard)
             OPEN_DASHBOARD=false
+            shift
+            ;;
+        --run-detailed-changelog-export)
+            RUN_DETAILED_CHANGELOG_EXPORT=true
+            shift
+            ;;
+        --no-run-detailed-changelog-export)
+            RUN_DETAILED_CHANGELOG_EXPORT=false
             shift
             ;;
         -h|--help)
@@ -156,13 +167,35 @@ for i in "${!PROJECT_KEYS[@]}"; do
     echo "Projeto: ${key}"
     echo "Arquivo: ${out_file}"
 
-    "$PYTHON_BIN" "$SCRIPT_PATH" --projects "$key" --out "$out_file" --env-file "$ENV_FILE" --workers "$WORKERS"
+    export_cmd=(
+        "$PYTHON_BIN" "$SCRIPT_PATH"
+        --projects "$key"
+        --out "$out_file"
+        --env-file "$ENV_FILE"
+        --workers "$WORKERS"
+    )
+
+    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
+        detailed_changelog_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_detailed_changelog.csv"
+        export_cmd+=(--detailed-changelog-out "$detailed_changelog_out")
+        echo "Changelog detalhado: ${detailed_changelog_out}"
+    fi
+
+    "${export_cmd[@]}"
 
     bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"
     bottleneck_latest="${OUT_DIR}/${prefix}-latest-data_bottlenecks.csv"
     if [[ -f "$bottleneck_out" ]]; then
         cp -f "$bottleneck_out" "$bottleneck_latest"
         echo "Arquivo latest atualizado: ${bottleneck_latest}"
+    fi
+
+    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
+        detailed_changelog_latest="${OUT_DIR}/${prefix}-latest-data_detailed_changelog.csv"
+        if [[ -f "${detailed_changelog_out}" ]]; then
+            cp -f "${detailed_changelog_out}" "${detailed_changelog_latest}"
+            echo "Arquivo latest atualizado: ${detailed_changelog_latest}"
+        fi
     fi
 done
 
