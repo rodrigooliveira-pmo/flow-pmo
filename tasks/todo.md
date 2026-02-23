@@ -791,6 +791,48 @@
     - `['In progress'] => n=165, P85=25`
     - `['Backlog','Triagem','Ready to Start','In progress'] => n=169, P85=25`
 
+## Current Task (Auditoria do Filtro de Etapas nas Abas)
+- [x] Verificar aplicação do filtro em `Performance do Serviço`
+- [x] Verificar aplicação do filtro em `Painel Fluxo`
+- [x] Verificar aplicação do filtro em `Fluxo`
+- [x] Corrigir aba `Fluxo` para aplicar `LeadTime_Selected_Dias` nos KPIs de Lead Time
+
+## Review (Auditoria do Filtro de Etapas nas Abas)
+- What was validated:
+  - `Performance do Serviço`: aplica o filtro de etapas corretamente via `apply_selected_lead_time_metric(...)` e `compute_weekly_service_metrics(..., lead_time_col='LeadTime_Selected_Dias')`.
+  - `Painel Fluxo`: aplica o filtro de etapas corretamente em `df_signal_base` e `df_threshold_base`, usando `LeadTime_Selected_Dias` para `Lead Time P85`, previsibilidade e thresholds semanais.
+  - `Fluxo`: **não aplicava** o filtro de etapas nos KPIs de Lead Time antes da correção; foi ajustado para anexar `LeadTime_Selected_Dias` e calcular `Lead Time Médio/P50/P85` com a seleção ativa.
+  - Na aba `Fluxo`, gráficos de `Cycle Time` e ranking de gargalos por etapa continuam independentes do filtro de etapas de Lead Time (com aviso explícito na UI).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Validação comparativa W1NNER (2026-01-01 a 2026-02-23):
+    - `['Backlog']` -> `Performance/Painel P85=2 (n=2)` e `Fluxo KPI P85=2 (n=2)`
+    - `['In progress']` -> `Performance/Painel P85=25 (n=165)` e `Fluxo KPI P85=25 (n=165)`
+
+## Current Task (Lead Time na Aba Fluxo + Resumo Visual)
+- [x] Substituir histograma/bandas de Cycle Time por Lead Time na aba `Fluxo`
+- [x] Reaproveitar `LeadTime_Selected_Dias` (respeitando filtro de etapas)
+- [x] Adicionar resumo visual da seleção ativa de etapas nas abas `Performance`, `Painel` e `Fluxo`
+- [x] Validar renderização local e sintaxe
+
+## Review (Lead Time na Aba Fluxo + Resumo Visual)
+- What was validated:
+  - Aba `Fluxo` agora exibe:
+    - histograma `Distribuição do Lead Time (dias)`
+    - tabela `Bandas Percentílicas Exatas (Lead Time)`
+    usando `LeadTime_Selected_Dias` (filtro de etapas aplicado).
+  - Resumo visual da seleção ativa de Lead Time foi adicionado no topo das abas:
+    - `Performance do Serviço`
+    - `Painel Fluxo`
+    - `Fluxo`
+  - O resumo mostra:
+    - etapas de início selecionadas (chips)
+    - etapa final detectada (ex.: `Itens concluídos`)
+    - indicação de seleção explícita vs padrão automático.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `render_tab('services', tab, ..., 'W1NNER', ..., ['In progress'], ...)` retornando `Div` para `tab-performance`, `tab-painel-3x3` e `tab-fluxo`
+
 ## Current Task (Aba Lead Time Dedicada no dashboard_app)
 - [x] Criar nova aba `Lead Time` no `dashboard_app.py`
 - [x] Implementar gráfico de distribuição de Lead Time com curva acumulada e linhas de percentis/média

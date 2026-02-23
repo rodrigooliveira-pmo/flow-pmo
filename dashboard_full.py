@@ -281,6 +281,7 @@ PORTFOLIO_TAB_VALUE = 'tab-portfolio'
 SERVICE_TABS = [
     ('Performance do Serviço', 'tab-performance'),
     ('Painel Fluxo', 'tab-painel-3x3'),
+    ('Lead Time', 'tab-lead-time'),
     ('Fluxo', 'tab-fluxo'),
     ('CFD', 'tab-cfd'),
     ('Estabilidade', 'tab-estabilidade'),
@@ -2013,6 +2014,59 @@ def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
         'stage_count': len(selected_start_stages or []),
     }
 
+
+def build_leadtime_stage_selection_summary(projeto, selected_start_stages):
+    """UI summary of active Lead Time stage selection (commitment -> finalization)."""
+    items_df = load_project_downstream_items_csv(projeto)
+    stage_cols = get_downstream_workflow_stage_columns(items_df) if not items_df.empty else []
+    done_col = get_downstream_done_stage_column(stage_cols) if stage_cols else 'Itens concluídos'
+    selected = [s for s in (selected_start_stages or []) if s in stage_cols and s != done_col]
+    auto_mode = False
+    if not selected:
+        selected = get_default_lead_time_start_stages([s for s in stage_cols if s != done_col]) if stage_cols else []
+        auto_mode = True
+
+    chips = []
+    for stage in selected:
+        chips.append(html.Span(
+            stage,
+            style={
+                'display': 'inline-block',
+                'padding': '4px 10px',
+                'borderRadius': '14px',
+                'backgroundColor': '#d9edf7',
+                'color': '#154360',
+                'marginRight': '6px',
+                'marginBottom': '6px',
+                'fontSize': '12px',
+                'fontWeight': 'bold',
+            }
+        ))
+
+    footer_note = "Seleção padrão automática" if auto_mode else "Seleção definida no filtro"
+    if not stage_cols:
+        footer_note = "CSV downstream do projeto não encontrado; usando coluna do modelo"
+
+    return html.Div([
+        html.Div("Lead Time (Comprometimento -> Finalização)", style={'fontWeight': 'bold', 'marginBottom': '4px'}),
+        html.Div([
+            html.Span("Etapas de início: ", style={'color': '#555'}),
+            html.Span(chips if chips else ['—'])
+        ], style={'marginBottom': '4px'}),
+        html.Div([
+            html.Span("Etapa final: ", style={'color': '#555'}),
+            html.Span(str(done_col), style={'fontWeight': 'bold'})
+        ], style={'marginBottom': '2px'}),
+        html.Div(footer_note, style={'fontSize': '11px', 'color': '#777'}),
+    ], style={
+        'maxWidth': '1100px',
+        'margin': '0 auto 12px auto',
+        'padding': '10px 12px',
+        'border': '1px solid #dfe6ee',
+        'borderRadius': '10px',
+        'backgroundColor': '#f8fafc',
+    })
+
 def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias'):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
     metric_names = [
@@ -2392,6 +2446,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
     df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
     df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
+    leadtime_selection_summary = build_leadtime_stage_selection_summary(projeto, leadtime_stages)
 
     # Padrão de cores para os tipos de demanda
     color_map = {
@@ -2447,6 +2502,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
+            leadtime_selection_summary,
             html.Div(
                 f"Lead Time = primeira etapa selecionada (compromisso) até finalização | "
                 f"Amostra no período filtrado: {int(time_metric_series(df, 'LeadTime_Selected_Dias', non_negative=True).shape[0])}",
@@ -2465,6 +2521,153 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style_table={'overflowX': 'auto'},
             ),
             html.Div(id='performance-metric-chart')
+        ])
+
+    if tab == 'tab-lead-time':
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+
+        df_lt = df.copy()
+        if not df_lt.empty:
+            df_lt = df_lt[done_time_eligible_mask(df_lt)].copy()
+        if df_lt.empty or 'LeadTime_Selected_Dias' not in df_lt.columns:
+            return html.Div('Sem dados de Lead Time para o período e filtros selecionados.')
+
+        df_lt['LeadTime_Selected_Dias'] = pd.to_numeric(df_lt['LeadTime_Selected_Dias'], errors='coerce')
+        df_lt['DataDone'] = pd.to_datetime(df_lt['DataDone'], errors='coerce')
+        df_lt = df_lt.dropna(subset=['LeadTime_Selected_Dias', 'DataDone']).copy()
+        df_lt = df_lt[df_lt['LeadTime_Selected_Dias'] >= 0].sort_values('DataDone')
+        if df_lt.empty:
+            return html.Div('Sem dados válidos de Lead Time para o período e filtros selecionados.')
+
+        lt_series = time_metric_series(df_lt, 'LeadTime_Selected_Dias', non_negative=True)
+        if lt_series.empty:
+            return html.Div('Sem amostra válida de Lead Time para o período e filtros selecionados.')
+
+        lt_stats = {
+            'p50': exact_empirical_percentile(lt_series, 0.50),
+            'p75': exact_empirical_percentile(lt_series, 0.75),
+            'p85': exact_empirical_percentile(lt_series, 0.85),
+            'p95': exact_empirical_percentile(lt_series, 0.95),
+            'mean': float(lt_series.mean()),
+        }
+        line_defs = [
+            ('p50', 'P50', '#27AE60', 'dash'),
+            ('p75', 'P75', '#2D9CDB', 'dash'),
+            ('p85', 'P85', '#9B51E0', 'dash'),
+            ('p95', 'P95', '#EB5757', 'dash'),
+            ('mean', 'Média', '#333333', 'dot'),
+        ]
+
+        freq = df_lt['LeadTime_Selected_Dias'].round().astype(int).value_counts().sort_index().reset_index()
+        freq.columns = ['LeadTimeDia', 'Frequencia']
+        freq['CumulativoPct'] = (freq['Frequencia'].cumsum() / freq['Frequencia'].sum()) * 100
+
+        fig_lt_dist = make_subplots(specs=[[{'secondary_y': True}]])
+        fig_lt_dist.add_trace(
+            go.Bar(x=freq['LeadTimeDia'], y=freq['Frequencia'], name='Frequência', marker_color='#2F80ED'),
+            secondary_y=False
+        )
+        fig_lt_dist.add_trace(
+            go.Scatter(
+                x=freq['LeadTimeDia'],
+                y=freq['CumulativoPct'],
+                mode='lines',
+                name='Cumulativo %',
+                line=dict(color='#F2994A', width=3)
+            ),
+            secondary_y=True
+        )
+        for key, label, color, dash_style in line_defs:
+            val = lt_stats.get(key)
+            if pd.isna(val):
+                continue
+            fig_lt_dist.add_vline(
+                x=float(val),
+                line_color=color,
+                line_dash=dash_style,
+                line_width=1.5,
+                annotation_text=f'{label}: {float(val):.1f}',
+                annotation_position='top'
+            )
+        fig_lt_dist.update_layout(
+            title='Lead Time Distribution: frequência e curva acumulada',
+            template='plotly_white',
+            hovermode='x unified',
+            legend=dict(orientation='h', y=-0.18, x=0.5, xanchor='center'),
+            height=620,
+            margin=dict(t=80, b=120, l=60, r=60)
+        )
+        fig_lt_dist.update_xaxes(title_text='Lead Time (dias)')
+        fig_lt_dist.update_yaxes(title_text='Frequência (# itens)', secondary_y=False)
+        fig_lt_dist.update_yaxes(title_text='Cumulativo (%)', range=[0, 100], secondary_y=True)
+
+        df_lt_scatter = df_lt.copy().sort_values('DataDone').reset_index(drop=True)
+        df_lt_scatter['MM_10'] = df_lt_scatter['LeadTime_Selected_Dias'].rolling(10, min_periods=1).mean()
+
+        fig_lt_scatter = go.Figure()
+        fig_lt_scatter.add_trace(go.Scatter(
+            x=df_lt_scatter['DataDone'],
+            y=df_lt_scatter['LeadTime_Selected_Dias'],
+            mode='markers',
+            name='Lead Time (item)',
+            marker=dict(color='#2F80ED', size=8, opacity=0.75),
+            hovertemplate='Done: %{x|%d/%m/%Y}<br>Lead Time: %{y:.1f} dias<extra></extra>'
+        ))
+        fig_lt_scatter.add_trace(go.Scatter(
+            x=df_lt_scatter['DataDone'],
+            y=df_lt_scatter['MM_10'],
+            mode='lines',
+            name='Média móvel (10 itens)',
+            line=dict(color='#F2994A', width=3, dash='dash')
+        ))
+        for key, label, color, dash_style in line_defs:
+            val = lt_stats.get(key)
+            if pd.isna(val):
+                continue
+            fig_lt_scatter.add_hline(
+                y=float(val),
+                line_color=color,
+                line_dash=dash_style,
+                line_width=1.2,
+                annotation_text=f'{label}: {float(val):.1f}',
+                annotation_position='top right'
+            )
+
+        weekly_lt = (
+            df_lt_scatter.assign(Semana=weekly_bucket_start(df_lt_scatter['DataDone']))
+            .groupby('Semana', as_index=False)['LeadTime_Selected_Dias'].mean()
+            .sort_values('Semana')
+        )
+        if not weekly_lt.empty:
+            fig_lt_scatter.add_trace(go.Scatter(
+                x=weekly_lt['Semana'],
+                y=weekly_lt['LeadTime_Selected_Dias'],
+                mode='lines',
+                name='Lead Time médio semanal',
+                line=dict(color='#111827', width=2)
+            ))
+
+        fig_lt_scatter.update_layout(
+            title='Lead Time: itens concluídos ao longo do tempo',
+            template='plotly_white',
+            hovermode='x unified',
+            legend=dict(orientation='h', y=-0.18, x=0.5, xanchor='center'),
+            height=620,
+            margin=dict(t=80, b=120, l=60, r=40)
+        )
+        fig_lt_scatter.update_xaxes(title_text='Data de conclusão', tickformat='%d/%m/%Y', tickangle=-45)
+        fig_lt_scatter.update_yaxes(title_text='Lead Time (dias)')
+
+        subtitle = (
+            f"Projeto: {projeto or 'Todos'} | Período: {start_ts.date()} a {end_ts.date()} | "
+            f"Amostra: {int(len(lt_series))} itens | Início: {leadtime_meta.get('label', 'padrão')}"
+        )
+        return html.Div([
+            html.H3("Lead Time", style={'textAlign': 'center'}),
+            html.P(subtitle, style={'textAlign': 'center', 'color': '#666'}),
+            dcc.Graph(figure=fig_lt_dist),
+            dcc.Graph(figure=fig_lt_scatter),
         ])
 
     if tab == PORTFOLIO_TAB_VALUE:
@@ -3393,6 +3596,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         return html.Div([
             html.H3("Painel Principal de Gestão de Fluxo", style={'textAlign': 'center'}),
+            leadtime_selection_summary,
             html.P(
                 "Sinais executivos de fluxo para o filtro ativo de projeto e período. "
                 "Semáforo por CV: OK (<=30%), Razoável (>30% e <=50%), Ruim (>50% e <=65%), Crítico (>65% e <=80%) e Extremamente Crítico (>80%). "
@@ -3415,6 +3619,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
         if responsavel:
             df_flow = df_flow[df_flow['Responsavel'] == responsavel]
+        if classe_servico:
+            df_flow = df_flow[df_flow['ClasseServico'] == classe_servico]
+        df_flow, flow_lead_meta = apply_selected_lead_time_metric(df_flow, projeto, leadtime_stages)
 
         mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
         mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
@@ -3430,11 +3637,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # --- 1. Calcular Métricas ---
         metrics = {}
+        lead_time_selected = time_metric_series(df_flow_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
         tempo_exec = time_metric_series(df_flow_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
         tempo_backlog = time_metric_series(df_flow_done_period_eligible, 'TempoBacklog_Dias', non_negative=True)
         tempo_bloqueio = time_metric_series(df_flow_done_period_eligible, 'TempoBloqueioDias', non_negative=True)
         tempo_espera = time_metric_series(df_flow_done_period_eligible, 'TempoEsperaIntermediariaDias', non_negative=True)
 
+        if not lead_time_selected.empty:
+            metrics['Lead Time Médio (dias)'] = lead_time_selected.mean()
+            metrics['Lead Time P85 (dias)'] = exact_empirical_percentile(lead_time_selected, 0.85)
+            metrics['Lead Time Mediano (dias)'] = exact_empirical_percentile(lead_time_selected, 0.50)
         if not tempo_exec.empty:
             metrics['Cycle Time Médio (dias)'] = tempo_exec.mean()
             metrics['Cycle Time Mediano (dias)'] = tempo_exec.median()
@@ -3477,33 +3689,33 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if bottlenecks_df.empty:
             bottlenecks_df = compute_flow_bottlenecks(df_flow)
 
-        fig_cycle_hist = {}
-        cycle_hist_component = html.P(
-            'Sem dados válidos de Cycle Time (>= 0 dias) para o período e filtros selecionados.'
+        fig_lead_hist = {}
+        lead_hist_component = html.P(
+            'Sem dados válidos de Lead Time (>= 0 dias) para o período e filtros selecionados.'
         )
-        cycle_band_table_component = html.P(
-            'Sem dados suficientes para calcular bandas percentílicas exatas de Cycle Time.'
+        lead_band_table_component = html.P(
+            'Sem dados suficientes para calcular bandas percentílicas exatas de Lead Time.'
         )
-        if 'TempoExecucao_Dias' in df_flow.columns:
-            cycle_series = time_metric_series(df_flow_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
-            if not cycle_series.empty:
-                cycle_df = pd.DataFrame({'TempoExecucao_Dias': cycle_series})
-                fig_cycle_hist = px.histogram(
-                    cycle_df,
-                    x='TempoExecucao_Dias',
+        if 'LeadTime_Selected_Dias' in df_flow.columns:
+            lead_series = time_metric_series(df_flow_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
+            if not lead_series.empty:
+                lead_df = pd.DataFrame({'LeadTime_Selected_Dias': lead_series})
+                fig_lead_hist = px.histogram(
+                    lead_df,
+                    x='LeadTime_Selected_Dias',
                     nbins=30,
-                    title='Distribuição do Cycle Time (dias)',
+                    title='Distribuição do Lead Time (dias)',
                 )
-                fig_cycle_hist.update_layout(
+                fig_lead_hist.update_layout(
                     height=500,
-                    xaxis=dict(title='Cycle Time (dias)', rangemode='nonnegative'),
+                    xaxis=dict(title='Lead Time (dias)', rangemode='nonnegative'),
                     yaxis=dict(title='Quantidade de itens'),
                 )
-                cycle_hist_component = dcc.Graph(figure=fig_cycle_hist)
-                cycle_bands_df = exact_percentile_band_summary(cycle_series)
-                cycle_band_table_component = dash_table.DataTable(
-                    columns=[{"name": i, "id": i} for i in cycle_bands_df.columns],
-                    data=cycle_bands_df.to_dict('records'),
+                lead_hist_component = dcc.Graph(figure=fig_lead_hist)
+                lead_bands_df = exact_percentile_band_summary(lead_series)
+                lead_band_table_component = dash_table.DataTable(
+                    columns=[{"name": i, "id": i} for i in lead_bands_df.columns],
+                    data=lead_bands_df.to_dict('records'),
                     style_cell={'textAlign': 'center', 'padding': '6px'},
                     style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
                     style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
@@ -3603,15 +3815,24 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         return html.Div([
             html.H3("Análise Avançada de Fluxo", style={'textAlign': 'center'}),
+            leadtime_selection_summary,
+            html.P(
+                (
+                    "Filtro de etapas de Lead Time aplicado aos KPIs de Lead Time desta tela "
+                    f"(amostra: {int(len(lead_time_selected))} itens elegíveis). "
+                    "O ranking de gargalos por etapa permanece independente dessa seleção."
+                ),
+                style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px'}
+            ),
             html.Div(kpi_table, style={'width': '50%', 'margin': 'auto', 'marginBottom': '30px'}),
             html.H4("Indicador de Gargalo do Fluxo", style={'textAlign': 'center', 'marginTop': '10px'}),
             html.Div(bottlenecks_table, style={'width': '70%', 'margin': 'auto', 'marginBottom': '20px'}),
             dcc.Graph(figure=fig_bottlenecks),
             html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
             lead_time_breakdown_component,
-            cycle_hist_component,
-            html.H4("Bandas Percentílicas Exatas (Cycle Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
-            cycle_band_table_component,
+            lead_hist_component,
+            html.H4("Bandas Percentílicas Exatas (Lead Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
+            lead_band_table_component,
         ])
 
     if tab == 'tab-cfd':

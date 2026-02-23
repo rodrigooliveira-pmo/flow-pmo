@@ -94,3 +94,10 @@ Use this file after any user correction.
 - Root cause: Eu corrigi a inconsistência operacional trocando a métrica, mas isso contrariou a definição de negócio do usuário.
 - Prevention rule: Em divergência entre qualidade estatística e definição de negócio, preservar primeiro a métrica de negócio e corrigir a instrumentação (filtro, cobertura, amostra), não trocar o conceito.
 - Action added to workflow: Quando houver discrepância de KPI de tempo, confirmar explicitamente se o problema é de conceito (`Lead` vs `Cycle`) ou de parametrização de etapas antes de alterar rótulos/semântica.
+
+- Date: 2026-02-23
+- Context: Solicitação para criar aba de Lead Time com referência visual; a entrega foi aplicada em arquivo de dashboard errado.
+- User correction: Informou que a aba de Lead Time não estava aparecendo.
+- Root cause: Implementei a aba em `dashboard_app.py` sem confirmar qual aplicação o usuário estava executando (provavelmente `dashboard_full.py`).
+- Prevention rule: Antes de alterar UI com abas/páginas, confirmar o entrypoint em uso (script de execução/arquivo aberto) e aplicar no dashboard certo.
+- Action added to workflow: Em pedidos de interface, validar primeiro o arquivo ativo (`dashboard_full.py` vs `dashboard_app.py`) com o usuário ou pelo fluxo de execução local.
