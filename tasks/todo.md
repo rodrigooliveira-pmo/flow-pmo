@@ -1,5 +1,32 @@
 ﻿# Task Plan
 
+## Current Task (Aba CFD + Quadro Sumário por Ponto)
+- [x] Criar aba dedicada `CFD`
+- [x] Mover gráfico CFD para a nova aba (remover da aba `Fluxo`)
+- [x] Implementar `dcc.Store` com dados sumários do CFD
+- [x] Implementar quadro de estatísticas sumárias reativo a clique/hover no gráfico
+- [x] Validar sintaxe e smoke test
+
+## Specification (Aba CFD + Quadro Sumário por Ponto)
+- Objetivo: separar o CFD em uma aba própria e exibir um quadro de estatísticas sumárias baseado no ponto selecionado no gráfico.
+- Escopo:
+  - `dashboard_full.py`
+- Critério de aceite:
+  - Existe uma aba `CFD` no conjunto de abas de serviços.
+  - O gráfico CFD renderiza nessa aba com modos Macro/Detalhado.
+  - O quadro sumário atualiza ao clicar/hover em um ponto do gráfico.
+
+## Review (Aba CFD + Quadro Sumário por Ponto)
+- What was validated:
+  - Nova aba `CFD` criada e gráfico removido da aba `Fluxo`.
+  - Quadro `Summary Statistics` é alimentado por `clickData`/`hoverData` + `dcc.Store` do CFD.
+  - Painel mostra snapshot, métricas do período e tabela por etapa (WIP/Acumulado/Cycle Time*).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Smoke test local de `build_cfd_summary_payload(...)` e `create_cfd_summary_panel(...)`
+- Suggested commit message:
+  - `feat(dashboard): move CFD to dedicated tab and add point-driven summary panel`
+
 ## Current Task (Percentil Exato + Elegibilidade Done)
 - [x] Implementar helper único de percentil empírico exato no `dashboard_full.py`
 - [x] Aplicar helper a P50/P70/P85/P95 e bandas percentílicas no dashboard
@@ -713,3 +740,28 @@
 - Evidence (tests/logs/diff):
   - `python3 -m py_compile dashboard_full.py`
   - Diff em `dashboard_full.py` (novo menu principal, store de navegação e callbacks de layout/roteamento)
+
+## Current Task (Correção KPI P85 no Painel/Performance)
+- [x] Diagnosticar por que `Lead Time P85` continuava em `2.0` no W1NNER
+- [x] Corrigir base dos cálculos na tela `Performance do Serviço` (throughput/tempos elegíveis)
+- [x] Ajustar `Painel Fluxo` para usar `Cycle Time P85` nas métricas operacionais
+- [x] Regenerar modelo e validar números no período reportado
+
+## Review (Correção KPI P85 no Painel/Performance)
+- What was validated:
+  - Causa-raiz identificada: `LeadTime_Dias` no W1NNER tem cobertura muito baixa no período (`n=2`) por falta de `DataBacklog` em grande parte dos itens; o valor `2.0` era matematicamente correto, mas inadequado como KPI operacional.
+  - `dashboard_full.py` foi ajustado para usar `Cycle Time` (`TempoExecucao_Dias`) nas métricas percentílicas operacionais do `Painel Fluxo`:
+    - card agora exibe `Cycle Time P85` (antes `Lead Time P85`)
+    - previsibilidade/risco de forecasting do painel passaram a usar percentis de cycle time
+  - `Performance do Serviço`:
+    - `Throughput / semana` agora usa concluídos elegíveis (sem cancelamento)
+    - linhas operacionais foram renomeadas para `Média Cycle Time` e `P85% DO CYCLE TIME`
+    - `Lead time (Backlog→Done)` permanece separado e mostra `—` quando sem amostra suficiente
+  - Modelo regenerado em `/Users/rodrigoalmeidadeoliveira/Documents/dados/PowerBI_Model_20260223_132346.xlsx` e `PowerBI_Model_latest.xlsx` atualizado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py dash_board_metricas.py`
+  - Execução completa: `DATA_FOLDER=/Users/rodrigoalmeidadeoliveira/Documents/dados FLOW_PMO_DATA_DIR=/Users/rodrigoalmeidadeoliveira/Documents/dados python3 dash_board_metricas.py`
+  - Validação local no `dashboard_full.py` (W1NNER, 2026-01-01 a 2026-02-23):
+    - `LeadTime_Dias`: `n=2`, `P85=2`
+    - `TempoExecucao_Dias`: `n=167`, `P85=25`
+    - `Throughput / semana` corrigido (sem cancelados): semana `2026-02-16` caiu de `146` para `28`

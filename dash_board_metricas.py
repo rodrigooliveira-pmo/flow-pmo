@@ -233,6 +233,19 @@ def compute_valid_lead_days(done_date, sprint_backlog_date):
     return lead_days if lead_days >= 0 else None
 
 
+def resolve_backlog_date(row):
+    """
+    Resolve lead-time start date (commit/backlog entry) with factual fallback.
+    Preference order keeps semantic intent but avoids near-empty lead-time samples
+    when a project does not populate 'Sprint Backlog'.
+    """
+    for col in ['Sprint Backlog', 'Backlog', 'Triagem']:
+        value = row.get(col, pd.NaT)
+        if pd.notna(value):
+            return value
+    return pd.NaT
+
+
 def is_time_eligible_done_row(row):
     """Eligible for time metrics only if item has no cancellation marker/history."""
     cancelled_dt = row.get('Data Cancelled', pd.NaT)
@@ -259,11 +272,18 @@ def time_eligible_done_mask(df):
 
 
 def compute_valid_lead_series(df):
-    """Return non-negative lead times for dataframe rows with Done and Sprint Backlog."""
-    if 'Done' not in df.columns or 'Sprint Backlog' not in df.columns:
+    """Return non-negative lead times for dataframe rows using best backlog-start column."""
+    if 'Done' not in df.columns:
+        return pd.Series(dtype='float64')
+    backlog_col = None
+    for candidate in ['Sprint Backlog', 'Backlog', 'Triagem']:
+        if candidate in df.columns:
+            backlog_col = candidate
+            break
+    if backlog_col is None:
         return pd.Series(dtype='float64')
     eligible_df = df[time_eligible_done_mask(df)] if len(df) else df
-    lt_days = (eligible_df['Done'] - eligible_df['Sprint Backlog']).dt.days
+    lt_days = (eligible_df['Done'] - eligible_df[backlog_col]).dt.days
     return lt_days[lt_days >= 0]
 
 
@@ -2060,7 +2080,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             classe_servico_id = dim_classe_map.get(classe_servico, None)
             
             # Calculate metrics
-            sprint_backlog_date = row.get('Sprint Backlog')
+            sprint_backlog_date = resolve_backlog_date(row)
             in_progress_date = row.get('In Progress')
             done_date = row.get('Done')
             cancelled_date = row.get('Data Cancelled')

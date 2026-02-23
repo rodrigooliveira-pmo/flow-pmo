@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-23
+- Context: Correção de escopo do CFD detalhado após filtrar por IDs do `df_flow`.
+- User correction: Informou que o erro persistia porque ainda apareciam itens não finalizados no período filtrado.
+- Root cause: Usei IDs de `df_flow` (semântica de fluxo: inclui WIP no período), mas o usuário esperava o recorte de concluídos do filtro global (`df`, filtrado por `DataDone`).
+- Prevention rule: Em abas com datasets paralelos (`df` concluídos vs `df_flow` ativos no período), alinhar explicitamente cada gráfico à semântica esperada do usuário e documentar isso no código.
+- Action added to workflow: Para CFD detalhado em `tab-fluxo`, usar IDs de `df` quando a expectativa for “concluídos no filtro”; só usar `df_flow` se houver opção explícita de incluir WIP.
+
+- Date: 2026-02-23
 - Context: CFD detalhado exato usando CSV downstream por projeto.
 - User correction: Indicou que o gráfico estava mostrando itens fora do filtro selecionado (ex.: itens não finalizados no recorte), apesar do período/filtros aplicados na aba.
 - Root cause: O modo detalhado lia o CSV downstream inteiro do projeto sem restringir pelos `ItemID`s já filtrados em `df_flow`.
@@ -73,3 +80,10 @@ Use this file after any user correction.
 - Root cause: Mapeamento legado de `In Progress` não cobria variações reais de status (ex.: `Development`, `In Development`, `Doing`), gerando zero pares `In Progress -> Ready for code review`.
 - Prevention rule: Para cada fluxo legado, validar cobertura de aliases reais de status e checar explicitamente pares consecutivos críticos.
 - Action added to workflow: Após cada ajuste de status map, reprocessar 1 projeto alvo e validar presença das etapas esperadas em `Fato_Gargalos` (não só no CSV intermediário).
+
+- Date: 2026-02-23
+- Context: Usuário reportou persistência de erro no KPI `Lead Time P85` do Painel de Fluxo e inconsistência com a tela Performance do Serviço.
+- User correction: Mostrou evidências de que o dashboard ainda exibia `Lead Time P85 = 2.0 dias` e valores incompatíveis com o comportamento de cycle time esperado.
+- Root cause: Eu corrigi percentis e elegibilidade, mas não validei a semântica do indicador exibido; as telas operacionais continuavam usando `LeadTime_Dias` com amostra ínfima (W1NNER tinha apenas 2 itens com `DataBacklog` preenchido no período).
+- Prevention rule: Antes de concluir correção de percentis/KPI, validar também cobertura amostral da métrica (`n`) e confirmar se a tela operacional deve usar `Lead Time` ou `Cycle Time`.
+- Action added to workflow: Para KPIs percentílicos de tempo, sempre verificar e registrar `(métrica, filtro, n da amostra)` e alinhar o rótulo da UI à métrica real usada.

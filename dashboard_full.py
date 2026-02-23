@@ -265,6 +265,7 @@ SERVICE_TABS = [
     ('Performance do Serviço', 'tab-performance'),
     ('Painel Fluxo', 'tab-painel-3x3'),
     ('Fluxo', 'tab-fluxo'),
+    ('CFD', 'tab-cfd'),
     ('Estabilidade', 'tab-estabilidade'),
     ('Saúde Fluxo', 'tab-saude'),
     ('Qualidade', 'tab-qualidade'),
@@ -1455,6 +1456,202 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
     return fig
 
 
+def build_cfd_summary_payload(
+    df_cfd,
+    projeto=None,
+    bottlenecks_df=None,
+    filtered_item_ids=None,
+    start_ts=None,
+    end_ts=None,
+    arrivals_period=None,
+    throughput_period=None,
+):
+    payload = {
+        'meta': {},
+        'macro': None,
+        'detailed': None,
+        'stage_cycle_days': {},
+    }
+    if df_cfd is None or df_cfd.empty:
+        return payload
+
+    if start_ts is not None and end_ts is not None and pd.notna(start_ts) and pd.notna(end_ts):
+        payload['meta'].update({
+            'start_date': pd.to_datetime(start_ts).strftime('%Y-%m-%d'),
+            'end_date': pd.to_datetime(end_ts).strftime('%Y-%m-%d'),
+            'days': int((pd.to_datetime(end_ts) - pd.to_datetime(start_ts)).days) + 1,
+        })
+    if projeto:
+        payload['meta']['projeto'] = str(projeto)
+    if arrivals_period is not None:
+        payload['meta']['arrivals_period'] = int(arrivals_period)
+    if throughput_period is not None:
+        payload['meta']['throughput_period'] = int(throughput_period)
+    if filtered_item_ids is not None:
+        payload['meta']['filtered_done_items'] = int(sum(1 for x in filtered_item_ids if pd.notna(x) and str(x).strip()))
+
+    payload['macro'] = {
+        'dates': pd.to_datetime(df_cfd['Data']).dt.strftime('%Y-%m-%d').tolist(),
+        'stages': ['Backlog', 'Em Progresso', 'Pronto'],
+        'raw': {
+            'Backlog': pd.to_numeric(df_cfd.get('Backlog_raw'), errors='coerce').fillna(0).astype(float).tolist(),
+            'Em Progresso': pd.to_numeric(df_cfd.get('Em Progresso_raw'), errors='coerce').fillna(0).astype(float).tolist(),
+            'Pronto': pd.to_numeric(df_cfd.get('Pronto_raw'), errors='coerce').fillna(0).astype(float).tolist(),
+        },
+        'cum': {
+            'Backlog': pd.to_numeric(df_cfd.get('Backlog'), errors='coerce').fillna(0).astype(float).tolist(),
+            'Em Progresso': pd.to_numeric(df_cfd.get('Em Progresso'), errors='coerce').fillna(0).astype(float).tolist(),
+            'Pronto': pd.to_numeric(df_cfd.get('Pronto'), errors='coerce').fillna(0).astype(float).tolist(),
+        },
+    }
+
+    detailed_df, detailed_stages = build_detailed_cfd_exact_dataframe(
+        df_cfd,
+        projeto=projeto,
+        bottlenecks_df=bottlenecks_df,
+        filtered_item_ids=filtered_item_ids,
+    )
+    if not detailed_df.empty and detailed_stages:
+        detailed_dates = pd.to_datetime(detailed_df['Data']).dt.strftime('%Y-%m-%d').tolist()
+        payload['detailed'] = {
+            'dates': detailed_dates,
+            'stages': detailed_stages,
+            'raw': {},
+            'cum': {},
+        }
+        for stage in detailed_stages:
+            payload['detailed']['raw'][stage] = pd.to_numeric(detailed_df.get(f'raw::{stage}'), errors='coerce').fillna(0).astype(float).tolist()
+            payload['detailed']['cum'][stage] = pd.to_numeric(detailed_df.get(f'cum::{stage}'), errors='coerce').fillna(0).astype(float).tolist()
+
+    if bottlenecks_df is not None and not bottlenecks_df.empty and {'Etapa', 'Tempo Médio (dias)'}.issubset(bottlenecks_df.columns):
+        tmp = bottlenecks_df[['Etapa', 'Tempo Médio (dias)']].copy()
+        tmp['Tempo Médio (dias)'] = pd.to_numeric(tmp['Tempo Médio (dias)'], errors='coerce')
+        tmp = tmp.dropna()
+        payload['stage_cycle_days'] = {
+            str(row['Etapa']): float(row['Tempo Médio (dias)'])
+            for _, row in tmp.iterrows()
+        }
+
+    return payload
+
+
+def create_cfd_summary_panel(summary_payload, selected_date=None):
+    if not summary_payload or not isinstance(summary_payload, dict):
+        return html.Div('Sem dados de sumário do CFD.', style={'color': '#666'})
+
+    meta = summary_payload.get('meta') or {}
+    macro = summary_payload.get('macro')
+    detailed = summary_payload.get('detailed')
+    if not macro:
+        return html.Div('Sem dados suficientes para estatísticas sumárias do CFD.', style={'color': '#666'})
+
+    dates = detailed.get('dates') if detailed else macro.get('dates', [])
+    if not dates:
+        return html.Div('Sem snapshots disponíveis para o CFD.', style={'color': '#666'})
+
+    selected_str = None
+    if selected_date:
+        try:
+            selected_str = pd.to_datetime(selected_date).strftime('%Y-%m-%d')
+        except Exception:
+            selected_str = None
+    if selected_str not in set(dates):
+        selected_str = dates[-1]
+    idx = dates.index(selected_str)
+
+    stage_cycle_map = summary_payload.get('stage_cycle_days') or {}
+    rows = []
+    total_wip = 0.0
+    total_completed = 0.0
+    total_system = 0.0
+
+    if detailed:
+        for stage in detailed.get('stages', []):
+            stage_raw = float((detailed.get('raw', {}).get(stage, [0]) or [0])[idx])
+            stage_cum = float((detailed.get('cum', {}).get(stage, [0]) or [0])[idx])
+            total_system = max(total_system, stage_cum)
+            if normalize_text(stage) in {'done', 'pronto', 'concluido', 'concluído'}:
+                total_completed = stage_raw
+            else:
+                total_wip += stage_raw
+            rows.append({
+                'Etapa': stage,
+                'Cycle Time* (dias)': f"{stage_cycle_map.get(stage, np.nan):.2f}" if stage in stage_cycle_map else '—',
+                'WIP': int(round(stage_raw)),
+                'Acumulado': int(round(stage_cum)),
+            })
+    else:
+        for stage in ['Backlog', 'Em Progresso', 'Pronto']:
+            stage_raw = float((macro.get('raw', {}).get(stage, [0]) or [0])[idx])
+            stage_cum = float((macro.get('cum', {}).get(stage, [0]) or [0])[idx])
+            total_system = max(total_system, stage_cum)
+            if stage == 'Pronto':
+                total_completed = stage_raw
+            else:
+                total_wip += stage_raw
+            rows.append({
+                'Etapa': stage,
+                'Cycle Time* (dias)': '—',
+                'WIP': int(round(stage_raw)),
+                'Acumulado': int(round(stage_cum)),
+            })
+
+    system_row = {
+        'Etapa': 'System',
+        'Cycle Time* (dias)': '—',
+        'WIP': int(round(total_wip)),
+        'Acumulado': int(round(total_system)),
+    }
+    rows = [system_row] + rows
+
+    period_label = ''
+    if meta.get('start_date') and meta.get('end_date'):
+        period_label = f"{meta['start_date']} a {meta['end_date']} ({meta.get('days', '—')} dias)"
+
+    stat_chips = html.Div([
+        html.Div([html.Div('Chegadas (período)', style={'fontSize': '11px', 'color': '#666'}), html.Strong(str(meta.get('arrivals_period', '—')))], style=_cfd_stat_chip_style()),
+        html.Div([html.Div('Throughput (período)', style={'fontSize': '11px', 'color': '#666'}), html.Strong(str(meta.get('throughput_period', '—')))], style=_cfd_stat_chip_style()),
+        html.Div([html.Div('Concluídos no filtro', style={'fontSize': '11px', 'color': '#666'}), html.Strong(str(meta.get('filtered_done_items', '—')))], style=_cfd_stat_chip_style()),
+        html.Div([html.Div('Snapshot', style={'fontSize': '11px', 'color': '#666'}), html.Strong(selected_str)], style=_cfd_stat_chip_style()),
+    ], style={'display': 'flex', 'gap': '10px', 'flexWrap': 'wrap', 'marginBottom': '10px'})
+
+    table = dash_table.DataTable(
+        columns=[{"name": c, "id": c} for c in ['Etapa', 'Cycle Time* (dias)', 'WIP', 'Acumulado']],
+        data=rows,
+        style_cell={'textAlign': 'left', 'padding': '6px'},
+        style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+        style_data_conditional=[
+            {'if': {'row_index': 0}, 'backgroundColor': '#f3f4f6', 'fontWeight': 'bold'},
+            {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'},
+        ],
+        style_table={'maxHeight': '320px', 'overflowY': 'auto'},
+        page_action='none',
+    )
+
+    return html.Div([
+        html.H4('Summary Statistics', style={'marginTop': '0', 'marginBottom': '4px'}),
+        html.Div(period_label, style={'fontSize': '12px', 'color': '#666', 'marginBottom': '8px'}),
+        stat_chips,
+        table,
+        html.Div('*Cycle Time por etapa vem do gráfico de gargalos (tempo médio da etapa).', style={'fontSize': '11px', 'color': '#666', 'marginTop': '8px'})
+    ], style={
+        'border': '1px solid #e5e7eb',
+        'borderRadius': '10px',
+        'padding': '12px',
+        'backgroundColor': '#fff'
+    })
+
+
+def _cfd_stat_chip_style():
+    return {
+        'border': '1px solid #e5e7eb',
+        'borderRadius': '8px',
+        'padding': '8px 10px',
+        'backgroundColor': '#fafafa',
+        'minWidth': '140px',
+    }
+
+
 def classify_urgency_label(row):
     """Classifica urgência priorizando Classe de Serviço e usando Prioridade como fallback."""
     classe_servico = normalize_text(row.get('ClasseServico', ''))
@@ -1701,15 +1898,15 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         'Throughput / semana',
         'Média WIP / semana',
         'WIP Age (dias)',
-        'Média Lead Time',
+        'Média Cycle Time',
         'Média Eficiência de Fluxo',
         '% Demanda de Valor',
         '% Demanda de Falha',
         'Qtd. Itens Descartados',
-        'P85% DO LEAD TIME',
+        'P85% DO CYCLE TIME',
         'DDP',
         'Frequência de Deploy',
-        'Lead time para mudanças',
+        'Lead time (Backlog→Done)',
         'Taxa de demanda de falha',
         'MTTR',
     ]
@@ -1731,22 +1928,29 @@ def compute_weekly_service_metrics(df_projeto, weeks):
             ((df_projeto['DataDone'] >= week_end) | pd.isna(df_projeto['DataDone']))
         ]
 
-        tp_total = len(finished)
-        tp_dev = len(finished[finished['TipoDemanda'] == TYPE_DEV]) if tp_total > 0 else 0
-        tp_def = len(finished[finished['TipoDemanda'] == TYPE_ISSUES]) if tp_total > 0 else 0
-        tp_discard = int(finished['Descartado'].sum()) if 'Descartado' in finished.columns else 0
+        finished_eligible = finished[done_time_eligible_mask(finished)] if not finished.empty else finished
+        tp_total = len(finished_eligible)
+        tp_dev = len(finished_eligible[finished_eligible['TipoDemanda'] == TYPE_DEV]) if tp_total > 0 else 0
+        tp_def = len(finished_eligible[finished_eligible['TipoDemanda'] == TYPE_ISSUES]) if tp_total > 0 else 0
+        tp_discard = int(finished_eligible['Descartado'].sum()) if 'Descartado' in finished_eligible.columns else 0
 
         wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0
-        avg_lt = finished['LeadTime_Dias'].dropna().mean() if tp_total > 0 and 'LeadTime_Dias' in finished.columns else 0
-        if pd.isna(avg_lt):
-            avg_lt = 0
+        ct_finished = time_metric_series(finished, 'TempoExecucao_Dias', non_negative=True)
+        avg_ct = ct_finished.mean() if not ct_finished.empty else np.nan
+        lt_finished = time_metric_series(finished, 'LeadTime_Dias', non_negative=True)
+        avg_lt = lt_finished.mean() if not lt_finished.empty else np.nan
         _, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
         if pd.isna(avg_eff):
             avg_eff = 0
-        lt_finished = time_metric_series(finished, 'LeadTime_Dias')
-        median_lt = exact_empirical_percentile(lt_finished, 0.50) if tp_total > 0 and not lt_finished.empty else 0
-        p85_lt = exact_empirical_percentile(lt_finished, 0.85) if tp_total > 0 and not lt_finished.empty else 0
-        mttr = finished[finished['TipoDemanda'] == TYPE_ISSUES]['LeadTime_Dias'].dropna().mean() if tp_def > 0 and 'LeadTime_Dias' in finished.columns else 0
+        median_ct = exact_empirical_percentile(ct_finished, 0.50) if tp_total > 0 and not ct_finished.empty else np.nan
+        p85_ct = exact_empirical_percentile(ct_finished, 0.85) if tp_total > 0 and not ct_finished.empty else np.nan
+        median_lt = exact_empirical_percentile(lt_finished, 0.50) if tp_total > 0 and not lt_finished.empty else np.nan
+        mttr_series = time_metric_series(
+            finished_eligible[finished_eligible['TipoDemanda'] == TYPE_ISSUES] if tp_def > 0 else finished_eligible.iloc[0:0],
+            'TempoExecucao_Dias',
+            non_negative=True
+        )
+        mttr = mttr_series.mean() if not mttr_series.empty else np.nan
         if pd.isna(mttr):
             mttr = 0
 
@@ -1754,17 +1958,17 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         rows['Throughput / semana'][week_label] = str(tp_total)
         rows['Média WIP / semana'][week_label] = str(len(wip))
         rows['WIP Age (dias)'][week_label] = f"{wip_age:.0f}" if wip_age else '0'
-        rows['Média Lead Time'][week_label] = f"{avg_lt:.0f}" if avg_lt else '0'
+        rows['Média Cycle Time'][week_label] = f"{avg_ct:.0f}" if pd.notna(avg_ct) else '—'
         rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if pd.notna(avg_eff) else '0.000'
         rows['% Demanda de Valor'][week_label] = f"{tp_dev / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['% Demanda de Falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['Qtd. Itens Descartados'][week_label] = str(tp_discard)
-        rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if p85_lt else '0'
-        rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if p85_lt else '0'
+        rows['P85% DO CYCLE TIME'][week_label] = f"{p85_ct:.0f}" if pd.notna(p85_ct) else '—'
+        rows['DDP'][week_label] = f"{max(0, p85_ct - median_ct):.1f}" if pd.notna(p85_ct) and pd.notna(median_ct) else '—'
         rows['Frequência de Deploy'][week_label] = str(tp_dev)
-        rows['Lead time para mudanças'][week_label] = f"{avg_lt:.0f}" if avg_lt else '0'
+        rows['Lead time (Backlog→Done)'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
         rows['Taxa de demanda de falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
-        rows['MTTR'][week_label] = f"{mttr:.0f}" if mttr else '0'
+        rows['MTTR'][week_label] = f"{mttr:.0f}" if pd.notna(mttr) else '—'
 
     return metric_names, rows
 
@@ -2077,7 +2281,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             {'if': {'filter_query': '{Métrica} = "% Demanda de Falha"'}, 'color': 'red', 'fontWeight': 'bold'},
             {'if': {'filter_query': '{Métrica} contains "—"'}, 'color': '#aaa'},
         ]
-        for m in ['Qtd. Itens Descartados', 'DDP', 'Frequência de Deploy', 'Lead time para mudanças', 'Taxa de demanda de falha', 'MTTR']:
+        for m in ['Qtd. Itens Descartados', 'DDP', 'Frequência de Deploy', 'Lead time (Backlog→Done)', 'Taxa de demanda de falha', 'MTTR']:
             style_data_conditional.append({
                 'if': {'filter_query': f'{{Métrica}} = "{m}"'},
                 'backgroundColor': 'rgb(245, 245, 245)', 'color': '#bbb', 'fontStyle': 'italic'
@@ -2481,12 +2685,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))
                 ]
 
-                lt_p85 = np.nan
-                lt_p50 = np.nan
-                lt_done = time_metric_series(done, 'LeadTime_Dias')
-                if not lt_done.empty:
-                    lt_p85 = exact_empirical_percentile(lt_done, 0.85)
-                    lt_p50 = exact_empirical_percentile(lt_done, 0.50)
+                ct_p85 = np.nan
+                ct_p50 = np.nan
+                ct_done = time_metric_series(done, 'TempoExecucao_Dias', non_negative=True)
+                if not ct_done.empty:
+                    ct_p85 = exact_empirical_percentile(ct_done, 0.85)
+                    ct_p50 = exact_empirical_percentile(ct_done, 0.50)
 
                 done_eligible = done[done_time_eligible_mask(done)] if not done.empty else done
                 tp = len(done_eligible)
@@ -2499,12 +2703,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'Throughput': tp,
                     'WIP': wip,
                     'WIP_Age': (week_end - wip_items['DataInProgress']).dt.days.mean() if wip > 0 else np.nan,
-                    'LeadTime_P85': lt_p85,
+                    # Kept legacy key name for downstream code compatibility; value is Cycle Time P85.
+                    'LeadTime_P85': ct_p85,
                     'FlowEfficiency': flow_eff_w,
                     'Pressure': pressure_w,
                     'QueueEfficiency': flow_eff_w,
                     'WIP_TP_Ratio': (wip / tp) if tp > 0 else np.nan,
-                    'Predictability': (lt_p85 / lt_p50) if pd.notna(lt_p85) and pd.notna(lt_p50) and lt_p50 > 0 else np.nan,
+                    'Predictability': (ct_p85 / ct_p50) if pd.notna(ct_p85) and pd.notna(ct_p50) and ct_p50 > 0 else np.nan,
                 })
             return pd.DataFrame(rows)
 
@@ -2608,19 +2813,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         inventory_weeks = (inventory_end_count / throughput_weekly_avg) if throughput_weekly_avg > 0 and pd.notna(inventory_end_count) else np.nan
         capacity_label = "itens concluídos no período (throughput)"
 
-        lead_time_p85 = np.nan
-        lead_time_p50 = np.nan
-        lead_time_p98 = np.nan
-        lt_done_period = time_metric_series(df_done_period, 'LeadTime_Dias')
-        if not lt_done_period.empty:
-            lead_time_p85 = exact_empirical_percentile(lt_done_period, 0.85)
-            lead_time_p50 = exact_empirical_percentile(lt_done_period, 0.50)
-            lead_time_p98 = exact_empirical_percentile(lt_done_period, 0.98)
+        # Operational flow panel uses Cycle Time (execution time) for percentiles.
+        cycle_time_p85 = np.nan
+        cycle_time_p50 = np.nan
+        cycle_time_p98 = np.nan
+        ct_done_period = time_metric_series(df_done_period, 'TempoExecucao_Dias', non_negative=True)
+        if not ct_done_period.empty:
+            cycle_time_p85 = exact_empirical_percentile(ct_done_period, 0.85)
+            cycle_time_p50 = exact_empirical_percentile(ct_done_period, 0.50)
+            cycle_time_p98 = exact_empirical_percentile(ct_done_period, 0.98)
 
         pressure_ratio, queue_efficiency = calculate_flow_efficiency(arrivals_avg, throughput_avg)
         wip_tp_ratio = wip_avg / throughput_avg if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
-        predictability = lead_time_p85 / lead_time_p50 if pd.notna(lead_time_p85) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
-        risk_forecasting_ratio = lead_time_p98 / lead_time_p50 if pd.notna(lead_time_p98) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
+        predictability = cycle_time_p85 / cycle_time_p50 if pd.notna(cycle_time_p85) and pd.notna(cycle_time_p50) and cycle_time_p50 > 0 else np.nan
+        risk_forecasting_ratio = cycle_time_p98 / cycle_time_p50 if pd.notna(cycle_time_p98) and pd.notna(cycle_time_p50) and cycle_time_p50 > 0 else np.nan
         demand_vs_capacity_pct = ((demand_total - capacity_total) / capacity_total * 100.0) if capacity_total > 0 else np.nan
         inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
@@ -2779,7 +2985,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'note': '(período selecionado, elegíveis para tempo)',
             },
             'wip_avg_week': {'title': 'WIP médio (semana)', 'value': wip_avg, 'format': '{:.1f} itens', 'status': wip_cv_status},
-            'lead_time_p85': {'title': 'Lead Time P85', 'value': lead_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
+            'lead_time_p85': {'title': 'Cycle Time P85', 'value': cycle_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
             'throughput_avg_week': {'title': 'Vazão média semanal', 'value': throughput_avg, 'format': '{:.1f} itens/sem', 'status': throughput_cv_status},
             'arrivals_avg_week': {'title': 'Taxa de chegada média', 'value': arrivals_avg, 'format': '{:.1f} itens/sem', 'status': arrivals_cv_status},
             'flow_efficiency': {'title': 'Eficiência (1 - ρ)', 'value': queue_efficiency, 'format': '{:.2f}', 'status': classify_efficiency(queue_efficiency)},
@@ -3138,20 +3344,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
                 )
 
-        cfd_component = html.P(
-            'Sem dados suficientes para montar o Cumulative Flow Diagram (CFD).'
-        )
-        df_cfd, _ = build_cfd_dataframe(df_flow, start_ts=start_ts, end_ts=end_ts)
-        if not df_cfd.empty:
-            fig_cfd = create_cfd_figure(
-                df_cfd,
-                bottlenecks_df=bottlenecks_df,
-                projeto=projeto,
-                filtered_item_ids=df_flow.get('ItemID', pd.Series(dtype=str)).tolist(),
-            )
-            if isinstance(fig_cfd, go.Figure):
-                cfd_component = dcc.Graph(figure=fig_cfd)
-
         # --- 3. Ranking de Gargalos por Etapa ---
         fig_lead_time_breakdown = {}
         lead_time_breakdown_component = html.P(
@@ -3252,11 +3444,86 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_bottlenecks),
             html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
             lead_time_breakdown_component,
-            html.H4("Cumulative Flow Diagram (CFD)", style={'textAlign': 'center', 'marginTop': '20px'}),
-            cfd_component,
             cycle_hist_component,
             html.H4("Bandas Percentílicas Exatas (Cycle Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
             cycle_band_table_component,
+        ])
+
+    if tab == 'tab-cfd':
+        start_ts = pd.to_datetime(start_date) if start_date else fato['DataDone'].min()
+        end_ts = pd.to_datetime(end_date) if end_date else pd.to_datetime('today')
+
+        df_flow = fato.copy()
+        if projeto:
+            df_flow = df_flow[df_flow['Projeto'] == projeto]
+        if tipo:
+            df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
+        if responsavel:
+            df_flow = df_flow[df_flow['Responsavel'] == responsavel]
+
+        mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
+        mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
+        df_flow = df_flow[mask_started_until_end & mask_not_finished_before_start].copy()
+        if df_flow.empty:
+            return html.Div('Sem dados para exibir para o período e filtros selecionados.')
+
+        bottlenecks_df = load_project_bottlenecks_from_model(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = compute_flow_bottlenecks(df_flow)
+
+        arrivals_period = len(df_flow[
+            (df_flow['DataInProgress'] >= start_ts) &
+            (df_flow['DataInProgress'] <= end_ts)
+        ])
+        throughput_period = int(len(df[done_time_eligible_mask(df)])) if not df.empty else 0
+        filtered_done_ids = df.get('ItemID', pd.Series(dtype=str)).tolist()
+
+        cfd_graph_component = html.P('Sem dados suficientes para montar o Cumulative Flow Diagram (CFD).')
+        cfd_summary_store = {}
+        cfd_summary_default = html.Div(
+            'Clique ou passe o mouse sobre um ponto do CFD para ver o quadro de estatísticas sumárias.',
+            style={'color': '#666', 'padding': '12px', 'border': '1px dashed #d1d5db', 'borderRadius': '8px'}
+        )
+
+        df_cfd, _ = build_cfd_dataframe(df_flow, start_ts=start_ts, end_ts=end_ts)
+        if not df_cfd.empty:
+            fig_cfd = create_cfd_figure(
+                df_cfd,
+                bottlenecks_df=bottlenecks_df,
+                projeto=projeto,
+                filtered_item_ids=filtered_done_ids,
+            )
+            if isinstance(fig_cfd, go.Figure):
+                cfd_graph_component = dcc.Graph(
+                    id='cfd-graph',
+                    figure=fig_cfd,
+                    clear_on_unhover=False,
+                    config={'displaylogo': False},
+                )
+                cfd_summary_store = build_cfd_summary_payload(
+                    df_cfd,
+                    projeto=projeto,
+                    bottlenecks_df=bottlenecks_df,
+                    filtered_item_ids=filtered_done_ids,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    arrivals_period=arrivals_period,
+                    throughput_period=throughput_period,
+                )
+                cfd_summary_default = create_cfd_summary_panel(cfd_summary_store)
+
+        return html.Div([
+            html.H3("Cumulative Flow Diagram (CFD)", style={'textAlign': 'center'}),
+            html.P(
+                "Aba dedicada do CFD com modos Macro e Detalhado por Etapas (exato). "
+                "O quadro de estatísticas sumárias lê o ponto selecionado no gráfico.",
+                style={'textAlign': 'center', 'color': '#666', 'marginBottom': '14px'}
+            ),
+            dcc.Store(id='cfd-summary-store', data=cfd_summary_store),
+            cfd_graph_component,
+            html.Div(id='cfd-summary-panel', children=cfd_summary_default, style={'marginTop': '14px'}),
         ])
 
     if tab == 'tab-estabilidade':
@@ -4504,6 +4771,28 @@ def create_table(df, table_id='table-main', title='Tabela'):
 
 def create_generic_datatable(df, table_id, title):
     return create_table(df, table_id=table_id, title=title)
+
+
+@app.callback(
+    Output('cfd-summary-panel', 'children'),
+    Input('cfd-graph', 'clickData'),
+    Input('cfd-graph', 'hoverData'),
+    Input('cfd-summary-store', 'data'),
+)
+def update_cfd_summary_panel(click_data, hover_data, summary_payload):
+    if not summary_payload:
+        raise PreventUpdate
+
+    selected_date = None
+    source = click_data or hover_data
+    try:
+        points = (source or {}).get('points') or []
+        if points:
+            selected_date = points[0].get('x')
+    except Exception:
+        selected_date = None
+
+    return create_cfd_summary_panel(summary_payload, selected_date=selected_date)
 
 if __name__ == '__main__':
     app.run(debug=True)
