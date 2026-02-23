@@ -183,6 +183,12 @@ for i in "${!PROJECT_KEYS[@]}"; do
 
     "${export_cmd[@]}"
 
+    downstream_latest="${OUT_DIR}/${prefix}-latest-data.csv"
+    if [[ -f "$out_file" ]]; then
+        cp -f "$out_file" "$downstream_latest"
+        echo "Arquivo latest atualizado: ${downstream_latest}"
+    fi
+
     bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"
     bottleneck_latest="${OUT_DIR}/${prefix}-latest-data_bottlenecks.csv"
     if [[ -f "$bottleneck_out" ]]; then

@@ -88,6 +88,17 @@ def _download_bottleneck_csv_from_url(url, project_key):
     return out_file
 
 
+def _download_downstream_items_csv_from_url(url, project_key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data.csv')
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
 def _load_bottleneck_url_map():
     raw = os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL_MAP', '').strip()
     if not raw:
@@ -107,14 +118,38 @@ def _load_bottleneck_url_map():
     return out
 
 
-def _url_filename_matches_project(url, expected_prefix):
-    """Validate if URL filename seems to belong to the expected project prefix."""
+def _load_downstream_url_map():
+    raw = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key, value in parsed.items():
+        project_key = str(key).strip().upper()
+        url = str(value).strip()
+        if project_key and url:
+            out[project_key] = url
+    return out
+
+
+def _url_filename_matches_project_suffix(url, expected_prefix, suffix):
+    """Validate if URL filename seems to belong to the expected project prefix/suffix."""
     if not url or not expected_prefix:
         return False
     parsed = urllib.parse.urlparse(str(url).strip())
     filename = os.path.basename(parsed.path or '').lower()
     prefix = str(expected_prefix).strip().lower()
-    return filename.startswith(prefix) and filename.endswith('-data_bottlenecks.csv')
+    return filename.startswith(prefix) and filename.endswith(str(suffix or '').lower())
+
+
+def _url_filename_matches_project(url, expected_prefix):
+    """Backward-compatible helper for bottleneck URLs."""
+    return _url_filename_matches_project_suffix(url, expected_prefix, '-data_bottlenecks.csv')
 
 
 def _resolve_model_file(data_folders):
@@ -1888,8 +1923,21 @@ def load_project_downstream_items_csv(projeto):
     prefix = PROJECT_BOTTLENECK_PREFIX.get(project_key)
     if not prefix:
         return pd.DataFrame()
+    preferred_latest_name = f'{prefix}-latest-data.csv'
 
     files = []
+    url_map = _load_downstream_url_map()
+    project_csv_url = url_map.get(project_key, '').strip()
+    if not project_csv_url:
+        global_csv_url = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL', '').strip()
+        if _url_filename_matches_project_suffix(global_csv_url, prefix, '-data.csv') and not global_csv_url.lower().endswith('-data_bottlenecks.csv'):
+            project_csv_url = global_csv_url
+    if project_csv_url:
+        try:
+            files.append(_download_downstream_items_csv_from_url(project_csv_url, project_key))
+        except Exception:
+            pass
+
     for folder in DATA_FOLDERS:
         try:
             entries = os.listdir(folder)
@@ -1906,7 +1954,14 @@ def load_project_downstream_items_csv(projeto):
     if not files:
         return pd.DataFrame()
 
-    latest_file = max(files, key=os.path.getctime)
+    latest_alias_matches = [
+        path for path in files
+        if os.path.basename(path).lower() == preferred_latest_name.lower()
+    ]
+    if latest_alias_matches:
+        latest_file = max(latest_alias_matches, key=os.path.getctime)
+    else:
+        latest_file = max(files, key=os.path.getctime)
     try:
         return pd.read_csv(latest_file)
     except Exception:
@@ -2099,9 +2154,9 @@ def build_leadtime_stage_selection_summary(projeto, selected_start_stages):
 
     footer_note = "Seleção padrão automática" if auto_mode else "Seleção definida no filtro"
     if stage_source == 'bottlenecks':
-        footer_note = "Etapas carregadas de gargalos/modelo; cálculo usa fallback do modelo sem CSV downstream"
+        footer_note = "Etapas carregadas de gargalos/modelo; cálculo usa fallback do modelo sem CSV downstream detalhado"
     elif not stage_cols:
-        footer_note = "CSV downstream do projeto não encontrado; usando coluna do modelo"
+        footer_note = "CSV downstream detalhado do projeto não encontrado (local/URL); usando coluna do modelo"
 
     return html.Div([
         html.Div("Lead Time (Comprometimento -> Finalização)", style={'fontWeight': 'bold', 'marginBottom': '4px'}),

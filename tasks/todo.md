@@ -1,5 +1,63 @@
 ﻿# Task Plan
 
+## Current Task (Arquivos latest por produto para downstream)
+- [x] Implementar geração de `*-latest-data.csv` por produto no fluxo de exportação
+- [x] Priorizar `*-latest-data.csv` no loader do dashboard quando existir
+- [x] Validar sintaxe e registrar evidências/review
+
+## Specification (Arquivos latest por produto para downstream)
+- Objetivo: padronizar o consumo do CSV downstream detalhado por produto usando aliases `latest`, reduzindo necessidade de atualizar referências a arquivos datados.
+- Escopo:
+  - `run_all_projects_macos.sh`
+  - `dashboard_full.py`
+- Critério de aceite:
+  - O script de exportação copia `<prefix>-<DATE_TAG>-data.csv` para `<prefix>-latest-data.csv`.
+  - O dashboard prefere explicitamente `<prefix>-latest-data.csv` ao procurar downstream local do projeto.
+  - Fallback para arquivos datados e URL permanece funcionando.
+
+## Review (Arquivos latest por produto para downstream)
+- What was validated:
+  - `run_all_projects_macos.sh` agora atualiza `<prefix>-latest-data.csv` logo após cada exportação downstream por projeto, no mesmo padrão já usado para `*-latest-data_bottlenecks.csv`.
+  - `dashboard_full.py` passou a priorizar explicitamente o alias local `<prefix>-latest-data.csv` ao carregar o downstream detalhado; se não existir, continua escolhendo o arquivo mais recente por `ctime`.
+  - O suporte previamente adicionado a URL (`FLOW_PMO_DOWNSTREAM_CSV_URL_MAP` / `FLOW_PMO_DOWNSTREAM_CSV_URL`) permanece ativo como fallback complementar.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `bash -n run_all_projects_macos.sh`
+  - `git diff -- dashboard_full.py run_all_projects_macos.sh tasks/todo.md`
+- Suggested commit message:
+  - `feat(pipeline): publish and prefer latest downstream csv aliases per product`
+
+## Current Task (CFD detalhado e amostra Lead Time em produção)
+- [x] Diagnosticar indisponibilidade do CFD detalhado e amostra baixa de Lead Time em produção
+- [x] Implementar suporte a CSV downstream `*-data.csv` via URL (env) no `dashboard_full.py`
+- [x] Validar sintaxe e registrar evidências/review
+
+## Specification (CFD detalhado e amostra Lead Time em produção)
+- Objetivo: permitir que a aplicação em produção carregue o CSV downstream detalhado de itens (`*-data.csv`) via URL, assim como já faz para gargalos, restaurando o CFD detalhado e o cálculo de Lead Time por etapas.
+- Escopo:
+  - `dashboard_full.py`
+- Critério de aceite:
+  - `load_project_downstream_items_csv(...)` tenta URL por projeto e URL global (quando o filename bate com o prefixo do projeto) antes de cair apenas em arquivos locais.
+  - CFD detalhado deixa de depender exclusivamente de arquivos locais quando a URL estiver configurada.
+  - A tela de Lead Time pode usar `LeadTime_Selected_Dias` com base no downstream em produção quando a URL estiver configurada.
+
+## Review (CFD detalhado e amostra Lead Time em produção)
+- What was validated:
+  - A indisponibilidade do CFD detalhado e a amostra baixa na tela de Lead Time tinham a mesma causa provável: `load_project_downstream_items_csv(...)` buscava apenas arquivos locais (`*-data.csv`), sem suporte a URL em produção.
+  - `dashboard_full.py` agora suporta download/cache de downstream via URL, no mesmo padrão já usado para gargalos.
+  - O loader tenta:
+    - `FLOW_PMO_DOWNSTREAM_CSV_URL_MAP` (JSON por projeto, ex. `{\"S1NC\":\"https://.../s1nc-...-data.csv\"}`)
+    - `FLOW_PMO_DOWNSTREAM_CSV_URL` (URL global, se o filename bater com o prefixo do projeto)
+    - pastas locais (`DATA_FOLDERS`)
+  - Isso desbloqueia:
+    - CFD detalhado por etapas (exato)
+    - cálculo de `LeadTime_Selected_Dias` por etapas, aumentando a amostra além do fallback do modelo quando aplicável
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dashboard): support downstream items csv via URL for CFD and lead-time stage metrics`
+
 ## Current Task (Filtro de etapas vazio em produção)
 - [x] Diagnosticar por que o dropdown `Etapas Lead Time (Comprometimento)` fica sem opções em produção
 - [x] Implementar fallback de opções usando etapas de gargalo/modelo quando CSV downstream não existir
