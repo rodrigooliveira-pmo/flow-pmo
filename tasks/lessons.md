@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-23
+- Context: Ajuste solicitado após adicionar modo detalhado do CFD como estimado por gargalos.
+- User correction: Informou que o CSV downstream por projeto (`*_data.csv`) já contém datas por etapa/transição do item, viabilizando CFD detalhado exato.
+- Root cause: Assumi limitação do modelo consolidado (`Fato_Items`/`Fato_Gargalos`) sem verificar a fonte downstream por projeto disponível no fluxo atual.
+- Prevention rule: Antes de marcar uma visualização como "estimada", verificar explicitamente se há fonte granular alternativa no projeto (CSV downstream, logs de transição, histórico de status).
+- Action added to workflow: Para gráficos de fluxo por etapa, checar primeiro `*_data.csv` por projeto e só cair para estimativa quando a fonte granular estiver ausente.
+
+- Date: 2026-02-23
 - Context: Entrega inicial de CFD na aba de fluxo atendeu parcialmente, mas ficou em macrofases.
 - User correction: Pediu opção de detalhamento por etapas do fluxo, alinhada ao gráfico de gargalos.
 - Root cause: Implementei primeiro com granularidade macro (Backlog/Em Progresso/Pronto) sem expor uma opção de detalhamento e sem alinhar explicitamente com a estrutura de etapas já usada em gargalos.

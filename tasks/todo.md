@@ -1,18 +1,272 @@
-# Task Plan
+﻿# Task Plan
+
+## Current Task (Batch Changelog Detalhado por Projeto)
+- [ ] Definir formato/nomes dos artefatos de changelog detalhado em modo batch
+- [ ] Implementar exportação opcional de changelog real no `jira_to_pipeline_csv.py`
+- [ ] Expor flag no `run_all_projects_macos.sh` para gerar changelog detalhado por projeto
+- [ ] Validar sintaxe/ajuda e registrar evidências
+
+## Specification (Batch Changelog Detalhado por Projeto)
+- Objetivo: criar uma opção no fluxo batch para extrair o changelog detalhado e real (baseado no histórico do Jira) em arquivos separados por projeto.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `run_all_projects_macos.sh`
+- Critério de aceite:
+  - Exportador aceita opção opcional para gravar CSV de changelog detalhado.
+  - Script batch expõe flag para ativar/desativar a geração do changelog detalhado por projeto.
+  - Arquivos gerados seguem padrão por projeto (um arquivo por projeto).
+  - Sintaxe dos scripts validada.
+
+## Review (Batch Changelog Detalhado por Projeto)
+- What was validated:
+  - Pendente.
+- Evidence (tests/logs/diff):
+  - Pendente.
+- Suggested commit message:
+  - `feat(batch): add optional per-project detailed Jira changelog export`
+
+## Current Task (Validação Factual + KPI Cancelados)
+- [x] Gerar extração S1NC factual atualizada
+- [x] Inspecionar volume e exemplos de itens cancelados no CSV
+- [x] Adicionar KPI explícito de cancelados no `dashboard_full.py` (período e semanal)
+- [x] Validar sintaxe e registrar evidências
+
+## Specification (Validação Factual + KPI Cancelados)
+- Objetivo: validar a extração factual recém-ajustada e refletir cancelados explicitamente no dashboard novo.
+- Escopo:
+  - `jira_to_pipeline_csv.py` (execução da extração)
+  - `dashboard_full.py` (KPI visual de cancelados)
+- Critério de aceite:
+  - CSV factual S1NC gerado com `Data Cancelled`.
+  - Evidência de quantidade de cancelados e amostra no CSV.
+  - Dashboard expõe métrica de cancelados no período e visão semanal (média/total).
+
+## Review (Validação Factual + KPI Cancelados)
+- What was validated:
+  - Extração factual S1NC gerada com sucesso em `/tmp/s1nc-downstream-factual-20260223.csv` contendo coluna `Data Cancelled`.
+  - Inspeção de cancelados no CSV factual:
+    - `179` itens com `Data Cancelled`
+    - `178` com `Done` também preenchido (cards posteriormente fechados em `Done`)
+    - `1` sem `Done`
+  - `dashboard_full.py` passou a exibir KPIs explícitos de cancelados no bloco "Throughput Consolidado":
+    - `Cancelados (Período)`
+    - `Média Semanal Cancel.`
+    - `Semanas c/ Cancel.`
+  - Implementação é resiliente: se `DataCancelled` não existir no modelo carregado, KPIs ficam em `0` sem quebrar a tela.
+- Evidence (tests/logs/diff):
+  - Extração Jira real (S1NC): `Issues encontradas: 1758`, `CSV gerado: /tmp/s1nc-downstream-factual-20260223.csv`
+  - Inspeção CSV via `python3`:
+    - `CANCELLED_TOTAL=179`
+    - `TOP_TYPES=[('Support', 101), ('Problema', 34), ('Tarefa', 22), ('Tech', 21), ...]`
+    - Semanas com mais cancelamentos: `2024-07-29 (24)`, `2025-02-17 (11)`, `2025-03-10 (11)`
+  - `python3 -m py_compile dashboard_full.py jira_to_pipeline_csv.py dash_board_metricas.py`
+- Suggested commit message:
+  - `feat(dashboard): add cancelled-item KPIs and validate factual S1NC export`
+
+## Current Task (Diretriz Factual para Dashboard Novo)
+- [x] Definir CSV factual (changelog) como fonte principal do dashboard novo
+- [x] Remover heurísticas de compatibilidade legada que distorcem datas por etapa
+- [x] Separar cancelados de concluídos no pipeline (exportação + métricas)
+- [x] Manter comparação com legado apenas como validação auxiliar (volume/schema)
+- [x] Validar sintaxe e registrar decisão
+
+## Specification (Diretriz Factual para Dashboard Novo)
+- Objetivo: priorizar precisão da movimentação real dos cards no dashboard novo, usando changelog Jira como fonte de verdade.
+- Decisões:
+  - Datas por etapa: primeira entrada real por etapa (sem backfill/compressão legada no modo padrão).
+  - `Cancelled` não deve ser tratado automaticamente como `Done`.
+  - Throughput de concluídos: somente `Done`.
+  - Itens cancelados: medir separadamente.
+  - Lead Time: medir somente itens `Done` (cancelados excluídos).
+  - Legado: usar apenas para reconciliação auxiliar de volume/schema, não como verdade para datas de fluxo.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `dash_board_metricas.py`
+
+## Review (Diretriz Factual para Dashboard Novo)
+- What was validated:
+  - Exportador voltou ao comportamento factual para datas por etapa (removido backfill/compressão legada no fluxo padrão).
+  - `Cancelled` deixou de preencher a coluna terminal (`Itens concluídos`) automaticamente.
+  - Exportador passou a registrar `Data Cancelled` separadamente (derivada do changelog, com fallback em `resolutiondate` quando status atual é cancelado).
+  - `dash_board_metricas.py` reconhece `Data Cancelled`, parseia a data e inclui contagem semanal de cancelados separada (`Cancelados (semana)` e `Categoria - Cancelados`).
+  - `Fato_Items` agora expõe `DataCancelled` e indicador `Cancelado` (sem contaminar `Concluido`/`DataDone`).
+  - Lead Time/Throughput de concluídos continuam baseados em `Done`, o que automaticamente exclui cancelados quando o CSV factual é usado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile jira_to_pipeline_csv.py dash_board_metricas.py`
+  - Smoke test local de `extract_first_status_dates(...)` + `extract_first_transition_date(...)`:
+    - item cancelado gera `Data Cancelled`
+    - colunas de etapa permanecem vazias (cancelado não vira `Itens concluídos`)
+- Suggested commit message:
+  - `feat(flow): use factual stage dates and track cancelled items separately`
+
+## Current Task (Correção Fina Downstream S1NC)
+- [x] Investigar divergência das datas por etapa (changelog/status aliases/critério)
+- [x] Ajustar schema de metadados para compatibilidade 1:1 com CSV correto
+- [x] Verificar `S1NC-1939` no Jira (tipo/status/permissão) e causa da ausência
+- [x] Regerar CSV e comparar novamente com o arquivo correto
+- [x] Documentar evidências e conclusão
+
+## Specification (Correção Fina Downstream S1NC)
+- Objetivo: aproximar a extração downstream do CSV correto em conteúdo e schema, após correções iniciais.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+- Itens de diagnóstico/correção:
+  - Datas por etapa: entender por que o arquivo correto contém datas preenchidas/replicadas onde o exportador atual deixa vazio ou datas diferentes.
+  - Schema: alinhar colunas de metadados (`Story Points`, `Story point estimate`, remoção/renomeação de colunas divergentes como `Afeta as versões`).
+  - `S1NC-1939`: confirmar presença/ausência no Jira e motivo (tipo excluído, permissão, status, timing).
+- Critério de aceite:
+  - Evidência objetiva da causa das datas divergentes.
+  - Schema do exportador alinhado ao arquivo correto.
+  - Diagnóstico de `S1NC-1939` concluído.
+
+## Review (Correção Fina Downstream S1NC)
+- What was validated:
+  - Causa principal das datas por etapa divergentes identificada: o CSV correto usa um critério de compatibilidade/normalização diferente da extração “primeira passagem por status”.
+  - Evidência (`S1NC-1`): o CSV correto considera `Triagem=created`, ignora aliases antigos como `To Do`/`Sprint Backlog` para `Backlog`, trata `Cancelled` como terminal e preenche etapas puladas com a data terminal (30/07/2024).
+  - Evidência (`S1NC-1000`): o CSV correto concentra várias etapas intermediárias na data de marco posterior (18/09/2025), enquanto a extração atual usa datas reais anteriores (11/09 e 12/09), indicando regra histórica de compressão/propagação de datas.
+  - Schema de metadados do exportador foi alinhado 1:1 ao arquivo correto (headers iguais), incluindo `Story Points` / `Story point estimate` e remoção de `Afeta as versões`.
+  - `S1NC-1939` foi consultado diretamente no Jira e retornou `404` / `search_count=0`, indicando ausência atual para o usuário/token (issue removida/sem permissão/indisponível no momento); por isso aparece no CSV correto mas não na extração atual.
+- Evidence (tests/logs/diff):
+  - Query Jira `S1NC-1` (changelog real) + `extract_first_status_dates(...)` após ajuste:
+    - retorno reproduziu exatamente as datas do CSV correto para o item (`Triagem=28/11/2023`, `Backlog=24/07/2024`, etapas seguintes em `30/07/2024`).
+  - Query Jira `S1NC-1000`:
+    - transições reais incluem `In Development` (11/09), `Staging` (12/09), `QA Approved Staging` / `Ready for Production` (18/09), `Done` (19/09)
+    - CSV correto usa `18/09/2025` em várias etapas intermediárias, evidenciando compressão/backfill diferente de “first hit”.
+  - Query Jira `S1NC-1939`:
+    - `SEARCH_COUNT 0`
+    - `GET_ISSUE_ERR HTTPError 404 ... /issue/S1NC-1939`
+  - Comparação automática (`/tmp/s1nc-downstream-20260223-data-fixed-legacy-v3.csv` vs CSV correto):
+    - `HEADERS_EQUAL=True`
+    - `ROWS=1758 vs 1757`
+    - `ONLY_REF_IDS=['S1NC-1939']`
+    - `MISMATCH_IDS=1535` (restante majoritariamente em datas por etapa, por diferença de critério histórico)
+  - `python3 -m py_compile jira_to_pipeline_csv.py`
+- Suggested commit message:
+  - `fix(export): align downstream stage dates and schema with canonical S1NC csv`
+
+## Current Task (Correção Divergência Extração S1NC)
+- [x] Aplicar filtro JQL padrão para excluir Épico/Iniciativa no downstream
+- [x] Alinhar status map legado ao formato do CSV correto
+- [x] Proteger preenchimento de `Epic Name`/`Principal` contra inversão por field map
+- [x] Validar sintaxe e comportamento básico (JQL/headers/heurística)
+- [x] Documentar resultado e sugestão de commit
+
+## Specification (Correção Divergência Extração S1NC)
+- Objetivo: corrigir a geração de `*-downstream-*-data.csv` para ficar alinhada ao CSV correto informado pelo usuário.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+- Correções:
+  - Excluir `Épico`/`Iniciativa` (e aliases em inglês) por padrão no JQL downstream.
+  - Usar nomes de etapas/colunas legadas iguais ao arquivo correto (`Ready to Start`, `In progress`, `Homolog`, `Itens concluídos`, etc.).
+  - Reatribuir automaticamente valor de `Epic Name` para `Principal` quando `epic_name` vier como issue key e `principal` estiver vazio (sinal de field map semântico invertido).
+- Critério de aceite:
+  - `build_jql` inclui filtro de tipo por padrão.
+  - Exportador legado produz headers compatíveis com o arquivo correto.
+  - Caso típico de inversão (`Epic Name` issue key / `Principal` vazio) é corrigido no row builder.
+
+## Review (Correção Divergência Extração S1NC)
+- What was validated:
+  - `jira_to_pipeline_csv.py` agora exclui por padrão `Épico`/`Epic`/`Iniciativa`/`Initiative` no JQL downstream (com override por env `JIRA_INCLUDE_PORTFOLIO_ISSUES=1`).
+  - Fluxo legado (`W1NNER/S1NC/BEFINANCE`) passou a usar nomes de etapas alinhados ao CSV correto: `Ready to Start`, `In progress`, `ready code review`, `Code review`, `ready testing/Qa`, `Testing/QA`, `ready homolog`, `Homolog`, `ready for production`, `Itens concluídos`.
+  - Heurística defensiva corrige caso de inversão semântica de `JIRA_FIELD_MAP`: se `Epic Name` vier como issue key e `Principal` vier vazio, o valor é movido para `Principal`.
+  - Mantido escape hatch de configuração para incluir itens de portfólio via variável de ambiente.
+  - Extração real no Jira (S1NC) executada após correção; removeu os 46 extras de `Épico/Iniciativa`, mas o CSV ainda não ficou idêntico ao arquivo de referência.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile jira_to_pipeline_csv.py`
+  - Smoke test local (import do módulo):
+    - `build_jql(['S1NC'], '', DEFAULT_EXCLUDED_ISSUE_TYPES)` => `project in (S1NC) AND issuetype not in ("Épico", "Epic", "Iniciativa", "Initiative")`
+    - `LEGACY_PRODUCTS_STATUS_MAP.keys()` retorna headers alinhados ao CSV correto
+    - `build_issue_row(...)` com `epic_name='W1NNER-1771'` e `principal=''` passou a gerar `Principal='W1NNER-1771'` e `Epic Name='Epic summary'`
+  - Extração Jira real (com elevação) gerou:
+    - `/tmp/s1nc-downstream-20260223-data-fixed.csv` (ainda usando `JIRA_STATUS_MAP` do env)
+    - `/tmp/s1nc-downstream-20260223-data-fixed-legacy.csv` (com `JIRA_IGNORE_STATUS_MAP=1`, formato legado alinhado)
+  - Log da extração legada: `Issues encontradas: 1757` e `CSV gerado: /tmp/s1nc-downstream-20260223-data-fixed-legacy.csv`
+  - Comparação final vs arquivo correto (`20260223-data (1).csv`):
+    - `HEADERS_EQUAL=False` (persistem diferenças de schema de metadados)
+    - `ROWS=1758 vs 1757`
+    - `ONLY_REF_IDS=1` (`S1NC-1939`)
+    - `MISMATCH_IDS=1745` (datas por etapa ainda divergentes em larga escala)
+- Suggested commit message:
+  - `fix(export): align downstream jira extraction with canonical csv format`
+
+## Current Task (Diagnóstico Divergência CSV S1NC)
+- [x] Verificar se a divergência nasce na extração ou na consolidação
+- [x] Mapear evidências no código (JQL, status map, field map, escrita de arquivos)
+- [x] Documentar causa provável e próximos ajustes
+
+## Specification (Diagnóstico Divergência CSV S1NC)
+- Objetivo: identificar em qual etapa do sistema surge a divergência entre o CSV correto e o `s1nc-downstream-20260223-data.csv`.
+- Escopo:
+  - `jira_to_pipeline_csv.py` (extração e geração do downstream)
+  - `run_all_projects_macos.sh` (orquestração e parâmetros usados)
+  - `dash_board_metricas.py` (consolidação)
+- Critério de aceite:
+  - Classificação clara: erro de extração, de consolidação, ou ambos.
+  - Evidências com referências de código e diferenças observadas nos CSVs.
+
+## Review (Diagnóstico Divergência CSV S1NC)
+- What was validated:
+  - A divergência está na **extração/exportação downstream**, não na consolidação.
+  - `run_all_projects_macos.sh` gera diretamente `s1nc-downstream-<data>-data.csv` chamando `jira_to_pipeline_csv.py`.
+  - `dash_board_metricas.py` lê CSVs downstream para consolidar, mas grava saídas em `PowerBI_Model_*.xlsx` (não reescreve o downstream).
+  - Os **46 IDs extras** no arquivo do sistema são majoritariamente `Épico` (41) e `Iniciativa` (5), compatível com ausência de filtro JQL por tipo.
+  - As diferenças massivas em datas/colunas decorrem de mapeamento de fluxo/campos na exportação (status map/header e field map), não de transformação do consolidado.
+- Evidence (tests/logs/diff):
+  - Comparação dos CSVs: `ONLY_OTHER_IDS=46`, `EXTRA_TYPES=[('Épico', 41), ('Iniciativa', 5)]`.
+  - `jira_to_pipeline_csv.py:664` constrói JQL base como `project in (...)` e só aplica filtro extra se `--jql-extra` for passado.
+  - `run_all_projects_macos.sh:159` chama exportador sem `--jql-extra`.
+  - `run_all_projects_macos.sh:147`-`148` remove `JIRA_STATUS_MAP` e força `JIRA_IGNORE_STATUS_MAP=1`, alterando o fluxo usado na exportação.
+  - `jira_to_pipeline_csv.py:48`-`68` define `LEGACY_PRODUCTS_STATUS_MAP` (headers iguais ao arquivo do sistema: `Ready for development`, `Staging`, `Done`).
+  - `jira_to_pipeline_csv.py:607`-`653` popula `Epic Name`/`Principal` a partir de `JIRA_FIELD_MAP`; divergência observada indica mismatch de configuração de campo versus arquivo de referência.
+  - `dash_board_metricas.py:2121`-`2148` grava modelo consolidado em `PowerBI_Model_*.xlsx`, sem sobrescrever `s1nc-downstream-*.csv`.
+- Suggested commit message:
+  - `docs: document root cause of S1NC downstream csv divergence`
+
+## Current Task (Comparação de CSVs Downstream)
+- [x] Registrar e executar comparação entre os dois CSVs informados
+- [x] Validar colunas, contagem de linhas e conteúdo (arquivo correto como referência)
+- [x] Documentar evidências e conclusão
+- [x] Atualizar sugestão de commit
+
+## Specification (Comparação de CSVs Downstream)
+- Objetivo: verificar se `20260223-data (1).csv` e `s1nc-downstream-20260223-data.csv` trazem os mesmos dados.
+- Referência correta: `20260223-data (1).csv` (Downloads).
+- Escopo:
+  - Comparação estrutural (headers/ordem de colunas).
+  - Comparação de volume (linhas).
+  - Comparação de conteúdo (registros iguais/diferentes).
+- Critério de aceite:
+  - Resposta conclui claramente se os arquivos são idênticos em dados.
+  - Se houver divergência, listar diferenças objetivas (estrutura e/ou linhas).
+
+## Review (Comparação de CSVs Downstream)
+- What was validated:
+  - Os arquivos **não** trazem os mesmos dados.
+  - O arquivo correto (`20260223-data (1).csv`) tem 1758 linhas de dados; o arquivo `s1nc-downstream-20260223-data.csv` tem 1804 (46 IDs extras no segundo).
+  - Estrutura divergente: headers e nomes de colunas de etapas diferem (ex.: `Ready to Start` vs `Ready for development`, `Homolog` vs `Staging`), além de colunas exclusivas em cada arquivo.
+  - Mesmo nos 1758 IDs em comum, 1745 IDs possuem diferenças em campos compartilhados (ex.: `Triagem`, `Backlog`, `Epic Name`, `Sprints`, `Principal`).
+- Evidence (tests/logs/diff):
+  - Comparação via `python3` (`csv.DictReader` + `Counter`) entre:
+    - `/Users/rodrigoalmeidadeoliveira/Downloads/20260223-data (1).csv`
+    - `/Users/rodrigoalmeidadeoliveira/Documents/dados/s1nc-downstream-20260223-data.csv`
+  - Resultado: `HEADERS_EQUAL=False`, `ROWS=1758 vs 1804`, `ONLY_OTHER_IDS=46`, `OVERLAP_IDS_WITH_FIELD_DIFFS=1745`.
+  - Exemplo (`S1NC-1`): `Triagem` vazio no segundo arquivo vs `28/11/2023` no correto; `Backlog` `22/04/2024` vs `24/07/2024`; `Epic Name`/`Principal` invertidos; `Sprints` com formatação diferente.
+- Suggested commit message:
+  - `chore: compare downstream csv files and document differences`
 
 ## Current Task (CFD Detalhado por Etapas)
-- [x] Definir abordagem do modo detalhado (estimado por gargalos) e registrar limitações
+- [x] Definir abordagem do modo detalhado exato via CSV downstream e registrar limitações
 - [x] Implementar opção `Macro` x `Detalhado por Etapas` no gráfico CFD
-- [x] Reutilizar etapas do fluxo a partir de `Fato_Gargalos`/gargalos do projeto
+- [x] Reutilizar etapas do fluxo e datas por etapa a partir do CSV downstream (`*_data.csv`)
 - [x] Validar sintaxe e revisar diff
 - [x] Atualizar review e sugestão de commit
 
 ## Specification (CFD Detalhado por Etapas)
-- Objetivo: adicionar no CFD uma opção de visualização detalhada por etapas do fluxo (usando as etapas do gráfico de gargalos).
+- Objetivo: adicionar no CFD uma opção de visualização detalhada por etapas do fluxo usando datas reais por etapa do CSV downstream do projeto.
 - Escopo:
   - `dashboard_full.py` (cálculo estimado das bandas por etapa e toggle no gráfico).
 - Premissas:
-  - O modelo não possui timestamps por etapa por item; portanto o modo detalhado será estimado usando pesos derivados de `Fato_Gargalos` (`Tempo Médio (dias)` por `Etapa`).
+  - O modelo consolidado não possui timestamps por etapa por item, então o modo detalhado lê o CSV downstream `*_data.csv` do projeto.
   - O modo macro permanece como visão exata e padrão.
 - Critério de aceite:
   - Usuário consegue alternar entre `Macro` e `Detalhado por Etapas` no mesmo CFD.
@@ -21,15 +275,15 @@
 
 ## Review (CFD Detalhado por Etapas)
 - What was validated:
-  - CFD passou a expor botões `Macro (exato)` e `Detalhado por Etapas (estimado)` no próprio gráfico.
-  - Modo detalhado usa nomes de etapas vindos de `bottlenecks_df` (`Fato_Gargalos`/fallbacks) e mantém `Pronto` como banda final.
-  - Quando há gargalos, o gráfico monta `updatemenus`; sem gargalos, mantém macro e mostra aviso de indisponibilidade do modo detalhado.
+  - CFD passou a expor botões `Macro (exato)` e `Detalhado por Etapas (exato)` no próprio gráfico.
+  - Modo detalhado usa datas reais por etapa do CSV downstream `*_data.csv` (ex.: `s1nc-downstream-*-data.csv`) e plota bandas por etapa em ordem de fluxo.
+  - Quando não há projeto/CSV com colunas de etapa, o gráfico mantém macro e mostra aviso de indisponibilidade do modo detalhado.
 - Evidence (tests/logs/diff):
   - `python3 -m py_compile dashboard_full.py`
-  - Smoke test local: `create_cfd_figure(...)` retornou `Figure` com `8` traces e botões `Macro (exato)` / `Detalhado por Etapas (estimado)`
-  - Diff em `dashboard_full.py` (helpers `_flow_stage_sort_key`, `build_detailed_cfd_estimated_dataframe` e upgrade de `create_cfd_figure`)
+  - Smoke test local: `create_cfd_figure(...)` retornou `Figure` com botões `Macro (exato)` / `Detalhado por Etapas (exato)`
+  - Diff em `dashboard_full.py` (helper `load_project_downstream_items_csv`, parser de colunas de etapa e upgrade de `create_cfd_figure`)
 - Suggested commit message:
-  - `feat(dashboard): add stage-detailed CFD mode using bottleneck-based estimation`
+  - `feat(dashboard): add exact stage-level CFD from downstream project csv`
 
 ## Current Task (Cumulative Flow Diagram)
 - [x] Definir especificação e plano detalhado do CFD na aba de Fluxo

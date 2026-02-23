@@ -172,6 +172,7 @@ def detect_date_columns(df):
     metadata_cols = {'ID', 'Link', 'Title', 'Done', 'Tipo de Problema', 
                      'Prioridade', 'Versões de correção', 'Componentes', 
                      'Responsável', 'Criador', 'Space', 'Resolução', 
+                     'Data Cancelled',
                      'Etiquetas', 'Blocked Days', 'Blocked', 'Flagged', 
                      'Story Points', 'Organizations', 'Sprints', 'Principal', 
                      'Afeta as versões', 'Change type', 'Epic Name', 
@@ -693,7 +694,7 @@ def load_and_consolidate_all_data(csv_files):
                 df['WorkItemSubType'] = 'Outro'
 
             # Parse dates
-            date_cols = ['Sprint Backlog', 'In Progress', 'Done']
+            date_cols = ['Sprint Backlog', 'In Progress', 'Done', 'Data Cancelled']
             for col in date_cols:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
@@ -804,6 +805,11 @@ def generate_consolidated_dashboard(consolidated_data):
                 # Filter data for the week
                 arrivals = df_category[(df_category['In Progress'] >= week_start) & (df_category['In Progress'] < week_end)]
                 finished = df_category[(df_category['Done'] >= week_start) & (df_category['Done'] < week_end)]
+                cancelled = pd.DataFrame()
+                if 'Data Cancelled' in df_category.columns:
+                    cancelled = df_category[
+                        (df_category['Data Cancelled'] >= week_start) & (df_category['Data Cancelled'] < week_end)
+                    ]
                 
                 # WIP: Average of daily active items
                 daily_wips = []
@@ -877,12 +883,14 @@ def generate_consolidated_dashboard(consolidated_data):
                 # Store throughput for global percentage calculation
                 arrival_count = len(arrivals)
                 throughput = len(finished)
+                cancelled_count = len(cancelled)
                 throughput_by_category[category] = throughput
                 
                 # Add metrics with category prefix
                 prefix = category
                 metrics_by_week[week_key][f'{prefix} - Taxa chegada'] = int(arrival_count)
                 metrics_by_week[week_key][f'{prefix} - Throughput'] = int(throughput)
+                metrics_by_week[week_key][f'{prefix} - Cancelados'] = int(cancelled_count)
                 metrics_by_week[week_key][f'{prefix} - Média WIP'] = round(avg_wip, 2)
                 metrics_by_week[week_key][f'{prefix} - WIP Age'] = round(avg_wip_age, 2)
                 metrics_by_week[week_key][f'{prefix} - Lead Time'] = round(avg_lead_time, 2)
@@ -905,6 +913,9 @@ def generate_consolidated_dashboard(consolidated_data):
             # Add global demand percentages
             metrics_by_week[week_key]['% Demanda de Falha'] = pct_demand_failure
             metrics_by_week[week_key]['% Demanda de Valor'] = pct_demand_value
+            if 'Data Cancelled' in df.columns:
+                cancelled_total_week = int(len(df[(df['Data Cancelled'] >= week_start) & (df['Data Cancelled'] < week_end)]))
+                metrics_by_week[week_key]['Cancelados (semana)'] = cancelled_total_week
     
     return list(metrics_by_week.values())
 
@@ -1930,7 +1941,7 @@ def prepare_powerbi_dimensions(consolidated_data):
     # Create Data dimension (from earliest date to latest)
     all_dates = []
     for proj, df in consolidated_data.items():
-        for col in ['Sprint Backlog', 'In Progress', 'Done']:
+        for col in ['Sprint Backlog', 'In Progress', 'Done', 'Data Cancelled']:
             if col in df.columns:
                 all_dates.extend(df[col][df[col].notna()].tolist())
     
@@ -2020,6 +2031,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             sprint_backlog_date = row.get('Sprint Backlog')
             in_progress_date = row.get('In Progress')
             done_date = row.get('Done')
+            cancelled_date = row.get('Data Cancelled')
 
             effective_in_progress_date = resolve_in_progress_date(row)
 
@@ -2045,6 +2057,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
             adjusted_eff = efficiency
 
             is_completed = 1 if pd.notna(done_date) else 0
+            is_cancelled = 1 if pd.notna(cancelled_date) else 0
             is_blocked = 1 if row.get('Blocked') == True else 0
             is_discarded = 1 if is_discarded_item(row) else 0
             
@@ -2072,6 +2085,7 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'DataCriacaoID': None,  # Can be linked to Dim_Data
                 'DataInicioProgressoID': None,
                 'DataConclucaoID': None,
+                'DataCancelamentoID': None,
                 'Titulo': str(row.get('Title', '')),
                 'WorkItemSubType': str(row.get('WorkItemSubType', 'Outro')),
                 'ClasseServico': classe_servico,
@@ -2083,12 +2097,14 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'TempoBloqueioDias': blocked_days_v2,
                 'TempoEsperaIntermediariaDias': wait_days_v2,
                 'Concluido': is_completed,
+                'Cancelado': is_cancelled,
                 'Bloqueado': is_blocked,
                 'Descartado': is_discarded,
                 'StoryPoints': row.get('Story Points'),
                 'DataBacklog': sprint_backlog_date,
                 'DataInProgress': effective_in_progress_date,
                 'DataDone': done_date,
+                'DataCancelled': cancelled_date,
                 'LeadTimeInconsistente': lead_time_inconsistente,
                 'EmWIP': is_wip,
                 'WIP_Dias': wip_dias

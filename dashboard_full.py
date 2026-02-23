@@ -1048,102 +1048,110 @@ def build_cfd_dataframe(df_source, start_ts=None, end_ts=None):
     return cfd, ['Backlog', 'Em Progresso', 'Pronto']
 
 
-def _flow_stage_sort_key(stage_name):
-    stage = str(stage_name or '').strip().lower()
-    order_hints = [
-        ('triag', 10),
-        ('to do', 15),
-        ('todo', 15),
-        ('backlog', 20),
-        ('discover', 25),
-        ('refin', 30),
-        ('ready', 40),
-        ('develop', 50),
-        ('progress', 50),
-        ('exec', 50),
-        ('coding', 50),
-        ('code review', 60),
-        ('review', 60),
-        ('test', 70),
-        ('qa', 70),
-        ('valid', 80),
-        ('homolog', 80),
-        ('staging', 90),
-        ('improvement', 95),
-        ('prod', 100),
-        ('done', 110),
-    ]
-    for hint, score in order_hints:
-        if hint in stage:
-            return (score, stage)
-    return (999, stage)
+def _detect_stage_date_columns(items_df, bottlenecks_df=None):
+    if items_df is None or items_df.empty:
+        return []
+
+    cols = list(items_df.columns)
+    start_idx = cols.index('Title') + 1 if 'Title' in cols else 0
+    end_idx = cols.index('Tipo de Problema') if 'Tipo de Problema' in cols else len(cols)
+    candidate_cols = cols[start_idx:end_idx] if start_idx < end_idx else []
+
+    # First preference: the contiguous flow block between Title and Tipo de Problema.
+    stage_cols = []
+    for col in candidate_cols:
+        series = pd.to_datetime(items_df[col], dayfirst=True, errors='coerce')
+        if series.notna().any():
+            stage_cols.append(col)
+
+    # If all values are blank for the filtered export, fallback to bottleneck stage names / known Done.
+    if not stage_cols and bottlenecks_df is not None and not bottlenecks_df.empty and 'Etapa' in bottlenecks_df.columns:
+        stage_cols = [c for c in bottlenecks_df['Etapa'].astype(str).tolist() if c in items_df.columns]
+        if 'Done' in items_df.columns and 'Done' not in stage_cols:
+            stage_cols.append('Done')
+
+    if not stage_cols:
+        known_non_stage = {
+            'ID', 'Link', 'Title', 'Tipo de Problema', 'Prioridade', 'Versões de correção', 'Componentes',
+            'Responsável', 'Criador', 'Space', 'Resolução', 'Etiquetas', 'Blocked Days', 'Blocked', 'Flagged',
+            'Epic Name', 'Team', 'Organizations', 'Sprints', 'Principal', 'Afeta as versões'
+        }
+        for col in cols:
+            if col in known_non_stage:
+                continue
+            series = pd.to_datetime(items_df[col], dayfirst=True, errors='coerce')
+            if series.notna().any():
+                stage_cols.append(col)
+
+    if 'Done' in items_df.columns and 'Done' not in stage_cols:
+        done_series = pd.to_datetime(items_df['Done'], dayfirst=True, errors='coerce')
+        if done_series.notna().any():
+            stage_cols.append('Done')
+
+    # Keep original CSV order and unique values only.
+    seen = set()
+    ordered = []
+    for col in cols:
+        if col in stage_cols and col not in seen:
+            ordered.append(col)
+            seen.add(col)
+    return ordered
 
 
-def build_detailed_cfd_estimated_dataframe(df_cfd_macro, bottlenecks_df):
-    """Estimate detailed stage bands using bottleneck stage weights when per-stage timestamps are unavailable."""
-    if df_cfd_macro is None or df_cfd_macro.empty or bottlenecks_df is None or bottlenecks_df.empty:
+def build_detailed_cfd_exact_dataframe(df_cfd_macro, projeto=None, bottlenecks_df=None):
+    """Build exact stage-level CFD from project downstream CSV timestamps per stage."""
+    if df_cfd_macro is None or df_cfd_macro.empty or not projeto:
+        return pd.DataFrame(), []
+    items_df = load_project_downstream_items_csv(projeto)
+    if items_df.empty:
         return pd.DataFrame(), []
 
-    required = {'Etapa', 'Tempo Médio (dias)'}
-    if not required.issubset(set(bottlenecks_df.columns)):
+    stage_cols = _detect_stage_date_columns(items_df, bottlenecks_df=bottlenecks_df)
+    if len(stage_cols) < 2:
         return pd.DataFrame(), []
 
-    stage_weights = bottlenecks_df.copy()
-    stage_weights['Etapa'] = stage_weights['Etapa'].astype(str).str.strip()
-    stage_weights = stage_weights[stage_weights['Etapa'] != '']
-    if stage_weights.empty:
+    stage_dates = items_df[stage_cols].copy()
+    for col in stage_cols:
+        stage_dates[col] = pd.to_datetime(stage_dates[col], dayfirst=True, errors='coerce')
+
+    snapshots = pd.to_datetime(df_cfd_macro['Data'], errors='coerce').dropna()
+    snapshots = pd.DatetimeIndex(sorted(snapshots.unique()))
+    if snapshots.empty:
         return pd.DataFrame(), []
 
-    stage_weights['Tempo Médio (dias)'] = pd.to_numeric(stage_weights['Tempo Médio (dias)'], errors='coerce')
-    if 'Vazão da Etapa (itens)' in stage_weights.columns:
-        stage_weights['Vazão da Etapa (itens)'] = pd.to_numeric(stage_weights['Vazão da Etapa (itens)'], errors='coerce')
-    else:
-        stage_weights['Vazão da Etapa (itens)'] = np.nan
+    rows = []
+    stage_cols_no_done = [c for c in stage_cols if str(c).strip().lower() != 'done']
+    for snapshot in snapshots:
+        reached = pd.DataFrame(index=stage_dates.index)
+        for col in stage_cols:
+            reached[col] = stage_dates[col].notna() & (stage_dates[col] <= snapshot)
 
-    stage_weights = (
-        stage_weights
-        .groupby('Etapa', as_index=False)
-        .agg({'Tempo Médio (dias)': 'mean', 'Vazão da Etapa (itens)': 'sum'})
-    )
+        row = {'Data': snapshot}
+        for i, stage in enumerate(stage_cols):
+            is_here = reached[stage].copy()
+            if i < len(stage_cols) - 1:
+                later_cols = stage_cols[i + 1:]
+                if later_cols:
+                    progressed_after = reached[later_cols].any(axis=1)
+                    is_here = is_here & (~progressed_after)
+            row[f'raw::{stage}'] = float(is_here.sum())
+        rows.append(row)
 
-    # Avoid duplicating the final done band when a stage name already represents "done".
-    done_aliases = {'done', 'pronto', 'concluido', 'concluído'}
-    stage_weights = stage_weights[
-        ~stage_weights['Etapa'].str.lower().isin(done_aliases)
-    ].copy()
-    if stage_weights.empty:
+    detailed = pd.DataFrame(rows)
+    if detailed.empty:
         return pd.DataFrame(), []
 
-    stage_weights = stage_weights.sort_values('Etapa', key=lambda s: s.map(_flow_stage_sort_key)).reset_index(drop=True)
-
-    weights = stage_weights['Tempo Médio (dias)'].fillna(0).clip(lower=0)
-    if float(weights.sum()) <= 0:
-        weights = stage_weights['Vazão da Etapa (itens)'].fillna(0).clip(lower=0)
-    if float(weights.sum()) <= 0:
-        weights = pd.Series(np.ones(len(stage_weights)), index=stage_weights.index, dtype='float64')
-
-    weights = weights / weights.sum()
-    stages = stage_weights['Etapa'].tolist()
-
-    detailed = pd.DataFrame({'Data': df_cfd_macro['Data']})
-    open_items = (pd.to_numeric(df_cfd_macro.get('Backlog_raw'), errors='coerce').fillna(0) +
-                  pd.to_numeric(df_cfd_macro.get('Em Progresso_raw'), errors='coerce').fillna(0))
-    detailed['Pronto_raw'] = pd.to_numeric(df_cfd_macro.get('Pronto_raw'), errors='coerce').fillna(0)
-
-    for idx, stage in enumerate(stages):
-        detailed[f'raw::{stage}'] = open_items * float(weights.iloc[idx])
-
-    cumulative_next = detailed['Pronto_raw'].copy()
-    detailed['cum::Pronto'] = cumulative_next
-    for stage in reversed(stages):
+    cumulative_next = pd.Series(np.zeros(len(detailed)), index=detailed.index, dtype='float64')
+    for stage in reversed(stage_cols):
         cumulative_next = cumulative_next + detailed[f'raw::{stage}']
         detailed[f'cum::{stage}'] = cumulative_next
 
+    stages = stage_cols_no_done + ([s for s in stage_cols if str(s).strip().lower() == 'done'][:1])
     return detailed, stages
 
 
-def create_cfd_figure(df_cfd, bottlenecks_df=None):
-    """Creates a CFD with macro mode and optional detailed stage mode (estimated from bottlenecks)."""
+def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None):
+    """Creates a CFD with macro mode and optional detailed stage mode (exact from downstream CSV)."""
     if df_cfd is None or df_cfd.empty:
         return {}
 
@@ -1182,20 +1190,20 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None):
         macro_trace_indices.append(len(fig.data) - 1)
 
     detailed_trace_indices = []
-    detailed_df, detailed_stages = build_detailed_cfd_estimated_dataframe(df_cfd, bottlenecks_df)
+    detailed_df, detailed_stages = build_detailed_cfd_exact_dataframe(df_cfd, projeto=projeto, bottlenecks_df=bottlenecks_df)
     if not detailed_df.empty and detailed_stages:
         palette = (px.colors.qualitative.Set3 + px.colors.qualitative.Pastel +
                    px.colors.qualitative.Safe + px.colors.qualitative.Plotly)
-        detailed_sequence = detailed_stages + ['Pronto']
-        reversed_plot_order = list(reversed(detailed_sequence))
+        reversed_plot_order = list(reversed(detailed_stages))
         color_by_stage = {
             stage: palette[i % len(palette)] for i, stage in enumerate(detailed_stages)
         }
-        color_by_stage['Pronto'] = '#2ca02c'
+        if 'Done' in color_by_stage:
+            color_by_stage['Done'] = '#2ca02c'
 
         for idx, stage in enumerate(reversed_plot_order):
             y_col = f'cum::{stage}'
-            raw_col = 'Pronto_raw' if stage == 'Pronto' else f'raw::{stage}'
+            raw_col = f'raw::{stage}'
             fig.add_trace(go.Scatter(
                 x=detailed_df['Data'],
                 y=detailed_df[y_col],
@@ -1205,11 +1213,11 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None):
                 fill='tozeroy' if idx == 0 else 'tonexty',
                 customdata=detailed_df[[raw_col]].values,
                 hovertemplate=(
-                    'Modo: Detalhado por Etapas (estimado)<br>'
+                    'Modo: Detalhado por Etapas (exato)<br>'
                     'Data: %{x|%Y-%m-%d}<br>'
                     f'Faixa: {stage}<br>'
-                    'Acumulado CFD: %{y:.2f}<br>'
-                    'Itens na etapa (estimado): %{customdata[0]:.2f}<extra></extra>'
+                    'Acumulado CFD: %{y:.0f}<br>'
+                    'Itens na etapa: %{customdata[0]:.0f}<extra></extra>'
                 ),
                 visible=False,
             ))
@@ -1251,12 +1259,12 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None):
                         ]
                     },
                     {
-                        'label': 'Detalhado por Etapas (estimado)',
+                        'label': 'Detalhado por Etapas (exato)',
                         'method': 'update',
                         'args': [
                             {'visible': detailed_visible},
                             {'annotations': [{
-                                'text': 'Detalhado (estimado): distribui itens em aberto pelas etapas usando pesos de tempo médio do gráfico de gargalos.',
+                                'text': 'Detalhado (exato): usa datas por etapa do CSV downstream do projeto.',
                                 'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
                                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
                             }]}
@@ -1273,7 +1281,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None):
     else:
         fig.update_layout(
             annotations=[{
-                'text': 'Modo detalhado indisponível para os filtros atuais (sem dados de gargalos suficientes).',
+                'text': 'Modo detalhado indisponível: selecione um projeto com CSV downstream (`*-data.csv`) contendo datas por etapa.',
                 'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.08,
                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#777'}
             }]
@@ -1486,6 +1494,39 @@ def load_project_bottlenecks_from_csv(projeto):
     out['Vazão da Etapa (itens)'] = out['Vazão da Etapa (itens)'].fillna(0).astype(int)
     out = out.sort_values('Tempo Médio (dias)', ascending=False, ignore_index=True)
     return out
+
+
+def load_project_downstream_items_csv(projeto):
+    """Carrega o CSV downstream de itens do projeto (com colunas de datas por etapa)."""
+    if not projeto:
+        return pd.DataFrame()
+    project_key = str(projeto).strip().upper()
+    prefix = PROJECT_BOTTLENECK_PREFIX.get(project_key)
+    if not prefix:
+        return pd.DataFrame()
+
+    files = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            if not (name.startswith(prefix) and name.endswith('-data.csv')):
+                continue
+            if name.endswith('-data_bottlenecks.csv'):
+                continue
+            files.append(os.path.join(folder, name))
+
+    files = [path for path in files if os.path.isfile(path)]
+    if not files:
+        return pd.DataFrame()
+
+    latest_file = max(files, key=os.path.getctime)
+    try:
+        return pd.read_csv(latest_file)
+    except Exception:
+        return pd.DataFrame()
 
 def compute_weekly_service_metrics(df_projeto, weeks):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
@@ -2922,7 +2963,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
         df_cfd, _ = build_cfd_dataframe(df_flow, start_ts=start_ts, end_ts=end_ts)
         if not df_cfd.empty:
-            fig_cfd = create_cfd_figure(df_cfd, bottlenecks_df=bottlenecks_df)
+            fig_cfd = create_cfd_figure(df_cfd, bottlenecks_df=bottlenecks_df, projeto=projeto)
             if isinstance(fig_cfd, go.Figure):
                 cfd_component = dcc.Graph(figure=fig_cfd)
 
@@ -3444,12 +3485,33 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         urgency_table['Percentual'] = urgency_table['Percentual'].map(lambda v: f'{v:.1f}%')
 
         throughput_avg = tp_weekly['Throughput'].mean() if not tp_weekly.empty else 0.0
+        tp_cancelled = pd.DataFrame(columns=df.columns)
+        tp_cancelled_weekly = pd.DataFrame(columns=['Semana', 'Cancelados'])
+        cancelled_avg = 0.0
+        cancelled_total = 0
+        cancelled_weeks = 0
+        if 'DataCancelled' in df.columns:
+            tp_cancelled = df.dropna(subset=['DataCancelled']).copy()
+            cancelled_total = len(tp_cancelled)
+            if not tp_cancelled.empty:
+                tp_cancelled['Semana'] = weekly_bucket_start(tp_cancelled['DataCancelled'])
+                tp_cancelled_weekly = (
+                    tp_cancelled.groupby('Semana')
+                    .size()
+                    .reset_index(name='Cancelados')
+                    .sort_values('Semana')
+                )
+                cancelled_avg = tp_cancelled_weekly['Cancelados'].mean() if not tp_cancelled_weekly.empty else 0.0
+                cancelled_weeks = tp_cancelled_weekly['Semana'].nunique()
         return html.Div([
             html.H3("Throughput Consolidado", style={'textAlign': 'center'}),
             html.Div([
-                create_kpi_card('Throughput Total', f"{len(tp_done)}", class_name='four columns'),
-                create_kpi_card('Média Semanal', f"{throughput_avg:.1f}", class_name='four columns'),
-                create_kpi_card('Semanas com Entrega', f"{tp_weekly['Semana'].nunique()}", class_name='four columns'),
+                create_kpi_card('Throughput Total', f"{len(tp_done)}", class_name='two columns'),
+                create_kpi_card('Cancelados (Período)', f"{cancelled_total}", class_name='two columns'),
+                create_kpi_card('Média Semanal TP', f"{throughput_avg:.1f}", class_name='two columns'),
+                create_kpi_card('Média Semanal Cancel.', f"{cancelled_avg:.1f}", class_name='two columns'),
+                create_kpi_card('Semanas com Entrega', f"{tp_weekly['Semana'].nunique()}", class_name='two columns'),
+                create_kpi_card('Semanas c/ Cancel.', f"{cancelled_weeks}", class_name='two columns'),
             ], className='row'),
             dcc.Graph(figure=fig_tp_weekly),
             html.H4("Breakdown por Tipo de Demanda", style={'textAlign': 'center', 'marginTop': '10px'}),

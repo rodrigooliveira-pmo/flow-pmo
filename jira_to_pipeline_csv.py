@@ -19,6 +19,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -48,23 +49,30 @@ DEFAULT_STATUS_MAP: Dict[str, List[str]] = {
 LEGACY_PRODUCTS_STATUS_MAP: Dict[str, List[str]] = {
     "Triagem": ["Triagem"],
     "Backlog": ["Backlog", "To Do", "Sprint Backlog"],
-    "Ready for development": ["Ready for development", "Ready For Development"],
-    "In Progress": [
+    "Ready to Start": ["Ready to Start", "Ready to start", "Ready for development", "Ready For Development"],
+    "In progress": [
         "In Progress",
+        "In progress",
         "Em Progresso",
         "Desenvolvimento",
         "Development",
         "In Development",
         "Doing",
     ],
-    "Ready for code review": ["Ready for code review", "Ready For Code Review"],
-    "Code Review": ["Code Review", "Code review"],
-    "Ready for testing/qa": ["Ready for testing/qa", "Ready for Testing/QA", "Ready for test/qa"],
-    "Testing / QA": ["Testing / QA", "Testing/QA", "Testing /Qa", "QA", "Testing"],
-    "Ready to staging": ["Ready to staging", "Ready To Staging"],
-    "Staging": ["Staging", "In Staging"],
-    "Ready for production": ["Ready for production", "Ready For Production"],
-    "Done": ["Done", "Concluído", "Concluido"],
+    "ready code review": ["ready code review", "Ready code review", "Ready for code review", "Ready For Code Review"],
+    "Code review": ["Code review", "Code Review"],
+    "ready testing/Qa": ["ready testing/qa", "Ready testing/qa", "Ready for testing/qa", "Ready for Testing/QA", "Ready for test/qa"],
+    "Testing/QA": ["Testing/QA", "Testing / QA", "Testing /Qa", "QA", "Testing"],
+    "ready homolog": ["ready homolog", "Ready homolog", "Ready to homologation", "Ready to Homologation", "Ready to staging", "Ready To Staging"],
+    "Homolog": ["Homolog", "Homologation", "Staging", "In Staging"],
+    "ready for production": ["ready for production", "Ready for production", "Ready For Production"],
+    "Itens concluídos": [
+        "Itens concluídos",
+        "Itens Concluídos",
+        "Done",
+        "Concluído",
+        "Concluido",
+    ],
 }
 
 DT_IMPROVEMENT_STATUS_MAP: Dict[str, List[str]] = {
@@ -93,16 +101,35 @@ METADATA_COLUMNS = [
     "Criador",
     "Space",
     "Resolução",
+    "Data Cancelled",
     "Etiquetas",
     "Blocked Days",
     "Blocked",
     "Flagged",
+    "Story Points",
+    "Story point estimate",
     "Epic Name",
     "Team",
     "Organizations",
     "Sprints",
     "Principal",
-    "Afeta as versões",
+]
+
+DEFAULT_EXCLUDED_ISSUE_TYPES = ["Épico", "Epic", "Iniciativa", "Initiative"]
+ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
+DETAILED_CHANGELOG_COLUMNS = [
+    "Projeto",
+    "Issue Key",
+    "Issue Link",
+    "Title",
+    "Tipo de Problema",
+    "Status Atual",
+    "History Id",
+    "History Created",
+    "History Date",
+    "Author",
+    "From Status",
+    "To Status",
 ]
 
 
@@ -129,6 +156,23 @@ def normalize_text(value: str) -> str:
 
 def env_flag_enabled(name: str) -> bool:
     return normalize_text(os.getenv(name, "")) in {"1", "true", "yes", "sim", "on"}
+
+
+def resolve_excluded_issue_types() -> List[str]:
+    if env_flag_enabled("JIRA_INCLUDE_PORTFOLIO_ISSUES"):
+        return []
+
+    raw = os.getenv("JIRA_EXCLUDE_ISSUE_TYPES", "").strip()
+    if not raw:
+        return list(DEFAULT_EXCLUDED_ISSUE_TYPES)
+
+    parsed = [part.strip() for part in raw.split(",")]
+    return [name for name in parsed if name]
+
+
+def quote_jql_string(value: str) -> str:
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def resolve_status_map(projects: List[str]) -> Dict[str, List[str]]:
@@ -503,10 +547,16 @@ def extract_first_status_dates(
         col: {name.strip().lower() for name in names}
         for col, names in status_map.items()
     }
-
     first_dates: Dict[str, Optional[str]] = {col: None for col in status_map.keys()}
     done_col_names = {"done", "concluido", "concluído", "itens concluídos", "itens concluidos"}
-    done_status_names = {"done", "concluido", "concluído", "closed", "resolved", "completed"}
+    done_status_names = {
+        "done",
+        "concluido",
+        "concluído",
+        "closed",
+        "resolved",
+        "completed",
+    }
     done_columns: set[str] = set()
     for col, allowed in normalized.items():
         col_norm = str(col).strip().lower()
@@ -550,6 +600,30 @@ def extract_first_status_dates(
     return {k: format_jira_datetime(v) for k, v in first_dates.items()}
 
 
+def extract_first_transition_date(
+    issue_fields: Dict[str, Any],
+    changelog: List[Dict[str, Any]],
+    target_statuses: List[str],
+) -> str:
+    targets = {str(s).strip().lower() for s in target_statuses if str(s).strip()}
+    if not targets:
+        return ""
+    sorted_changes = sorted(changelog, key=lambda h: h.get("created") or "")
+    for history in sorted_changes:
+        when = history.get("created")
+        for item in history.get("items", []):
+            if item.get("field") != "status":
+                continue
+            to_status = str(item.get("toString") or "").strip().lower()
+            if to_status in targets:
+                return format_jira_datetime(when)
+    # Fallback: if currently cancelled and resolution date exists, use it
+    current_status = str(safe_get(issue_fields, "status", "name") or "").strip().lower()
+    if current_status in targets:
+        return format_jira_datetime(issue_fields.get("resolutiondate"))
+    return ""
+
+
 def get_embedded_changelog(issue: Dict[str, Any]) -> tuple[List[Dict[str, Any]], int]:
     changelog = issue.get("changelog")
     if not isinstance(changelog, dict):
@@ -576,6 +650,7 @@ def build_issue_row(
     field_map: Dict[str, str],
     stage_order: List[str],
     csv_columns: List[str],
+    cancelled_date: str = "",
 ) -> Dict[str, str]:
     fields = issue.get("fields", {})
 
@@ -583,8 +658,6 @@ def build_issue_row(
     fix_versions = [v.get("name", "") for v in fields.get("fixVersions", [])]
     components = [c.get("name", "") for c in fields.get("components", [])]
     labels = fields.get("labels", []) or []
-    affected_versions = [v.get("name", "") for v in fields.get("versions", [])]
-
     assignee = safe_get(fields, "assignee", "displayName") or ""
     creator = safe_get(fields, "creator", "displayName") or ""
     project_key = safe_get(fields, "project", "key") or ""
@@ -604,15 +677,15 @@ def build_issue_row(
 
     blocked_value = "yes" if flagged_str else "no"
 
+    parent_summary = str(safe_get(fields, "parent", "fields", "summary") or "")
     epic_name = ""
     if field_map.get("epic_name"):
         epic_raw = fields.get(field_map["epic_name"])
         epic_name = str(epic_raw or "")
     if not epic_name:
-        parent_summary = safe_get(fields, "parent", "fields", "summary")
-        epic_name = str(parent_summary or "")
+        epic_name = parent_summary
 
-    def custom_as_text(key_name: str) -> str:
+    def custom_as_text(key_name: str, as_label_array: bool = False) -> str:
         cf = field_map.get(key_name)
         if not cf:
             return ""
@@ -624,10 +697,34 @@ def build_issue_row(
                     names.append(str(item.get("name") or item.get("value") or item.get("displayName") or ""))
                 else:
                     names.append(str(item))
-            return format_list(names)
+            return format_list(names, as_label_array=as_label_array)
         if isinstance(val, dict):
             return str(val.get("name") or val.get("value") or val.get("displayName") or "")
         return str(val or "")
+
+    def custom_as_number_text(key_name: str, fallback_field_ids: List[str]) -> str:
+        value = custom_as_text(key_name)
+        if value:
+            return value
+        for field_id in fallback_field_ids:
+            raw = fields.get(field_id)
+            if raw is None or raw == "":
+                continue
+            if isinstance(raw, float) and raw.is_integer():
+                return str(int(raw))
+            return str(raw)
+        return ""
+
+    principal_value = custom_as_text("principal")
+    story_points_value = custom_as_number_text("story_points", ["customfield_10026", "customfield_10028"])
+    story_point_estimate_value = custom_as_number_text("story_point_estimate", ["customfield_10016"])
+
+    # Defensive fix for field-map semantic inversion:
+    # some environments configure "epic_name" as a custom field that actually stores a key (ex.: W1NNER-1771),
+    # while "principal" remains empty. In this case preserve the key in "Principal" and keep Epic Name as summary/blank.
+    if epic_name and not principal_value and ISSUE_KEY_PATTERN.match(epic_name):
+        principal_value = epic_name
+        epic_name = ""
 
     row = {
         "ID": key,
@@ -641,16 +738,18 @@ def build_issue_row(
         "Criador": creator,
         "Space": project_key,
         "Resolução": str(safe_get(fields, "resolution", "name") or ""),
+        "Data Cancelled": cancelled_date,
         "Etiquetas": format_list([str(x) for x in labels], as_label_array=True),
         "Blocked Days": blocked_days_val,
         "Blocked": blocked_value,
         "Flagged": flagged_str,
+        "Story Points": story_points_value,
+        "Story point estimate": story_point_estimate_value,
         "Epic Name": epic_name,
         "Team": custom_as_text("team"),
         "Organizations": custom_as_text("organizations"),
-        "Sprints": custom_as_text("sprints"),
-        "Principal": custom_as_text("principal"),
-        "Afeta as versões": format_list(affected_versions),
+        "Sprints": custom_as_text("sprints", as_label_array=True),
+        "Principal": principal_value,
     }
 
     for stage in stage_order:
@@ -661,12 +760,19 @@ def build_issue_row(
     return row
 
 
-def build_jql(projects: List[str], jql_extra: str) -> str:
+def build_jql(projects: List[str], jql_extra: str, exclude_issue_types: Optional[List[str]] = None) -> str:
     proj_clause = ", ".join(projects)
-    base = f"project in ({proj_clause})"
+    clauses = [f"project in ({proj_clause})"]
+
+    if exclude_issue_types:
+        issue_types = [quote_jql_string(name) for name in exclude_issue_types if str(name).strip()]
+        if issue_types:
+            clauses.append(f"issuetype not in ({', '.join(issue_types)})")
+
     if jql_extra.strip():
-        return f"{base} AND ({jql_extra.strip()})"
-    return base
+        clauses.append(f"({jql_extra.strip()})")
+
+    return " AND ".join(clauses)
 
 
 
@@ -764,6 +870,60 @@ def build_default_artifact_path(csv_out: str, suffix: str) -> str:
     return str(out_path.with_name(f"{stem}{suffix}"))
 
 
+def extract_detailed_status_changelog_rows(
+    base_url: str,
+    issue: Dict[str, Any],
+    changelog: List[Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    fields = issue.get("fields", {}) or {}
+    key = str(issue.get("key") or "")
+    project_key = str(safe_get(fields, "project", "key") or "")
+    title = str(fields.get("summary") or "")
+    issue_type = str(safe_get(fields, "issuetype", "name") or "")
+    current_status = str(safe_get(fields, "status", "name") or "")
+    issue_link = f"{base_url}/browse/{key}" if key else ""
+
+    rows: List[Dict[str, str]] = []
+    for history in sorted(changelog, key=lambda h: h.get("created") or ""):
+        history_created = str(history.get("created") or "")
+        history_id = str(history.get("id") or "")
+        author = (
+            str(safe_get(history, "author", "displayName") or "")
+            or str(safe_get(history, "author", "emailAddress") or "")
+            or str(safe_get(history, "author", "accountId") or "")
+        )
+        for item in history.get("items", []) or []:
+            if item.get("field") != "status":
+                continue
+            from_status = str(item.get("fromString") or "")
+            to_status = str(item.get("toString") or "")
+            rows.append(
+                {
+                    "Projeto": project_key,
+                    "Issue Key": key,
+                    "Issue Link": issue_link,
+                    "Title": title,
+                    "Tipo de Problema": issue_type,
+                    "Status Atual": current_status,
+                    "History Id": history_id,
+                    "History Created": history_created,
+                    "History Date": format_jira_datetime(history_created),
+                    "Author": author,
+                    "From Status": from_status,
+                    "To Status": to_status,
+                }
+            )
+    return rows
+
+
+def write_detailed_changelog_csv(path: str, rows: List[Dict[str, str]]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=DETAILED_CHANGELOG_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def write_bottleneck_bar_chart(path: str, summary: List[Dict[str, float | int | str]]) -> bool:
     if not summary:
         return False
@@ -831,6 +991,14 @@ def main() -> int:
         default="",
         help="HTML opcional com gráfico de barras de gargalos (somente se informado).",
     )
+    parser.add_argument(
+        "--detailed-changelog-out",
+        default="",
+        help=(
+            "CSV opcional com transições reais de status do changelog Jira "
+            "(default: desabilitado; quando informado, gera um arquivo detalhado por execução/projeto)."
+        ),
+    )
     args = parser.parse_args()
 
     load_env_file(args.env_file)
@@ -871,13 +1039,19 @@ def main() -> int:
         "status",
         "created",
         "resolutiondate",
+        "customfield_10016",
+        "customfield_10026",
+        "customfield_10028",
     ]
 
     for logical_name, jira_field in field_map.items():
         if jira_field and jira_field not in fields_to_fetch:
             fields_to_fetch.append(jira_field)
 
-    jql = build_jql(args.projects, args.jql_extra)
+    excluded_issue_types = resolve_excluded_issue_types()
+    if excluded_issue_types:
+        print(f"Excluindo issue types no downstream: {', '.join(excluded_issue_types)}")
+    jql = build_jql(args.projects, args.jql_extra, exclude_issue_types=excluded_issue_types)
     print(f"Consultando Jira com JQL: {jql}")
 
     client = JiraClient(base_url=base_url, email=email, api_token=token)
@@ -897,6 +1071,8 @@ def main() -> int:
 
     workers = max(1, int(args.workers))
     rows: List[Dict[str, str]] = []
+    detailed_changelog_enabled = bool(str(args.detailed_changelog_out).strip())
+    detailed_changelog_rows: List[Dict[str, str]] = []
     processing_errors: List[str] = []
     normalized_status_map = {
         col: {name.strip().lower() for name in names}
@@ -912,10 +1088,13 @@ def main() -> int:
             worker_local.client = local_client
         return local_client
 
-    def process_one(index: int, issue_data: Dict[str, Any]) -> tuple[int, Optional[Dict[str, str]], Optional[str]]:
+    def process_one(
+        index: int,
+        issue_data: Dict[str, Any],
+    ) -> tuple[int, Optional[Dict[str, str]], List[Dict[str, str]], Optional[str]]:
         key = issue_data.get("key", "")
         if not key:
-            return index, None, None
+            return index, None, [], None
         try:
             local_client = get_worker_client()
             embedded_histories, embedded_total = get_embedded_changelog(issue_data)
@@ -937,6 +1116,11 @@ def main() -> int:
                 status_map,
                 normalized_status_map=normalized_status_map,
             )
+            cancelled_date = extract_first_transition_date(
+                issue_data.get("fields", {}),
+                changelog,
+                ["Cancelled", "Canceled", "Cancelado", "Cancelada"],
+            )
             row = build_issue_row(
                 base_url=base_url,
                 issue=issue_data,
@@ -944,16 +1128,26 @@ def main() -> int:
                 field_map=field_map,
                 stage_order=stage_order,
                 csv_columns=csv_columns,
+                cancelled_date=cancelled_date,
             )
-            return index, row, None
+            changelog_rows = []
+            if detailed_changelog_enabled:
+                changelog_rows = extract_detailed_status_changelog_rows(
+                    base_url=base_url,
+                    issue=issue_data,
+                    changelog=changelog,
+                )
+            return index, row, changelog_rows, None
         except Exception as exc:
-            return index, None, f"{key}: {exc}"
+            return index, None, [], f"{key}: {exc}"
 
     if workers == 1 or len(issues) <= 1:
         for idx0, issue in enumerate(issues):
-            _, row, err = process_one(idx0, issue)
+            _, row, changelog_rows, err = process_one(idx0, issue)
             if row is not None:
                 rows.append(row)
+            if changelog_rows:
+                detailed_changelog_rows.extend(changelog_rows)
             if err:
                 processing_errors.append(err)
             done = idx0 + 1
@@ -961,19 +1155,26 @@ def main() -> int:
                 print(f"Processadas {done}/{len(issues)} issues...")
     else:
         ordered_rows: List[Optional[Dict[str, str]]] = [None] * len(issues)
+        ordered_changelog_rows: List[Optional[List[Dict[str, str]]]] = [None] * len(issues)
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(process_one, idx0, issue) for idx0, issue in enumerate(issues)]
             done = 0
             for fut in as_completed(futures):
-                idx0, row, err = fut.result()
+                idx0, row, changelog_rows, err = fut.result()
                 if row is not None:
                     ordered_rows[idx0] = row
+                if detailed_changelog_enabled:
+                    ordered_changelog_rows[idx0] = changelog_rows
                 if err:
                     processing_errors.append(err)
                 done += 1
                 if done % 100 == 0:
                     print(f"Processadas {done}/{len(issues)} issues...")
         rows = [r for r in ordered_rows if r is not None]
+        if detailed_changelog_enabled:
+            for chunk in ordered_changelog_rows:
+                if chunk:
+                    detailed_changelog_rows.extend(chunk)
 
     if processing_errors:
         print(f"Aviso: {len(processing_errors)} issues com falha no processamento.")
@@ -989,6 +1190,14 @@ def main() -> int:
         writer.writerows(rows)
 
     print(f"CSV gerado: {args.out}")
+
+    if detailed_changelog_enabled:
+        detailed_changelog_out = str(args.detailed_changelog_out).strip()
+        write_detailed_changelog_csv(detailed_changelog_out, detailed_changelog_rows)
+        print(
+            f"Changelog detalhado real (transições de status) salvo em: {detailed_changelog_out} "
+            f"(linhas={len(detailed_changelog_rows)})"
+        )
 
     summary = compute_bottleneck_summary(
         rows=rows,
