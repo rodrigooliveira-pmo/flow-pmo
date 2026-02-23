@@ -1954,23 +1954,23 @@ def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
     """
     Compute factual lead time from selected commitment stages to finalization (Done)
     using the project's downstream CSV.
-    Returns dataframe with columns: ItemID, LeadTime_Custom_Dias.
+    Returns dataframe with columns: ItemID, LeadStart_Custom, LeadTime_Custom_Dias.
     """
     items_df = load_project_downstream_items_csv(projeto)
     if items_df.empty or 'ID' not in items_df.columns:
-        return pd.DataFrame(columns=['ItemID', 'LeadTime_Custom_Dias'])
+        return pd.DataFrame(columns=['ItemID', 'LeadStart_Custom', 'LeadTime_Custom_Dias'])
 
     stage_cols = get_downstream_workflow_stage_columns(items_df)
     done_col = get_downstream_done_stage_column(stage_cols)
     if not done_col:
-        return pd.DataFrame(columns=['ItemID', 'LeadTime_Custom_Dias'])
+        return pd.DataFrame(columns=['ItemID', 'LeadStart_Custom', 'LeadTime_Custom_Dias'])
 
     selected = [c for c in (selected_start_stages or []) if c in items_df.columns and c != done_col]
     if not selected:
         selected = get_default_lead_time_start_stages(stage_cols)
         selected = [c for c in selected if c in items_df.columns and c != done_col]
     if not selected:
-        return pd.DataFrame(columns=['ItemID', 'LeadTime_Custom_Dias'])
+        return pd.DataFrame(columns=['ItemID', 'LeadStart_Custom', 'LeadTime_Custom_Dias'])
 
     calc_cols = ['ID', done_col] + selected
     tmp = items_df[calc_cols].copy()
@@ -1984,7 +1984,7 @@ def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
     tmp['LeadTime_Custom_Dias'] = pd.to_numeric(lead_days, errors='coerce')
     tmp.loc[tmp['LeadTime_Custom_Dias'] < 0, 'LeadTime_Custom_Dias'] = np.nan
 
-    out = tmp.rename(columns={'ID': 'ItemID'})[['ItemID', 'LeadTime_Custom_Dias']]
+    out = tmp.rename(columns={'ID': 'ItemID', 'LeadStart_Custom': 'LeadStart_Custom'})[['ItemID', 'LeadStart_Custom', 'LeadTime_Custom_Dias']]
     out['ItemID'] = out['ItemID'].astype(str)
     return out.drop_duplicates(subset=['ItemID'], keep='first')
 
@@ -1996,18 +1996,22 @@ def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
     if not projeto or 'ItemID' not in df.columns:
         out = df.copy()
         out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
+        out['LeadStart_Selected'] = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
         return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0}
 
     lead_map = build_custom_lead_time_by_selected_stages(projeto, selected_start_stages)
     out = df.copy()
     if lead_map.empty:
         out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
+        out['LeadStart_Selected'] = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
         return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0}
 
     out['ItemID'] = out['ItemID'].astype(str)
     out = out.merge(lead_map, how='left', on='ItemID')
     out['LeadTime_Selected_Dias'] = pd.to_numeric(out['LeadTime_Custom_Dias'], errors='coerce')
+    out['LeadStart_Selected'] = pd.to_datetime(out['LeadStart_Custom'], errors='coerce')
     out.drop(columns=['LeadTime_Custom_Dias'], inplace=True, errors='ignore')
+    out.drop(columns=['LeadStart_Custom'], inplace=True, errors='ignore')
     return out, {
         'enabled': True,
         'sample': int(out['LeadTime_Selected_Dias'].notna().sum()),
@@ -3127,8 +3131,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (df_signal_base['DataInProgress'] >= start_ts) &
             (df_signal_base['DataInProgress'] <= end_ts)
         ]
-        if 'DataBacklog' in df_signal_base.columns:
-            demand_date = df_signal_base['DataBacklog'].copy()
+        if 'LeadStart_Selected' in df_signal_base.columns:
+            demand_date = pd.to_datetime(df_signal_base['LeadStart_Selected'], errors='coerce')
+            if 'DataBacklog' in df_signal_base.columns:
+                demand_date = demand_date.fillna(df_signal_base['DataBacklog'])
             if 'DataInProgress' in df_signal_base.columns:
                 demand_date = demand_date.fillna(df_signal_base['DataInProgress'])
             df_demand_period = df_signal_base[
@@ -3136,15 +3142,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 (demand_date <= end_ts)
             ]
             df_inventory_start = df_signal_base[
-                (df_signal_base['DataBacklog'] < start_ts) &
+                (demand_date < start_ts) &
                 ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
             ]
             df_inventory_end = df_signal_base[
-                (df_signal_base['DataBacklog'] <= end_ts) &
+                (demand_date <= end_ts) &
                 ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
             ]
             use_backlog_for_inventory = True
-            demand_label = "itens que entraram no sistema no período (backlog/início)"
+            demand_label = "itens comprometidos no período (etapas selecionadas/início)"
         else:
             df_demand_period = df_arrived_period
             use_backlog_for_inventory = False
@@ -3201,7 +3207,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         commit_times = pd.Series(dtype='float64')
         if not df_arrived_period.empty:
             # Prefer the date-based calculation to avoid stale/zeroed precomputed values.
-            if {'DataBacklog', 'DataInProgress'}.issubset(df_arrived_period.columns):
+            if {'LeadStart_Selected', 'DataInProgress'}.issubset(df_arrived_period.columns):
+                commit_times = (df_arrived_period['DataInProgress'] - pd.to_datetime(df_arrived_period['LeadStart_Selected'], errors='coerce')).dt.days
+            elif {'DataBacklog', 'DataInProgress'}.issubset(df_arrived_period.columns):
                 commit_times = (df_arrived_period['DataInProgress'] - df_arrived_period['DataBacklog']).dt.days
             if 'TempoBacklog_Dias' in df_arrived_period.columns:
                 commit_fallback = pd.to_numeric(df_arrived_period['TempoBacklog_Dias'], errors='coerce')
