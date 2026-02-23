@@ -257,6 +257,23 @@ PROJECT_BOTTLENECK_PREFIX = {
     'DATA&ANALYTICS': 'dataanalytics-downstream',
 }
 
+DOWNSTREAM_METADATA_COLUMNS = {
+    'ID', 'Link', 'Title', 'Tipo de Problema', 'Prioridade', 'Versões de correção',
+    'Versões afetadas', 'Componentes', 'Responsável', 'Criador', 'Space', 'Resolução',
+    'Data Cancelled', 'Etiquetas', 'Blocked Days', 'Blocked', 'Flagged', 'Story Points',
+    'Story point estimate', 'Organizations', 'Sprints', 'Principal', 'Epic Name',
+    'Team', 'Expected deliverables', 'B.U.', 'Checklist Completed', 'Ready', 'Build',
+    'Afeta as versões', 'Change type'
+}
+
+LEAD_TIME_END_STAGE_CANDIDATES = [
+    'Itens concluídos', 'Itens concluidos', 'Done', 'Concluído', 'Concluido', 'ready for production'
+]
+
+LEAD_TIME_START_STAGE_PREFERENCES = [
+    'Backlog', 'Triagem', 'Ready to Start', 'In progress'
+]
+
 PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
 PORTFOLIO_CACHE = {'fetched_at': None, 'data': None, 'error': None}
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
@@ -992,7 +1009,7 @@ def time_metric_series(df, column, positive_only=False, non_negative=False):
     if df is None or getattr(df, 'empty', True) or column not in df.columns:
         return pd.Series(dtype='float64')
     base = df
-    if column in {'LeadTime_Dias', 'TempoExecucao_Dias', 'TempoBacklog_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias'}:
+    if column in {'LeadTime_Dias', 'LeadTime_Selected_Dias', 'TempoExecucao_Dias', 'TempoBacklog_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias'}:
         base = df[done_time_eligible_mask(df)]
     s = pd.to_numeric(base[column], errors='coerce').dropna()
     if positive_only:
@@ -1891,22 +1908,127 @@ def load_project_downstream_items_csv(projeto):
     except Exception:
         return pd.DataFrame()
 
-def compute_weekly_service_metrics(df_projeto, weeks):
+
+def get_downstream_workflow_stage_columns(items_df):
+    """Return workflow stage columns from downstream CSV (exclude metadata fields)."""
+    if items_df is None or getattr(items_df, 'empty', True):
+        return []
+    stage_cols = []
+    for col in items_df.columns:
+        c = str(col).strip()
+        if c in DOWNSTREAM_METADATA_COLUMNS:
+            continue
+        if c in {'ID', 'Link', 'Title'}:
+            continue
+        stage_cols.append(c)
+    return stage_cols
+
+
+def get_default_lead_time_start_stages(stage_cols):
+    """Pick sensible default commitment stages from available workflow columns."""
+    if not stage_cols:
+        return []
+    available_lower = {str(c).strip().lower(): c for c in stage_cols}
+    selected = []
+    for pref in LEAD_TIME_START_STAGE_PREFERENCES:
+        hit = available_lower.get(pref.strip().lower())
+        if hit and hit not in selected:
+            selected.append(hit)
+    if selected:
+        return selected
+    return [stage_cols[0]]
+
+
+def get_downstream_done_stage_column(stage_cols):
+    """Detect terminal done/finalization stage column in downstream CSV."""
+    available_lower = {str(c).strip().lower(): c for c in stage_cols}
+    for cand in LEAD_TIME_END_STAGE_CANDIDATES:
+        hit = available_lower.get(cand.strip().lower())
+        if hit:
+            return hit
+    return stage_cols[-1] if stage_cols else None
+
+
+def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
+    """
+    Compute factual lead time from selected commitment stages to finalization (Done)
+    using the project's downstream CSV.
+    Returns dataframe with columns: ItemID, LeadTime_Custom_Dias.
+    """
+    items_df = load_project_downstream_items_csv(projeto)
+    if items_df.empty or 'ID' not in items_df.columns:
+        return pd.DataFrame(columns=['ItemID', 'LeadTime_Custom_Dias'])
+
+    stage_cols = get_downstream_workflow_stage_columns(items_df)
+    done_col = get_downstream_done_stage_column(stage_cols)
+    if not done_col:
+        return pd.DataFrame(columns=['ItemID', 'LeadTime_Custom_Dias'])
+
+    selected = [c for c in (selected_start_stages or []) if c in items_df.columns and c != done_col]
+    if not selected:
+        selected = get_default_lead_time_start_stages(stage_cols)
+        selected = [c for c in selected if c in items_df.columns and c != done_col]
+    if not selected:
+        return pd.DataFrame(columns=['ItemID', 'LeadTime_Custom_Dias'])
+
+    calc_cols = ['ID', done_col] + selected
+    tmp = items_df[calc_cols].copy()
+    for col in [done_col] + selected:
+        tmp[col] = pd.to_datetime(tmp[col], dayfirst=True, errors='coerce')
+
+    # Commitment date is the earliest date across selected workflow columns.
+    tmp['LeadStart_Custom'] = tmp[selected].min(axis=1)
+    tmp['LeadEnd_Custom'] = tmp[done_col]
+    lead_days = (tmp['LeadEnd_Custom'] - tmp['LeadStart_Custom']).dt.days
+    tmp['LeadTime_Custom_Dias'] = pd.to_numeric(lead_days, errors='coerce')
+    tmp.loc[tmp['LeadTime_Custom_Dias'] < 0, 'LeadTime_Custom_Dias'] = np.nan
+
+    out = tmp.rename(columns={'ID': 'ItemID'})[['ItemID', 'LeadTime_Custom_Dias']]
+    out['ItemID'] = out['ItemID'].astype(str)
+    return out.drop_duplicates(subset=['ItemID'], keep='first')
+
+
+def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
+    """Attach lead time metric based on selected downstream stages to the filtered dataframe."""
+    if df is None or getattr(df, 'empty', True):
+        return df, {'enabled': False, 'sample': 0, 'stage_count': 0}
+    if not projeto or 'ItemID' not in df.columns:
+        out = df.copy()
+        out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
+        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0}
+
+    lead_map = build_custom_lead_time_by_selected_stages(projeto, selected_start_stages)
+    out = df.copy()
+    if lead_map.empty:
+        out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
+        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0}
+
+    out['ItemID'] = out['ItemID'].astype(str)
+    out = out.merge(lead_map, how='left', on='ItemID')
+    out['LeadTime_Selected_Dias'] = pd.to_numeric(out['LeadTime_Custom_Dias'], errors='coerce')
+    out.drop(columns=['LeadTime_Custom_Dias'], inplace=True, errors='ignore')
+    return out, {
+        'enabled': True,
+        'sample': int(out['LeadTime_Selected_Dias'].notna().sum()),
+        'stage_count': len(selected_start_stages or []),
+    }
+
+def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias'):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
     metric_names = [
         'Taxa de chegada / semana',
         'Throughput / semana',
         'Média WIP / semana',
         'WIP Age (dias)',
-        'Média Cycle Time',
+        'Média Lead Time',
         'Média Eficiência de Fluxo',
         '% Demanda de Valor',
         '% Demanda de Falha',
         'Qtd. Itens Descartados',
-        'P85% DO CYCLE TIME',
+        'P85% DO LEAD TIME',
         'DDP',
         'Frequência de Deploy',
-        'Lead time (Backlog→Done)',
+        'Lead time para mudanças',
         'Taxa de demanda de falha',
         'MTTR',
     ]
@@ -1935,19 +2057,16 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         tp_discard = int(finished_eligible['Descartado'].sum()) if 'Descartado' in finished_eligible.columns else 0
 
         wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0
-        ct_finished = time_metric_series(finished, 'TempoExecucao_Dias', non_negative=True)
-        avg_ct = ct_finished.mean() if not ct_finished.empty else np.nan
-        lt_finished = time_metric_series(finished, 'LeadTime_Dias', non_negative=True)
+        lt_finished = time_metric_series(finished, lead_time_col, non_negative=True)
         avg_lt = lt_finished.mean() if not lt_finished.empty else np.nan
         _, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
         if pd.isna(avg_eff):
             avg_eff = 0
-        median_ct = exact_empirical_percentile(ct_finished, 0.50) if tp_total > 0 and not ct_finished.empty else np.nan
-        p85_ct = exact_empirical_percentile(ct_finished, 0.85) if tp_total > 0 and not ct_finished.empty else np.nan
         median_lt = exact_empirical_percentile(lt_finished, 0.50) if tp_total > 0 and not lt_finished.empty else np.nan
+        p85_lt = exact_empirical_percentile(lt_finished, 0.85) if tp_total > 0 and not lt_finished.empty else np.nan
         mttr_series = time_metric_series(
             finished_eligible[finished_eligible['TipoDemanda'] == TYPE_ISSUES] if tp_def > 0 else finished_eligible.iloc[0:0],
-            'TempoExecucao_Dias',
+            lead_time_col,
             non_negative=True
         )
         mttr = mttr_series.mean() if not mttr_series.empty else np.nan
@@ -1958,15 +2077,15 @@ def compute_weekly_service_metrics(df_projeto, weeks):
         rows['Throughput / semana'][week_label] = str(tp_total)
         rows['Média WIP / semana'][week_label] = str(len(wip))
         rows['WIP Age (dias)'][week_label] = f"{wip_age:.0f}" if wip_age else '0'
-        rows['Média Cycle Time'][week_label] = f"{avg_ct:.0f}" if pd.notna(avg_ct) else '—'
+        rows['Média Lead Time'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
         rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if pd.notna(avg_eff) else '0.000'
         rows['% Demanda de Valor'][week_label] = f"{tp_dev / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['% Demanda de Falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['Qtd. Itens Descartados'][week_label] = str(tp_discard)
-        rows['P85% DO CYCLE TIME'][week_label] = f"{p85_ct:.0f}" if pd.notna(p85_ct) else '—'
-        rows['DDP'][week_label] = f"{max(0, p85_ct - median_ct):.1f}" if pd.notna(p85_ct) and pd.notna(median_ct) else '—'
+        rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if pd.notna(p85_lt) else '—'
+        rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if pd.notna(p85_lt) and pd.notna(median_lt) else '—'
         rows['Frequência de Deploy'][week_label] = str(tp_dev)
-        rows['Lead time (Backlog→Done)'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
+        rows['Lead time para mudanças'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
         rows['Taxa de demanda de falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['MTTR'][week_label] = f"{mttr:.0f}" if pd.notna(mttr) else '—'
 
@@ -2105,6 +2224,16 @@ app.layout = html.Div([
         html.Div([html.Label('Classe Serviço (Prioridade):'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([
+            html.Label('Etapas Lead Time (Comprometimento):'),
+            dcc.Dropdown(
+                id='filter-leadtime-stages',
+                options=[],
+                value=[],
+                multi=True,
+                placeholder='Selecione etapas que contam como início do compromisso'
+            )
+        ], style={'width':'30%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'340px'}),
+        html.Div([
             html.Label('Team (Portfólio):'),
             dcc.Dropdown(
                 id='filter-portfolio-team',
@@ -2170,6 +2299,26 @@ def handle_main_menu_navigation(_portfolio_clicks, _services_clicks, _home_click
 
 
 @app.callback(
+    Output('filter-leadtime-stages', 'options'),
+    Output('filter-leadtime-stages', 'value'),
+    Input('filter-projeto', 'value'),
+    State('filter-leadtime-stages', 'value'),
+)
+def update_leadtime_stage_filter_options(projeto, current_value):
+    items_df = load_project_downstream_items_csv(projeto)
+    if items_df.empty:
+        return [], []
+    stage_cols = get_downstream_workflow_stage_columns(items_df)
+    done_col = get_downstream_done_stage_column(stage_cols)
+    start_candidates = [c for c in stage_cols if c != done_col]
+    options = [{'label': c, 'value': c} for c in start_candidates]
+    current = [v for v in (current_value or []) if v in start_candidates]
+    if current:
+        return options, current
+    return options, get_default_lead_time_start_stages(start_candidates)
+
+
+@app.callback(
     Output('main-menu-panel', 'style'),
     Output('main-nav-panel', 'style'),
     Output('main-nav-context', 'children'),
@@ -2218,9 +2367,10 @@ def update_main_navigation_layout(main_view):
     Input('filter-tipo', 'value'),
     Input('filter-classe-servico', 'value'),
     Input('filter-responsavel', 'value'),
+    Input('filter-leadtime-stages', 'value'),
     Input('filter-portfolio-team', 'value')
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, portfolio_team):
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team):
     if main_view in (None, 'home'):
         return html.Div(
             'Selecione "Porfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
@@ -2241,6 +2391,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         tab = 'tab-performance'
 
     df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
+    df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
 
     # Padrão de cores para os tipos de demanda
     color_map = {
@@ -2259,11 +2410,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_proj = df_proj[df_proj['Projeto'] == projeto]
         if responsavel:
             df_proj = df_proj[df_proj['Responsavel'] == responsavel]
+        if tipo:
+            df_proj = df_proj[df_proj['TipoDemanda'] == tipo]
+        if classe_servico:
+            df_proj = df_proj[df_proj['ClasseServico'] == classe_servico]
+        df_proj, _ = apply_selected_lead_time_metric(df_proj, projeto, leadtime_stages)
         weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
         if len(weeks) < 2:
             return html.Div('Período muito curto para análise semanal.')
 
-        metric_names, rows = compute_weekly_service_metrics(df_proj, weeks)
+        metric_names, rows = compute_weekly_service_metrics(df_proj, weeks, lead_time_col='LeadTime_Selected_Dias')
         week_labels = [str(weeks[i].date()) for i in range(len(weeks) - 1)]
 
         table_data = []
@@ -2281,7 +2437,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             {'if': {'filter_query': '{Métrica} = "% Demanda de Falha"'}, 'color': 'red', 'fontWeight': 'bold'},
             {'if': {'filter_query': '{Métrica} contains "—"'}, 'color': '#aaa'},
         ]
-        for m in ['Qtd. Itens Descartados', 'DDP', 'Frequência de Deploy', 'Lead time (Backlog→Done)', 'Taxa de demanda de falha', 'MTTR']:
+        for m in ['Qtd. Itens Descartados', 'DDP', 'Frequência de Deploy', 'Lead time para mudanças', 'Taxa de demanda de falha', 'MTTR']:
             style_data_conditional.append({
                 'if': {'filter_query': f'{{Métrica}} = "{m}"'},
                 'backgroundColor': 'rgb(245, 245, 245)', 'color': '#bbb', 'fontStyle': 'italic'
@@ -2290,7 +2446,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         titulo = f"Performance da Entrega do Serviço: {projeto}" if projeto else "Performance da Entrega do Serviço"
 
         return html.Div([
-            html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '20px'}),
+            html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
+            html.Div(
+                f"Lead Time = primeira etapa selecionada (compromisso) até finalização | "
+                f"Amostra no período filtrado: {int(time_metric_series(df, 'LeadTime_Selected_Dias', non_negative=True).shape[0])}",
+                style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px', 'fontSize': '13px'}
+            ),
             dash_table.DataTable(
                 id='performance-table',
                 columns=columns,
@@ -2652,6 +2813,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_signal_base = df_signal_base[df_signal_base['TipoDemanda'] == tipo]
         if responsavel:
             df_signal_base = df_signal_base[df_signal_base['Responsavel'] == responsavel]
+        if classe_servico:
+            df_signal_base = df_signal_base[df_signal_base['ClasseServico'] == classe_servico]
+        df_signal_base, _ = apply_selected_lead_time_metric(df_signal_base, projeto, leadtime_stages)
 
         # Base de referência para thresholds (projeto/tipo), independente de período e responsável.
         df_threshold_base = fato.copy()
@@ -2659,6 +2823,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_threshold_base = df_threshold_base[df_threshold_base['Projeto'] == projeto]
         if tipo:
             df_threshold_base = df_threshold_base[df_threshold_base['TipoDemanda'] == tipo]
+        if classe_servico:
+            df_threshold_base = df_threshold_base[df_threshold_base['ClasseServico'] == classe_servico]
+        df_threshold_base, _ = apply_selected_lead_time_metric(df_threshold_base, projeto, leadtime_stages)
 
         weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
         if len(weeks) < 2:
@@ -2685,12 +2852,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))
                 ]
 
-                ct_p85 = np.nan
-                ct_p50 = np.nan
-                ct_done = time_metric_series(done, 'TempoExecucao_Dias', non_negative=True)
-                if not ct_done.empty:
-                    ct_p85 = exact_empirical_percentile(ct_done, 0.85)
-                    ct_p50 = exact_empirical_percentile(ct_done, 0.50)
+                lt_p85 = np.nan
+                lt_p50 = np.nan
+                lt_done = time_metric_series(done, 'LeadTime_Selected_Dias', non_negative=True)
+                if not lt_done.empty:
+                    lt_p85 = exact_empirical_percentile(lt_done, 0.85)
+                    lt_p50 = exact_empirical_percentile(lt_done, 0.50)
 
                 done_eligible = done[done_time_eligible_mask(done)] if not done.empty else done
                 tp = len(done_eligible)
@@ -2703,13 +2870,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'Throughput': tp,
                     'WIP': wip,
                     'WIP_Age': (week_end - wip_items['DataInProgress']).dt.days.mean() if wip > 0 else np.nan,
-                    # Kept legacy key name for downstream code compatibility; value is Cycle Time P85.
-                    'LeadTime_P85': ct_p85,
+                    'LeadTime_P85': lt_p85,
                     'FlowEfficiency': flow_eff_w,
                     'Pressure': pressure_w,
                     'QueueEfficiency': flow_eff_w,
                     'WIP_TP_Ratio': (wip / tp) if tp > 0 else np.nan,
-                    'Predictability': (ct_p85 / ct_p50) if pd.notna(ct_p85) and pd.notna(ct_p50) and ct_p50 > 0 else np.nan,
+                    'Predictability': (lt_p85 / lt_p50) if pd.notna(lt_p85) and pd.notna(lt_p50) and lt_p50 > 0 else np.nan,
                 })
             return pd.DataFrame(rows)
 
@@ -2813,20 +2979,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         inventory_weeks = (inventory_end_count / throughput_weekly_avg) if throughput_weekly_avg > 0 and pd.notna(inventory_end_count) else np.nan
         capacity_label = "itens concluídos no período (throughput)"
 
-        # Operational flow panel uses Cycle Time (execution time) for percentiles.
-        cycle_time_p85 = np.nan
-        cycle_time_p50 = np.nan
-        cycle_time_p98 = np.nan
-        ct_done_period = time_metric_series(df_done_period, 'TempoExecucao_Dias', non_negative=True)
-        if not ct_done_period.empty:
-            cycle_time_p85 = exact_empirical_percentile(ct_done_period, 0.85)
-            cycle_time_p50 = exact_empirical_percentile(ct_done_period, 0.50)
-            cycle_time_p98 = exact_empirical_percentile(ct_done_period, 0.98)
+        lead_time_p85 = np.nan
+        lead_time_p50 = np.nan
+        lead_time_p98 = np.nan
+        lt_done_period = time_metric_series(df_done_period, 'LeadTime_Selected_Dias', non_negative=True)
+        if not lt_done_period.empty:
+            lead_time_p85 = exact_empirical_percentile(lt_done_period, 0.85)
+            lead_time_p50 = exact_empirical_percentile(lt_done_period, 0.50)
+            lead_time_p98 = exact_empirical_percentile(lt_done_period, 0.98)
 
         pressure_ratio, queue_efficiency = calculate_flow_efficiency(arrivals_avg, throughput_avg)
         wip_tp_ratio = wip_avg / throughput_avg if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
-        predictability = cycle_time_p85 / cycle_time_p50 if pd.notna(cycle_time_p85) and pd.notna(cycle_time_p50) and cycle_time_p50 > 0 else np.nan
-        risk_forecasting_ratio = cycle_time_p98 / cycle_time_p50 if pd.notna(cycle_time_p98) and pd.notna(cycle_time_p50) and cycle_time_p50 > 0 else np.nan
+        predictability = lead_time_p85 / lead_time_p50 if pd.notna(lead_time_p85) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
+        risk_forecasting_ratio = lead_time_p98 / lead_time_p50 if pd.notna(lead_time_p98) and pd.notna(lead_time_p50) and lead_time_p50 > 0 else np.nan
         demand_vs_capacity_pct = ((demand_total - capacity_total) / capacity_total * 100.0) if capacity_total > 0 else np.nan
         inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
@@ -2985,7 +3150,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'note': '(período selecionado, elegíveis para tempo)',
             },
             'wip_avg_week': {'title': 'WIP médio (semana)', 'value': wip_avg, 'format': '{:.1f} itens', 'status': wip_cv_status},
-            'lead_time_p85': {'title': 'Cycle Time P85', 'value': cycle_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
+            'lead_time_p85': {'title': 'Lead Time P85', 'value': lead_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
             'throughput_avg_week': {'title': 'Vazão média semanal', 'value': throughput_avg, 'format': '{:.1f} itens/sem', 'status': throughput_cv_status},
             'arrivals_avg_week': {'title': 'Taxa de chegada média', 'value': arrivals_avg, 'format': '{:.1f} itens/sem', 'status': arrivals_cv_status},
             'flow_efficiency': {'title': 'Eficiência (1 - ρ)', 'value': queue_efficiency, 'format': '{:.2f}', 'status': classify_efficiency(queue_efficiency)},

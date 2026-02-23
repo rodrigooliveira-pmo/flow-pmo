@@ -765,3 +765,64 @@
     - `LeadTime_Dias`: `n=2`, `P85=2`
     - `TempoExecucao_Dias`: `n=167`, `P85=25`
     - `Throughput / semana` corrigido (sem cancelados): semana `2026-02-16` caiu de `146` para `28`
+
+## Current Task (Lead Time com Filtro de Etapas)
+- [x] Reverter telas operacionais para Lead Time (não Cycle Time)
+- [x] Implementar filtro configurável de etapas de compromisso (colunas downstream)
+- [x] Calcular Lead Time factual a partir das etapas selecionadas até finalização
+- [x] Validar cobertura amostral e percentis no W1NNER
+
+## Review (Lead Time com Filtro de Etapas)
+- What was validated:
+  - `dashboard_full.py` voltou a usar `Lead Time` nas telas `Painel Fluxo` e `Performance do Serviço`.
+  - Novo filtro `Etapas Lead Time (Comprometimento)` (multi-select) foi adicionado ao topo; opções são carregadas do CSV downstream do projeto selecionado.
+  - O cálculo usa o CSV downstream factual por item:
+    - início = menor data entre as etapas selecionadas
+    - fim = etapa final (`Itens concluídos`/`Done`)
+    - `LeadTime_Selected_Dias` é aplicado nas métricas de Lead Time (com exclusão de cancelados via filtro elegível).
+  - Com isso, o usuário pode escolher explicitamente quais colunas representam “comprometimento”.
+  - W1NNER mostrou a causa real da inconsistência anterior:
+    - se usar apenas `Backlog`, a amostra continua `n=2` (`P85=2`)
+    - ao incluir `In progress`, a amostra sobe para `n=165+` e o `P85` passa a `25`
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Validação local (W1NNER, 2026-01-01 a 2026-02-23):
+    - `['Backlog'] => n=2, P85=2`
+    - `['In progress'] => n=165, P85=25`
+    - `['Backlog','Triagem','Ready to Start','In progress'] => n=169, P85=25`
+
+## Current Task (Aba Lead Time Dedicada no dashboard_app)
+- [x] Criar nova aba `Lead Time` no `dashboard_app.py`
+- [x] Implementar gráfico de distribuição de Lead Time com curva acumulada e linhas de percentis/média
+- [x] Implementar gráfico temporal de Lead Time com média e média móvel
+- [x] Validar sintaxe e registrar review/evidências
+
+## Specification (Aba Lead Time Dedicada no dashboard_app)
+- Objetivo: concentrar visualizações de Lead Time em uma aba própria, inspirada no layout do anexo (distribuição + visão temporal).
+- Escopo:
+  - `dashboard_app.py`
+- Decisões:
+  - Usar `Análise Eficiência` como base item a item para distribuição de `Lead Time (dias)`.
+  - Usar `Tendências Completas` como base temporal semanal para linha de `Lead Time` e `Lead Time Médio (4s)` (média móvel).
+  - Exibir linhas horizontais de percentis e média usando `Adv - Estabilidade` quando disponível (fallback para cálculo local quando necessário).
+- Critério de aceite:
+  - Nova aba aparece na navegação principal.
+  - Aba renderiza 2 gráficos de Lead Time para o projeto selecionado.
+  - Gráficos exibem percentis/média e média móvel conforme disponibilidade dos dados.
+
+## Review (Aba Lead Time Dedicada no dashboard_app)
+- What was validated:
+  - Nova aba `Lead Time` adicionada no `dashboard_app.py` e renderizada via `tabs-main`.
+  - Aba exibe 2 gráficos:
+    - distribuição de Lead Time com barras de frequência + curva acumulada (%)
+    - tendência temporal semanal com `Lead Time` e `Lead Time Médio (4s)` (média móvel)
+  - Linhas de referência foram adicionadas para `P50`, `P75`, `P85`, `P95` e `Média`.
+  - Percentis/média usam `Adv - Estabilidade` quando disponível e fazem fallback para cálculo local na base `Análise Eficiência`.
+  - Tratamento de vazio implementado com figuras de mensagem (quando projeto não tem amostra de Lead Time item a item).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_app.py`
+  - Smoke test local do callback `update_lead_time_graphs(...)`:
+    - `BEFINANCE`: tendência renderizada e distribuição vazia tratada corretamente
+    - `DATA&ANALYTICS`: `dist_traces=2`, `trend_traces=2`
+- Suggested commit message:
+  - `feat(dashboard-app): add dedicated lead time tab with distribution and trend charts`

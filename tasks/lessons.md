@@ -87,3 +87,10 @@ Use this file after any user correction.
 - Root cause: Eu corrigi percentis e elegibilidade, mas não validei a semântica do indicador exibido; as telas operacionais continuavam usando `LeadTime_Dias` com amostra ínfima (W1NNER tinha apenas 2 itens com `DataBacklog` preenchido no período).
 - Prevention rule: Antes de concluir correção de percentis/KPI, validar também cobertura amostral da métrica (`n`) e confirmar se a tela operacional deve usar `Lead Time` ou `Cycle Time`.
 - Action added to workflow: Para KPIs percentílicos de tempo, sempre verificar e registrar `(métrica, filtro, n da amostra)` e alinhar o rótulo da UI à métrica real usada.
+
+- Date: 2026-02-23
+- Context: Ajuste de KPI de tempo após tentativa de resolver inconsistência usando Cycle Time.
+- User correction: Reforçou que o conceito correto para o dashboard é `Lead Time` (comprometimento até finalização), não `Cycle Time`.
+- Root cause: Eu corrigi a inconsistência operacional trocando a métrica, mas isso contrariou a definição de negócio do usuário.
+- Prevention rule: Em divergência entre qualidade estatística e definição de negócio, preservar primeiro a métrica de negócio e corrigir a instrumentação (filtro, cobertura, amostra), não trocar o conceito.
+- Action added to workflow: Quando houver discrepância de KPI de tempo, confirmar explicitamente se o problema é de conceito (`Lead` vs `Cycle`) ou de parametrização de etapas antes de alterar rótulos/semântica.
