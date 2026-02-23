@@ -19,15 +19,22 @@
 /* Dropdown de ano customizado */
 .year-select-custom {
     height: 32px;
+    min-width: 88px;
     border: 1px solid rgba(0, 18, 77, 0.45);
     border-radius: 4px;
-    background: white;
-    font-size: 14px;
+    background: #fff;
+    color: #111827 !important;
+    font-size: 14px !important;
     font-weight: 500;
+    line-height: 32px;
+    text-align: center;
     padding: 0 8px;
     cursor: pointer;
-    color: inherit;
     appearance: auto;
+}
+
+.year-select-custom option {
+    color: #111827;
 }
 
 .year-select-custom:focus {

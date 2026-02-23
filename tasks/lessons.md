@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-23
+- Context: Unificação de abas de análise no dashboard de serviços.
+- User correction: Reportou regressão visual no filtro de data (ano não visível no calendário).
+- Root cause: Mudança de UI expôs fragilidade no customizador do DatePicker (`assets/calendar-fix.css` / `calendar-year-dropdown.js`), deixando o dropdown de ano sem texto legível.
+- Prevention rule: Após mudanças de layout/abas, validar componentes overlay (DatePicker/Dropdowns) visualmente, não apenas sintaxe.
+- Action added to workflow: Em ajustes de navegação, abrir o calendário e verificar cabeçalho/mês/ano antes de concluir.
+
+- Date: 2026-02-23
 - Context: Pedido para unificar abas `Análise Dimensional`, `Análise Tipos` e `Análise Eficiência` sob `Análise Fluxo`.
 - User correction: Informou que as abas não foram unificadas após minha entrega.
 - Root cause: Apliquei a mudança no arquivo errado (`dashboard_app.py`) enquanto a interface em uso era `dashboard_full.py`.
