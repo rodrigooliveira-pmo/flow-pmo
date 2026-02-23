@@ -8,6 +8,7 @@ import numpy as np
 import hashlib
 import urllib.request
 import urllib.parse
+import re
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -148,6 +149,21 @@ def _resolve_model_file(data_folders):
 DATA_FOLDERS = _candidate_data_folders()
 DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
 MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
+
+
+def _format_last_processed_load(model_file):
+    """Best-effort label for the processed data load timestamp."""
+    try:
+        filename = os.path.basename(model_file or '')
+        match = re.match(r'^PowerBI_Model_(\d{8})_(\d{6})\.xlsx$', filename)
+        if match:
+            return datetime.strptime(''.join(match.groups()), '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M')
+        return datetime.fromtimestamp(os.path.getmtime(model_file)).strftime('%Y-%m-%d %H:%M')
+    except Exception:
+        return 'indisponível'
+
+
+LAST_PROCESSED_LOAD_LABEL = _format_last_processed_load(MODEL_FILE)
 
 # Load model
 xls = pd.ExcelFile(MODEL_FILE)
@@ -1238,7 +1254,27 @@ min_date = fato['DataDone'].min() if 'DataDone' in fato.columns else pd.to_datet
 max_date = fato['DataDone'].max() if 'DataDone' in fato.columns else pd.to_datetime('today')
 
 app.layout = html.Div([
-    html.H1('Dashboard de Métricas - Full', style={'textAlign': 'center'}),
+    html.Div([
+        html.H1('Dashboard de Métricas - Full', style={'margin': '0'}),
+        html.Span(
+            f'Última carga processada: {LAST_PROCESSED_LOAD_LABEL}',
+            style={
+                'fontSize': '14px',
+                'color': '#555',
+                'backgroundColor': '#f3f4f6',
+                'padding': '6px 10px',
+                'borderRadius': '999px',
+                'whiteSpace': 'nowrap'
+            }
+        ),
+    ], style={
+        'display': 'flex',
+        'justifyContent': 'center',
+        'alignItems': 'center',
+        'gap': '12px',
+        'flexWrap': 'wrap',
+        'marginBottom': '12px'
+    }),
     html.Div([
         html.Div([html.Label('Período:'), dcc.DatePickerRange(id='date-range', start_date=min_date, end_date=max_date,
                                                             display_format='YYYY-MM-DD',

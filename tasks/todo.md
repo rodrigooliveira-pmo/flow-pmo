@@ -1,5 +1,29 @@
 # Task Plan
 
+## Current Task (Data da Última Carga no Cabeçalho)
+- [x] Definir fonte da data de carga exibida no dashboard
+- [x] Implementar cálculo/formatação no `dashboard_full.py`
+- [x] Exibir data ao lado do título principal da tela
+- [x] Validar sintaxe e revisar diff
+
+## Specification (Data da Última Carga no Cabeçalho)
+- Objetivo: exibir no cabeçalho principal do dashboard a data/hora da última carga de dados processada.
+- Escopo:
+  - `dashboard_full.py` (layout do cabeçalho e helper de formatação).
+- Critério de aceite:
+  - Texto visível ao lado do título principal.
+  - Sem quebrar o layout em desktop/mobile (com wrap simples).
+  - Fallback seguro se a data não puder ser inferida.
+
+## Review (Data da Última Carga no Cabeçalho)
+- What was validated:
+  - Cabeçalho principal passou a exibir `Última carga processada: ...` ao lado do título.
+  - Timestamp usa preferência por data no nome `PowerBI_Model_YYYYMMDD_HHMMSS.xlsx`, com fallback para `mtime`.
+  - Layout usa `flexWrap` para não quebrar em telas menores.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - Diff em `dashboard_full.py` (helper `_format_last_processed_load` + bloco de cabeçalho)
+
 ## Current Task (Classe de Serviço por Prioridade)
 - [x] Definir especificação da mudança (classe de serviço baseada em `Prioridade`)
 - [x] Ajustar classificação no pipeline de geração de dados
