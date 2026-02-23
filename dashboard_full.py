@@ -2488,7 +2488,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     lt_p85 = exact_empirical_percentile(lt_done, 0.85)
                     lt_p50 = exact_empirical_percentile(lt_done, 0.50)
 
-                tp = len(done)
+                done_eligible = done[done_time_eligible_mask(done)] if not done.empty else done
+                tp = len(done_eligible)
                 ar = len(arrived)
                 wip = len(wip_items)
                 pressure_w, flow_eff_w = calculate_flow_efficiency(ar, tp)
@@ -2515,10 +2516,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 (df_signal_base['DataInProgress'] >= week_start) &
                 (df_signal_base['DataInProgress'] < week_end)
             ])
-            throughput = len(df_signal_base[
+            done_week = df_signal_base[
                 (df_signal_base['DataDone'] >= week_start) &
                 (df_signal_base['DataDone'] < week_end)
-            ])
+            ]
+            throughput = len(done_week[done_time_eligible_mask(done_week)]) if not done_week.empty else 0
             wip = len(df_signal_base[
                 (df_signal_base['DataInProgress'] < week_end) &
                 ((df_signal_base['DataDone'] >= week_end) | pd.isna(df_signal_base['DataDone']))
@@ -2546,6 +2548,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (df_signal_base['DataDone'] >= start_ts) &
             (df_signal_base['DataDone'] <= end_ts)
         ].copy()
+        df_done_period_eligible = df_done_period[done_time_eligible_mask(df_done_period)].copy()
         df_arrived_period = df_signal_base[
             (df_signal_base['DataInProgress'] >= start_ts) &
             (df_signal_base['DataInProgress'] <= end_ts)
@@ -2590,7 +2593,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         wip_avg = weekly_df['WIP'].mean() if not weekly_df.empty else np.nan
         wip_current = float(weekly_df['WIP'].iloc[-1]) if not weekly_df.empty else np.nan
         wip_age = (end_ts - df_wip_end['DataInProgress']).dt.days.mean() if not df_wip_end.empty else np.nan
-        throughput_total = float(len(df_done_period))
+        throughput_total = float(len(df_done_period_eligible))
         inflow_total = float(len(df_arrived_period))
         demand_total = float(len(df_demand_period))
         capacity_total = throughput_total
@@ -2634,7 +2637,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             commit_times = commit_times[commit_times >= 0]
         time_to_commit_p85 = exact_empirical_percentile(commit_times, 0.85) if not commit_times.empty else np.nan
 
-        tipo_demanda = df_done_period['TipoDemanda'] if 'TipoDemanda' in df_done_period.columns else pd.Series(dtype='object')
+        tipo_demanda = df_done_period_eligible['TipoDemanda'] if 'TipoDemanda' in df_done_period_eligible.columns else pd.Series(dtype='object')
         tp_valor = int((tipo_demanda == TYPE_DEV).sum()) if not tipo_demanda.empty else 0
         tp_falha = int((tipo_demanda == TYPE_ISSUES).sum()) if not tipo_demanda.empty else 0
         tp_base_valor_falha = tp_valor + tp_falha
@@ -2769,11 +2772,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'unit': 'dias',
             },
             'throughput_total': {
-                'title': 'Throughput (total)',
+                'title': 'Throughput (Done s/ cancel.)',
                 'value': throughput_total,
                 'format': '{:.0f}',
                 'unit': 'itens de fluxo',
-                'note': '(período selecionado)',
+                'note': '(período selecionado, elegíveis para tempo)',
             },
             'wip_avg_week': {'title': 'WIP médio (semana)', 'value': wip_avg, 'format': '{:.1f} itens', 'status': wip_cv_status},
             'lead_time_p85': {'title': 'Lead Time P85', 'value': lead_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
@@ -3045,16 +3048,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
         mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
         df_flow = df_flow[mask_started_until_end & mask_not_finished_before_start].copy()
+        df_flow_done_period = df_flow[
+            (df_flow['DataDone'] >= start_ts) &
+            (df_flow['DataDone'] <= end_ts)
+        ].copy()
+        df_flow_done_period_eligible = df_flow_done_period[done_time_eligible_mask(df_flow_done_period)].copy()
 
         if df_flow.empty:
             return html.Div('Sem dados para exibir para o período e filtros selecionados.')
 
         # --- 1. Calcular Métricas ---
         metrics = {}
-        tempo_exec = time_metric_series(df_flow, 'TempoExecucao_Dias', non_negative=True)
-        tempo_backlog = time_metric_series(df_flow, 'TempoBacklog_Dias', non_negative=True)
-        tempo_bloqueio = time_metric_series(df_flow, 'TempoBloqueioDias', non_negative=True)
-        tempo_espera = time_metric_series(df_flow, 'TempoEsperaIntermediariaDias', non_negative=True)
+        tempo_exec = time_metric_series(df_flow_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
+        tempo_backlog = time_metric_series(df_flow_done_period_eligible, 'TempoBacklog_Dias', non_negative=True)
+        tempo_bloqueio = time_metric_series(df_flow_done_period_eligible, 'TempoBloqueioDias', non_negative=True)
+        tempo_espera = time_metric_series(df_flow_done_period_eligible, 'TempoEsperaIntermediariaDias', non_negative=True)
 
         if not tempo_exec.empty:
             metrics['Cycle Time Médio (dias)'] = tempo_exec.mean()
@@ -3067,10 +3075,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (df_flow['DataInProgress'] >= start_ts) &
             (df_flow['DataInProgress'] <= end_ts)
         ])
-        throughput_period = len(df_flow[
-            (df_flow['DataDone'] >= start_ts) &
-            (df_flow['DataDone'] <= end_ts)
-        ])
+        throughput_period = len(df_flow_done_period_eligible)
         pressure_period, efficiency_period = calculate_flow_efficiency(arrivals_period, throughput_period)
         if pd.notna(efficiency_period):
             metrics['Eficiência de Fluxo (1 - ρ)'] = efficiency_period
@@ -3103,13 +3108,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         fig_cycle_hist = {}
         cycle_hist_component = html.P(
-            'Sem dados válidos de Cycle Time (> 0 dias) para o período e filtros selecionados.'
+            'Sem dados válidos de Cycle Time (>= 0 dias) para o período e filtros selecionados.'
         )
         cycle_band_table_component = html.P(
             'Sem dados suficientes para calcular bandas percentílicas exatas de Cycle Time.'
         )
         if 'TempoExecucao_Dias' in df_flow.columns:
-            cycle_series = time_metric_series(df_flow, 'TempoExecucao_Dias', positive_only=True)
+            cycle_series = time_metric_series(df_flow_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
             if not cycle_series.empty:
                 cycle_df = pd.DataFrame({'TempoExecucao_Dias': cycle_series})
                 fig_cycle_hist = px.histogram(

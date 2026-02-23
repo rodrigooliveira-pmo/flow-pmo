@@ -37,6 +37,10 @@
     - `ConcluidoSemCancelamento` (na `Fato_Items`)
   - `dash_board_metricas.py` zera (`None`) `LeadTime_Dias` e `TempoExecucao_Dias` para itens com histórico de cancelamento ao montar a `Fato_Items`.
   - Métricas semanais em `generate_consolidated_dashboard(...)` continuam contando throughput normalmente, mas calculam Lead Time/Eficiência usando apenas itens elegíveis (sem cancelamento).
+  - Correção adicional de inconsistência no `dashboard_full.py`:
+    - KPI `Throughput` no painel executivo agora conta `Done sem cancelamento` (antes contava todos `DataDone`, incluindo cancelados).
+    - Aba de Fluxo (métricas + histograma + bandas de Cycle Time) passou a usar **concluídos elegíveis no período**, e não toda a base em fluxo no intervalo.
+    - Bandas de Cycle Time passaram a incluir `Cycle Time = 0` (`>= 0`) em vez de excluir (`> 0`), evitando perda de itens válidos.
 - Evidence (tests/logs/diff):
   - `python3 -m py_compile dashboard_full.py dash_board_metricas.py`
   - Smoke test local dos helpers em `dashboard_full.py`:
@@ -45,10 +49,12 @@
   - Diff em `dashboard_full.py`:
     - helpers `done_time_eligible_mask`, `time_metric_series`, `exact_empirical_percentile`, `exact_percentile_band_summary`
     - uso dos helpers em KPIs/abas de estatística/saúde/fluxo
+    - ajuste de base no painel (`throughput_total`) e na aba de fluxo (`df_flow_done_period_eligible`)
+    - inclusão de ciclos `0 dias` nas bandas de Cycle Time
   - Diff em `dash_board_metricas.py`:
     - helpers `is_time_eligible_done_row`, `time_eligible_done_mask`
     - colunas de elegibilidade e exclusão de cancelados das métricas de tempo
-- Suggested commit message:
+  - Suggested commit message:
   - `feat(metrics): use exact empirical percentiles and exclude cancelled items from done-time stats`
 
 ## Current Task (Validação Lead Time / Cycle Time W1NNER)
