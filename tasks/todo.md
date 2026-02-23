@@ -18,6 +18,7 @@
 - What was validated:
   - `dashboard_full.py` removeu as três tabs separadas (`Análise Dimensional`, `Análise Tipos`, `Análise Eficiência`) da lista `SERVICE_TABS` e adicionou a tab única `Análise Fluxo`.
   - A nova tab `Análise Fluxo` renderiza, em sequência, os conteúdos existentes de `tab-dim`, `tab-tipos` e `tab-eficiencia` via reutilização de `render_tab(...)`.
+  - Correção complementar: `INTERNAL_SERVICE_TAB_VALUES` passou a aceitar `tab-dim`, `tab-tipos` e `tab-eficiencia` para evitar erro de "Aba inválida" na renderização interna da aba consolidada.
   - Correção de escopo aplicada após feedback: a mudança visível foi feita no dashboard ativo (`dashboard_full.py`).
 - Evidence (tests/logs/diff):
   - `python3 -m py_compile dashboard_full.py`

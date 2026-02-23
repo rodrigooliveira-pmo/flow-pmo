@@ -294,6 +294,13 @@ SERVICE_TABS = [
     ('Capacidade de Fila', 'tab-fila-capacidade'),
 ]
 SERVICE_TAB_VALUES = {value for _, value in SERVICE_TABS}
+INTERNAL_SERVICE_TAB_VALUES = SERVICE_TAB_VALUES | {
+    'tab-estabilidade',
+    'tab-qualidade',
+    'tab-dim',
+    'tab-tipos',
+    'tab-eficiencia',
+}
 
 
 def build_service_tabs():
@@ -2296,7 +2303,7 @@ app.layout = html.Div([
                 clearable=False
             )
         ], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
-    ], id='filters-panel', style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px'}),
+    ], id='filters-panel', style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px', 'flexWrap':'wrap', 'alignItems':'flex-start'}),
 
     html.Div(
         dcc.Tabs(
@@ -2406,7 +2413,7 @@ def update_main_navigation_layout(main_view):
         'marginBottom': '12px',
         'flexWrap': 'wrap'
     }
-    filters_style = {'display': 'flex', 'justifyContent': 'center', 'gap': '10px', 'marginBottom': '20px'}
+    filters_style = {'display': 'flex', 'justifyContent': 'center', 'gap': '10px', 'marginBottom': '20px', 'flexWrap': 'wrap', 'alignItems': 'flex-start'}
     hidden_style = {'display': 'none'}
 
     if main_view == 'portfolio':
@@ -2447,8 +2454,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
     if main_view == 'portfolio':
         tab = PORTFOLIO_TAB_VALUE
-    elif tab not in SERVICE_TAB_VALUES:
+    elif tab is None:
         tab = 'tab-performance'
+    elif tab not in INTERNAL_SERVICE_TAB_VALUES:
+        return html.Div(
+            [
+                html.H4('Aba inválida no modo Serviços', style={'textAlign': 'center', 'color': '#b22222'}),
+                html.P(
+                    f"Valor recebido: {tab!r}. Selecione novamente uma aba no topo.",
+                    style={'textAlign': 'center', 'color': '#555'}
+                ),
+            ],
+            style={'padding': '16px', 'border': '1px dashed #d1d5db', 'borderRadius': '10px', 'maxWidth': '780px', 'margin': '12px auto'}
+        )
 
     df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
     df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
