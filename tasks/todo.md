@@ -833,6 +833,29 @@
   - `python3 -m py_compile dashboard_full.py`
   - `render_tab('services', tab, ..., 'W1NNER', ..., ['In progress'], ...)` retornando `Div` para `tab-performance`, `tab-painel-3x3` e `tab-fluxo`
 
+## Current Task (Painel 100% sensível ao filtro de etapas)
+- [x] Revisar KPIs/gráficos do `Painel` que ainda usavam semântica antiga de entrada
+- [x] Aplicar `LeadStart_Selected` às métricas de compromisso/chegada do painel
+- [x] Ajustar `Tempo para Commit` para medir `DataBacklog -> LeadStart_Selected` (sem fallback que mascara filtro)
+- [x] Validar diferenças entre seleções `Backlog` e `In progress`
+
+## Review (Painel 100% sensível ao filtro de etapas)
+- What was validated:
+  - No `tab-painel-3x3`, o filtro de etapas agora afeta também:
+    - chegadas semanais / média de chegada (usadas em pressão e vazão relativa)
+    - card `Entrada vs Saída` (agora `Compromisso vs Saída`)
+    - `Demanda vs Capacidade`
+    - `Taxa de Comprometimento`
+    - `Tempo para Commit (P85)` via `DataBacklog -> LeadStart_Selected`
+  - Removido fallback de `TempoBacklog_Dias` no `Tempo para Commit` para não mascarar a seleção de etapas.
+  - Métricas que continuam independentes por conceito:
+    - `WIP`, `WIP Age`, `Throughput` (baseados em execução/conclusão)
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - W1NNER (2026-01-01 a 2026-02-23):
+    - `['Backlog']`: `lead_p85=2`, `arrivals/compromisso=180`, `commit_n=37`
+    - `['In progress']`: `lead_p85=25`, `arrivals/compromisso=179`, `commit_n=0` (sem base backlog->compromisso para essa seleção)
+
 ## Current Task (Aba Lead Time Dedicada no dashboard_app)
 - [x] Criar nova aba `Lead Time` no `dashboard_app.py`
 - [x] Implementar gráfico de distribuição de Lead Time com curva acumulada e linhas de percentis/média

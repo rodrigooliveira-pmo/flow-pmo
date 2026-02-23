@@ -3038,17 +3038,28 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if len(weeks) < 2:
             return html.Div('Período muito curto para análise semanal.')
 
+        def selected_flow_start_series(df_local):
+            if df_local is None or getattr(df_local, 'empty', True):
+                return pd.Series(dtype='datetime64[ns]')
+            s = pd.to_datetime(df_local.get('LeadStart_Selected'), errors='coerce')
+            if 'DataBacklog' in df_local.columns:
+                s = s.fillna(df_local['DataBacklog'])
+            if 'DataInProgress' in df_local.columns:
+                s = s.fillna(df_local['DataInProgress'])
+            return s
+
         def build_weekly_metrics(df_source, start_ref, end_ref):
             rows = []
             weeks_ref = pd.date_range(start=start_ref, end=end_ref + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
             if len(weeks_ref) < 2:
                 return pd.DataFrame()
+            flow_start = selected_flow_start_series(df_source)
             for i in range(len(weeks_ref) - 1):
                 week_start = weeks_ref[i]
                 week_end = weeks_ref[i + 1]
                 arrived = df_source[
-                    (df_source['DataInProgress'] >= week_start) &
-                    (df_source['DataInProgress'] < week_end)
+                    (flow_start >= week_start) &
+                    (flow_start < week_end)
                 ]
                 done = df_source[
                     (df_source['DataDone'] >= week_start) &
@@ -3087,12 +3098,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             return pd.DataFrame(rows)
 
         weekly_rows = []
+        signal_flow_start = selected_flow_start_series(df_signal_base)
         for i in range(len(weeks) - 1):
             week_start = weeks[i]
             week_end = weeks[i + 1]
             arrivals = len(df_signal_base[
-                (df_signal_base['DataInProgress'] >= week_start) &
-                (df_signal_base['DataInProgress'] < week_end)
+                (signal_flow_start >= week_start) &
+                (signal_flow_start < week_end)
             ])
             done_week = df_signal_base[
                 (df_signal_base['DataDone'] >= week_start) &
@@ -3113,7 +3125,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # Histórico de referência para thresholds dinâmicos por projeto/tipo.
         date_candidates = []
-        for col in ['DataInProgress', 'DataDone']:
+        threshold_flow_start = selected_flow_start_series(df_threshold_base)
+        if not threshold_flow_start.dropna().empty:
+            date_candidates.append(threshold_flow_start.dropna().min())
+        for col in ['DataDone']:
             if col in df_threshold_base.columns and not df_threshold_base[col].dropna().empty:
                 date_candidates.append(df_threshold_base[col].dropna().min())
         if not date_candidates:
@@ -3127,16 +3142,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (df_signal_base['DataDone'] <= end_ts)
         ].copy()
         df_done_period_eligible = df_done_period[done_time_eligible_mask(df_done_period)].copy()
+        demand_date = selected_flow_start_series(df_signal_base)
         df_arrived_period = df_signal_base[
-            (df_signal_base['DataInProgress'] >= start_ts) &
-            (df_signal_base['DataInProgress'] <= end_ts)
+            (demand_date >= start_ts) &
+            (demand_date <= end_ts)
         ]
-        if 'LeadStart_Selected' in df_signal_base.columns:
-            demand_date = pd.to_datetime(df_signal_base['LeadStart_Selected'], errors='coerce')
-            if 'DataBacklog' in df_signal_base.columns:
-                demand_date = demand_date.fillna(df_signal_base['DataBacklog'])
-            if 'DataInProgress' in df_signal_base.columns:
-                demand_date = demand_date.fillna(df_signal_base['DataInProgress'])
+        if not demand_date.dropna().empty:
             df_demand_period = df_signal_base[
                 (demand_date >= start_ts) &
                 (demand_date <= end_ts)
@@ -3206,15 +3217,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
         commit_times = pd.Series(dtype='float64')
         if not df_arrived_period.empty:
-            # Prefer the date-based calculation to avoid stale/zeroed precomputed values.
-            if {'LeadStart_Selected', 'DataInProgress'}.issubset(df_arrived_period.columns):
-                commit_times = (df_arrived_period['DataInProgress'] - pd.to_datetime(df_arrived_period['LeadStart_Selected'], errors='coerce')).dt.days
-            elif {'DataBacklog', 'DataInProgress'}.issubset(df_arrived_period.columns):
-                commit_times = (df_arrived_period['DataInProgress'] - df_arrived_period['DataBacklog']).dt.days
-            if 'TempoBacklog_Dias' in df_arrived_period.columns:
-                commit_fallback = pd.to_numeric(df_arrived_period['TempoBacklog_Dias'], errors='coerce')
-                commit_times = commit_times.reindex(df_arrived_period.index) if not commit_times.empty else pd.Series(index=df_arrived_period.index, dtype='float64')
-                commit_times = commit_times.fillna(commit_fallback)
+            # Tempo para Commit = da entrada base (backlog) até a etapa de compromisso selecionada.
+            if {'DataBacklog', 'LeadStart_Selected'}.issubset(df_arrived_period.columns):
+                commit_times = (
+                    pd.to_datetime(df_arrived_period['LeadStart_Selected'], errors='coerce') -
+                    pd.to_datetime(df_arrived_period['DataBacklog'], errors='coerce')
+                ).dt.days
             commit_times = pd.to_numeric(commit_times, errors='coerce').dropna()
             commit_times = commit_times[commit_times >= 0]
         time_to_commit_p85 = exact_empirical_percentile(commit_times, 0.85) if not commit_times.empty else np.nan
@@ -3542,7 +3550,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     indicator_dots(dot_orange),
                     html.P("Entrada vs Saída", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
                     html.P(
-                        "Entrada = itens que iniciaram execução no período. Saída = itens concluídos no período.",
+                        "Entrada = itens comprometidos no período (etapas selecionadas). Saída = itens concluídos no período.",
                         style={'fontSize': '12px', 'color': '#5f6e7b', 'marginTop': '-6px', 'marginBottom': '8px'}
                     ),
                     html.Div([
@@ -3555,7 +3563,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                                     'borderRadius': '0',
                                     'margin': '0 auto',
                                 }),
-                                html.P('Entrada', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
+                                html.P('Compromisso', style={'fontSize': '16px', 'marginTop': '8px', 'marginBottom': '0', 'textAlign': 'center', 'color': '#4f5965'}),
                             ], style={'display': 'inline-block', 'width': '50%'}),
                             html.Div([
                                 html.Div(style={

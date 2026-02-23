@@ -101,3 +101,10 @@ Use this file after any user correction.
 - Root cause: Implementei a aba em `dashboard_app.py` sem confirmar qual aplicação o usuário estava executando (provavelmente `dashboard_full.py`).
 - Prevention rule: Antes de alterar UI com abas/páginas, confirmar o entrypoint em uso (script de execução/arquivo aberto) e aplicar no dashboard certo.
 - Action added to workflow: Em pedidos de interface, validar primeiro o arquivo ativo (`dashboard_full.py` vs `dashboard_app.py`) com o usuário ou pelo fluxo de execução local.
+
+- Date: 2026-02-23
+- Context: Usuário informou que o filtro de etapas ainda não afetava 100% o Painel após correção inicial.
+- User correction: Pediu revisão detalhada dos KPIs/gráficos do Painel porque os números continuavam praticamente iguais.
+- Root cause: A correção inicial aplicou o filtro às métricas de Lead Time, mas deixou indicadores de referência (demanda/entrada/tempo para commit) presos à semântica antiga (`DataInProgress` / backlog fixo).
+- Prevention rule: Quando um filtro semântico redefine o “início do fluxo”, revisar também todos os KPIs/gráficos derivados de chegada/compromisso no mesmo painel, não apenas percentis de lead time.
+- Action added to workflow: Em filtros de etapa/fluxo, mapear por aba quais métricas usam data de início, data de fim e WIP para validar dependência correta do filtro.
