@@ -1204,4 +1204,24 @@
 - Suggested commit message:
   - `feat(dashboard-app): add dedicated lead time tab with distribution and trend charts`
 
+## Current Task (Documentar roadmap de indicadores de portfólio)
+- [x] Consolidar indicadores já implementados na aba Portfólio
+- [x] Registrar matriz de implementação (valor, dados, complexidade)
+- [x] Documentar pendências e roadmap técnico por fases
+- [x] Registrar riscos/lacunas de dados do snapshot atual
+
+## Review (Documentar roadmap de indicadores de portfólio)
+- What was validated:
+  - Documento criado com visão consolidada da aba de portfólio, incluindo:
+    - indicadores implementados
+    - matriz de implementação com status
+    - backlog priorizado
+    - roadmap por fases (sem/ com evolução do exportador)
+    - riscos e limitações do modelo snapshot
+  - O documento também registra recomendações para evolução alinhadas a práticas de portfólio (PMI/SAFe/Gartner em nível conceitual).
+- Evidence (tests/logs/diff):
+  - Arquivo criado: `ROADMAP_INDICADORES_PORTFOLIO.md`
+- Suggested commit message:
+  - `docs(portfolio): add implementation matrix and roadmap for portfolio indicators`
+
 
