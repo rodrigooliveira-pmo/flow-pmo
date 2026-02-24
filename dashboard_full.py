@@ -610,13 +610,19 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'aging_us_comp_20': pd.DataFrame(),
                 'aging_features_comp_40': pd.DataFrame(),
                 'aging_buckets_por_team': pd.DataFrame(),
+                'aging_por_tipo': pd.DataFrame(),
+                'aging_por_projeto': pd.DataFrame(),
                 'status_categoria_por_team': pd.DataFrame(),
                 'status_ranking_por_team': pd.DataFrame(),
                 'effort_features_por_team': pd.DataFrame(),
+                'features_sem_effort_por_team': pd.DataFrame(),
+                'heatmap_team_status': pd.DataFrame(),
                 'quality_por_team': pd.DataFrame(),
                 'hist_tasks_sem_feature_por_team': pd.DataFrame(),
                 'executive_tiles': pd.DataFrame(),
                 'quality_summary': pd.DataFrame(),
+                'top_epicos_volume': pd.DataFrame(),
+                'top_epicos_aging': pd.DataFrame(),
                 'epicos_detalhe': pd.DataFrame(),
                 'features_detalhe': pd.DataFrame(),
             },
@@ -784,6 +790,46 @@ def compute_portfolio_snapshot(df, updated_at_label):
     else:
         aging_buckets_por_team = pd.DataFrame(columns=['Team', 'AgingBucket', 'WorkItems'])
 
+    # Aging por tipo e por projeto (somente itens abertos).
+    def aging_summary(df_source, group_col, rename_col):
+        if df_source is None or df_source.empty:
+            return pd.DataFrame(columns=[rename_col, 'QtdItensAbertos', 'Aging Médio', 'Aging Mediano', 'Aging P90', 'Aging Máx'])
+        base = df_source.copy()
+        base['AgingDiasSemAlteracao'] = pd.to_numeric(base['AgingDiasSemAlteracao'], errors='coerce')
+        agg = (
+            base.groupby(group_col, dropna=False)['AgingDiasSemAlteracao']
+            .agg(
+                QtdItensAbertos='count',
+                Aging_Medio='mean',
+                Aging_Mediano='median',
+                Aging_Max='max',
+            )
+            .reset_index()
+        )
+        p90 = (
+            base.groupby(group_col, dropna=False)['AgingDiasSemAlteracao']
+            .quantile(0.90)
+            .reset_index(name='Aging_P90')
+        )
+        agg = agg.merge(p90, on=group_col, how='left')
+        agg[group_col] = agg[group_col].fillna('').astype(str)
+        agg.loc[agg[group_col].str.strip() == '', group_col] = f'Sem {rename_col.upper()}'
+        agg['Aging_Medio'] = agg['Aging_Medio'].round(1)
+        agg['Aging_Mediano'] = agg['Aging_Mediano'].round(1)
+        agg['Aging_P90'] = agg['Aging_P90'].round(1)
+        agg['Aging_Max'] = agg['Aging_Max'].round(1)
+        agg = agg.sort_values(['Aging_Medio', 'QtdItensAbertos'], ascending=[False, False], ignore_index=True)
+        return agg.rename(columns={
+            group_col: rename_col,
+            'Aging_Medio': 'Aging Médio',
+            'Aging_Mediano': 'Aging Mediano',
+            'Aging_P90': 'Aging P90',
+            'Aging_Max': 'Aging Máx',
+        })
+
+    aging_por_tipo = aging_summary(aging_open, 'Tipo', 'Tipo')
+    aging_por_projeto = aging_summary(aging_open, 'Projeto', 'Projeto')
+
     # Ranking de status por TEAM (categorias mapeadas + não mapeado).
     status_categoria_por_team = (
         group_count(df, ['TeamDisplay', 'StatusCategoria'], 'WorkItems')
@@ -816,6 +862,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
         status_ranking_por_team = status_ranking_por_team.sort_values(
             ['% Em progresso', 'TotalItems'], ascending=[False, False], ignore_index=True
         )
+    heatmap_team_status = status_categoria_por_team.copy() if status_categoria_por_team is not None else pd.DataFrame(columns=['Team', 'StatusCategoria', 'WorkItems'])
 
     # Distribuição de Effort T-shirt por TEAM (Features).
     if features is not None and not features.empty:
@@ -823,8 +870,23 @@ def compute_portfolio_snapshot(df, updated_at_label):
             group_count(features, ['TeamDisplay', 'EffortTShirtDisplay'], 'QtdFeatures')
             .rename(columns={'TeamDisplay': 'Team'})
         )
+        features_sem_effort_por_team = (
+            group_count(features[features['EffortTShirtSize'].fillna('').astype(str).str.strip() == ''], ['TeamDisplay'], 'FeaturesSemEffort')
+            .rename(columns={'TeamDisplay': 'Team'})
+        )
+        features_total_team = group_count(features, ['TeamDisplay'], 'FeaturesTotal').rename(columns={'TeamDisplay': 'Team'})
+        features_sem_effort_por_team = features_total_team.merge(features_sem_effort_por_team, on='Team', how='left')
+        features_sem_effort_por_team['FeaturesSemEffort'] = features_sem_effort_por_team['FeaturesSemEffort'].fillna(0).astype(int)
+        features_sem_effort_por_team['% Sem Effort'] = (
+            (features_sem_effort_por_team['FeaturesSemEffort'] / features_sem_effort_por_team['FeaturesTotal'].replace(0, np.nan)) * 100
+        ).fillna(0).round(1)
+        features_sem_effort_por_team['% Com Effort'] = (100 - features_sem_effort_por_team['% Sem Effort']).round(1)
+        features_sem_effort_por_team = features_sem_effort_por_team.sort_values(
+            ['% Sem Effort', 'FeaturesSemEffort'], ascending=[False, False], ignore_index=True
+        )
     else:
         effort_features_por_team = pd.DataFrame(columns=['Team', 'EffortTShirtDisplay', 'QtdFeatures'])
+        features_sem_effort_por_team = pd.DataFrame(columns=['Team', 'FeaturesTotal', 'FeaturesSemEffort', '% Sem Effort', '% Com Effort'])
 
     # Qualidade de cadastro por TEAM (TEAM efetivo para escopo; preenchimento avalia TEAM original).
     total_por_team = group_count(df, ['TeamDisplay'], 'TotalItems').rename(columns={'TeamDisplay': 'Team'})
@@ -918,6 +980,10 @@ def compute_portfolio_snapshot(df, updated_at_label):
     epics['QtdItensFilhos'] = epics['QtdItensFilhos'].fillna(0).astype(int)
     epics['QtdItensFluxo'] = epics['QtdFeatures'] + epics['QtdItensFilhos']
     epics['Complexidade'] = epics['QtdItensFluxo'].apply(complexidade_epico)
+    age_map_all = df.set_index('ID')['AgingDiasSemAlteracao'] if not df.empty else pd.Series(dtype='float64')
+    is_open_map = df.set_index('ID')['IsOpen'] if not df.empty else pd.Series(dtype='bool')
+    epics['AgingDiasSemAlteracao'] = epics['ID'].map(age_map_all)
+    epics['IsOpen'] = epics['ID'].map(is_open_map).fillna(False)
     epics_sem_features = epics[epics['QtdFeatures'] == 0].copy()
 
     epicos_por_team_status = group_count(epics, ['TeamDisplay', 'Status'], 'QtdEpicos').rename(columns={'TeamDisplay': 'Team'})
@@ -966,8 +1032,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
         if 'UltimaMovimentacao' in features.columns else np.nan
     )
     epicos_detalhe = (
-        epics[['TeamDisplay', 'ID', 'Titulo', 'Status', 'Complexidade', 'QtdFeatures', 'QtdItensFluxo', 'Link']]
-        .rename(columns={'TeamDisplay': 'Team', 'ID': 'EpicID'})
+        epics[['TeamDisplay', 'ID', 'Titulo', 'Status', 'Complexidade', 'QtdFeatures', 'QtdItensFluxo', 'AgingDiasSemAlteracao', 'Link']]
+        .rename(columns={'TeamDisplay': 'Team', 'ID': 'EpicID', 'AgingDiasSemAlteracao': 'AgingDiasSemAlteracao'})
         .sort_values(['Team', 'QtdItensFluxo', 'QtdFeatures'], ascending=[True, False, False], ignore_index=True)
     )
     features_detalhe = (
@@ -1024,6 +1090,21 @@ def compute_portfolio_snapshot(df, updated_at_label):
         },
     ])
 
+    # Concentração de portfólio em épicos (volume / aging).
+    top_epicos_volume = (
+        epics[['TeamDisplay', 'ID', 'Titulo', 'Status', 'QtdFeatures', 'QtdItensFluxo', 'AgingDiasSemAlteracao', 'Link']]
+        .rename(columns={'TeamDisplay': 'Team', 'ID': 'EpicID'})
+        .sort_values(['QtdItensFluxo', 'QtdFeatures', 'AgingDiasSemAlteracao'], ascending=[False, False, False], ignore_index=True)
+        .head(15)
+    ) if not epics.empty else pd.DataFrame(columns=['Team', 'EpicID', 'Titulo', 'Status', 'QtdFeatures', 'QtdItensFluxo', 'AgingDiasSemAlteracao', 'Link'])
+
+    top_epicos_aging = (
+        epics[epics['IsOpen'] == True][['TeamDisplay', 'ID', 'Titulo', 'Status', 'AgingDiasSemAlteracao', 'QtdItensFluxo', 'QtdFeatures', 'Link']]
+        .rename(columns={'TeamDisplay': 'Team', 'ID': 'EpicID'})
+        .sort_values(['AgingDiasSemAlteracao', 'QtdItensFluxo'], ascending=[False, False], ignore_index=True)
+        .head(15)
+    ) if not epics.empty else pd.DataFrame(columns=['Team', 'EpicID', 'Titulo', 'Status', 'AgingDiasSemAlteracao', 'QtdItensFluxo', 'QtdFeatures', 'Link'])
+
     return {
         'updated_at': updated_at_label,
         'metrics': {
@@ -1055,13 +1136,19 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'aging_us_comp_20': aging_us_comp_20,
             'aging_features_comp_40': aging_features_comp_40,
             'aging_buckets_por_team': aging_buckets_por_team,
+            'aging_por_tipo': aging_por_tipo,
+            'aging_por_projeto': aging_por_projeto,
             'status_categoria_por_team': status_categoria_por_team,
             'status_ranking_por_team': status_ranking_por_team,
+            'heatmap_team_status': heatmap_team_status,
             'effort_features_por_team': effort_features_por_team,
+            'features_sem_effort_por_team': features_sem_effort_por_team,
             'quality_por_team': quality_por_team,
             'hist_tasks_sem_feature_por_team': hist_tasks_sem_feature_por_team,
             'executive_tiles': executive_tiles,
             'quality_summary': quality_summary,
+            'top_epicos_volume': top_epicos_volume,
+            'top_epicos_aging': top_epicos_aging,
             'epicos_detalhe': epicos_detalhe,
             'features_detalhe': features_detalhe,
             'has_us_items': has_us_items,
@@ -3052,15 +3139,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         aging_us_comp_20 = groups.get('aging_us_comp_20', pd.DataFrame())
         aging_features_comp_40 = groups.get('aging_features_comp_40', pd.DataFrame())
         aging_buckets_por_team = groups.get('aging_buckets_por_team', pd.DataFrame())
+        aging_por_tipo = groups.get('aging_por_tipo', pd.DataFrame())
+        aging_por_projeto = groups.get('aging_por_projeto', pd.DataFrame())
         status_categoria_por_team = groups.get('status_categoria_por_team', pd.DataFrame())
         status_ranking_por_team = groups.get('status_ranking_por_team', pd.DataFrame())
+        heatmap_team_status = groups.get('heatmap_team_status', pd.DataFrame())
         effort_features_por_team = groups.get('effort_features_por_team', pd.DataFrame())
+        features_sem_effort_por_team = groups.get('features_sem_effort_por_team', pd.DataFrame())
         quality_por_team = groups.get('quality_por_team', pd.DataFrame())
         quality_summary = groups.get('quality_summary', pd.DataFrame())
         hist_tasks_sem_feature_por_team = groups.get('hist_tasks_sem_feature_por_team', pd.DataFrame())
         executive_tiles = groups.get('executive_tiles', pd.DataFrame())
         epicos_por_team_total = groups.get('epicos_por_team_total', pd.DataFrame())
         features_por_team_total = groups.get('features_por_team_total', pd.DataFrame())
+        top_epicos_volume = groups.get('top_epicos_volume', pd.DataFrame())
+        top_epicos_aging = groups.get('top_epicos_aging', pd.DataFrame())
         epicos_detalhe = groups.get('epicos_detalhe', pd.DataFrame())
         features_detalhe = groups.get('features_detalhe', pd.DataFrame())
         has_us_items = bool(groups.get('has_us_items', False))
@@ -3087,11 +3180,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         aging_buckets_por_team = filter_by_team(aging_buckets_por_team)
         status_categoria_por_team = filter_by_team(status_categoria_por_team)
         status_ranking_por_team = filter_by_team(status_ranking_por_team)
+        heatmap_team_status = filter_by_team(heatmap_team_status)
         effort_features_por_team = filter_by_team(effort_features_por_team)
+        features_sem_effort_por_team = filter_by_team(features_sem_effort_por_team)
         quality_por_team = filter_by_team(quality_por_team)
         hist_tasks_sem_feature_por_team = filter_by_team(hist_tasks_sem_feature_por_team)
         epicos_por_team_total = filter_by_team(epicos_por_team_total)
         features_por_team_total = filter_by_team(features_por_team_total)
+        top_epicos_volume = filter_by_team(top_epicos_volume)
+        top_epicos_aging = filter_by_team(top_epicos_aging)
         epicos_detalhe = filter_by_team(epicos_detalhe)
         features_detalhe = filter_by_team(features_detalhe)
         available_teams = []
@@ -3339,6 +3436,127 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 *blocks
             ], style={'marginTop': '24px'})
 
+        def render_heatmap_team_status(df_heatmap):
+            if df_heatmap is None or df_heatmap.empty:
+                return html.Div([html.H3('Heatmap TEAM x StatusCategoria'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            pivot = (
+                df_heatmap.pivot_table(index='Team', columns='StatusCategoria', values='WorkItems', aggfunc='sum', fill_value=0)
+            )
+            # Ordem estável para leitura.
+            ordered_cols = [c for c in ['Backlog', 'Em progresso', 'Concluído', 'Não mapeado'] if c in pivot.columns] + [c for c in pivot.columns if c not in {'Backlog', 'Em progresso', 'Concluído', 'Não mapeado'}]
+            pivot = pivot[ordered_cols]
+            fig = px.imshow(
+                pivot,
+                text_auto=True,
+                aspect='auto',
+                color_continuous_scale='Blues',
+                labels=dict(x='StatusCategoria', y='TEAM', color='Itens'),
+                title='Heatmap TEAM x StatusCategoria (contagem)'
+            )
+            fig.update_layout(height=max(320, 34 * max(1, len(pivot.index)) + 140), margin=dict(t=60, b=60))
+            table_df = pivot.reset_index()
+            return html.Div([
+                html.H3('Heatmap TEAM x StatusCategoria', style={'textAlign': 'left'}),
+                dcc.Graph(figure=fig),
+                portfolio_table_component(table_df, 'Matriz TEAM x StatusCategoria', 'table-portfolio-heatmap-team-status')
+            ], style={'marginTop': '24px'})
+
+        def render_features_sem_effort(df_sem_effort):
+            if df_sem_effort is None or df_sem_effort.empty:
+                return html.Div([html.H3('Features sem Effort por TEAM'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            df_plot = df_sem_effort.sort_values(['% Sem Effort', 'FeaturesSemEffort'], ascending=[False, False]).copy()
+            fig = px.bar(
+                df_plot,
+                x='Team',
+                y='FeaturesSemEffort',
+                color='% Sem Effort',
+                template='plotly_white',
+                title='Features sem Effort por TEAM (contagem e severidade em %)',
+                color_continuous_scale='OrRd'
+            )
+            fig.update_layout(height=360, margin=dict(t=60, b=80), xaxis_tickangle=-25)
+            fig.update_traces(
+                customdata=df_plot[['FeaturesTotal', '% Sem Effort', '% Com Effort']].to_numpy(),
+                hovertemplate='TEAM: %{x}<br>Sem Effort: %{y}<br>Total Features: %{customdata[0]}<br>% Sem Effort: %{customdata[1]}%<br>% Com Effort: %{customdata[2]}%<extra></extra>'
+            )
+            return html.Div([
+                html.H3('Features sem Effort por TEAM', style={'textAlign': 'left'}),
+                dcc.Graph(figure=fig),
+                portfolio_table_component(df_plot, 'Cobertura de Effort por TEAM (features)', 'table-portfolio-features-sem-effort-team')
+            ], style={'marginTop': '24px'})
+
+        def render_aging_por_tipo_projeto(df_tipo, df_projeto):
+            if (df_tipo is None or df_tipo.empty) and (df_projeto is None or df_projeto.empty):
+                return html.Div([html.H3('Aging por Tipo/Projeto'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            blocks = []
+            if df_tipo is not None and not df_tipo.empty:
+                fig_tipo = px.bar(
+                    df_tipo.sort_values(['Aging Médio', 'QtdItensAbertos'], ascending=[False, False]),
+                    x='Tipo',
+                    y='Aging Médio',
+                    color='QtdItensAbertos',
+                    template='plotly_white',
+                    title='Aging médio por Tipo (itens abertos)',
+                    color_continuous_scale='YlOrBr'
+                )
+                fig_tipo.update_layout(height=340, margin=dict(t=60, b=80), xaxis_tickangle=-25)
+                blocks.append(dcc.Graph(figure=fig_tipo))
+                blocks.append(portfolio_table_component(df_tipo.copy(), 'Aging por Tipo (abertos)', 'table-portfolio-aging-por-tipo'))
+            if df_projeto is not None and not df_projeto.empty:
+                fig_proj = px.bar(
+                    df_projeto.sort_values(['Aging Médio', 'QtdItensAbertos'], ascending=[False, False]),
+                    x='Projeto',
+                    y='Aging Médio',
+                    color='QtdItensAbertos',
+                    template='plotly_white',
+                    title='Aging médio por Projeto (itens abertos)',
+                    color_continuous_scale='PuBuGn'
+                )
+                fig_proj.update_layout(height=340, margin=dict(t=60, b=80), xaxis_tickangle=-25)
+                blocks.append(dcc.Graph(figure=fig_proj))
+                blocks.append(portfolio_table_component(df_projeto.copy(), 'Aging por Projeto (abertos)', 'table-portfolio-aging-por-projeto'))
+            return html.Div([
+                html.H3('Aging por Tipo/Projeto', style={'textAlign': 'left'}),
+                *blocks
+            ], style={'marginTop': '24px'})
+
+        def render_concentracao_epicos(df_top_volume, df_top_aging):
+            if (df_top_volume is None or df_top_volume.empty) and (df_top_aging is None or df_top_aging.empty):
+                return html.Div([html.H3('Concentração de Épicos'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            sections = []
+            if df_top_volume is not None and not df_top_volume.empty:
+                fig_vol = px.bar(
+                    df_top_volume.head(10).copy().sort_values('QtdItensFluxo', ascending=True),
+                    x='QtdItensFluxo',
+                    y='EpicID',
+                    orientation='h',
+                    color='Team',
+                    template='plotly_white',
+                    title='Top Épicos por Volume (itens de fluxo)',
+                    hover_data=['Titulo', 'QtdFeatures', 'AgingDiasSemAlteracao', 'Status']
+                )
+                fig_vol.update_layout(height=420, margin=dict(l=100, r=40, t=60, b=40))
+                sections.append(dcc.Graph(figure=fig_vol))
+                sections.append(portfolio_table_component(df_top_volume.copy(), 'Top Épicos por volume', 'table-portfolio-top-epicos-volume'))
+            if df_top_aging is not None and not df_top_aging.empty:
+                fig_age = px.bar(
+                    df_top_aging.head(10).copy().sort_values('AgingDiasSemAlteracao', ascending=True),
+                    x='AgingDiasSemAlteracao',
+                    y='EpicID',
+                    orientation='h',
+                    color='Team',
+                    template='plotly_white',
+                    title='Top Épicos por Aging (abertos)',
+                    hover_data=['Titulo', 'QtdItensFluxo', 'QtdFeatures', 'Status']
+                )
+                fig_age.update_layout(height=420, margin=dict(l=100, r=40, t=60, b=40))
+                sections.append(dcc.Graph(figure=fig_age))
+                sections.append(portfolio_table_component(df_top_aging.copy(), 'Top Épicos por aging', 'table-portfolio-top-epicos-aging'))
+            return html.Div([
+                html.H3('Concentração (Top Épicos por Volume/Aging)', style={'textAlign': 'left'}),
+                *sections
+            ], style={'marginTop': '24px'})
+
         def render_quality_cards(df_quality_scope, df_quality_global):
             def _from_scope_or_global(indicador):
                 if df_quality_scope is not None and not df_quality_scope.empty:
@@ -3455,6 +3673,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             render_executive_tiles(executive_tiles),
             render_quality_cards(quality_por_team, quality_summary),
+            render_features_sem_effort(features_sem_effort_por_team),
             html.Div([
                 html.Div(
                     render_team_total_tiles(epicos_por_team_total, 'QtdEpicos', 'Total de Épicos por TEAM', color='#2e7d32'),
@@ -3467,8 +3686,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ], className='row', style={'marginTop': '10px'}),
 
             render_effort_distribution(effort_features_por_team),
+            render_aging_por_tipo_projeto(aging_por_tipo, aging_por_projeto),
             render_aging_buckets(aging_buckets_por_team),
             render_status_ranking(status_categoria_por_team, status_ranking_por_team),
+            render_heatmap_team_status(heatmap_team_status),
+            render_concentracao_epicos(top_epicos_volume, top_epicos_aging),
 
             html.Div([
                 html.Div([
