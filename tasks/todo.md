@@ -1,5 +1,59 @@
 # Task Plan
 
+## Current Task (Weibull shape/lambda na estatística descritiva)
+- [x] Inspecionar referência da planilha `LT_STATS_WEIBULL.xlsx` e alinhar fórmula de ajuste Weibull
+- [x] Implementar cálculo de `shape (k)` e `lambda` do Lead Time na aba `Estatística Descritiva`
+- [x] Validar sintaxe/diff e registrar review/evidências
+
+## Specification (Weibull shape/lambda na estatística descritiva)
+- Objetivo: incluir na tabela de estatísticas de Lead Time da aba `Estatística Descritiva` os parâmetros da distribuição Weibull (`shape` e `lambda`) calculados pelo mesmo método da planilha de referência.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Cálculo usa transformação Weibull linearizada (ranking + regressão em escala log/log), compatível com a planilha `LT_STATS_WEIBULL.xlsx`.
+  - A tabela de Lead Time exibe `shape` e `lambda` quando houver amostra válida (> 0).
+  - Não quebra a aba quando a amostra for insuficiente; exibir fallback seguro.
+
+## Review (Weibull shape/lambda na estatística descritiva)
+- What was validated:
+  - A planilha `LT_STATS_WEIBULL.xlsx` foi inspecionada e o método confirmado: ordenação dos LT, posição de plotagem `F(i)=(2i-1)/(2n)`, regressão linear em `ln(t)` vs `ln(-ln(1-F))`.
+  - `dashboard_full.py` recebeu helper `fit_weibull_linearized(...)` para calcular `shape (k)` e `lambda` (2 parâmetros) com fallback seguro quando a amostra positiva é insuficiente.
+  - A tabela de Lead Time da aba `Estatística Descritiva` agora exibe `Weibull Shape (k)` e `Weibull Lambda (λ)`.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+  - verificação da planilha via `openpyxl` (resultado compatível: `k≈1.4258`, `lambda≈23.9604`)
+- Suggested commit message:
+  - `feat(stats): add Weibull shape and lambda to descriptive lead time stats`
+
+
+## Current Task (Gráfico de vazão por pessoa na aba Throughput)
+- [x] Localizar a aba/callback de throughput no dashboard ativo (`dashboard_full.py`)
+- [x] Adicionar gráfico de barras de vazão por pessoa segmentado por tipo de demanda
+- [x] Validar sintaxe e revisar diff da alteração
+
+## Specification (Gráfico de vazão por pessoa na aba Throughput)
+- Objetivo: exibir na aba de throughput um gráfico de barras de vazão por responsável, com divisão por tipo de demanda.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Gráfico aparece na aba `Throughput Breakdown` usando os filtros já aplicados.
+  - Barras segmentadas por `TipoDemanda`.
+  - Ordenação por maior volume de throughput por pessoa.
+
+## Review (Gráfico de vazão por pessoa na aba Throughput)
+- What was validated:
+  - Inserido gráfico `Vazão por Pessoa` na aba `tab-throughput-breakdown` usando `tp_done` (itens concluídos no período filtrado).
+  - Visualização em barras horizontais empilhadas por `TipoDemanda`, com ordenação por throughput total e limite Top 20 para legibilidade.
+  - Tratamento de responsável ausente com fallback `Não atribuído`.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; p=pathlib.Path('dashboard_full.py'); ast.parse(p.read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(throughput): add stacked throughput by person chart`
+
 ## Current Task (Redesenho dos botões da Tela Principal)
 - [x] Diagnosticar causa visual dos botões pequenos/desalinhados no menu inicial
 - [x] Ajustar estilos dos botões `Porfólio` e `Serviços (Value Stream)` para centralização e tamanho maior
