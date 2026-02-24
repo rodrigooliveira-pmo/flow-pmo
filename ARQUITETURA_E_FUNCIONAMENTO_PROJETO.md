@@ -229,3 +229,140 @@ Principais bibliotecas:
 3. Externalizar configurações em `.env`/`config.yaml`.
 4. Incluir testes automáticos para regras de eficiência e gargalo.
 5. Versionar semanticamente as mudanças de documentação e scripts de coleta.
+
+## 12) Inventário Atual de Funcionalidades (Atualizado em 24/02/2026)
+
+### 12.1 Extração Jira (Fluxo)
+
+- Exportação por projeto para CSV downstream (`*-data.csv`) via `jira_to_pipeline_csv.py`.
+- Fallback de endpoints Jira (`search/jql` e `search`) com retry/backoff para `429`/`5xx`.
+- Resolução de fluxo por projeto (legado vs Data&Analytics) e por tipo de item no DT (melhoria vs bug/incidente/ad-hoc).
+- Exportação de gargalos por projeto (`*-data_bottlenecks.csv`).
+- Suporte opcional a changelog detalhado por projeto (`--detailed-changelog-out` no script macOS).
+- Datas por etapa configuráveis no exportador (modo com última entrada por etapa, usado para alinhar WIP/WIP Age com referência operacional).
+
+### 12.2 Extração Jira (Portfólio)
+
+- Exportação do snapshot de portfólio BT/NS (`portfolio-bt-ns-<data>-data.csv`) via `jira_portfolio_to_csv.py`.
+- Campos de governança e relacionamento (ex.: time, parent, status e datas de atualização/mudança).
+- Arquivo estável `portfolio-bt-ns-latest-data.csv` para consumo do dashboard sem depender de nome datado.
+
+### 12.3 Orquestração (Windows/macOS)
+
+- Scripts `run_all_projects.ps1` e `run_all_projects_macos.sh` para execução ponta a ponta.
+- Sequenciamento de exportação de 4 projetos de fluxo (`W1NNR`, `S1NC`, `BF`, `DT`), portfólio, métricas e dashboard.
+- Carregamento de variáveis do `jira_env.txt`.
+- Proteção contra `JIRA_STATUS_MAP` global em execução multi-projeto (usa `JIRA_IGNORE_STATUS_MAP=1`).
+- Geração/atualização de aliases `latest` para artefatos de portfólio e gargalos; no macOS também para downstream detalhado e changelog detalhado.
+
+### 12.4 Pipeline de Métricas e Modelo Analítico (`dash_board_metricas.py`)
+
+- Consolidação de CSVs de fluxo multi-projeto e padronização de colunas.
+- Cálculo de métricas de lead time, cycle time, backlog time, WIP, throughput, bloqueios e eficiência.
+- Regras de elegibilidade para métricas de tempo de concluídos (exclusão de itens cancelados).
+- Geração de `dashboard_output_<timestamp>.xlsx` e `PowerBI_Model_<timestamp>.xlsx`.
+- Geração de workbook consolidado de gargalos (`bottlenecks_consolidado_<timestamp>.xlsx` + `latest`).
+- Modelo dimensional para consumo em Power BI e Dash.
+
+### 12.5 Dashboard Principal (`dashboard_full.py`)
+
+- App Dash principal com menu inicial (`Portfólio` vs `Serviços (Value Stream)`).
+- Filtros globais por período, projeto, tipo, classe de serviço, responsável e time de portfólio.
+- Abas de serviços atualmente expostas:
+  - `Performance do Serviço`
+  - `Painel Fluxo`
+  - `Lead Time`
+  - `Fluxo`
+  - `CFD`
+  - `Saúde do Fluxo`
+  - `Análise Fluxo`
+  - `Tendências`
+  - `Throughput Breakdown`
+  - `Padrões Sistêmicos`
+  - `WIP por Pessoa`
+  - `Estatística Descritiva`
+  - `Capacidade de Fila`
+- Aba de Portfólio com leitura de CSV local/URL por env e cache em memória.
+- Filtro configurável de etapas de comprometimento para Lead Time (`LeadTime_Selected_Dias`).
+- CFD em aba dedicada, com modos macro/detalhado e painel sumário por ponto (hover/click).
+- Consolidação de abas de análise em `Análise Fluxo` e de saúde/qualidade em `Saúde do Fluxo`.
+- Fallbacks para carregamento de CSV downstream detalhado por projeto (arquivo local, alias `latest`, URL por projeto/global).
+
+### 12.6 Dashboard Secundário (`dashboard_app.py`)
+
+- Aplicação Dash alternativa/mais simples para consumo do `dashboard_output`.
+- Abas analíticas e gráficos auxiliares (dimensional, throughput por tipo, WIP por pessoa, tendências e Lead Time).
+- Útil para validação/smoke de visualizações sem toda a complexidade do `dashboard_full.py`.
+
+### 12.7 Deploy Web (Vercel / `api/index.py`)
+
+- Entrypoint Python para Vercel que carrega dinamicamente módulo/atributo do Dash (`FLOW_PMO_DASH_MODULE`, `FLOW_PMO_DASH_ATTR`).
+- Fallback de erro de inicialização com resposta HTTP 500 e mensagem explícita (facilita diagnóstico em produção).
+- Arquivos de suporte de deploy: `vercel.json` e `DEPLOY_VERCEL.md`.
+
+## 13) Resumo das Entregas dos Últimos 30 Dias (25/01/2026 a 24/02/2026)
+
+### 13.1 Recorte e evidência
+
+- Janela analisada: **25/01/2026 a 24/02/2026**.
+- Neste clone, o histórico Git disponível para a janela começa em **19/02/2026** (`Initial commit (clean secrets)`).
+- Total de commits no período: **51**.
+- Distribuição por dia:
+  - **19/02/2026:** 7 commits
+  - **20/02/2026:** 22 commits
+  - **23/02/2026:** 22 commits
+
+### 13.2 Principais entregas (consolidadas)
+
+1. **Evolução forte do `dashboard_full.py` (principal foco do período)**
+- Criação/ajuste de menu inicial com separação entre `Portfólio` e `Serviços`.
+- Nova aba dedicada de `CFD` com melhorias visuais e opção macro/detalhada.
+- Consolidação de abas em `Análise Fluxo` e `Saúde do Fluxo`.
+- Nova aba/visões de `Lead Time` e ajustes de KPIs operacionais.
+- Melhorias de UX/correções de regressão (ex.: calendário/year dropdown).
+
+2. **Lead Time/Cycle Time: correções de semântica e qualidade estatística**
+- Implementação de percentis empíricos exatos (sem interpolação linear).
+- Exclusão de itens cancelados nas métricas de tempo de concluídos.
+- Filtro de etapas de comprometimento para Lead Time (`LeadTime_Selected_Dias`) aplicado nas abas operacionais.
+- Ajustes para tornar Painel/Fluxo sensíveis ao filtro (incluindo WIP/WIP Age quando aplicável).
+- Fallbacks para não deixar dropdown de etapas vazio sem CSV downstream local.
+
+3. **CFD: ganho funcional e visual**
+- CFD movido para aba própria.
+- Painel de estatísticas sumárias por ponto (hover/click).
+- Melhorias visuais (stacked areas, paleta mais contrastante, hover unificado).
+- Uso de CSV downstream por projeto para modo detalhado e correções de escopo por IDs filtrados.
+
+4. **Pipeline e exportação Jira (fluxo por projeto/tipo)**
+- Correções de mapeamento de status e fluxo para projetos legados e DT.
+- Suporte a fluxo por tipo no DT (melhoria vs ad-hoc/bug/incidente).
+- Correção de datas de etapa por última entrada (`latest`) para alinhar com referência operacional.
+- Geração de artefatos `latest` para downstream/gargalos (especialmente no script macOS).
+- Consolidação de gargalos em workbook único (`bottlenecks_consolidado_*` + `latest`).
+
+5. **Portfólio e integração em produção**
+- Suporte de portfólio por CSV via URL/arquivo em variáveis de ambiente.
+- Melhorias em campos e visões de portfólio no dashboard.
+- Cache e fallback de leitura para reduzir fragilidade operacional.
+
+6. **Deploy e operação (Vercel)**
+- Ajustes de `vercel.json`, rotas/rewrite e entrypoint Python.
+- Tratamento melhor de erro de inicialização no `api/index.py`.
+- Documentação de deploy (`DEPLOY_VERCEL.md`) atualizada no período.
+
+### 13.3 Arquivos com maior concentração de mudanças no período (sinal de onde houve entrega)
+
+- `dashboard_full.py` (maior volume de alterações)
+- `tasks/todo.md` (registro detalhado de especificações/reviews)
+- `dash_board_metricas.py`
+- `jira_to_pipeline_csv.py`
+- `run_all_projects.ps1`
+- `run_all_projects_macos.sh`
+- `jira_portfolio_to_csv.py`
+- `dashboard_app.py`
+- `api/index.py` / `vercel.json`
+
+### 13.4 Observação de rastreabilidade
+
+- O arquivo `tasks/todo.md` contém o detalhamento mais granular das entregas (objetivo, critério de aceite, validações e sugestão de commit) e deve ser usado como trilha principal de auditoria funcional.

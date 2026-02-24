@@ -1,4 +1,86 @@
-﻿# Task Plan
+# Task Plan
+
+## Current Task (Redesenho dos botões da Tela Principal)
+- [x] Diagnosticar causa visual dos botões pequenos/desalinhados no menu inicial
+- [x] Ajustar estilos dos botões `Porfólio` e `Serviços (Value Stream)` para centralização e tamanho maior
+- [x] Validar sintaxe e registrar evidências/review
+
+## Specification (Redesenho dos botões da Tela Principal)
+- Objetivo: melhorar a usabilidade visual da tela principal, deixando os botões maiores e com texto centralizado vertical/horizontalmente.
+- Escopo:
+  - `dashboard_full.py`
+- Critério de aceite:
+  - Botões com área clicável maior.
+  - Texto visualmente centralizado dentro dos botões.
+  - Layout continua responsivo e centralizado no painel inicial.
+
+## Review (Redesenho dos botões da Tela Principal)
+- What was validated:
+  - `dashboard_full.py` teve ajuste apenas no bloco da tela principal (`Tela Principal`), sem mexer na lógica de navegação.
+  - Botões `Porfólio` e `Serviços (Value Stream)` ficaram maiores (`height`, `minWidth`, `fontSize`) e com centralização explícita via `display:flex`, `alignItems:center`, `justifyContent:center`.
+  - Container dos botões ganhou largura máxima maior para evitar compressão e melhorar alinhamento em telas médias.
+- Evidence (tests/logs/diff):
+  - `git diff -- dashboard_full.py`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax ok')"`
+- Suggested commit message:
+  - `style(dashboard): enlarge and center main menu buttons`
+
+## Current Task (Versão executiva 1 página - últimos 30 dias)
+- [x] Definir estrutura executiva em bullet points para apresentação
+- [x] Gerar documento markdown de 1 página com números-chave, entregas e impacto
+- [x] Revisar clareza e consistência com o resumo consolidado anterior
+
+## Specification (Versão executiva 1 página - últimos 30 dias)
+- Objetivo: produzir uma síntese executiva de leitura rápida (1 página) para apresentação de status/entregas recentes.
+- Escopo:
+  - `RESUMO_EXECUTIVO_ULTIMOS_30_DIAS.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Documento em bullets, com foco em comunicação executiva.
+  - Deve conter janela analisada, números-chave, entregas, impacto e próximos passos.
+  - Deve estar consistente com o resumo já registrado em `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`.
+
+## Review (Versão executiva 1 página - últimos 30 dias)
+- What was validated:
+  - Criado `RESUMO_EXECUTIVO_ULTIMOS_30_DIAS.md` com estrutura de apresentação (1 página) em bullets.
+  - O conteúdo consolida as frentes principais: dashboard, métricas, CFD, pipeline Jira, portfólio e deploy.
+  - Datas e números mantidos consistentes com o resumo anterior: janela `25/01/2026` a `24/02/2026`, `51` commits, histórico disponível desde `19/02/2026`.
+- Evidence (tests/logs/diff):
+  - `git diff -- RESUMO_EXECUTIVO_ULTIMOS_30_DIAS.md tasks/todo.md`
+  - conferência manual com `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` (seção 13)
+- Suggested commit message:
+  - `docs: add one-page executive summary for last 30 days`
+
+## Current Task (Inventário de funcionalidades + resumo dos últimos 30 dias)
+- [x] Levantar funcionalidades atuais a partir do código e da documentação central
+- [x] Consolidar entregas dos últimos 30 dias com base em `git log` e `tasks/todo.md`
+- [x] Atualizar documentação com inventário funcional e resumo executivo do período
+- [x] Revisar diff e registrar evidências/review
+
+## Specification (Inventário de funcionalidades + resumo dos últimos 30 dias)
+- Objetivo: produzir um inventário atualizado das funcionalidades do projeto e registrar um resumo das entregas recentes para facilitar onboarding, auditoria e comunicação de progresso.
+- Escopo:
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Documentação contém inventário funcional atualizado por componente.
+  - Documentação contém resumo das entregas dos últimos 30 dias com datas explícitas.
+  - Resumo cita evidências de origem (`git log` + histórico interno em `tasks/todo.md`).
+
+## Review (Inventário de funcionalidades + resumo dos últimos 30 dias)
+- What was validated:
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` recebeu duas novas seções:
+    - inventário atual de funcionalidades (extração, pipeline, orquestração, dashboards e deploy)
+    - resumo de entregas dos últimos 30 dias (25/01/2026 a 24/02/2026), com recorte de commits e consolidação por tema
+  - O inventário reflete o estado atual visível no código, incluindo abas atuais do `dashboard_full.py` e capacidades dos scripts `run_all_projects`.
+  - O resumo de entregas cruza o histórico detalhado já registrado em `tasks/todo.md` com o `git log` da janela solicitada.
+- Evidence (tests/logs/diff):
+  - `git log --since='2026-01-25' --date=short --pretty=format:'%h|%ad|%s'`
+  - `git rev-list --count --since='2026-01-25' HEAD` => `51`
+  - `git log --since='2026-01-25' --date=short --pretty=format:'%ad'` (distribuição por dia)
+  - inspeção de `dashboard_full.py`, `dash_board_metricas.py`, `jira_to_pipeline_csv.py`, `jira_portfolio_to_csv.py`, `run_all_projects.ps1`, `run_all_projects_macos.sh`, `api/index.py`
+- Suggested commit message:
+  - `docs: add functional inventory and 30-day delivery summary`
 
 ## Current Task (Arquivos latest por produto para downstream)
 - [x] Implementar geração de `*-latest-data.csv` por produto no fluxo de exportação
@@ -1067,3 +1149,5 @@
     - `DATA&ANALYTICS`: `dist_traces=2`, `trend_traces=2`
 - Suggested commit message:
   - `feat(dashboard-app): add dedicated lead time tab with distribution and trend charts`
+
+
