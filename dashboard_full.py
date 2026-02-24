@@ -640,6 +640,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'concentracao_epico_share': pd.DataFrame(),
                 'concentracao_summary': pd.DataFrame(),
                 'tipo_balanceamento': pd.DataFrame(),
+                'items_base': pd.DataFrame(),
                 'hist_tasks_sem_feature_por_team': pd.DataFrame(),
                 'executive_tiles': pd.DataFrame(),
                 'quality_summary': pd.DataFrame(),
@@ -1153,10 +1154,21 @@ def compute_portfolio_snapshot(df, updated_at_label):
         estrutura_cobertura_por_team['% Features com filhos'] = (estrutura_cobertura_por_team['FeaturesComFilhos'] / estrutura_cobertura_por_team['FeaturesTotal'].replace(0, np.nan) * 100).fillna(0).round(1)
         estrutura_cobertura_por_team['% Story/Task órfãos'] = (estrutura_cobertura_por_team['StoryTaskOrfaos'] / estrutura_cobertura_por_team['StoryTaskTotal'].replace(0, np.nan) * 100).fillna(0).round(1)
         estrutura_cobertura_por_team = estrutura_cobertura_por_team.sort_values(['% Story/Task órfãos', '% Épicos com itens de fluxo'], ascending=[False, True], ignore_index=True)
+    storytask_orfaos_metric = {
+        'Indicador': '% histórias/tasks órfãos',
+        'Percentual': round((len(story_task_sem_feature) / len(storytask_total) * 100), 1) if len(storytask_total) else 0.0,
+        'Numerador': int(len(story_task_sem_feature)),
+        'Denominador': int(len(storytask_total)),
+    }
+    if int(storytask_orfaos_metric['Denominador']) == 0:
+        downstream_storytask_metric = _compute_storytask_orphan_from_downstream()
+        if downstream_storytask_metric:
+            storytask_orfaos_metric.update(downstream_storytask_metric)
+
     estrutura_cobertura_summary = pd.DataFrame([
         {'Indicador': '% épicos com itens de fluxo', 'Percentual': round((len(epics_com_itens_fluxo) / len(epics) * 100), 1) if len(epics) else 0.0, 'Numerador': int(len(epics_com_itens_fluxo)), 'Denominador': int(len(epics))},
         {'Indicador': '% features com filhos', 'Percentual': round((len(features_com_filhos) / len(features) * 100), 1) if len(features) else 0.0, 'Numerador': int(len(features_com_filhos)), 'Denominador': int(len(features))},
-        {'Indicador': '% histórias/tasks órfãos', 'Percentual': round((len(story_task_sem_feature) / len(storytask_total) * 100), 1) if len(storytask_total) else 0.0, 'Numerador': int(len(story_task_sem_feature)), 'Denominador': int(len(storytask_total))},
+        storytask_orfaos_metric,
     ])
 
     epic_flow_items = pd.DataFrame(columns=['EpicID', 'Status'])
@@ -1227,7 +1239,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
         {'Indicador': 'Estado divergente', 'Valor': divergente, 'Tipo': 'alerta'},
         {'Indicador': 'Features sem épico', 'Valor': int(len(features_sem_epico)), 'Tipo': 'alerta'},
         {'Indicador': 'Épicos sem features', 'Valor': int(len(epics_sem_features)), 'Tipo': 'alerta'},
-        {'Indicador': 'Hist./Tasks sem feature', 'Valor': int(len(story_task_sem_feature)), 'Tipo': 'risco'},
+        {'Indicador': 'Hist./Tasks órfãos', 'Valor': int(storytask_orfaos_metric.get('Numerador', 0)), 'Tipo': 'risco'},
     ])
     quality_summary = pd.DataFrame([
         {
@@ -1339,6 +1351,12 @@ def compute_portfolio_snapshot(df, updated_at_label):
     else:
         tipo_balanceamento = pd.DataFrame(columns=['Tipo', 'WorkItems', '% Atual', '% Alvo', 'Desvio (pp)', 'Desvio Abs (pp)'])
 
+    items_base = df[[
+        'ID', 'Projeto', 'TeamOriginal', 'TeamDisplay', 'Tipo', 'TipoNorm', 'Status', 'StatusNorm',
+        'StatusCategoria', 'AgingDiasSemAlteracao', 'IsOpen', 'IsBacklog', 'IsInProgress', 'IsFeature',
+        'ParentID', 'EffortTShirtSize'
+    ]].copy()
+
     return {
         'updated_at': updated_at_label,
         'metrics': {
@@ -1360,7 +1378,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'pct_backlog_parado_30': round((backlog_parado_30 / total_backlog_open * 100), 1) if total_backlog_open else 0.0,
             'pct_features_com_filhos': round((len(features_com_filhos) / len(features) * 100), 1) if len(features) else 0.0,
             'pct_epicos_com_itens_fluxo': round((len(epics_com_itens_fluxo) / len(epics) * 100), 1) if len(epics) else 0.0,
-            'pct_storytask_orfaos': round((len(story_task_sem_feature) / len(storytask_total) * 100), 1) if len(storytask_total) else 0.0,
+            'pct_storytask_orfaos': float(storytask_orfaos_metric.get('Percentual', 0.0)),
         },
         'groups': {
             'epicos_por_team_status': epicos_por_team_status,
@@ -1400,6 +1418,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'concentracao_epico_share': concentracao_epico_share,
             'concentracao_summary': concentracao_summary,
             'tipo_balanceamento': tipo_balanceamento,
+            'items_base': items_base,
             'hist_tasks_sem_feature_por_team': hist_tasks_sem_feature_por_team,
             'executive_tiles': executive_tiles,
             'quality_summary': quality_summary,
@@ -2559,6 +2578,60 @@ def get_default_lead_time_start_stages(stage_cols):
     return [stage_cols[0]]
 
 
+def _compute_storytask_orphan_from_downstream():
+    """Fallback do indicador de órfãos via downstream (exato quando houver hierarquia)."""
+    project_keys = ['W1NNER', 'S1NC', 'BF', 'DT']
+    frames = []
+    for project_key in project_keys:
+        try:
+            df_local = load_project_downstream_items_csv(project_key)
+        except Exception:
+            df_local = pd.DataFrame()
+        if df_local is None or df_local.empty or 'Tipo de Problema' not in df_local.columns:
+            continue
+        frames.append(df_local.copy())
+
+    if not frames:
+        return None
+
+    ds = pd.concat(frames, ignore_index=True)
+    if ds.empty:
+        return None
+
+    def _is_storytask(tipo):
+        t = normalize_text(tipo)
+        if t in {'story', 'user story', 'historia', 'historia de usuario', 'us', 'task', 'tarefa', 'subtarefa', 'sub task', 'tech task', 'task de produto'}:
+            return True
+        return ('historia' in t) or ('task' in t)
+
+    tipo_series = ds.get('Tipo de Problema', pd.Series('', index=ds.index)).fillna('').astype(str)
+    mask_storytask = tipo_series.apply(_is_storytask)
+    total = int(mask_storytask.sum())
+    if total <= 0:
+        return None
+
+    exact_available = any(c in ds.columns for c in ['ParentTipo', 'FeatureLinkID', 'EpicLinkID'])
+    if exact_available:
+        parent_tipo = ds.get('ParentTipo', pd.Series('', index=ds.index)).fillna('').astype(str)
+        feature_link_id = ds.get('FeatureLinkID', pd.Series('', index=ds.index)).fillna('').astype(str)
+        epic_link_id = ds.get('EpicLinkID', pd.Series('', index=ds.index)).fillna('').astype(str)
+        has_parent_feature = parent_tipo.map(lambda v: normalize_text(v) in {'feature', 'funcionalidade'})
+        has_feature_link = feature_link_id.str.strip().ne('')
+        has_epic_link = epic_link_id.str.strip().ne('')
+        orphan_mask = mask_storytask & (~(has_parent_feature | has_feature_link | has_epic_link))
+        source = 'downstream_exato'
+    else:
+        epic_name = ds.get('Epic Name', pd.Series('', index=ds.index)).fillna('').astype(str)
+        principal = ds.get('Principal', pd.Series('', index=ds.index)).fillna('').astype(str)
+        has_link = epic_name.str.strip().ne('') | principal.str.strip().ne('')
+        orphan_mask = mask_storytask & (~has_link)
+        source = 'downstream_proxy'
+
+    orphan = int(orphan_mask.sum())
+    pct = round((orphan / total) * 100, 1) if total else 0.0
+    return {'Percentual': pct, 'Numerador': orphan, 'Denominador': total, 'Fonte': source}
+
+
 def get_explicit_done_stage_column(stage_cols):
     """Detect terminal done/finalization stage column only when explicitly named."""
     available_lower = {str(c).strip().lower(): c for c in stage_cols}
@@ -2575,6 +2648,54 @@ def get_downstream_done_stage_column(stage_cols):
     if explicit_done:
         return explicit_done
     return stage_cols[-1] if stage_cols else None
+
+
+def _find_latest_w1nner_process_mining_excel():
+    candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if not (low.startswith('w1nner-process-mining-') and low.endswith('.xlsx')):
+                continue
+            path = os.path.join(folder, name)
+            if os.path.isfile(path):
+                candidates.append(path)
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getctime)
+
+
+def load_w1nner_process_mining_report():
+    """Load latest W1NNER process mining workbook generated by process_mining_jira.py."""
+    path = _find_latest_w1nner_process_mining_excel()
+    if not path:
+        return None, {}
+    sheet_names = [
+        'ResumoConformidade',
+        'ConformidadeCasos',
+        'RetrabalhoItens',
+        'TemposPorStatus',
+        'VazaoPessoaSemanal',
+        'VazaoPessoaResumo',
+        'Metadados',
+    ]
+    loaded = {}
+    try:
+        xls = pd.ExcelFile(path)
+    except Exception:
+        return path, {}
+    for sheet in sheet_names:
+        if sheet not in xls.sheet_names:
+            continue
+        try:
+            loaded[sheet] = pd.read_excel(xls, sheet_name=sheet)
+        except Exception:
+            loaded[sheet] = pd.DataFrame()
+    return path, loaded
 
 
 def get_leadtime_stage_filter_columns(projeto):
@@ -2986,6 +3107,55 @@ app.layout = html.Div([
                 clearable=False
             )
         ], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([
+            html.Label('Portfólio: thresholds (backlog/freshness 15,30)'),
+            html.Div([
+                dcc.Input(id='filter-portfolio-threshold-backlog-15', type='number', value=15, min=0, step=1, style={'width': '70px'}),
+                dcc.Input(id='filter-portfolio-threshold-backlog-30', type='number', value=30, min=0, step=1, style={'width': '70px', 'marginLeft': '6px'}),
+                dcc.Input(id='filter-portfolio-threshold-fresh-15', type='number', value=15, min=0, step=1, style={'width': '70px', 'marginLeft': '10px'}),
+                dcc.Input(id='filter-portfolio-threshold-fresh-30', type='number', value=30, min=0, step=1, style={'width': '70px', 'marginLeft': '6px'}),
+            ], style={'display': 'flex', 'alignItems': 'center', 'flexWrap': 'wrap'})
+        ], style={'display':'inline-block', 'marginLeft':'20px', 'minWidth':'360px'}),
+        html.Div([
+            html.Label('Portfólio: fila de decisão (status, ; )'),
+            dcc.Input(
+                id='filter-portfolio-decision-statuses',
+                type='text',
+                value='Triagem;Backlog;Business Review;READY FOR DEVELOPMENT',
+                debounce=True,
+                style={'width':'340px'}
+            )
+        ], style={'display':'none'}),
+        html.Div([
+            html.Label('Portfólio: workflow oficial (status, ; )'),
+            dcc.Input(
+                id='filter-portfolio-workflow-statuses',
+                type='text',
+                value='Triagem;Backlog;To Do;Todo;Business Review;READY FOR DEVELOPMENT;In Progress;In Progess;Ready;Homolog;Staging;Desenvolvimento;Concluído;Concluída;Done;Closed;Resolved;Cancelled',
+                debounce=True,
+                style={'width':'480px'}
+            )
+        ], style={'display':'none'}),
+        html.Div([
+            html.Label('Portfólio: SLA Aging (JSON tipo/status)'),
+            dcc.Input(
+                id='filter-portfolio-sla-aging-json',
+                type='text',
+                value='{\"tipo\":{\"Épico\":30,\"Feature\":20},\"status\":{\"Triagem\":7,\"Backlog\":15,\"Business Review\":10}}',
+                debounce=True,
+                style={'width':'560px'}
+            )
+        ], style={'display':'none'}),
+        html.Div([
+            html.Label('Portfólio: mix alvo por tipo (JSON global/projeto/team)'),
+            dcc.Input(
+                id='filter-portfolio-target-mix-json',
+                type='text',
+                value='{\"global\":{\"Épico\":70,\"Feature\":30}}',
+                debounce=True,
+                style={'width':'560px'}
+            )
+        ], style={'display':'none'}),
     ], id='filters-panel', style={'display':'flex', 'justifyContent':'center', 'gap':'10px', 'marginBottom':'20px', 'flexWrap':'wrap', 'alignItems':'flex-start'}),
 
     html.Div(
@@ -3117,9 +3287,18 @@ def update_main_navigation_layout(main_view):
     Input('filter-classe-servico', 'value'),
     Input('filter-responsavel', 'value'),
     Input('filter-leadtime-stages', 'value'),
-    Input('filter-portfolio-team', 'value')
+    Input('filter-portfolio-team', 'value'),
+    Input('filter-portfolio-threshold-backlog-15', 'value'),
+    Input('filter-portfolio-threshold-backlog-30', 'value'),
+    Input('filter-portfolio-threshold-fresh-15', 'value'),
+    Input('filter-portfolio-threshold-fresh-30', 'value'),
+    Input('filter-portfolio-decision-statuses', 'value'),
+    Input('filter-portfolio-workflow-statuses', 'value'),
+    Input('filter-portfolio-sla-aging-json', 'value'),
+    Input('filter-portfolio-target-mix-json', 'value')
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team):
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+               pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json):
     if main_view in (None, 'home'):
         return html.Div(
             'Selecione "Porfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
@@ -3427,6 +3606,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         concentracao_epico_share = groups.get('concentracao_epico_share', pd.DataFrame())
         concentracao_summary = groups.get('concentracao_summary', pd.DataFrame())
         tipo_balanceamento = groups.get('tipo_balanceamento', pd.DataFrame())
+        items_base = groups.get('items_base', pd.DataFrame())
         hist_tasks_sem_feature_por_team = groups.get('hist_tasks_sem_feature_por_team', pd.DataFrame())
         executive_tiles = groups.get('executive_tiles', pd.DataFrame())
         epicos_por_team_total = groups.get('epicos_por_team_total', pd.DataFrame())
@@ -3477,6 +3657,44 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         concentracao_epico_share = filter_by_team(concentracao_epico_share)
         epicos_detalhe = filter_by_team(epicos_detalhe)
         features_detalhe = filter_by_team(features_detalhe)
+        if items_base is None or items_base.empty:
+            items_base_scope = pd.DataFrame()
+        else:
+            items_base_scope = items_base.copy()
+            if selected_team != '__ALL__' and 'TeamDisplay' in items_base_scope.columns:
+                items_base_scope = items_base_scope[items_base_scope['TeamDisplay'] == selected_team].copy()
+
+        def parse_int_threshold(v, default):
+            try:
+                return max(0, int(float(v)))
+            except Exception:
+                return int(default)
+
+        def parse_status_list(raw, fallback):
+            txt = str(raw or '').strip()
+            if not txt:
+                return list(fallback)
+            vals = [t.strip() for t in re.split(r'[;,\n]+', txt) if str(t).strip()]
+            return vals or list(fallback)
+
+        def parse_json_config(raw, fallback):
+            txt = str(raw or '').strip()
+            if not txt:
+                return fallback
+            try:
+                obj = json.loads(txt)
+                return obj if isinstance(obj, dict) else fallback
+            except Exception:
+                return fallback
+
+        cfg_backlog_15 = parse_int_threshold(pf_backlog_15, 15)
+        cfg_backlog_30 = parse_int_threshold(pf_backlog_30, 30)
+        cfg_fresh_15 = parse_int_threshold(pf_fresh_15, 15)
+        cfg_fresh_30 = parse_int_threshold(pf_fresh_30, 30)
+        cfg_decision_statuses = parse_status_list(pf_decision_statuses, ['Triagem', 'Backlog', 'Business Review', 'READY FOR DEVELOPMENT'])
+        cfg_workflow_statuses = parse_status_list(pf_workflow_statuses, ['Triagem', 'Backlog', 'To Do', 'Todo', 'Business Review', 'READY FOR DEVELOPMENT', 'In Progress', 'In Progess', 'Ready', 'Homolog', 'Staging', 'Desenvolvimento', 'Concluído', 'Concluída', 'Done', 'Closed', 'Resolved', 'Cancelled'])
+        cfg_sla_aging = parse_json_config(pf_sla_aging_json, {'tipo': {'Épico': 30, 'Feature': 20}, 'status': {'Triagem': 7, 'Backlog': 15, 'Business Review': 10}})
+        cfg_target_mix = parse_json_config(pf_target_mix_json, {'global': {'Épico': 70, 'Feature': 30}})
         available_teams = []
         for frame in [epicos_por_team_total, features_por_team_total]:
             if frame is None or frame.empty or 'Team' not in frame.columns:
@@ -3596,22 +3814,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             cards = []
             for _, row in df_exec.iterrows():
                 bg = colors.get(str(row.get('Tipo', 'info')), '#1976d2')
+                fg = 'white'
                 cards.append(html.Div([
-                    html.Div(str(row['Indicador']), style={'fontSize': '16px', 'fontWeight': 'bold'}),
-                    html.Div(str(int(row['Valor'])), style={'fontSize': '56px', 'lineHeight': '1.1'}),
+                    html.Div(str(row['Indicador']), style={'fontSize': '15px', 'fontWeight': 'bold'}),
+                    html.Div(str(int(row['Valor'])), style={'fontSize': '48px', 'lineHeight': '1.1'}),
                 ], style={
                     'backgroundColor': bg,
-                    'color': 'white',
+                    'color': fg,
                     'padding': '12px',
                     'borderRadius': '4px',
-                    'minHeight': '135px',
+                    'minHeight': '140px',
                 }))
             return html.Div([
                 html.H3('Indicador 3 - Resumo Executivo', style={'textAlign': 'left'}),
                 html.Div(cards, style={
                     'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fill, minmax(170px, 1fr))',
-                    'gap': '10px'
+                    'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
+                    'gap': '10px',
                 }),
                 html.P(
                     'Estado divergente = features sem épico + épicos sem features (quebra de relacionamento entre níveis).',
@@ -3981,9 +4200,52 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     ], style={'backgroundColor': bg, 'color': 'white', 'padding': '12px', 'borderRadius': '4px', 'minHeight': '130px'}))
             blocks = [html.Div(cards, style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(210px, 1fr))', 'gap': '10px'})]
             if df_team is not None and not df_team.empty:
-                cols = [c for c in ['Team', 'TotalItems', 'WIP', '% WIP', 'BacklogAberto', 'BacklogParado15', '% Backlog parado >15d', 'BacklogParado30', '% Backlog parado >30d'] if c in df_team.columns]
+                dynamic_backlog_cols = [c for c in df_team.columns if str(c).startswith('BacklogParado') or str(c).startswith('% Backlog parado >')]
+                cols = [c for c in ['Team', 'TotalItems', 'WIP', '% WIP', 'BacklogAberto'] if c in df_team.columns] + dynamic_backlog_cols
                 blocks.append(portfolio_table_component(df_team[cols].copy(), 'Saúde de fluxo por TEAM', 'table-portfolio-flow-health-team'))
             return html.Div([html.H3('Saúde de Fluxo (Snapshot)', style={'textAlign': 'left'}), *blocks], style={'marginTop': '24px'})
+
+        def render_flow_health_dynamic(items_df):
+            if items_df is None or items_df.empty:
+                return render_flow_health(flow_health_summary, flow_health_por_team)
+            base = items_df.copy()
+            for c in ['IsOpen', 'IsBacklog', 'IsInProgress']:
+                if c in base.columns:
+                    base[c] = base[c].astype(bool)
+            base['AgingDiasSemAlteracao'] = pd.to_numeric(base.get('AgingDiasSemAlteracao'), errors='coerce')
+            total_items = int(len(base))
+            backlog = base[(base.get('IsOpen', False) == True) & (base.get('IsBacklog', False) == True)].copy()
+            wip = int((base.get('IsInProgress', False) == True).sum()) if 'IsInProgress' in base.columns else 0
+            open_items = int((base.get('IsOpen', False) == True).sum()) if 'IsOpen' in base.columns else 0
+            b15 = int((backlog['AgingDiasSemAlteracao'] > cfg_backlog_15).sum()) if not backlog.empty else 0
+            b30 = int((backlog['AgingDiasSemAlteracao'] > cfg_backlog_30).sum()) if not backlog.empty else 0
+            total_backlog = int(len(backlog))
+            summary = pd.DataFrame([
+                {'Indicador': '% WIP no portfólio', 'Percentual': round((wip / total_items * 100), 1) if total_items else 0.0, 'Numerador': wip, 'Denominador': total_items},
+                {'Indicador': f'% backlog parado >{cfg_backlog_15}d', 'Percentual': round((b15 / total_backlog * 100), 1) if total_backlog else 0.0, 'Numerador': b15, 'Denominador': total_backlog},
+                {'Indicador': f'% backlog parado >{cfg_backlog_30}d', 'Percentual': round((b30 / total_backlog * 100), 1) if total_backlog else 0.0, 'Numerador': b30, 'Denominador': total_backlog},
+                {'Indicador': '% itens abertos', 'Percentual': round((open_items / total_items * 100), 1) if total_items else 0.0, 'Numerador': open_items, 'Denominador': total_items},
+            ])
+            if 'TeamDisplay' in base.columns:
+                rows = []
+                for team, grp in base.groupby('TeamDisplay', dropna=False):
+                    gback = grp[(grp.get('IsOpen', False) == True) & (grp.get('IsBacklog', False) == True)].copy()
+                    rows.append({
+                        'Team': str(team),
+                        'TotalItems': int(len(grp)),
+                        'WIP': int((grp.get('IsInProgress', False) == True).sum()) if 'IsInProgress' in grp.columns else 0,
+                        '% WIP': round(((grp.get('IsInProgress', False) == True).sum() / len(grp) * 100), 1) if len(grp) else 0.0,
+                        'BacklogAberto': int(len(gback)),
+                        f'BacklogParado{cfg_backlog_15}': int((pd.to_numeric(gback.get('AgingDiasSemAlteracao'), errors='coerce') > cfg_backlog_15).sum()) if not gback.empty else 0,
+                        f'BacklogParado{cfg_backlog_30}': int((pd.to_numeric(gback.get('AgingDiasSemAlteracao'), errors='coerce') > cfg_backlog_30).sum()) if not gback.empty else 0,
+                    })
+                team_df = pd.DataFrame(rows)
+                if not team_df.empty:
+                    team_df[f'% Backlog parado >{cfg_backlog_15}d'] = (team_df[f'BacklogParado{cfg_backlog_15}'] / team_df['BacklogAberto'].replace(0, np.nan) * 100).fillna(0).round(1)
+                    team_df[f'% Backlog parado >{cfg_backlog_30}d'] = (team_df[f'BacklogParado{cfg_backlog_30}'] / team_df['BacklogAberto'].replace(0, np.nan) * 100).fillna(0).round(1)
+            else:
+                team_df = pd.DataFrame()
+            return render_flow_health(summary, team_df)
 
         def render_decision_queue(df_dq, df_summary):
             if (df_dq is None or df_dq.empty) and (df_summary is None or df_summary.empty):
@@ -4015,6 +4277,34 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 dcc.Graph(figure=fig),
                 portfolio_table_component(df_fresh[cols].copy(), 'Freshness por TEAM e etapa', 'table-portfolio-data-freshness')
             ], style={'marginTop': '24px'})
+
+        def render_data_freshness_dynamic(items_df):
+            if items_df is None or items_df.empty:
+                return render_data_freshness(data_freshness_por_team_statuscat)
+            base = items_df.copy()
+            if 'IsOpen' in base.columns:
+                base = base[base['IsOpen'] == True].copy()
+            if base.empty:
+                return html.Div([html.H3('Data Freshness por Etapa'), html.P('Sem itens abertos para exibição.')], style={'marginTop': '20px'})
+            base['AgingDiasSemAlteracao'] = pd.to_numeric(base.get('AgingDiasSemAlteracao'), errors='coerce')
+            team_col = 'TeamDisplay' if 'TeamDisplay' in base.columns else None
+            if not team_col:
+                return render_data_freshness(data_freshness_por_team_statuscat)
+            agg = (
+                base.groupby([team_col, 'StatusCategoria'], dropna=False)
+                .agg(WorkItems=('ID', 'count'))
+                .reset_index()
+                .rename(columns={team_col: 'Team'})
+            )
+            tmp = base.copy()
+            tmp['GTa'] = (tmp['AgingDiasSemAlteracao'] > cfg_fresh_15).astype(int)
+            tmp['GTb'] = (tmp['AgingDiasSemAlteracao'] > cfg_fresh_30).astype(int)
+            add = tmp.groupby([team_col, 'StatusCategoria'], dropna=False).agg(GTa=('GTa', 'sum'), GTb=('GTb', 'sum')).reset_index().rename(columns={team_col: 'Team'})
+            agg = agg.merge(add, on=['Team', 'StatusCategoria'], how='left')
+            agg[f'% >{cfg_fresh_15}d'] = (agg['GTa'] / agg['WorkItems'].replace(0, np.nan) * 100).fillna(0).round(1)
+            agg[f'% >{cfg_fresh_30}d'] = (agg['GTb'] / agg['WorkItems'].replace(0, np.nan) * 100).fillna(0).round(1)
+            view = agg.rename(columns={'GTa': f'GT{cfg_fresh_15}', 'GTb': f'GT{cfg_fresh_30}', f'% >{cfg_fresh_15}d': '% >15d', f'% >{cfg_fresh_30}d': '% >30d'})
+            return render_data_freshness(view)
 
         def render_status_conformance(df_workflow, df_status_top, df_fora_top):
             if all(x is None or x.empty for x in [df_workflow, df_status_top, df_fora_top]):
@@ -4076,6 +4366,231 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 portfolio_table_component(df_tipo_balance.copy(), 'Mix por tipo (atual vs alvo)', 'table-portfolio-tipo-balanceamento')
             ], style={'marginTop': '24px'})
 
+        def render_thresholds_config_summary():
+            return html.Div([
+                html.H4('Parâmetros ativos (UI)', style={'marginBottom': '6px'}),
+                html.P(
+                    f'Backlog parado: >{cfg_backlog_15}d / >{cfg_backlog_30}d | Freshness: >{cfg_fresh_15}d / >{cfg_fresh_30}d | '
+                    f'Fila decisão: {", ".join(cfg_decision_statuses[:6]) + ("..." if len(cfg_decision_statuses) > 6 else "")}',
+                    style={'color': '#555', 'marginBottom': '0'}
+                )
+            ], style={'marginTop': '10px', 'padding': '10px 12px', 'border': '1px solid #e5e7eb', 'borderRadius': '8px', 'backgroundColor': '#fafafa'})
+
+        def render_dynamic_workflow_conformance(items_df):
+            if items_df is None or items_df.empty:
+                return html.Div([html.H3('Conformidade de Workflow (Parametrizada)'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            base = items_df.copy()
+            official_norm = [normalize_text(s) for s in cfg_workflow_statuses if str(s).strip()]
+            series_norm = base.get('StatusNorm', pd.Series('', index=base.index)).fillna('').astype(str)
+            mask_official = pd.Series(False, index=base.index)
+            for term in official_norm:
+                if term:
+                    mask_official = mask_official | series_norm.str.contains(term, regex=False, na=False)
+            base['ForaWorkflowCfg'] = ~mask_official
+            team_col = 'TeamDisplay' if 'TeamDisplay' in base.columns else None
+            team_table = pd.DataFrame()
+            if team_col:
+                team_table = (
+                    base.groupby(team_col, dropna=False)
+                    .agg(TotalItems=('ID', 'count'), ForaWorkflow=('ForaWorkflowCfg', 'sum'))
+                    .reset_index()
+                    .rename(columns={team_col: 'Team'})
+                )
+                team_table['% Fora workflow (cfg)'] = (team_table['ForaWorkflow'] / team_table['TotalItems'].replace(0, np.nan) * 100).fillna(0).round(1)
+                team_table = team_table.sort_values(['% Fora workflow (cfg)', 'ForaWorkflow'], ascending=[False, False], ignore_index=True)
+            top_status = (
+                base[base['ForaWorkflowCfg']]
+                .groupby('Status', dropna=False)
+                .size().reset_index(name='WorkItems')
+                .sort_values('WorkItems', ascending=False, ignore_index=True)
+                .head(20)
+            )
+            return html.Div([
+                html.H3('Conformidade de Workflow (Parametrizada)', style={'textAlign': 'left'}),
+                portfolio_table_component(team_table, 'Conformidade por TEAM (lista oficial configurada na UI)', 'table-portfolio-workflow-conformance-cfg'),
+                portfolio_table_component(top_status, 'Top status fora do workflow (lista oficial configurada na UI)', 'table-portfolio-status-fora-workflow-cfg'),
+            ], style={'marginTop': '24px'})
+
+        def render_dynamic_decision_queue(items_df):
+            if items_df is None or items_df.empty:
+                return html.Div([html.H3('Fila de Decisão (Parametrizada)'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            base = items_df.copy()
+            status_norm = base.get('StatusNorm', pd.Series('', index=base.index)).fillna('').astype(str)
+            wanted = [normalize_text(s) for s in cfg_decision_statuses if str(s).strip()]
+            mask = pd.Series(False, index=base.index)
+            for term in wanted:
+                if term:
+                    mask = mask | status_norm.str.contains(term, regex=False, na=False)
+            base = base[(base.get('IsOpen', False) == True) & mask].copy()
+            if base.empty:
+                return html.Div([html.H3('Fila de Decisão (Parametrizada)'), html.P('Nenhum item encontrado com os statuses configurados.')], style={'marginTop': '20px'})
+            base['AgingDiasSemAlteracao'] = pd.to_numeric(base['AgingDiasSemAlteracao'], errors='coerce')
+            base['Bucket'] = '0-7'
+            base.loc[base['AgingDiasSemAlteracao'] > 7, 'Bucket'] = '8-15'
+            base.loc[base['AgingDiasSemAlteracao'] > 15, 'Bucket'] = '16-30'
+            base.loc[base['AgingDiasSemAlteracao'] > 30, 'Bucket'] = '31-60'
+            base.loc[base['AgingDiasSemAlteracao'] > 60, 'Bucket'] = '60+'
+            summary = base.groupby('Status', dropna=False).agg(WorkItems=('ID', 'count'), AgingMedio=('AgingDiasSemAlteracao', 'mean')).reset_index()
+            summary['AgingMedio'] = pd.to_numeric(summary['AgingMedio'], errors='coerce').round(1)
+            fig = px.bar(base.groupby(['Status', 'Bucket'], dropna=False).size().reset_index(name='WorkItems'),
+                         x='Status', y='WorkItems', color='Bucket', barmode='stack', template='plotly_white',
+                         title='Fila de decisão (parametrizada) por status e aging')
+            fig.update_layout(height=340, margin=dict(t=60, b=80), xaxis_tickangle=-20)
+            return html.Div([
+                html.H3('Fila de Decisão (Parametrizada)', style={'textAlign': 'left'}),
+                dcc.Graph(figure=fig),
+                portfolio_table_component(summary, 'Resumo da fila de decisão (statuses configurados na UI)', 'table-portfolio-decision-queue-cfg')
+            ], style={'marginTop': '24px'})
+
+        def render_dynamic_sla_aging(items_df):
+            if items_df is None or items_df.empty:
+                return html.Div([html.H3('SLA de Aging por Tipo/Status'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            base = items_df.copy()
+            base = base[base.get('IsOpen', False) == True].copy() if 'IsOpen' in base.columns else base
+            if base.empty:
+                return html.Div([html.H3('SLA de Aging por Tipo/Status'), html.P('Sem itens abertos para avaliar SLA.')], style={'marginTop': '20px'})
+            base['AgingDiasSemAlteracao'] = pd.to_numeric(base['AgingDiasSemAlteracao'], errors='coerce')
+            tipo_cfg = cfg_sla_aging.get('tipo', {}) if isinstance(cfg_sla_aging, dict) else {}
+            status_cfg = cfg_sla_aging.get('status', {}) if isinstance(cfg_sla_aging, dict) else {}
+            tipo_map_norm = {normalize_text(k): float(v) for k, v in (tipo_cfg or {}).items() if str(k).strip()}
+            status_map_norm = {normalize_text(k): float(v) for k, v in (status_cfg or {}).items() if str(k).strip()}
+            base['SLA Tipo (dias)'] = base['TipoNorm'].map(tipo_map_norm)
+            base['SLA Status (dias)'] = base['StatusNorm'].map(status_map_norm)
+            base['Dentro SLA Tipo'] = np.where(base['SLA Tipo (dias)'].notna(), base['AgingDiasSemAlteracao'] <= base['SLA Tipo (dias)'], np.nan)
+            base['Dentro SLA Status'] = np.where(base['SLA Status (dias)'].notna(), base['AgingDiasSemAlteracao'] <= base['SLA Status (dias)'], np.nan)
+            tipo_eval = base[base['SLA Tipo (dias)'].notna()].copy()
+            status_eval = base[base['SLA Status (dias)'].notna()].copy()
+            tipo_table = pd.DataFrame(columns=['Tipo', 'SLA (dias)', 'Itens', '% Dentro SLA', '% Fora SLA'])
+            status_table = pd.DataFrame(columns=['Status', 'SLA (dias)', 'Itens', '% Dentro SLA', '% Fora SLA'])
+            if not tipo_eval.empty:
+                tipo_table = tipo_eval.groupby('Tipo', dropna=False).agg(
+                    **{'SLA (dias)': ('SLA Tipo (dias)', 'first'), 'Itens': ('ID', 'count'), 'Dentro': ('Dentro SLA Tipo', 'sum')}
+                ).reset_index()
+                tipo_table['% Dentro SLA'] = (tipo_table['Dentro'] / tipo_table['Itens'].replace(0, np.nan) * 100).fillna(0).round(1)
+                tipo_table['% Fora SLA'] = (100 - tipo_table['% Dentro SLA']).round(1)
+                tipo_table = tipo_table.drop(columns=['Dentro']).sort_values('% Fora SLA', ascending=False, ignore_index=True)
+            if not status_eval.empty:
+                status_table = status_eval.groupby('Status', dropna=False).agg(
+                    **{'SLA (dias)': ('SLA Status (dias)', 'first'), 'Itens': ('ID', 'count'), 'Dentro': ('Dentro SLA Status', 'sum')}
+                ).reset_index()
+                status_table['% Dentro SLA'] = (status_table['Dentro'] / status_table['Itens'].replace(0, np.nan) * 100).fillna(0).round(1)
+                status_table['% Fora SLA'] = (100 - status_table['% Dentro SLA']).round(1)
+                status_table = status_table.drop(columns=['Dentro']).sort_values('% Fora SLA', ascending=False, ignore_index=True)
+            fig = None
+            if not tipo_table.empty:
+                fig = px.bar(tipo_table, x='Tipo', y='% Fora SLA', color='% Fora SLA', template='plotly_white',
+                             title='SLA de aging por tipo (% fora SLA)', color_continuous_scale=['#2e7d32', '#f9a825', '#c62828'])
+                fig.update_layout(height=320, margin=dict(t=60, b=80), xaxis_tickangle=-20)
+            children = [html.H3('SLA de Aging por Tipo/Status', style={'textAlign': 'left'})]
+            if fig is not None:
+                children.append(dcc.Graph(figure=fig))
+            children.append(portfolio_table_component(tipo_table, 'SLA aging por Tipo (configurado na UI)', 'table-portfolio-sla-aging-tipo'))
+            children.append(portfolio_table_component(status_table, 'SLA aging por Status (configurado na UI)', 'table-portfolio-sla-aging-status'))
+            return html.Div(children, style={'marginTop': '24px'})
+
+        def render_mix_explicito_multi_contexto(items_df):
+            if items_df is None or items_df.empty:
+                return html.Div([html.H3('Mix por Projeto / Tipo / TEAM'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            base = items_df.copy()
+            # Mix explícito consolidado
+            mix_projeto = base.groupby('Projeto', dropna=False).size().reset_index(name='WorkItems')
+            mix_projeto['% Share'] = (mix_projeto['WorkItems'] / mix_projeto['WorkItems'].sum() * 100).round(1)
+            mix_tipo = base.groupby('Tipo', dropna=False).size().reset_index(name='WorkItems')
+            mix_tipo['% Share'] = (mix_tipo['WorkItems'] / mix_tipo['WorkItems'].sum() * 100).round(1)
+            team_col = 'TeamDisplay' if 'TeamDisplay' in base.columns else None
+            mix_team = base.groupby(team_col, dropna=False).size().reset_index(name='WorkItems').rename(columns={team_col: 'Team'}) if team_col else pd.DataFrame()
+            if not mix_team.empty:
+                mix_team['% Share'] = (mix_team['WorkItems'] / mix_team['WorkItems'].sum() * 100).round(1)
+
+            # Comparação multi-recorte de mix alvo por tipo.
+            target_cfg = cfg_target_mix if isinstance(cfg_target_mix, dict) else {}
+            global_target = target_cfg.get('global', {}) if isinstance(target_cfg.get('global', {}), dict) else {}
+            target_global_norm = {str(k): float(v) for k, v in global_target.items() if str(k).strip()}
+            recs = []
+            contexts = [('Global', 'GLOBAL', base)]
+            for p in sorted(base['Projeto'].fillna('').astype(str).unique()):
+                if p:
+                    contexts.append(('Projeto', p, base[base['Projeto'].astype(str) == p]))
+            if team_col:
+                for t in sorted(base[team_col].fillna('').astype(str).unique()):
+                    if t:
+                        contexts.append(('TEAM', t, base[base[team_col].astype(str) == t]))
+            for ctx_type, ctx_name, df_ctx in contexts:
+                if df_ctx is None or df_ctx.empty:
+                    continue
+                counts = df_ctx.groupby('Tipo', dropna=False).size().reset_index(name='WorkItems')
+                counts['% Atual'] = (counts['WorkItems'] / counts['WorkItems'].sum() * 100).round(1)
+                ctx_target_obj = target_cfg.get(ctx_name, None)
+                if not isinstance(ctx_target_obj, dict):
+                    ctx_target_obj = target_global_norm
+                counts['% Alvo'] = counts['Tipo'].map(lambda x: float(ctx_target_obj.get(str(x), 0.0)) if isinstance(ctx_target_obj, dict) else 0.0).fillna(0.0)
+                total_t = float(counts['% Alvo'].sum())
+                if total_t > 0:
+                    counts['% Alvo'] = (counts['% Alvo'] / total_t * 100).round(1)
+                counts['Desvio (pp)'] = (counts['% Atual'] - counts['% Alvo']).round(1)
+                counts['ContextoTipo'] = ctx_type
+                counts['Contexto'] = ctx_name
+                recs.append(counts[['ContextoTipo', 'Contexto', 'Tipo', 'WorkItems', '% Atual', '% Alvo', 'Desvio (pp)']])
+            mix_contexto = pd.concat(recs, ignore_index=True) if recs else pd.DataFrame(columns=['ContextoTipo', 'Contexto', 'Tipo', 'WorkItems', '% Atual', '% Alvo', 'Desvio (pp)'])
+            fig_mix = px.bar(mix_tipo.sort_values('WorkItems', ascending=False), x='Tipo', y='WorkItems', color='% Share', template='plotly_white',
+                             title='Mix explícito por Tipo (escopo atual)', color_continuous_scale=['#1565c0', '#42a5f5'])
+            fig_mix.update_layout(height=320, margin=dict(t=60, b=80), xaxis_tickangle=-20)
+            return html.Div([
+                html.H3('Mix por Projeto / Tipo / TEAM', style={'textAlign': 'left'}),
+                dcc.Graph(figure=fig_mix),
+                portfolio_table_component(mix_projeto.sort_values('WorkItems', ascending=False), 'Mix por Projeto', 'table-portfolio-mix-projeto'),
+                portfolio_table_component(mix_tipo.sort_values('WorkItems', ascending=False), 'Mix por Tipo', 'table-portfolio-mix-tipo'),
+                portfolio_table_component(mix_team.sort_values('WorkItems', ascending=False) if not mix_team.empty else mix_team, 'Mix por TEAM', 'table-portfolio-mix-team'),
+                portfolio_table_component(mix_contexto, 'Mix alvo por tipo por contexto (global/projeto/team)', 'table-portfolio-mix-contexto-target')
+            ], style={'marginTop': '24px'})
+
+        def render_pareto_hhi(df_team_share, df_epic_share):
+            if (df_team_share is None or df_team_share.empty) and (df_epic_share is None or df_epic_share.empty):
+                return html.Div([html.H3('Pareto & HHI de Concentração'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            sections = [html.H3('Pareto & HHI de Concentração', style={'textAlign': 'left'})]
+            hhi_rows = []
+            if df_team_share is not None and not df_team_share.empty and '% Share' in df_team_share.columns:
+                dft = df_team_share.copy()
+                dft = dft.sort_values('TotalItems', ascending=False).reset_index(drop=True)
+                dft['rank'] = np.arange(1, len(dft) + 1)
+                fig_t = go.Figure()
+                fig_t.add_trace(go.Bar(x=dft['Team'], y=dft['% Share'], name='% Share'))
+                fig_t.add_trace(go.Scatter(x=dft['Team'], y=dft['% Share Acum'], mode='lines+markers', name='% Acum', yaxis='y2'))
+                fig_t.update_layout(
+                    title='Pareto de concentração por TEAM',
+                    template='plotly_white',
+                    height=360,
+                    margin=dict(t=60, b=100),
+                    xaxis=dict(tickangle=-25),
+                    yaxis=dict(title='% Share'),
+                    yaxis2=dict(title='% Acum', overlaying='y', side='right', range=[0, 100]),
+                    legend=dict(orientation='h', y=-0.2)
+                )
+                sections.append(dcc.Graph(figure=fig_t))
+                hhi_team = float(((pd.to_numeric(dft['% Share'], errors='coerce').fillna(0) / 100.0) ** 2).sum())
+                hhi_rows.append({'Escopo': 'TEAM', 'HHI': round(hhi_team, 4), 'N': int(len(dft))})
+            if df_epic_share is not None and not df_epic_share.empty and '% Share Itens Fluxo' in df_epic_share.columns:
+                dfe = df_epic_share.copy()
+                fig_e = go.Figure()
+                fig_e.add_trace(go.Bar(x=dfe['EpicID'], y=dfe['% Share Itens Fluxo'], name='% Share itens fluxo'))
+                fig_e.add_trace(go.Scatter(x=dfe['EpicID'], y=dfe['% Share Acum'], mode='lines+markers', name='% Acum', yaxis='y2'))
+                fig_e.update_layout(
+                    title='Pareto de concentração por Épico (itens de fluxo)',
+                    template='plotly_white',
+                    height=360,
+                    margin=dict(t=60, b=100),
+                    xaxis=dict(tickangle=-35),
+                    yaxis=dict(title='% Share'),
+                    yaxis2=dict(title='% Acum', overlaying='y', side='right', range=[0, 100]),
+                    legend=dict(orientation='h', y=-0.2)
+                )
+                sections.append(dcc.Graph(figure=fig_e))
+                hhi_epic = float(((pd.to_numeric(dfe['% Share Itens Fluxo'], errors='coerce').fillna(0) / 100.0) ** 2).sum())
+                hhi_rows.append({'Escopo': 'Épico (itens fluxo)', 'HHI': round(hhi_epic, 4), 'N': int(len(dfe))})
+            hhi_df = pd.DataFrame(hhi_rows)
+            sections.append(portfolio_table_component(hhi_df, 'HHI de concentração (quanto maior, mais concentrado)', 'table-portfolio-hhi'))
+            return html.Div(sections, style={'marginTop': '24px'})
+
         total_epicos_visao = int(epicos_por_team_total['QtdEpicos'].sum()) if epicos_por_team_total is not None and not epicos_por_team_total.empty else 0
         total_features_visao = int(features_por_team_total['QtdFeatures'].sum()) if features_por_team_total is not None and not features_por_team_total.empty else 0
         epicos_sem_features_visao = int((epicos_detalhe['QtdFeatures'] == 0).sum()) if epicos_detalhe is not None and not epicos_detalhe.empty else 0
@@ -4106,18 +4621,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'card_style': {
                     'backgroundColor': bg,
                     'color': fg,
-                    'aspectRatio': '1 / 1',
                     'minHeight': '140px',
-                    'display': 'flex',
-                    'flexDirection': 'column',
-                    'justifyContent': 'center',
-                    'alignItems': 'center',
                 },
-                'title_style': {'textAlign': 'center', 'fontSize': '16px', 'marginBottom': '6px', 'marginTop': '0'},
-                'value_style': {'textAlign': 'center', 'fontSize': '34px', 'marginTop': '0', 'marginBottom': '0'},
+                'title_style': {'textAlign': 'left', 'fontSize': '15px', 'marginBottom': '6px', 'marginTop': '0', 'fontWeight': 'bold'},
+                'value_style': {'textAlign': 'left', 'fontSize': '48px', 'marginTop': '0', 'marginBottom': '0', 'lineHeight': '1.1'},
             }
 
         resumo_exec_section = html.Div([
+            render_thresholds_config_summary(),
             html.Div([
                 create_kpi_card('Total de épicos', f"{total_epicos_visao}", class_name='', **portfolio_kpi_style(kpi_color_epic)),
                 create_kpi_card('Total de features', f"{total_features_visao}", class_name='', **portfolio_kpi_style(kpi_color_feature)),
@@ -4128,18 +4639,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 create_kpi_card('Sem movimento 15d / 30d', f"{features_sem_mov_15_visao} / {features_sem_mov_30_visao}", class_name='', **portfolio_kpi_style(kpi_neutral)),
             ], style={
                 'display': 'grid',
-                'gridTemplateColumns': 'repeat(auto-fit, minmax(260px, 1fr))',
-                'gap': '12px',
-                'maxWidth': '1320px',  # limita a 4 colunas em telas largas; cai para 3/2/1 conforme largura
-                'margin': '0 auto',
-                'alignItems': 'stretch',
+                'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
+                'gap': '10px',
             }),
             render_executive_tiles(executive_tiles),
             render_quality_cards(quality_por_team, quality_summary),
         ], style={'paddingTop': '10px'})
 
         aging_fluxo_section = html.Div([
-            render_flow_health(flow_health_summary, flow_health_por_team),
+            render_flow_health_dynamic(items_base_scope),
             render_q_pendencias_grid(pendencias_q_por_time),
             html.Div([
                 html.H3('Indicador 2 - Aging WIP por TEAM', style={'textAlign': 'left'}),
@@ -4155,7 +4663,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             render_aging_por_tipo_projeto(aging_por_tipo, aging_por_projeto),
             render_aging_buckets(aging_buckets_por_team),
             render_decision_queue(decision_queue_aging, decision_queue_summary),
-            render_data_freshness(data_freshness_por_team_statuscat),
+            render_dynamic_decision_queue(items_base_scope),
+            render_dynamic_sla_aging(items_base_scope),
+            render_data_freshness_dynamic(items_base_scope),
         ], style={'paddingTop': '10px'})
 
         estrutura_section = html.Div([
@@ -4219,6 +4729,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             render_status_ranking(status_categoria_por_team, status_ranking_por_team),
             render_heatmap_team_status(heatmap_team_status),
             render_status_conformance(workflow_conformance_por_team, status_original_top, status_fora_workflow_top),
+            render_dynamic_workflow_conformance(items_base_scope),
         ], style={'paddingTop': '10px'})
 
         effort_concentracao_section = html.Div([
@@ -4237,6 +4748,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ], className='row', style={'marginTop': '10px'}),
             render_concentracao_epicos(top_epicos_volume, top_epicos_aging),
             render_concentracao_relativa(concentracao_summary, concentracao_team_share, concentracao_epico_share),
+            render_pareto_hhi(concentracao_team_share, concentracao_epico_share),
+            render_mix_explicito_multi_contexto(items_base_scope),
             render_tipo_balanceamento(tipo_balanceamento),
         ], style={'paddingTop': '10px'})
 
@@ -5921,6 +6434,239 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             table_summary,
             html.H4('Detalhamento Semanal', style={'marginTop': '16px'}),
             table_details,
+        ])
+
+    if tab == 'tab-process-mining-jira':
+        if projeto and normalize_text(projeto) not in {'w1nner', 'w1nnr'}:
+            return html.Div([
+                html.H3('Process Mining Jira (W1NNER)', style={'textAlign': 'center'}),
+                html.P(
+                    'Este painel é dedicado ao projeto W1NNER (W1NNR). Limpe o filtro de projeto ou selecione W1NNER.',
+                    style={'textAlign': 'center', 'color': '#555'}
+                )
+            ])
+
+        report_path, pm_report = load_w1nner_process_mining_report()
+        if not pm_report:
+            return html.Div([
+                html.H3('Process Mining Jira (W1NNER)', style={'textAlign': 'center'}),
+                html.P('Relatório de process mining não encontrado.', style={'textAlign': 'center', 'color': '#b22222'}),
+                html.Pre(
+                    'Gere com: python process_mining_jira.py --input <jira_changelog_detalhado.csv>',
+                    style={'maxWidth': '900px', 'margin': '0 auto', 'whiteSpace': 'pre-wrap', 'background': '#f7f7f7', 'padding': '12px', 'borderRadius': '8px'}
+                )
+            ])
+
+        pm_summary = pm_report.get('ResumoConformidade', pd.DataFrame()).copy()
+        pm_cases = pm_report.get('ConformidadeCasos', pd.DataFrame()).copy()
+        pm_rework = pm_report.get('RetrabalhoItens', pd.DataFrame()).copy()
+        pm_status = pm_report.get('TemposPorStatus', pd.DataFrame()).copy()
+        pm_weekly = pm_report.get('VazaoPessoaSemanal', pd.DataFrame()).copy()
+        pm_people = pm_report.get('VazaoPessoaResumo', pd.DataFrame()).copy()
+        pm_meta = pm_report.get('Metadados', pd.DataFrame()).copy()
+
+        for dcol in ['Done Final Date']:
+            if dcol in pm_cases.columns:
+                pm_cases[dcol] = pd.to_datetime(pm_cases[dcol], errors='coerce')
+            if dcol in pm_rework.columns:
+                pm_rework[dcol] = pd.to_datetime(pm_rework[dcol], errors='coerce')
+        if 'Semana' in pm_weekly.columns:
+            pm_weekly['Semana'] = pd.to_datetime(pm_weekly['Semana'], errors='coerce')
+
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+        if 'Done Final Date' in pm_cases.columns:
+            pm_cases = pm_cases[
+                pm_cases['Done Final Date'].isna() |
+                ((pm_cases['Done Final Date'] >= start_ts) & (pm_cases['Done Final Date'] <= end_ts))
+            ]
+        if 'Done Final Date' in pm_rework.columns:
+            pm_rework = pm_rework[
+                pm_rework['Done Final Date'].isna() |
+                ((pm_rework['Done Final Date'] >= start_ts) & (pm_rework['Done Final Date'] <= end_ts))
+            ]
+        if 'Semana' in pm_weekly.columns:
+            pm_weekly = pm_weekly[
+                (pm_weekly['Semana'] >= start_ts) &
+                (pm_weekly['Semana'] <= end_ts + pd.Timedelta(days=7))
+            ]
+
+        if responsavel:
+            if 'Responsavel' in pm_people.columns:
+                pm_people = pm_people[pm_people['Responsavel'] == responsavel]
+            if 'Responsavel' in pm_weekly.columns:
+                pm_weekly = pm_weekly[pm_weekly['Responsavel'] == responsavel]
+            if 'Done Final Author' in pm_rework.columns:
+                pm_rework = pm_rework[pm_rework['Done Final Author'] == responsavel]
+            if 'Done Final Author' in pm_cases.columns:
+                pm_cases = pm_cases[pm_cases['Done Final Author'] == responsavel]
+
+        if pm_people.empty and pm_cases.empty:
+            return html.Div('Sem dados de process mining para o período/filtros selecionados.')
+
+        if 'Itens Concluidos' in pm_people.columns and not pm_people.empty:
+            total_concluidos = int(pd.to_numeric(pm_people['Itens Concluidos'], errors='coerce').fillna(0).sum())
+        elif 'Issue Key' in pm_cases.columns:
+            total_concluidos = int(pm_cases['Issue Key'].nunique())
+        else:
+            total_concluidos = 0
+
+        if 'Itens Com Retrabalho' in pm_people.columns and not pm_people.empty:
+            itens_retrabalho = int(pd.to_numeric(pm_people['Itens Com Retrabalho'], errors='coerce').fillna(0).sum())
+        elif not pm_cases.empty and 'Rework Score' in pm_cases.columns:
+            itens_retrabalho = int((pd.to_numeric(pm_cases['Rework Score'], errors='coerce').fillna(0) > 0).sum())
+        else:
+            itens_retrabalho = 0
+        taxa_retrabalho = (itens_retrabalho / total_concluidos * 100.0) if total_concluidos > 0 else 0.0
+
+        conf_media = np.nan
+        if not pm_cases.empty and 'Conformance Score' in pm_cases.columns:
+            conf_series = pd.to_numeric(pm_cases['Conformance Score'], errors='coerce').dropna()
+            if not conf_series.empty:
+                conf_media = float(conf_series.mean())
+
+        kpis = html.Div([
+            create_kpi_card('Itens Concluídos (período)', total_concluidos, class_name='three columns'),
+            create_kpi_card('Itens com Retrabalho', itens_retrabalho, class_name='three columns'),
+            create_kpi_card('Taxa de Retrabalho', f"{taxa_retrabalho:.1f}%", class_name='three columns'),
+            create_kpi_card('Conformidade Média', f"{conf_media:.2f}" if pd.notna(conf_media) else '—', class_name='three columns'),
+        ], className='row')
+
+        fig_vazao_pessoa = go.Figure()
+        if not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
+            people_plot = pm_people.copy()
+            people_plot['Itens Concluidos'] = pd.to_numeric(people_plot['Itens Concluidos'], errors='coerce').fillna(0)
+            if 'Taxa Retrabalho (%)' in people_plot.columns:
+                people_plot['Taxa Retrabalho (%)'] = pd.to_numeric(people_plot['Taxa Retrabalho (%)'], errors='coerce')
+            people_plot = people_plot.sort_values('Itens Concluidos', ascending=False).head(20)
+            fig_vazao_pessoa = px.bar(
+                people_plot,
+                x='Itens Concluidos',
+                y='Responsavel',
+                orientation='h',
+                color='Taxa Retrabalho (%)' if 'Taxa Retrabalho (%)' in people_plot.columns else None,
+                title='Vazão por Pessoa (itens concluídos)',
+                color_continuous_scale='RdYlGn_r'
+            )
+            fig_vazao_pessoa.update_layout(height=560, yaxis={'categoryorder': 'total ascending'})
+
+        fig_vazao_semanal = go.Figure()
+        if not pm_weekly.empty and {'Semana', 'Responsavel', 'Itens Concluidos'}.issubset(pm_weekly.columns):
+            pm_weekly['Itens Concluidos'] = pd.to_numeric(pm_weekly['Itens Concluidos'], errors='coerce').fillna(0)
+            if responsavel:
+                weekly_plot = pm_weekly.copy()
+            else:
+                top_people = []
+                if not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
+                    tmp = pm_people.copy()
+                    tmp['Itens Concluidos'] = pd.to_numeric(tmp['Itens Concluidos'], errors='coerce').fillna(0)
+                    top_people = tmp.sort_values('Itens Concluidos', ascending=False).head(5)['Responsavel'].tolist()
+                weekly_plot = pm_weekly[pm_weekly['Responsavel'].isin(top_people)] if top_people else pm_weekly.copy()
+            fig_vazao_semanal = px.line(
+                weekly_plot,
+                x='Semana',
+                y='Itens Concluidos',
+                color='Responsavel',
+                markers=True,
+                title='Vazão Semanal por Pessoa (Top 5)'
+            )
+            fig_vazao_semanal.update_layout(height=500, xaxis_tickangle=-45, margin=dict(b=120))
+
+        fig_retrabalho_pessoa = go.Figure()
+        if not pm_people.empty and {'Responsavel', 'Itens Com Retrabalho'}.issubset(pm_people.columns):
+            retr_people = pm_people.copy()
+            retr_people['Itens Com Retrabalho'] = pd.to_numeric(retr_people['Itens Com Retrabalho'], errors='coerce').fillna(0)
+            if 'Taxa Retrabalho (%)' in retr_people.columns:
+                retr_people['Taxa Retrabalho (%)'] = pd.to_numeric(retr_people['Taxa Retrabalho (%)'], errors='coerce')
+            retr_people = retr_people.sort_values('Itens Com Retrabalho', ascending=False).head(20)
+            fig_retrabalho_pessoa = px.bar(
+                retr_people,
+                x='Itens Com Retrabalho',
+                y='Responsavel',
+                orientation='h',
+                color='Taxa Retrabalho (%)' if 'Taxa Retrabalho (%)' in retr_people.columns else None,
+                title='Retrabalho por Pessoa (itens concluídos com retrabalho)',
+                color_continuous_scale='OrRd'
+            )
+            fig_retrabalho_pessoa.update_layout(height=560, yaxis={'categoryorder': 'total ascending'})
+
+        fig_tempo_status = go.Figure()
+        if not pm_status.empty and {'Status', 'Tempo Mediano (dias)'}.issubset(pm_status.columns):
+            status_plot = pm_status.copy()
+            status_plot['Tempo Mediano (dias)'] = pd.to_numeric(status_plot['Tempo Mediano (dias)'], errors='coerce').fillna(0)
+            status_plot = status_plot.sort_values('Tempo Mediano (dias)', ascending=False).head(15)
+            fig_tempo_status = px.bar(
+                status_plot,
+                x='Tempo Mediano (dias)',
+                y='Status',
+                orientation='h',
+                title='Tempos por Status (Mediana)'
+            )
+            fig_tempo_status.update_layout(height=520, yaxis={'categoryorder': 'total ascending'})
+
+        if not pm_rework.empty:
+            sort_cols = [c for c in ['Rework Score', 'Reopen Count', 'Backward Moves'] if c in pm_rework.columns]
+            if sort_cols:
+                pm_rework = pm_rework.sort_values(sort_cols, ascending=[False] * len(sort_cols))
+        rework_cols = [c for c in [
+            'Issue Key', 'Tipo de Problema', 'Rework Score', 'Reopen Count', 'Backward Moves', 'QA Returns',
+            'Revisitas Status', 'Conformance Score', 'Done Final Author', 'Done Final Date'
+        ] if c in pm_rework.columns]
+        people_table_cols = [c for c in [
+            'Responsavel', 'Itens Concluidos', 'Itens Com Retrabalho', 'Taxa Retrabalho (%)',
+            'Rework Score Total', 'Lead Time Mediano (dias)', 'Media Itens/Semana Ativa'
+        ] if c in pm_people.columns]
+        conf_table_cols = [c for c in ['Metrica', 'Valor'] if c in pm_summary.columns]
+        meta_table_cols = [c for c in ['Metrica', 'Valor'] if c in pm_meta.columns]
+
+        return html.Div([
+            html.H3('Process Mining Jira - W1NNER (História, Task, Bug)', style={'textAlign': 'center'}),
+            html.P(
+                f"Relatório fonte: {os.path.basename(report_path) if report_path else 'n/d'} | Foco em vazão por pessoa e retrabalho.",
+                style={'textAlign': 'center', 'color': '#555'}
+            ),
+            kpis,
+            dcc.Graph(figure=fig_vazao_pessoa),
+            dcc.Graph(figure=fig_vazao_semanal),
+            dcc.Graph(figure=fig_retrabalho_pessoa),
+            dcc.Graph(figure=fig_tempo_status),
+            html.H4('Resumo por Pessoa', style={'marginTop': '10px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in people_table_cols],
+                data=pm_people[people_table_cols].head(50).to_dict('records') if people_table_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                page_size=12,
+            ),
+            html.H4('Top Itens com Retrabalho', style={'marginTop': '16px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in rework_cols],
+                data=pm_rework[rework_cols].head(50).to_dict('records') if rework_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '100px', 'maxWidth': '240px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                filter_action='native',
+                page_size=12,
+            ),
+            html.H4('Resumo de Conformidade Básica', style={'marginTop': '16px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in conf_table_cols],
+                data=pm_summary[conf_table_cols].to_dict('records') if conf_table_cols else [],
+                style_cell={'textAlign': 'left', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                page_size=12,
+            ),
+            html.H4('Metadados PM4Py / Execução', style={'marginTop': '16px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in meta_table_cols],
+                data=pm_meta[meta_table_cols].to_dict('records') if meta_table_cols else [],
+                style_cell={'textAlign': 'left', 'padding': '6px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                page_size=10,
+            ),
         ])
 
     if tab == 'tab-wip':

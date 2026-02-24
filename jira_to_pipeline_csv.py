@@ -113,6 +113,15 @@ METADATA_COLUMNS = [
     "Organizations",
     "Sprints",
     "Principal",
+    "ParentID",
+    "ParentTipo",
+    "ParentTitle",
+    "HierarchyLinkSource",
+    "FeatureLinkID",
+    "FeatureLinkTipo",
+    "EpicLinkID",
+    "EpicLinkTipo",
+    "EpicLinkName",
 ]
 
 DEFAULT_EXCLUDED_ISSUE_TYPES = ["Épico", "Epic", "Iniciativa", "Initiative"]
@@ -152,6 +161,62 @@ def normalize_text(value: str) -> str:
     nfkd = unicodedata.normalize("NFKD", raw)
     no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
     return " ".join(no_accents.replace("-", " ").replace("_", " ").split())
+
+
+FEATURE_TYPE_HINTS = {"feature", "funcionalidade"}
+EPIC_TYPE_HINTS = {"epic", "epico"}
+STORY_TASK_TYPE_HINTS = {
+    "story",
+    "user story",
+    "historia",
+    "historia de usuario",
+    "us",
+    "task",
+    "tarefa",
+    "subtarefa",
+    "sub task",
+    "tech task",
+    "task de produto",
+}
+
+
+def issue_type_is_feature(value: str) -> bool:
+    return normalize_text(value) in FEATURE_TYPE_HINTS
+
+
+def issue_type_is_epic(value: str) -> bool:
+    return normalize_text(value) in EPIC_TYPE_HINTS
+
+
+def issue_type_is_storytask(value: str) -> bool:
+    norm = normalize_text(value)
+    if norm in STORY_TASK_TYPE_HINTS:
+        return True
+    return ("historia" in norm) or ("task" in norm)
+
+
+def issue_key_or_blank(value: str) -> str:
+    txt = str(value or "").strip()
+    return txt if ISSUE_KEY_PATTERN.match(txt) else ""
+
+
+def compute_storytask_orphan_indicator(rows: List[Dict[str, str]]) -> Dict[str, float | int]:
+    total = 0
+    orphan = 0
+    for row in rows:
+        issue_type = str(row.get("Tipo de Problema") or "")
+        if not issue_type_is_storytask(issue_type):
+            continue
+        total += 1
+        parent_tipo = str(row.get("ParentTipo") or "")
+        has_parent_feature = issue_type_is_feature(parent_tipo)
+        has_feature_link = bool(str(row.get("FeatureLinkID") or "").strip())
+        has_epic_link = bool(str(row.get("EpicLinkID") or "").strip())
+        # Considera órfão apenas quando não há vínculo explícito nem com feature nem com épico.
+        if not (has_parent_feature or has_feature_link or has_epic_link):
+            orphan += 1
+    pct = round(orphan / total * 100, 1) if total else 0.0
+    return {"storytask_total": total, "storytask_orfaos": orphan, "pct_storytask_orfaos": pct}
 
 
 def env_flag_enabled(name: str) -> bool:
@@ -353,27 +418,57 @@ class JiraClient:
         expand: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         errors: List[str] = []
+        empty_attempts: List[str] = []
 
         # Preferred endpoint (new enhanced search API) - POST.
         try:
-            return self._search_issues_enhanced_post(jql=jql, fields=fields, page_size=page_size, expand=expand)
+            issues = self._search_issues_enhanced_post(jql=jql, fields=fields, page_size=page_size, expand=expand)
+            if issues:
+                return issues
+            empty_attempts.append("enhanced_post")
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"enhanced_post:{status}")
 
         # Enhanced search API - GET variant.
         try:
-            return self._search_issues_enhanced_get(jql=jql, fields=fields, page_size=page_size, expand=expand)
+            issues = self._search_issues_enhanced_get(jql=jql, fields=fields, page_size=page_size, expand=expand)
+            if issues:
+                return issues
+            empty_attempts.append("enhanced_get")
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"enhanced_get:{status}")
 
         # Fallback for tenants still on legacy behavior.
         try:
-            return self._search_issues_legacy(jql=jql, fields=fields, page_size=page_size, expand=expand)
+            issues = self._search_issues_legacy(jql=jql, fields=fields, page_size=page_size, expand=expand)
+            if issues:
+                if empty_attempts:
+                    print(
+                        "Aviso: endpoints enhanced retornaram 0 issues; "
+                        f"fallback legacy retornou {len(issues)} issue(s)."
+                    )
+                return issues
+            if empty_attempts:
+                print(
+                    "Aviso: endpoints enhanced e legacy retornaram 0 issues para a JQL informada. "
+                    f"Tentativas vazias: {', '.join(empty_attempts)}."
+                )
+            return issues
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"legacy:{status}")
+            if empty_attempts and status == 410:
+                print(
+                    "Aviso: endpoint legacy de busca retornou 410 (Gone) nesta instância Jira Cloud. "
+                    "Mantendo resultado vazio dos endpoints enhanced."
+                )
+                print(
+                    "Aviso: endpoints enhanced retornaram 0 issues para a JQL informada. "
+                    f"Tentativas vazias: {', '.join(empty_attempts)}."
+                )
+                return []
             msg = ", ".join(errors)
             raise RuntimeError(
                 "Falha ao consultar issues no Jira. "
@@ -404,6 +499,10 @@ class JiraClient:
                 body["nextPageToken"] = next_page_token
 
             payload = self._post("/rest/api/3/search/jql", payload=body)
+            if payload.get("warningMessages"):
+                print(f"Aviso Jira (enhanced POST): {payload.get('warningMessages')}")
+            if payload.get("errorMessages"):
+                print(f"Erro Jira (enhanced POST): {payload.get('errorMessages')}")
             page_issues = payload.get("issues", [])
             issues.extend(page_issues)
 
@@ -449,6 +548,10 @@ class JiraClient:
                 params["nextPageToken"] = next_page_token
 
             payload = self._get("/rest/api/3/search/jql", params=params)
+            if payload.get("warningMessages"):
+                print(f"Aviso Jira (enhanced GET): {payload.get('warningMessages')}")
+            if payload.get("errorMessages"):
+                print(f"Erro Jira (enhanced GET): {payload.get('errorMessages')}")
             page_issues = payload.get("issues", [])
             issues.extend(page_issues)
 
@@ -691,6 +794,8 @@ def build_issue_row(
 
     blocked_value = "yes" if flagged_str else "no"
 
+    parent_id = str(safe_get(fields, "parent", "key") or "")
+    parent_tipo = str(safe_get(fields, "parent", "fields", "issuetype", "name") or "")
     parent_summary = str(safe_get(fields, "parent", "fields", "summary") or "")
     epic_name = ""
     if field_map.get("epic_name"):
@@ -740,6 +845,45 @@ def build_issue_row(
         principal_value = epic_name
         epic_name = ""
 
+    parent_id_key = issue_key_or_blank(parent_id)
+    principal_key = issue_key_or_blank(principal_value)
+    epic_name_key = issue_key_or_blank(epic_name)
+
+    feature_link_id = ""
+    feature_link_tipo = ""
+    epic_link_id = ""
+    epic_link_tipo = ""
+    epic_link_name = ""
+    link_sources: List[str] = []
+
+    if parent_id_key:
+        if issue_type_is_feature(parent_tipo):
+            feature_link_id = parent_id_key
+            feature_link_tipo = parent_tipo
+            link_sources.append("parent_feature")
+        elif issue_type_is_epic(parent_tipo):
+            epic_link_id = parent_id_key
+            epic_link_tipo = parent_tipo
+            epic_link_name = parent_summary
+            link_sources.append("parent_epic")
+        else:
+            link_sources.append("parent_other")
+
+    if principal_key and not epic_link_id:
+        epic_link_id = principal_key
+        epic_link_tipo = "Epic/Principal"
+        link_sources.append("principal_key")
+
+    if epic_name_key and not epic_link_id:
+        epic_link_id = epic_name_key
+        epic_link_tipo = "EpicLinkCustomField"
+        link_sources.append("epic_name_key")
+
+    if not epic_link_name and epic_name and not ISSUE_KEY_PATTERN.match(epic_name):
+        epic_link_name = epic_name
+    if epic_link_name and ("epic_name_text" not in link_sources):
+        link_sources.append("epic_name_text")
+
     row = {
         "ID": key,
         "Link": f"{base_url}/browse/{key}" if key else "",
@@ -764,6 +908,15 @@ def build_issue_row(
         "Organizations": custom_as_text("organizations"),
         "Sprints": custom_as_text("sprints", as_label_array=True),
         "Principal": principal_value,
+        "ParentID": parent_id,
+        "ParentTipo": parent_tipo,
+        "ParentTitle": parent_summary,
+        "HierarchyLinkSource": "|".join(link_sources),
+        "FeatureLinkID": feature_link_id,
+        "FeatureLinkTipo": feature_link_tipo,
+        "EpicLinkID": epic_link_id,
+        "EpicLinkTipo": epic_link_tipo,
+        "EpicLinkName": epic_link_name,
     }
 
     for stage in stage_order:
@@ -1013,6 +1166,14 @@ def main() -> int:
             "(default: desabilitado; quando informado, gera um arquivo detalhado por execução/projeto)."
         ),
     )
+    parser.add_argument(
+        "--search-expand-changelog",
+        action="store_true",
+        help=(
+            "Inclui expand=changelog na busca inicial de issues. "
+            "Desligado por padrão para evitar payloads grandes/travamentos em projetos maiores."
+        ),
+    )
     args = parser.parse_args()
 
     load_env_file(args.env_file)
@@ -1069,7 +1230,12 @@ def main() -> int:
     print(f"Consultando Jira com JQL: {jql}")
 
     client = JiraClient(base_url=base_url, email=email, api_token=token)
-    issues = client.search_issues(jql=jql, fields=fields_to_fetch, expand=["changelog"])
+    search_expand = ["changelog"] if bool(args.search_expand_changelog) else None
+    if search_expand:
+        print("Busca inicial com expand=changelog habilitada (payload maior).")
+    else:
+        print("Busca inicial sem expand=changelog (modo recomendado para projetos grandes).")
+    issues = client.search_issues(jql=jql, fields=fields_to_fetch, expand=search_expand)
     print(f"Issues encontradas: {len(issues)}")
     if not issues:
         print("Nenhuma issue retornada para o JQL informado.")
@@ -1210,6 +1376,13 @@ def main() -> int:
         writer.writerows(rows)
 
     print(f"CSV gerado: {args.out}")
+
+    orphan_metrics = compute_storytask_orphan_indicator(rows)
+    print(
+        "Indicador fluxo operacional - % histórias/tasks órfãos "
+        f"(exato via hierarquia exportada): {orphan_metrics['pct_storytask_orfaos']}% "
+        f"({orphan_metrics['storytask_orfaos']}/{orphan_metrics['storytask_total']})"
+    )
 
     if detailed_changelog_enabled:
         detailed_changelog_out = str(args.detailed_changelog_out).strip()

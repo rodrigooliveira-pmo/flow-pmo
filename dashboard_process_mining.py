@@ -1,0 +1,550 @@
+import os
+import platform
+from datetime import datetime
+
+import dash
+from dash import dcc, html, dash_table, Input, Output
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+
+
+if platform.system() == "Windows":
+    LEGACY_DATA_FOLDER = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados"
+else:
+    LEGACY_DATA_FOLDER = os.path.join(
+        os.path.expanduser("~"),
+        "Library",
+        "CloudStorage",
+        "OneDrive-W1",
+        "Documentos",
+        "Dados",
+    )
+
+
+def _existing_dirs(paths):
+    out = []
+    seen = set()
+    for raw in paths:
+        if not raw:
+            continue
+        p = os.path.abspath(str(raw).strip())
+        if p in seen:
+            continue
+        seen.add(p)
+        if os.path.isdir(p):
+            out.append(p)
+    return out
+
+
+def candidate_data_folders():
+    base_dir = os.path.dirname(__file__)
+    home_dir = os.path.expanduser("~")
+    env_dirs = os.getenv("FLOW_PMO_DATA_DIRS", "").strip()
+    split_env_dirs = [p for p in env_dirs.split(os.pathsep) if p.strip()]
+    return _existing_dirs(
+        [
+            os.getenv("FLOW_PMO_DATA_DIR", "").strip(),
+            os.getenv("DATA_FOLDER", "").strip(),
+            *split_env_dirs,
+            os.path.join(home_dir, "Documents", "dados"),
+            os.path.join(home_dir, "Documents", "Dados"),
+            os.path.join(base_dir, "data"),
+            base_dir,
+            LEGACY_DATA_FOLDER,
+        ]
+    )
+
+
+DATA_FOLDERS = candidate_data_folders()
+
+
+def find_latest_process_mining_report():
+    candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if low.startswith("w1nner-process-mining-") and low.endswith(".xlsx"):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    candidates.append(path)
+    if not candidates:
+        return None
+    return max(candidates, key=os.path.getctime)
+
+
+def load_report(path):
+    sheet_names = [
+        "ResumoConformidade",
+        "ConformidadeCasos",
+        "RetrabalhoItens",
+        "TemposPorStatus",
+        "VazaoPessoaSemanal",
+        "VazaoPessoaResumo",
+        "VariantesTop",
+        "EventosFiltrados",
+        "Metadados",
+    ]
+    xls = pd.ExcelFile(path)
+    out = {}
+    for sheet in sheet_names:
+        out[sheet] = pd.read_excel(xls, sheet_name=sheet) if sheet in xls.sheet_names else pd.DataFrame()
+    return out
+
+
+def create_kpi_card(title, value):
+    return html.Div(
+        [
+            html.Div(title, style={"fontSize": "14px", "color": "#555", "marginBottom": "6px"}),
+            html.Div(str(value), style={"fontSize": "28px", "fontWeight": "600"}),
+        ],
+        style={
+            "border": "1px solid #e5e7eb",
+            "borderRadius": "10px",
+            "padding": "12px",
+            "background": "white",
+            "boxShadow": "0 1px 4px rgba(0,0,0,0.04)",
+        },
+    )
+
+
+def _safe_num(series):
+    return pd.to_numeric(series, errors="coerce")
+
+
+def build_transition_sankey(events_df, top_edges=40):
+    if events_df is None or events_df.empty:
+        return go.Figure()
+    needed = {"From Status", "To Status"}
+    if not needed.issubset(events_df.columns):
+        return go.Figure()
+    x = events_df.copy()
+    x["From Status"] = x["From Status"].fillna("").astype(str).str.strip()
+    x["To Status"] = x["To Status"].fillna("").astype(str).str.strip()
+    x = x[(x["From Status"] != "") & (x["To Status"] != "")]
+    if x.empty:
+        return go.Figure()
+    edges = (
+        x.groupby(["From Status", "To Status"], dropna=False)
+        .size()
+        .reset_index(name="Count")
+        .sort_values("Count", ascending=False)
+        .head(top_edges)
+    )
+    if edges.empty:
+        return go.Figure()
+    labels = pd.unique(pd.concat([edges["From Status"], edges["To Status"]], ignore_index=True)).tolist()
+    idx = {label: i for i, label in enumerate(labels)}
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node=dict(label=labels, pad=15, thickness=16),
+                link=dict(
+                    source=edges["From Status"].map(idx),
+                    target=edges["To Status"].map(idx),
+                    value=edges["Count"],
+                    customdata=edges["Count"],
+                    hovertemplate="%{source.label} → %{target.label}<br>Transições: %{value}<extra></extra>",
+                ),
+            )
+        ]
+    )
+    fig.update_layout(title="Mapa de Transições (Sankey - Top transições)", height=620)
+    return fig
+
+
+def build_variants_pareto(variants_df):
+    if variants_df is None or variants_df.empty or "Qtde Casos" not in variants_df.columns:
+        return go.Figure()
+    x = variants_df.copy()
+    x["Qtde Casos"] = _safe_num(x["Qtde Casos"]).fillna(0)
+    x = x[x["Qtde Casos"] > 0].copy()
+    if x.empty:
+        return go.Figure()
+    x = x.sort_values("Qtde Casos", ascending=False).head(15).reset_index(drop=True)
+    x["Variant Label"] = [f"V{i+1}" for i in range(len(x))]
+    x["Cumulativo (%)"] = x["Qtde Casos"].cumsum() / x["Qtde Casos"].sum() * 100
+    fig = go.Figure()
+    fig.add_bar(x=x["Variant Label"], y=x["Qtde Casos"], name="Casos", marker_color="#2563eb")
+    fig.add_trace(
+        go.Scatter(
+            x=x["Variant Label"],
+            y=x["Cumulativo (%)"],
+            name="Cumulativo %",
+            mode="lines+markers",
+            yaxis="y2",
+            line=dict(color="#ef4444", width=2),
+        )
+    )
+    fig.update_layout(
+        title="Pareto de Variantes (Top 15)",
+        height=480,
+        yaxis=dict(title="Casos"),
+        yaxis2=dict(title="% Cumulativo", overlaying="y", side="right", range=[0, 105]),
+        xaxis=dict(title="Variantes (V1..V15)"),
+        legend=dict(orientation="h"),
+    )
+    return fig
+
+
+def build_conformance_rework_figs(case_df):
+    fig_hist = go.Figure()
+    fig_scatter = go.Figure()
+    if case_df is None or case_df.empty:
+        return fig_hist, fig_scatter
+
+    x = case_df.copy()
+    if "Conformance Score" in x.columns:
+        x["Conformance Score"] = _safe_num(x["Conformance Score"])
+    if "Rework Score" in x.columns:
+        x["Rework Score"] = _safe_num(x["Rework Score"]).fillna(0)
+    if "Lead Time Fluxo (dias)" in x.columns:
+        x["Lead Time Fluxo (dias)"] = _safe_num(x["Lead Time Fluxo (dias)"])
+
+    if "Conformance Score" in x.columns and x["Conformance Score"].notna().any():
+        fig_hist = px.histogram(
+            x.dropna(subset=["Conformance Score"]),
+            x="Conformance Score",
+            nbins=20,
+            title="Distribuição do Conformance Score",
+        )
+        fig_hist.update_layout(height=420)
+
+    scatter_cols = {"Lead Time Fluxo (dias)", "Rework Score"}
+    if scatter_cols.issubset(x.columns):
+        plot_df = x.dropna(subset=["Lead Time Fluxo (dias)"]).copy()
+        if not plot_df.empty:
+            color_col = "Conformance Score" if "Conformance Score" in plot_df.columns else None
+            fig_scatter = px.scatter(
+                plot_df,
+                x="Lead Time Fluxo (dias)",
+                y="Rework Score",
+                color=color_col,
+                hover_data=[c for c in ["Issue Key", "Tipo de Problema", "Done Final Author"] if c in plot_df.columns],
+                title="Lead Time x Retrabalho por Caso",
+                color_continuous_scale="Viridis" if color_col else None,
+            )
+            fig_scatter.update_layout(height=420)
+    return fig_hist, fig_scatter
+
+
+def build_event_volume_fig(events_df):
+    fig = go.Figure()
+    if events_df is None or events_df.empty:
+        return fig
+    ts_col = "History Created" if "History Created" in events_df.columns else None
+    if not ts_col:
+        return fig
+    x = events_df.copy()
+    x[ts_col] = pd.to_datetime(x[ts_col], errors="coerce")
+    x = x.dropna(subset=[ts_col])
+    if x.empty:
+        return fig
+    x["Semana"] = x[ts_col].dt.to_period("W-SUN").dt.start_time
+    vol = x.groupby("Semana").size().reset_index(name="Eventos")
+    fig = px.bar(vol, x="Semana", y="Eventos", title="Volume de Eventos do Changelog por Semana")
+    fig.update_layout(height=360, xaxis_tickangle=-45, margin=dict(b=90))
+    return fig
+
+
+app = dash.Dash(__name__)
+app.title = "Process Mining Jira - W1NNER"
+
+app.layout = html.Div(
+    [
+        html.H2("Process Mining Jira - W1NNER (Sandbox)", style={"textAlign": "center"}),
+        html.P(
+            "Página local separada do dashboard de produção. Consome o último arquivo w1nner-process-mining-*.xlsx.",
+            style={"textAlign": "center", "color": "#555"},
+        ),
+        html.Div(
+            [
+                html.Button("Recarregar Relatório", id="btn-reload", n_clicks=0),
+                dcc.DatePickerRange(id="pm-date-range"),
+                dcc.Dropdown(id="pm-person-filter", multi=False, placeholder="Filtrar por pessoa"),
+            ],
+            style={
+                "display": "grid",
+                "gridTemplateColumns": "220px 1fr 1fr",
+                "gap": "10px",
+                "alignItems": "center",
+                "marginBottom": "16px",
+            },
+        ),
+        dcc.Store(id="pm-report-store"),
+        html.Div(id="pm-header"),
+        html.Div(id="pm-body"),
+    ],
+    style={"maxWidth": "1400px", "margin": "0 auto", "padding": "16px", "background": "#f7f8fa"},
+)
+
+
+@app.callback(
+    Output("pm-report-store", "data"),
+    Output("pm-header", "children"),
+    Output("pm-date-range", "start_date"),
+    Output("pm-date-range", "end_date"),
+    Output("pm-person-filter", "options"),
+    Input("btn-reload", "n_clicks"),
+)
+def reload_report(_):
+    path = find_latest_process_mining_report()
+    if not path:
+        return None, html.Div("Nenhum arquivo w1nner-process-mining-*.xlsx encontrado."), None, None, []
+
+    report = load_report(path)
+    for key in ["ConformidadeCasos", "RetrabalhoItens"]:
+        if "Done Final Date" in report.get(key, pd.DataFrame()).columns:
+            report[key]["Done Final Date"] = pd.to_datetime(report[key]["Done Final Date"], errors="coerce")
+    if "Semana" in report.get("VazaoPessoaSemanal", pd.DataFrame()).columns:
+        report["VazaoPessoaSemanal"]["Semana"] = pd.to_datetime(report["VazaoPessoaSemanal"]["Semana"], errors="coerce")
+
+    start_date = None
+    end_date = None
+    weekly = report.get("VazaoPessoaSemanal", pd.DataFrame())
+    if not weekly.empty and "Semana" in weekly.columns:
+        s = pd.to_datetime(weekly["Semana"], errors="coerce").dropna()
+        if not s.empty:
+            start_date = s.min().date().isoformat()
+            end_date = s.max().date().isoformat()
+
+    people = report.get("VazaoPessoaResumo", pd.DataFrame())
+    options = []
+    if not people.empty and "Responsavel" in people.columns:
+        vals = sorted([str(v) for v in people["Responsavel"].dropna().astype(str).unique()])
+        options = [{"label": v, "value": v} for v in vals]
+
+    header = html.Div(
+        [
+            html.Div(f"Arquivo: {os.path.basename(path)}"),
+            html.Div(f"Atualizado em: {datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S')}"),
+        ],
+        style={"marginBottom": "12px", "color": "#444"},
+    )
+
+    serializable = {}
+    for k, df in report.items():
+        tmp = df.copy()
+        for c in tmp.columns:
+            if pd.api.types.is_datetime64_any_dtype(tmp[c]):
+                tmp[c] = tmp[c].dt.strftime("%Y-%m-%d %H:%M:%S")
+        serializable[k] = tmp.to_dict("records")
+    return serializable, header, start_date, end_date, options
+
+
+@app.callback(
+    Output("pm-body", "children"),
+    Input("pm-report-store", "data"),
+    Input("pm-date-range", "start_date"),
+    Input("pm-date-range", "end_date"),
+    Input("pm-person-filter", "value"),
+)
+def render_pm(data, start_date, end_date, person):
+    if not data:
+        return html.Div("Sem dados carregados.")
+
+    pm_summary = pd.DataFrame(data.get("ResumoConformidade", []))
+    pm_cases = pd.DataFrame(data.get("ConformidadeCasos", []))
+    pm_rework = pd.DataFrame(data.get("RetrabalhoItens", []))
+    pm_status = pd.DataFrame(data.get("TemposPorStatus", []))
+    pm_weekly = pd.DataFrame(data.get("VazaoPessoaSemanal", []))
+    pm_people = pd.DataFrame(data.get("VazaoPessoaResumo", []))
+    pm_variants = pd.DataFrame(data.get("VariantesTop", []))
+    pm_events = pd.DataFrame(data.get("EventosFiltrados", []))
+    pm_meta = pd.DataFrame(data.get("Metadados", []))
+
+    if "Done Final Date" in pm_cases.columns:
+        pm_cases["Done Final Date"] = pd.to_datetime(pm_cases["Done Final Date"], errors="coerce")
+    if "Done Final Date" in pm_rework.columns:
+        pm_rework["Done Final Date"] = pd.to_datetime(pm_rework["Done Final Date"], errors="coerce")
+    if "Semana" in pm_weekly.columns:
+        pm_weekly["Semana"] = pd.to_datetime(pm_weekly["Semana"], errors="coerce")
+    if "History Created" in pm_events.columns:
+        pm_events["History Created"] = pd.to_datetime(pm_events["History Created"], errors="coerce")
+
+    if start_date and end_date:
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+        if "Semana" in pm_weekly.columns:
+            pm_weekly = pm_weekly[(pm_weekly["Semana"] >= start_ts) & (pm_weekly["Semana"] <= end_ts + pd.Timedelta(days=7))]
+        if "Done Final Date" in pm_cases.columns:
+            pm_cases = pm_cases[pm_cases["Done Final Date"].isna() | ((pm_cases["Done Final Date"] >= start_ts) & (pm_cases["Done Final Date"] <= end_ts))]
+        if "Done Final Date" in pm_rework.columns:
+            pm_rework = pm_rework[pm_rework["Done Final Date"].isna() | ((pm_rework["Done Final Date"] >= start_ts) & (pm_rework["Done Final Date"] <= end_ts))]
+        if "History Created" in pm_events.columns:
+            pm_events = pm_events[(pm_events["History Created"] >= start_ts) & (pm_events["History Created"] <= end_ts + pd.Timedelta(days=1))]
+
+    if person:
+        if "Responsavel" in pm_people.columns:
+            pm_people = pm_people[pm_people["Responsavel"] == person]
+        if "Responsavel" in pm_weekly.columns:
+            pm_weekly = pm_weekly[pm_weekly["Responsavel"] == person]
+        if "Done Final Author" in pm_rework.columns:
+            pm_rework = pm_rework[pm_rework["Done Final Author"] == person]
+        if "Done Final Author" in pm_cases.columns:
+            pm_cases = pm_cases[pm_cases["Done Final Author"] == person]
+        if "Author" in pm_events.columns:
+            pm_events = pm_events[pm_events["Author"] == person]
+
+    total_concluidos = int(pd.to_numeric(pm_people.get("Itens Concluidos", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int(pm_cases["Issue Key"].nunique()) if "Issue Key" in pm_cases.columns else 0
+    itens_retrabalho = int(pd.to_numeric(pm_people.get("Itens Com Retrabalho", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int((pd.to_numeric(pm_cases.get("Rework Score", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
+    taxa_retrabalho = (itens_retrabalho / total_concluidos * 100.0) if total_concluidos > 0 else 0.0
+    conf_media = pd.to_numeric(pm_cases.get("Conformance Score", pd.Series(dtype=float)), errors="coerce").dropna()
+    conf_media_val = float(conf_media.mean()) if not conf_media.empty else np.nan
+
+    kpi_grid = html.Div(
+        [
+            create_kpi_card("Itens Concluídos", total_concluidos),
+            create_kpi_card("Itens com Retrabalho", itens_retrabalho),
+            create_kpi_card("Taxa de Retrabalho", f"{taxa_retrabalho:.1f}%"),
+            create_kpi_card("Conformidade Média", f"{conf_media_val:.2f}" if pd.notna(conf_media_val) else "—"),
+        ],
+        style={"display": "grid", "gridTemplateColumns": "repeat(4, minmax(180px, 1fr))", "gap": "10px", "marginBottom": "16px"},
+    )
+
+    fig_vazao = go.Figure()
+    if not pm_people.empty and {"Responsavel", "Itens Concluidos"}.issubset(pm_people.columns):
+        x = pm_people.copy()
+        x["Itens Concluidos"] = pd.to_numeric(x["Itens Concluidos"], errors="coerce").fillna(0)
+        if "Taxa Retrabalho (%)" in x.columns:
+            x["Taxa Retrabalho (%)"] = pd.to_numeric(x["Taxa Retrabalho (%)"], errors="coerce")
+        x = x.sort_values("Itens Concluidos", ascending=False).head(20)
+        fig_vazao = px.bar(x, x="Itens Concluidos", y="Responsavel", orientation="h", color="Taxa Retrabalho (%)" if "Taxa Retrabalho (%)" in x.columns else None, color_continuous_scale="RdYlGn_r", title="Vazão por Pessoa")
+        fig_vazao.update_layout(height=520, yaxis={"categoryorder": "total ascending"})
+
+    fig_retrabalho = go.Figure()
+    if not pm_people.empty and {"Responsavel", "Itens Com Retrabalho"}.issubset(pm_people.columns):
+        x = pm_people.copy()
+        x["Itens Com Retrabalho"] = pd.to_numeric(x["Itens Com Retrabalho"], errors="coerce").fillna(0)
+        if "Taxa Retrabalho (%)" in x.columns:
+            x["Taxa Retrabalho (%)"] = pd.to_numeric(x["Taxa Retrabalho (%)"], errors="coerce")
+        x = x.sort_values("Itens Com Retrabalho", ascending=False).head(20)
+        fig_retrabalho = px.bar(x, x="Itens Com Retrabalho", y="Responsavel", orientation="h", color="Taxa Retrabalho (%)" if "Taxa Retrabalho (%)" in x.columns else None, color_continuous_scale="OrRd", title="Retrabalho por Pessoa")
+        fig_retrabalho.update_layout(height=520, yaxis={"categoryorder": "total ascending"})
+
+    fig_vazao_sem = go.Figure()
+    if not pm_weekly.empty and {"Semana", "Responsavel", "Itens Concluidos"}.issubset(pm_weekly.columns):
+        x = pm_weekly.copy()
+        x["Itens Concluidos"] = pd.to_numeric(x["Itens Concluidos"], errors="coerce").fillna(0)
+        if not person and not pm_people.empty and {"Responsavel", "Itens Concluidos"}.issubset(pm_people.columns):
+            top_people = (
+                pm_people.assign(_tp=pd.to_numeric(pm_people["Itens Concluidos"], errors="coerce").fillna(0))
+                .sort_values("_tp", ascending=False)
+                .head(5)["Responsavel"]
+                .tolist()
+            )
+            x = x[x["Responsavel"].isin(top_people)]
+        fig_vazao_sem = px.line(x, x="Semana", y="Itens Concluidos", color="Responsavel", markers=True, title="Vazão Semanal por Pessoa")
+        fig_vazao_sem.update_layout(height=480, xaxis_tickangle=-45, margin=dict(b=100))
+
+    fig_tempo_status = go.Figure()
+    if not pm_status.empty and {"Status", "Tempo Mediano (dias)"}.issubset(pm_status.columns):
+        x = pm_status.copy()
+        x["Tempo Mediano (dias)"] = pd.to_numeric(x["Tempo Mediano (dias)"], errors="coerce").fillna(0)
+        x = x.sort_values("Tempo Mediano (dias)", ascending=False).head(15)
+        fig_tempo_status = px.bar(x, x="Tempo Mediano (dias)", y="Status", orientation="h", title="Tempos por Status (Mediana)")
+        fig_tempo_status.update_layout(height=480, yaxis={"categoryorder": "total ascending"})
+
+    fig_transition_map = build_transition_sankey(pm_events)
+    fig_variants = build_variants_pareto(pm_variants)
+    fig_conf_hist, fig_lt_rework = build_conformance_rework_figs(pm_cases)
+    fig_event_vol = build_event_volume_fig(pm_events)
+
+    pm4py_banner = None
+    if not pm_meta.empty and {"Metrica", "Valor"}.issubset(pm_meta.columns):
+        meta_map = {str(r["Metrica"]): str(r["Valor"]) for _, r in pm_meta.iterrows()}
+        if meta_map.get("pm4py_available", "").lower() == "false":
+            pm4py_banner = html.Div(
+                [
+                    html.B("PM4Py não está instalado no ambiente que gerou o relatório. "),
+                    html.Span("Os gráficos abaixo usam o workbook exportado (pandas/plotly). "),
+                    html.Code("pip install pm4py"),
+                    html.Span(" para habilitar métricas extras no script."),
+                ],
+                style={
+                    "background": "#fff8e1",
+                    "border": "1px solid #facc15",
+                    "padding": "10px 12px",
+                    "borderRadius": "8px",
+                    "marginBottom": "12px",
+                },
+            )
+
+    people_cols = [c for c in ["Responsavel", "Itens Concluidos", "Itens Com Retrabalho", "Taxa Retrabalho (%)", "Rework Score Total", "Lead Time Mediano (dias)", "Media Itens/Semana Ativa"] if c in pm_people.columns]
+    rework_cols = [c for c in ["Issue Key", "Tipo de Problema", "Rework Score", "Reopen Count", "Backward Moves", "QA Returns", "Revisitas Status", "Conformance Score", "Done Final Author", "Done Final Date"] if c in pm_rework.columns]
+    summary_cols = [c for c in ["Metrica", "Valor"] if c in pm_summary.columns]
+    meta_cols = [c for c in ["Metrica", "Valor"] if c in pm_meta.columns]
+
+    if not pm_rework.empty:
+        sort_cols = [c for c in ["Rework Score", "Reopen Count", "Backward Moves"] if c in pm_rework.columns]
+        if sort_cols:
+            pm_rework = pm_rework.sort_values(sort_cols, ascending=[False] * len(sort_cols))
+
+    return html.Div(
+        [
+            pm4py_banner if pm4py_banner else html.Div(),
+            kpi_grid,
+            html.H3("Visualizações de Process Mining", style={"marginTop": "6px"}),
+            dcc.Graph(figure=fig_transition_map),
+            dcc.Graph(figure=fig_variants),
+            html.Div(
+                [
+                    html.Div(dcc.Graph(figure=fig_conf_hist), style={"flex": "1 1 420px"}),
+                    html.Div(dcc.Graph(figure=fig_lt_rework), style={"flex": "1 1 420px"}),
+                ],
+                style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+            ),
+            dcc.Graph(figure=fig_event_vol),
+            html.H3("Análises Operacionais", style={"marginTop": "6px"}),
+            dcc.Graph(figure=fig_vazao),
+            dcc.Graph(figure=fig_vazao_sem),
+            dcc.Graph(figure=fig_retrabalho),
+            dcc.Graph(figure=fig_tempo_status),
+            html.H4("Resumo por Pessoa"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in people_cols],
+                data=pm_people[people_cols].head(50).to_dict("records") if people_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                page_size=12,
+            ),
+            html.H4("Top Itens com Retrabalho"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in rework_cols],
+                data=pm_rework[rework_cols].head(50).to_dict("records") if rework_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                filter_action="native",
+                page_size=12,
+            ),
+            html.H4("Resumo de Conformidade"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in summary_cols],
+                data=pm_summary[summary_cols].to_dict("records") if summary_cols else [],
+                style_cell={"textAlign": "left", "padding": "6px"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                page_size=12,
+            ),
+            html.H4("Metadados"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in meta_cols],
+                data=pm_meta[meta_cols].to_dict("records") if meta_cols else [],
+                style_cell={"textAlign": "left", "padding": "6px", "whiteSpace": "normal"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                page_size=10,
+            ),
+        ]
+    )
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=8051)

@@ -1,5 +1,151 @@
 # Task Plan
 
+## Current Task (Hierarquia no downstream + indicador exato de órfãos no fluxo operacional)
+- [x] Mapear vínculos hierárquicos disponíveis no `jira_to_pipeline_csv.py` além de `ParentID`
+- [x] Exportar colunas de hierarquia no downstream (`ParentID`, `ParentTipo` e vínculos inferidos de feature/épico)
+- [x] Implementar cálculo do indicador exato de histórias/tasks órfãos no fluxo operacional usando as novas colunas
+- [x] Validar sintaxe/diff e registrar review/evidências
+
+## Specification (Hierarquia no downstream + indicador exato de órfãos no fluxo operacional)
+- Objetivo: enriquecer o CSV downstream com campos de hierarquia suficientes para calcular com precisão o indicador de `% histórias/tasks órfãos` (sem parent feature e sem vínculo válido com épico/feature).
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `dashboard_full.py` (se necessário para leitura/cálculo)
+  - `tasks/todo.md`
+- Critério de aceite:
+  - CSV downstream passa a exportar `ParentID` e `ParentTipo` (e metadados auxiliares de vínculo hierárquico).
+  - Exportador identifica e explicita vínculos alternativos relevantes (ex.: `Principal`/custom field de épico) sem depender apenas de `ParentID`.
+  - Existe rotina de cálculo do indicador exato no fluxo operacional baseada nas novas colunas.
+  - Alteração permanece retrocompatível para consumidores atuais do downstream.
+
+## Review (Hierarquia no downstream + indicador exato de órfãos no fluxo operacional)
+- What was validated:
+  - `jira_to_pipeline_csv.py` passou a exportar colunas de hierarquia no CSV downstream (`ParentID`, `ParentTipo`, `ParentTitle`) e vínculos inferidos (`FeatureLinkID`, `EpicLinkID`, tipos e `HierarchyLinkSource`).
+  - O exportador agora consolida vínculo com feature/épico a partir de `parent`, `Principal` (quando contém key Jira) e `epic_name` (quando o campo custom retorna key), preservando `Epic Name` textual para diagnóstico.
+  - Foi adicionada rotina `compute_storytask_orphan_indicator(...)` que calcula `% histórias/tasks órfãos` usando a hierarquia exportada e imprime o resultado ao final da execução do export.
+  - Teste em memória validou a regra de classificação do indicador (casos com parent feature, epic link e órfão sem vínculo).
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_pipeline_csv.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python jira_to_pipeline_csv.py --help`
+  - `python -c "import jira_to_pipeline_csv as m; rows=[...]; print(m.compute_storytask_orphan_indicator(rows))"` (retorno esperado em teste sintético)
+  - `git diff -- jira_to_pipeline_csv.py tasks/todo.md`
+- Notes:
+  - O cálculo exato em arquivos downstream já existentes não pode ser refeito retroativamente porque os CSVs atuais não têm `ParentID/ParentTipo` exportados; é necessário regenerar os CSVs com o novo script.
+- Suggested commit message:
+  - `feat(downstream): export hierarchy links and compute exact story-task orphan indicator`
+
+## Current Task (Padronizar tamanho dos KPIs do Indicador 3 - Resumo Executivo)
+- [x] Localizar e ajustar o renderer das caixas de KPIs do `Indicador 3 - Resumo Executivo`
+- [x] Padronizar grid/tamanho visual para o mesmo formato dos indicadores grandes do resumo executivo
+- [x] Validar sintaxe/diff e registrar review/evidências
+
+## Specification (Padronizar tamanho dos KPIs do Indicador 3 - Resumo Executivo)
+- Objetivo: deixar as caixas de KPI do bloco `Indicador 3 - Resumo Executivo` com formato e dimensões visuais consistentes com os cards grandes do topo da aba `Resumo Executivo`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Cards do `Indicador 3` passam a usar dimensões uniformes (altura/largura visual semelhante aos indicadores grandes).
+  - Grid fica responsivo, evitando cards muito estreitos em telas largas.
+  - Alteração não muda os valores exibidos nem a regra de cores por tipo.
+
+## Review (Padronizar tamanho dos KPIs do Indicador 3 - Resumo Executivo)
+- What was validated:
+  - `render_executive_tiles(...)` em `dashboard_full.py` foi refatorado para usar `create_kpi_card(...)`, alinhando o formato visual com os cards grandes do topo (mesmo padrão de card quadrado, centralização e tipografia).
+  - O grid do `Indicador 3` passou de colunas estreitas (`minmax(170px, 1fr)`) para um layout responsivo com cards maiores (`minmax(260px, 1fr)`), com `maxWidth` centralizado para evitar excesso de colunas em telas largas.
+  - As cores por tipo (`ok/alerta/risco/info`) e os valores exibidos foram preservados.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- dashboard_full.py tasks/todo.md` (observado que `dashboard_full.py` já possui outras mudanças não relacionadas no worktree; revisão focada no bloco `render_executive_tiles`)
+- Suggested commit message:
+  - `style(portfolio): standardize indicador 3 executive KPI card sizing`
+
+## Current Task (Process mining Jira (W1NNER) + painel no dashboard)
+- [x] Definir escopo do process mining para W1NNER com tipos História/Task/Bug a partir do changelog detalhado do Jira
+- [x] Implementar `process_mining_jira.py` com conformidade básica, retrabalho por item, tempos por status e saída CSV/Excel
+- [x] Adicionar painel dedicado no `dashboard_full.py` para vazão por pessoa e retrabalho consumindo o relatório gerado
+- [x] Validar sintaxe/diff e registrar evidências/review
+
+## Specification (Process mining Jira (W1NNER) + painel no dashboard)
+- Objetivo: criar um fluxo inicial de process mining baseado no changelog detalhado do Jira para o projeto W1NNER (`W1NNR`) e expor um painel dedicado no dashboard com foco em vazão por pessoa e retrabalho.
+- Escopo:
+  - `process_mining_jira.py`
+  - `dashboard_full.py`
+  - `requirements.txt`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Script filtra somente `W1NNER/W1NNR` e tipos `História/Task/Bug`.
+  - Gera relatórios de conformidade básica, retrabalho por item, tempos por status e vazão por pessoa em CSV e Excel.
+  - `dashboard_full.py` possui aba separada para ler o relatório mais recente e mostrar vazão por pessoa + retrabalho.
+  - Alteração falha de forma segura quando o relatório ainda não existe.
+
+## Review (Process mining Jira (W1NNER) + painel no dashboard)
+- What was validated:
+  - Criado `process_mining_jira.py` para leitura do changelog detalhado (`--detailed-changelog-out`), filtro W1NNER/W1NNR + tipos História/Task/Bug, métricas de conformidade básica/retrabalho/tempos por status e relatórios de vazão por pessoa.
+  - Saída em múltiplos CSVs e workbook Excel (`w1nner-process-mining-*.xlsx`) com abas dedicadas para o painel.
+  - Nova aba `Process Mining Jira` no `dashboard_full.py` consumindo automaticamente o relatório mais recente e destacando KPIs, vazão por pessoa, vazão semanal e retrabalho.
+  - `requirements.txt` atualizado com `pm4py` (uso opcional no script; fallback seguro quando indisponível).
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['process_mining_jira.py','dashboard_full.py']]; print('syntax ok')"`
+  - `git diff -- process_mining_jira.py dashboard_full.py requirements.txt tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add W1NNER jira changelog mining script and dashboard panel`
+
+## Current Task (Isolar process mining fora do dashboard de produção)
+- [x] Remover temporariamente a aba de process mining do menu do `dashboard_full.py`
+- [x] Criar página standalone `dashboard_process_mining.py` para uso local/sandbox
+- [x] Validar sintaxe e registrar evidências
+
+## Specification (Isolar process mining fora do dashboard de produção)
+- Objetivo: evitar expor a análise de process mining no menu do dashboard principal enquanto a funcionalidade ainda está em validação, mantendo acesso por uma página separada local.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Aba `Process Mining Jira` deixa de aparecer no menu do `dashboard_full.py`.
+  - Existe um app standalone com foco em process mining (`dashboard_process_mining.py`) que lê o último `w1nner-process-mining-*.xlsx`.
+  - Página standalone mostra vazão por pessoa, retrabalho e tabelas principais.
+
+## Review (Isolar process mining fora do dashboard de produção)
+- What was validated:
+  - A aba foi removida apenas da lista `SERVICE_TABS` em `dashboard_full.py`, preservando a lógica interna para futura reativação.
+  - Criado `dashboard_process_mining.py` como app Dash separado (sandbox), com recarga do último relatório, filtro por período e responsável, gráficos de vazão/retrabalho e tabelas de apoio.
+  - Mudança reduz risco de exposição em produção sem perder o trabalho já implementado.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['dashboard_full.py','dashboard_process_mining.py']]; print('syntax ok')"`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `chore(process-mining): move jira mining UI to standalone sandbox page`
+
+## Current Task (Gráficos de process mining na página sandbox)
+- [x] Carregar abas `EventosFiltrados` e `VariantesTop` no `dashboard_process_mining.py`
+- [x] Implementar visualizações de process mining (Sankey de transições, Pareto de variantes, distribuição de conformidade)
+- [x] Ajustar porta padrão do app sandbox para `8051` e exibir orientação sobre `pm4py`
+- [x] Validar sintaxe
+
+## Specification (Gráficos de process mining na página sandbox)
+- Objetivo: enriquecer a página `dashboard_process_mining.py` com visualizações mais próximas de process mining, sem depender da aba no dashboard principal e com fallback quando `pm4py` não estiver instalado.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Página mostra mapa de transições (Sankey) usando `EventosFiltrados`.
+  - Página mostra Pareto de variantes (`VariantesTop`) e gráficos de conformidade/retrabalho.
+  - App sobe por padrão na porta `8051`.
+  - Mensagem de metadados `pm4py_available=False` fica contextualizada para o usuário.
+
+## Review (Gráficos de process mining na página sandbox)
+- What was validated:
+  - `dashboard_process_mining.py` passou a carregar `VariantesTop` e `EventosFiltrados` do workbook exportado.
+  - Foram adicionados gráficos de process mining: Sankey de transições (`From Status` -> `To Status`), Pareto de variantes, distribuição de conformance score, dispersão Lead Time x Retrabalho e volume de eventos por semana.
+  - Página exibe banner explicando `pm4py_available=False` e comando de instalação (`pip install pm4py`) sem bloquear as visualizações.
+  - App sandbox agora inicia por padrão em `port=8051`, evitando conflito com `dashboard_full.py`.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
+- Suggested commit message:
+  - `feat(process-mining-ui): add sankey and variant charts to sandbox dashboard`
+
 ## Current Task (Weibull shape/lambda na estatística descritiva)
 - [x] Inspecionar referência da planilha `LT_STATS_WEIBULL.xlsx` e alinhar fórmula de ajuste Weibull
 - [x] Implementar cálculo de `shape (k)` e `lambda` do Lead Time na aba `Estatística Descritiva`
