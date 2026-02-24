@@ -288,7 +288,9 @@ app.title = 'Dashboard de Métricas (Full)'
 PROJECT_BOTTLENECK_PREFIX = {
     'W1NNER': 'w1nner-downstream',
     'S1NC': 's1nc-downstream',
+    'BF': 'befinance-downstream',
     'BEFINANCE': 'befinance-downstream',
+    'DT': 'dataanalytics-downstream',
     'DATA&ANALYTICS': 'dataanalytics-downstream',
 }
 
