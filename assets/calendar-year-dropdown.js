@@ -138,6 +138,7 @@
         // React-dates/Dash moderno pode renderizar vários meses (incluindo buffers ocultos).
         // Seleciona apenas captions visíveis e limita a quantidade por calendário aberto.
         document.querySelectorAll(MODERN_PICKER_ROOTS_SELECTOR).forEach(function (root) {
+            var rootRect = root.getBoundingClientRect ? root.getBoundingClientRect() : null;
             var visibleCaptions = Array.from(
                 root.querySelectorAll('.CalendarMonth_caption, .DatePicker_caption')
             ).filter(function (node) {
@@ -147,7 +148,10 @@
                     return false;
                 }
                 var rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
-                return !!rect && rect.width > 0 && rect.height > 0;
+                if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+                // Só usa captions na faixa superior do popup (cabeçalho visível do mês).
+                if (rootRect && rect.top - rootRect.top > 90) return false;
+                return true;
             });
 
             // Mantém só os primeiros cabeçalhos visíveis (DatePickerRange geralmente mostra 1 ou 2).
@@ -157,6 +161,21 @@
         });
 
         return all;
+    }
+
+    function cleanupDuplicateYearSelects() {
+        document.querySelectorAll(MODERN_PICKER_ROOTS_SELECTOR).forEach(function (root) {
+            var keep = new Set();
+            listControls().forEach(function (ctrl) {
+                if (root.contains(ctrl)) keep.add(ctrl);
+            });
+            root.querySelectorAll('.year-select-custom').forEach(function (sel) {
+                var parent = sel.parentElement;
+                if (!parent || !keep.has(parent)) {
+                    sel.remove();
+                }
+            });
+        });
     }
 
     function hasOpenCalendar() {
@@ -198,6 +217,7 @@
             clearTimeout(syncTimer);
         }
         syncTimer = setTimeout(function () {
+            cleanupDuplicateYearSelects();
             listControls().forEach(function (controls) {
                 createYearSelect(controls);
             });
