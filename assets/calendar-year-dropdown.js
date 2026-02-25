@@ -141,6 +141,12 @@
         return all;
     }
 
+    function hasOpenCalendar() {
+        return !!document.querySelector(
+            '.dash-datepicker-calendar-wrapper, .DateRangePicker_picker, .SingleDatePicker_picker, .DayPicker'
+        );
+    }
+
     function syncDropdowns() {
         listControls().forEach(function (controls) {
             var select = controls.querySelector('.year-select-custom');
@@ -153,12 +159,33 @@
         });
     }
 
-    var observer = new MutationObserver(function () {
-        listControls().forEach(function (controls) {
-            createYearSelect(controls);
-        });
-        // Sincronizar valor do dropdown com o ano atual após re-render
-        setTimeout(syncDropdowns, 150);
+    var syncTimer = null;
+    var observer = new MutationObserver(function (mutations) {
+        // Evita trabalho pesado quando o calendário não está aberto.
+        if (!hasOpenCalendar()) return;
+
+        // Ignora mutações causadas apenas pelo próprio dropdown customizado.
+        var relevant = false;
+        for (var i = 0; i < mutations.length; i++) {
+            var m = mutations[i];
+            if (m.target && m.target.closest && m.target.closest('.year-select-custom')) {
+                continue;
+            }
+            relevant = true;
+            break;
+        }
+        if (!relevant) return;
+
+        if (syncTimer) {
+            clearTimeout(syncTimer);
+        }
+        syncTimer = setTimeout(function () {
+            listControls().forEach(function (controls) {
+                createYearSelect(controls);
+            });
+            syncDropdowns();
+            syncTimer = null;
+        }, 80);
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
