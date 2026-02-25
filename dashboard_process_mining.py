@@ -1,7 +1,7 @@
 import base64
 import os
 import platform
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
 import dash
 try:
@@ -75,6 +75,9 @@ EXECUTION_STATUS_HINTS = (
     "homolog",
     "staging",
 )
+WORKDAY_START_HOUR = 9
+WORKDAY_END_HOUR = 18
+WORKDAY_DAILY_CAP_HOURS = 8.0
 
 
 def find_latest_process_mining_report():
@@ -202,6 +205,59 @@ def compute_overlap_hours(events_df: pd.DataFrame, start_ts=None, end_ts=None) -
     ends = raw_ends.clip(lower=window_start, upper=window_end)
     overlap_h = (ends - starts).dt.total_seconds() / 3600.0
     x["HorasNoPeriodo"] = overlap_h.where(overlap_h.notna() & (overlap_h > 0), 0.0)
+    return x
+
+
+def business_hours_overlap(start_dt, end_dt, work_start_hour=WORKDAY_START_HOUR, work_end_hour=WORKDAY_END_HOUR, daily_cap_hours=WORKDAY_DAILY_CAP_HOURS) -> float:
+    """Horas úteis em dias úteis no intervalo [start_dt, end_dt], com teto diário."""
+    if pd.isna(start_dt) or pd.isna(end_dt):
+        return 0.0
+    start_dt = pd.to_datetime(start_dt)
+    end_dt = pd.to_datetime(end_dt)
+    if end_dt <= start_dt:
+        return 0.0
+
+    total = 0.0
+    cur_date = start_dt.date()
+    last_date = end_dt.date()
+    while cur_date <= last_date:
+        if cur_date.weekday() < 5:  # Mon-Fri
+            day_start = pd.Timestamp(datetime.combine(cur_date, time(hour=work_start_hour)))
+            day_end = pd.Timestamp(datetime.combine(cur_date, time(hour=work_end_hour)))
+            seg_start = max(start_dt, day_start)
+            seg_end = min(end_dt, day_end)
+            if seg_end > seg_start:
+                hours = (seg_end - seg_start).total_seconds() / 3600.0
+                total += max(0.0, min(float(daily_cap_hours), hours))
+        cur_date = cur_date + timedelta(days=1)
+    return round(total, 4)
+
+
+def add_business_hours_overlap(events_df: pd.DataFrame, start_ts=None, end_ts=None) -> pd.DataFrame:
+    """Acrescenta `HorasUteisPeriodo` por evento com base em dias úteis/horário comercial/teto diário."""
+    x = compute_overlap_hours(events_df, start_ts=start_ts, end_ts=end_ts)
+    if x.empty:
+        x["HorasUteisPeriodo"] = pd.Series(dtype=float)
+        return x
+    window_start = pd.to_datetime(start_ts) if start_ts is not None else None
+    window_end = (pd.to_datetime(end_ts) + pd.Timedelta(days=1)) if end_ts is not None else None
+
+    starts = pd.to_datetime(x.get("History Created"), errors="coerce")
+    ends = pd.to_datetime(x.get("Next Timestamp"), errors="coerce")
+    if "TempoStatusDias" in x.columns:
+        fallback_ends = starts + pd.to_timedelta(_safe_num(x["TempoStatusDias"]).fillna(0), unit="D")
+        ends = ends.fillna(fallback_ends)
+    if window_start is not None:
+        starts = starts.clip(lower=window_start)
+        ends = ends.clip(lower=window_start)
+    if window_end is not None:
+        starts = starts.clip(upper=window_end)
+        ends = ends.clip(upper=window_end)
+
+    x["HorasUteisPeriodo"] = [
+        business_hours_overlap(s, e)
+        for s, e in zip(starts.tolist(), ends.tolist())
+    ]
     return x
 
 

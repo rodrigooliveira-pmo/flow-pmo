@@ -7265,10 +7265,18 @@ def create_generic_datatable(df, table_id, title):
     return create_table(df, table_id=table_id, title=title)
 
 
+def optional_input(component_id, component_property):
+    """Dash compatibility shim for versions without Input(..., allow_optional=...)."""
+    try:
+        return Input(component_id, component_property, allow_optional=True)
+    except TypeError:
+        return Input(component_id, component_property)
+
+
 @app.callback(
     Output('cfd-summary-panel', 'children'),
-    Input('cfd-graph', 'clickData', allow_optional=True),
-    Input('cfd-graph', 'hoverData', allow_optional=True),
+    optional_input('cfd-graph', 'clickData'),
+    optional_input('cfd-graph', 'hoverData'),
     Input('cfd-summary-store', 'data'),
 )
 def update_cfd_summary_panel(click_data, hover_data, summary_payload):
