@@ -1,5 +1,33 @@
 # Task Plan
 
+## Current Task (Falha de import `dash._grouping` no deploy Vercel)
+- [x] Diagnosticar traceback de produção e identificar problema de empacotamento/versão do Dash
+- [x] Fixar versões compatíveis de dependências web no `requirements.txt`
+- [x] Validar import local do `dashboard_full` e registrar evidências
+
+## Specification (Falha de import `dash._grouping` no deploy Vercel)
+- Objetivo: estabilizar a instalação de dependências no runtime da Vercel para evitar `ModuleNotFoundError: No module named 'dash._grouping'` durante o import do `dashboard_full`.
+- Escopo:
+  - `requirements.txt`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `requirements.txt` fixa versão do `dash` e ranges compatíveis de `plotly`/`Flask`/`Werkzeug`.
+  - `dashboard_full` continua importando localmente com o ambiente atual.
+  - Correção é compatível com o entrypoint `api/index.py` já ajustado para diagnóstico.
+
+## Review (Falha de import `dash._grouping` no deploy Vercel)
+- What was validated:
+  - O traceback indica falha no pacote `dash` instalado na Vercel (`dash._validate` tentando importar `dash._grouping` ausente), sintoma de versão/resolução inconsistente.
+  - `requirements.txt` foi atualizado para travar `dash==2.18.2` e ranges estáveis de `plotly`, `Flask` e `Werkzeug`, reduzindo risco de incompatibilidades no Python 3.12 da Vercel.
+  - `dashboard_full` continua importando localmente após a alteração de dependências.
+- Evidence (tests/logs/diff):
+  - `python -c "import dashboard_full; print('dashboard_import_ok')"`
+  - `git diff -- requirements.txt tasks/todo.md`
+- Notes:
+  - Para a Vercel aplicar a correção, faça novo deploy com limpeza de cache de build/dependências.
+- Suggested commit message:
+  - `fix(deps): pin dash stack versions for vercel runtime`
+
 ## Current Task (Diagnóstico de falha de startup no deploy Vercel do dashboard_full)
 - [x] Reproduzir/diagnosticar padrão de erro `500` em assets do Dash em produção
 - [x] Corrigir fallback de `api/index.py` para exibir erro real de inicialização sem quebrar assets do app diagnóstico
