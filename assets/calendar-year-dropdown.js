@@ -184,6 +184,20 @@
         );
     }
 
+    function hasModernNativeYearSelector() {
+        return !!document.querySelector(
+            '.DateRangePicker_picker select, .SingleDatePicker_picker select, .DayPicker select'
+        );
+    }
+
+    function cleanupAllModernInjectedYearSelects() {
+        document.querySelectorAll(
+            '.DateRangePicker_picker .year-select-custom, .SingleDatePicker_picker .year-select-custom, .DayPicker .year-select-custom'
+        ).forEach(function (sel) {
+            sel.remove();
+        });
+    }
+
     function syncDropdowns() {
         listControls().forEach(function (controls) {
             var select = controls.querySelector('.year-select-custom');
@@ -200,6 +214,12 @@
     var observer = new MutationObserver(function (mutations) {
         // Evita trabalho pesado quando o calendário não está aberto.
         if (!hasOpenCalendar()) return;
+
+        // Dash 4 já possui seletor nativo de mês/ano; não injeta hack customizado.
+        if (hasModernNativeYearSelector()) {
+            cleanupAllModernInjectedYearSelects();
+            return;
+        }
 
         // Ignora mutações causadas apenas pelo próprio dropdown customizado.
         var relevant = false;

@@ -1,5 +1,24 @@
 # Task Plan
 
+## Current Task (Alinhar versão do DatePicker local x produção no Vercel)
+- [x] Confirmar diferença de versão do Dash entre localhost e produção
+- [x] Atualizar pins de dependência para `dash==4.0.0` no deploy
+- [x] Tornar `calendar-year-dropdown.js` inofensivo quando o DatePicker novo (com seletores nativos) estiver presente
+- [ ] Validar deploy em produção com hard refresh e conferir interação do calendário
+
+## Specification (Alinhar versão do DatePicker local x produção no Vercel)
+- Objetivo: fazer a produção usar a mesma versão de componente de calendário que está funcionando no localhost, eliminando divergência de DOM e conflito com hacks JS.
+- Escopo:
+  - `pyproject.toml`
+  - `requirements-vercel.txt`
+  - `assets/calendar-year-dropdown.js`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Produção instala `dash==4.0.0`.
+  - Calendário em produção passa a usar o layout novo (igual ao localhost) e permite seleção de ano.
+  - JS customizado não injeta dropdown extra no DatePicker novo.
+
+
 ## Current Task (Restaurar seleção de ano no DatePicker do process mining)
 - [x] Identificar regressão no componente de calendário (assets JS/CSS vs novo DOM do DatePicker)
 - [x] Ajustar `calendar-year-dropdown.js` para suportar seletores antigos e novos do cabeçalho/calendário

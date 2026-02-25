@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-02-25
+- Context: Divergência do componente de calendário entre localhost e Vercel, com hacks JS quebrando interação em produção.
+- User correction: Mostrou que localhost estava com DatePicker novo (mês/ano nativos) enquanto produção continuava com UI antiga e comportamento quebrado.
+- Root cause: Ambiente local rodava `dash 4.0.0`, mas produção estava pinada em `dash==2.18.2` (`pyproject.toml` / `requirements-vercel.txt`), criando mismatch de DOM e incompatibilidade com customização em `assets`.
+- Prevention rule: Antes de diagnosticar regressão visual entre local e produção, comparar explicitamente versões de runtime/dependências (ex.: `dash.__version__`) e alinhar pins de deploy.
+- Action added to workflow: Em bugs de UI no Vercel, verificar primeiro `logs + versão local + versão pinada em pyproject/requirements` antes de iterar em hacks de CSS/JS.
+
+- Date: 2026-02-25
 - Context: Correção de regressão no seletor de ano do `DatePickerRange` em `dashboard_process_mining.py` após alteração do componente de calendário.
 - User correction: Informou que o controle de datas mudou e não era mais possível escolher o ano no calendário.
 - Root cause: O hack de dropdown de ano em `assets/calendar-year-dropdown.js` dependia de seletores DOM antigos (`.dash-datepicker-controls` / header antigo) e deixou de injetar o seletor com o novo layout do DatePicker.
