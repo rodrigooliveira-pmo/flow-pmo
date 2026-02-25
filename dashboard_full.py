@@ -288,7 +288,12 @@ WEEK_DATE_RANGE_FREQ = 'W-MON'
 WEEK_PERIOD = 'W-SUN'
 
 # App
-app = dash.Dash(__name__, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'], suppress_callback_exceptions=True)
+app = dash.Dash(
+    __name__,
+    external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'],
+    suppress_callback_exceptions=True,
+    serve_locally=False,
+)
 app.title = 'Dashboard de Métricas (Full)'
 
 PROJECT_BOTTLENECK_PREFIX = {
