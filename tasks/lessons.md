@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-02-25
+- Context: Correção de regressão no seletor de ano do `DatePickerRange` em `dashboard_process_mining.py` após alteração do componente de calendário.
+- User correction: Informou que o controle de datas mudou e não era mais possível escolher o ano no calendário.
+- Root cause: O hack de dropdown de ano em `assets/calendar-year-dropdown.js` dependia de seletores DOM antigos (`.dash-datepicker-controls` / header antigo) e deixou de injetar o seletor com o novo layout do DatePicker.
+- Prevention rule: Ao customizar componentes de terceiros por DOM/CSS (DatePicker, Dropdown, overlays), implementar seletores com fallback para múltiplas versões e validar o comportamento após upgrades visuais.
+- Action added to workflow: Em qualquer ajuste de assets do calendário, revisar seletores JS/CSS contra o DOM atual e testar abertura do calendário com troca de mês e ano.
+
 - Date: 2026-02-23
 - Context: Unificação de abas de análise no dashboard de serviços.
 - User correction: Reportou regressão visual no filtro de data (ano não visível no calendário).

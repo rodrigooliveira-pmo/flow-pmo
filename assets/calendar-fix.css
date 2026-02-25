@@ -20,6 +20,7 @@
 .year-select-custom {
     height: 32px;
     min-width: 88px;
+    margin: 0 8px;
     border: 1px solid rgba(0, 18, 77, 0.45);
     border-radius: 4px;
     background: #fff;
@@ -31,6 +32,7 @@
     padding: 0 8px;
     cursor: pointer;
     appearance: auto;
+    vertical-align: middle;
 }
 
 .year-select-custom option {

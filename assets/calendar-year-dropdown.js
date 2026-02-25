@@ -5,6 +5,11 @@
 (function () {
     const MIN_YEAR = 2020;
     const MAX_YEAR = 2030;
+    const CONTROLS_SELECTORS = [
+        '.dash-datepicker-controls',
+        '.DatePicker_caption',
+        '.CalendarMonth_caption',
+    ];
 
     // Setter nativo do input para contornar o override do React
     var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
@@ -19,11 +24,36 @@
         input.dispatchEvent(new Event('blur', { bubbles: true }));
     }
 
+    function closestCalendarRoot(node) {
+        if (!node) return null;
+        return node.closest(
+            '.dash-datepicker-calendar-wrapper, .DateRangePicker_picker, .SingleDatePicker_picker, .DayPicker, [class*="datepicker"]'
+        );
+    }
+
     function getYearInput(controls) {
-        // O input do ano é o .dash-input-element dentro de .dash-input
+        // Dash antigo: stepper embutido em .dash-input
         var dashInput = controls.querySelector('.dash-input');
         if (dashInput) {
-            return dashInput.querySelector('.dash-input-element');
+            var dashInputElement = dashInput.querySelector('.dash-input-element');
+            if (dashInputElement) return dashInputElement;
+        }
+
+        // Dash/react-datepicker novo: procurar input numérico de ano no popup atual
+        var root = closestCalendarRoot(controls);
+        if (root) {
+            var candidates = root.querySelectorAll('input');
+            for (var i = 0; i < candidates.length; i++) {
+                var input = candidates[i];
+                var hint = (
+                    (input.getAttribute('aria-label') || '') + ' ' +
+                    (input.getAttribute('placeholder') || '') + ' ' +
+                    (input.getAttribute('name') || '')
+                ).toLowerCase();
+                if (input.type === 'number' || /year|ano/.test(hint)) {
+                    return input;
+                }
+            }
         }
         return null;
     }
@@ -34,15 +64,29 @@
             return parseInt(input.value);
         }
         // Fallback: ler do header
-        var wrapper = controls.closest('.dash-datepicker-calendar-wrapper');
+        var wrapper = closestCalendarRoot(controls);
         if (wrapper) {
-            var header = wrapper.querySelector('.dash-datepicker-calendar-month-header');
+            var header = wrapper.querySelector(
+                '.dash-datepicker-calendar-month-header, .DatePicker_caption, .CalendarMonth_caption, [class*="month"][class*="header"], [class*="caption"]'
+            );
             if (header) {
-                var match = header.textContent.match(/(\d{4})/);
+                var match = (header.textContent || '').match(/(\d{4})/);
                 if (match) return parseInt(match[1]);
             }
+            var anyMatch = (wrapper.textContent || '').match(/\b(20\d{2}|19\d{2})\b/);
+            if (anyMatch) return parseInt(anyMatch[1]);
         }
         return new Date().getFullYear();
+    }
+
+    function getNavButtons(controls) {
+        var localButtons = controls.querySelectorAll(
+            '.dash-datepicker-month-nav, .DayPickerNavigation_button, button'
+        );
+        if (localButtons.length) return Array.from(localButtons);
+        var root = closestCalendarRoot(controls);
+        if (!root) return [];
+        return Array.from(root.querySelectorAll('.DayPickerNavigation_button, button'));
     }
 
     function createYearSelect(controls) {
@@ -71,17 +115,34 @@
             }
         });
 
-        // Inserir antes do último botão de navegação (→)
-        var navButtons = controls.querySelectorAll('.dash-datepicker-month-nav');
+        // Inserir antes do último botão de navegação (→), suportando layouts antigos/novos
+        var navButtons = getNavButtons(controls);
         if (navButtons.length >= 2) {
-            controls.insertBefore(select, navButtons[navButtons.length - 1]);
+            var rightButton = navButtons[navButtons.length - 1];
+            if (rightButton.parentNode === controls) {
+                controls.insertBefore(select, rightButton);
+            } else if (rightButton.parentNode) {
+                rightButton.parentNode.insertBefore(select, rightButton);
+            } else {
+                controls.appendChild(select);
+            }
         } else {
             controls.appendChild(select);
         }
     }
 
+    function listControls() {
+        var all = [];
+        CONTROLS_SELECTORS.forEach(function (sel) {
+            document.querySelectorAll(sel).forEach(function (node) {
+                if (all.indexOf(node) === -1) all.push(node);
+            });
+        });
+        return all;
+    }
+
     function syncDropdowns() {
-        document.querySelectorAll('.dash-datepicker-controls').forEach(function (controls) {
+        listControls().forEach(function (controls) {
             var select = controls.querySelector('.year-select-custom');
             if (select) {
                 var year = getCurrentYear(controls);
@@ -93,8 +154,7 @@
     }
 
     var observer = new MutationObserver(function () {
-        var controlsList = document.querySelectorAll('.dash-datepicker-controls');
-        controlsList.forEach(function (controls) {
+        listControls().forEach(function (controls) {
             createYearSelect(controls);
         });
         // Sincronizar valor do dropdown com o ano atual após re-render

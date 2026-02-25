@@ -1,5 +1,35 @@
 # Task Plan
 
+## Current Task (Restaurar seleção de ano no DatePicker do process mining)
+- [x] Identificar regressão no componente de calendário (assets JS/CSS vs novo DOM do DatePicker)
+- [x] Ajustar `calendar-year-dropdown.js` para suportar seletores antigos e novos do cabeçalho/calendário
+- [x] Ajustar CSS do dropdown customizado para manter legibilidade/posicionamento
+- [x] Validar import do dashboard e revisar diff dos assets
+
+## Specification (Restaurar seleção de ano no DatePicker do process mining)
+- Objetivo: voltar a permitir navegação/seleção de ano no `dcc.DatePickerRange` do `dashboard_process_mining.py` após alteração do componente de calendário.
+- Escopo:
+  - `assets/calendar-year-dropdown.js`
+  - `assets/calendar-fix.css`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O dropdown customizado de ano volta a ser injetado no calendário.
+  - A lógica continua compatível com o DOM legado (`.dash-datepicker-controls`) e com o cabeçalho novo (`caption`/`DayPicker`).
+  - Alteração não quebra import do `dashboard_process_mining.py`.
+
+## Review (Restaurar seleção de ano no DatePicker do process mining)
+- What was validated:
+  - O JS de injeção do ano agora procura containers do calendário em múltiplos seletores (legado e novo) e tenta localizar o input de ano por `.dash-input` ou por `input` com hint de `year/ano`.
+  - A leitura do ano atual foi robustecida com fallback no texto do cabeçalho e no texto total do popup.
+  - A inserção do dropdown foi ajustada para não falhar quando os botões de navegação ficam em um pai diferente do cabeçalho.
+  - CSS do dropdown recebeu ajuste mínimo de margem/alinhamento para o novo layout.
+  - `dashboard_process_mining.py` continua importando normalmente.
+- Evidence (tests/logs/diff):
+  - `git diff -- assets/calendar-year-dropdown.js assets/calendar-fix.css`
+  - `python -c "import dashboard_process_mining; print('dashboard_process_mining import ok')"`
+- Suggested commit message:
+  - `fix(datepicker): restore year selector after calendar component DOM change`
+
 ## Current Task (Rede de Petri no dashboard de process mining para análise de gargalos)
 - [x] Mapear pontos existentes de artefatos pm4py (`petri`) e métricas de horas/eventos no `dashboard_process_mining.py`
 - [x] Implementar gráficos analíticos de rede de Petri (aproximação) + gargalos por transição/etapa no recorte filtrado
