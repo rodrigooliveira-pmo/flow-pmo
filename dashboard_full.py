@@ -1145,9 +1145,16 @@ def compute_portfolio_snapshot(df, updated_at_label):
     features_por_team_total = group_count(features, ['TeamDisplay'], 'QtdFeatures').rename(columns={'TeamDisplay': 'Team'})
 
     # Cobertura estrutural (decomposição) por TEAM e resumo global.
+    # "Sem feature tática" usa vínculo direto com feature (ParentID em feature do board tático).
     epics_com_itens_fluxo = epics[epics['QtdItensFluxo'] > 0].copy() if not epics.empty else pd.DataFrame(columns=epics.columns)
     features_com_filhos = features[features['QtdFilhos'] > 0].copy() if not features.empty else pd.DataFrame(columns=features.columns)
     storytask_total = df[df['IsStoryTask']].copy()
+    storytask_sem_feature_tatico_metric = {
+        'Indicador': '% histórias/tasks (melhorias) sem feature tática',
+        'Percentual': round((len(story_task_sem_feature) / len(storytask_total) * 100), 1) if len(storytask_total) else 0.0,
+        'Numerador': int(len(story_task_sem_feature)),
+        'Denominador': int(len(storytask_total)),
+    }
     estrutura_cobertura_por_team = pd.DataFrame(columns=['Team'])
     base_teams = sorted(set(df['TeamDisplay'].dropna().astype(str)))
     if base_teams:
@@ -1158,14 +1165,16 @@ def compute_portfolio_snapshot(df, updated_at_label):
             group_count(features, ['TeamDisplay'], 'FeaturesTotal').rename(columns={'TeamDisplay': 'Team'}),
             group_count(features_com_filhos, ['TeamDisplay'], 'FeaturesComFilhos').rename(columns={'TeamDisplay': 'Team'}),
             group_count(storytask_total, ['TeamDisplay'], 'StoryTaskTotal').rename(columns={'TeamDisplay': 'Team'}),
+            group_count(story_task_sem_feature, ['TeamDisplay'], 'StoryTaskSemFeatureTatico').rename(columns={'TeamDisplay': 'Team'}),
             group_count(story_task_sem_feature, ['TeamDisplay'], 'StoryTaskOrfaos').rename(columns={'TeamDisplay': 'Team'}),
         ]
         for frame in team_frames:
             estrutura_cobertura_por_team = estrutura_cobertura_por_team.merge(frame, on='Team', how='left')
-        for col in ['EpicosTotal', 'EpicosComItensFluxo', 'FeaturesTotal', 'FeaturesComFilhos', 'StoryTaskTotal', 'StoryTaskOrfaos']:
+        for col in ['EpicosTotal', 'EpicosComItensFluxo', 'FeaturesTotal', 'FeaturesComFilhos', 'StoryTaskTotal', 'StoryTaskSemFeatureTatico', 'StoryTaskOrfaos']:
             estrutura_cobertura_por_team[col] = pd.to_numeric(estrutura_cobertura_por_team.get(col, 0), errors='coerce').fillna(0).astype(int)
         estrutura_cobertura_por_team['% Épicos com itens de fluxo'] = (estrutura_cobertura_por_team['EpicosComItensFluxo'] / estrutura_cobertura_por_team['EpicosTotal'].replace(0, np.nan) * 100).fillna(0).round(1)
         estrutura_cobertura_por_team['% Features com filhos'] = (estrutura_cobertura_por_team['FeaturesComFilhos'] / estrutura_cobertura_por_team['FeaturesTotal'].replace(0, np.nan) * 100).fillna(0).round(1)
+        estrutura_cobertura_por_team['% Story/Task sem feature tática'] = (estrutura_cobertura_por_team['StoryTaskSemFeatureTatico'] / estrutura_cobertura_por_team['StoryTaskTotal'].replace(0, np.nan) * 100).fillna(0).round(1)
         estrutura_cobertura_por_team['% Story/Task órfãos'] = (estrutura_cobertura_por_team['StoryTaskOrfaos'] / estrutura_cobertura_por_team['StoryTaskTotal'].replace(0, np.nan) * 100).fillna(0).round(1)
         estrutura_cobertura_por_team = estrutura_cobertura_por_team.sort_values(['% Story/Task órfãos', '% Épicos com itens de fluxo'], ascending=[False, True], ignore_index=True)
     storytask_orfaos_metric = {
@@ -1182,6 +1191,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
     estrutura_cobertura_summary = pd.DataFrame([
         {'Indicador': '% épicos com itens de fluxo', 'Percentual': round((len(epics_com_itens_fluxo) / len(epics) * 100), 1) if len(epics) else 0.0, 'Numerador': int(len(epics_com_itens_fluxo)), 'Denominador': int(len(epics))},
         {'Indicador': '% features com filhos', 'Percentual': round((len(features_com_filhos) / len(features) * 100), 1) if len(features) else 0.0, 'Numerador': int(len(features_com_filhos)), 'Denominador': int(len(features))},
+        storytask_sem_feature_tatico_metric,
         storytask_orfaos_metric,
     ])
 
@@ -1253,6 +1263,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
         {'Indicador': 'Estado divergente', 'Valor': divergente, 'Tipo': 'alerta'},
         {'Indicador': 'Features sem épico', 'Valor': int(len(features_sem_epico)), 'Tipo': 'alerta'},
         {'Indicador': 'Épicos sem features', 'Valor': int(len(epics_sem_features)), 'Tipo': 'alerta'},
+        {'Indicador': 'Hist./Tasks sem feature tática', 'Valor': int(storytask_sem_feature_tatico_metric.get('Numerador', 0)), 'Tipo': 'alerta'},
         {'Indicador': 'Hist./Tasks órfãos', 'Valor': int(storytask_orfaos_metric.get('Numerador', 0)), 'Tipo': 'risco'},
     ])
     quality_summary = pd.DataFrame([
@@ -1392,6 +1403,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'pct_backlog_parado_30': round((backlog_parado_30 / total_backlog_open * 100), 1) if total_backlog_open else 0.0,
             'pct_features_com_filhos': round((len(features_com_filhos) / len(features) * 100), 1) if len(features) else 0.0,
             'pct_epicos_com_itens_fluxo': round((len(epics_com_itens_fluxo) / len(epics) * 100), 1) if len(epics) else 0.0,
+            'pct_storytask_sem_feature_tatico': float(storytask_sem_feature_tatico_metric.get('Percentual', 0.0)),
             'pct_storytask_orfaos': float(storytask_orfaos_metric.get('Percentual', 0.0)),
         },
         'groups': {
@@ -4350,7 +4362,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     ], style={'backgroundColor': '#5d4037', 'color': 'white', 'padding': '12px', 'borderRadius': '4px', 'minHeight': '130px'}))
             blocks = [html.Div(cards, style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(220px, 1fr))', 'gap': '10px'})]
             if df_team is not None and not df_team.empty:
-                cols = [c for c in ['Team', 'EpicosTotal', 'EpicosComItensFluxo', '% Épicos com itens de fluxo', 'FeaturesTotal', 'FeaturesComFilhos', '% Features com filhos', 'StoryTaskTotal', 'StoryTaskOrfaos', '% Story/Task órfãos'] if c in df_team.columns]
+                cols = [c for c in ['Team', 'EpicosTotal', 'EpicosComItensFluxo', '% Épicos com itens de fluxo', 'FeaturesTotal', 'FeaturesComFilhos', '% Features com filhos', 'StoryTaskTotal', 'StoryTaskSemFeatureTatico', '% Story/Task sem feature tática', 'StoryTaskOrfaos', '% Story/Task órfãos'] if c in df_team.columns]
                 blocks.append(portfolio_table_component(df_team[cols].copy(), 'Cobertura estrutural por TEAM', 'table-portfolio-estrutura-cobertura'))
             return html.Div([html.H3('Cobertura Estrutural', style={'textAlign': 'left'}), *blocks], style={'marginTop': '24px'})
 

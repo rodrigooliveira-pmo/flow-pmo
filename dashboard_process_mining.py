@@ -568,7 +568,7 @@ def render_pm(data, start_date, end_date, person):
         if "Responsavel" in pm_hours_status.columns:
             pm_hours_status = pm_hours_status[pm_hours_status["Responsavel"] == person]
 
-    event_hours = compute_overlap_hours(pm_events, start_ts=start_ts, end_ts=end_ts)
+    event_hours = add_business_hours_overlap(pm_events, start_ts=start_ts, end_ts=end_ts)
     exec_event_hours = pd.DataFrame()
     exec_by_person = pd.DataFrame()
     exec_by_status = pd.DataFrame()
@@ -580,7 +580,9 @@ def render_pm(data, start_date, end_date, person):
             .groupby("Responsavel", dropna=False)
             .agg(
                 HorasExecucaoPeriodo=("HorasNoPeriodo", "sum"),
+                HorasExecucaoUteisPeriodo=("HorasUteisPeriodo", "sum"),
                 MediaHorasPorEvento=("HorasNoPeriodo", "mean"),
+                MediaHorasUteisPorEvento=("HorasUteisPeriodo", "mean"),
                 Eventos=("Issue Key", "count"),
                 CardsUnicos=("Issue Key", "nunique"),
             )
@@ -588,18 +590,28 @@ def render_pm(data, start_date, end_date, person):
             .sort_values("HorasExecucaoPeriodo", ascending=False)
         )
         exec_by_person["HorasExecucaoPeriodo"] = _safe_num(exec_by_person["HorasExecucaoPeriodo"]).fillna(0).round(2)
+        exec_by_person["HorasExecucaoUteisPeriodo"] = _safe_num(exec_by_person["HorasExecucaoUteisPeriodo"]).fillna(0).round(2)
         exec_by_person["MediaHorasPorEvento"] = _safe_num(exec_by_person["MediaHorasPorEvento"]).fillna(0).round(2)
+        exec_by_person["MediaHorasUteisPorEvento"] = _safe_num(exec_by_person["MediaHorasUteisPorEvento"]).fillna(0).round(2)
         exec_by_status = (
             exec_event_hours.assign(Responsavel=exec_event_hours["Author"].fillna("").replace("", "Sem Autor"))
             .groupby(["Responsavel", "To Status"], dropna=False)
-            .agg(HorasExecucaoPeriodo=("HorasNoPeriodo", "sum"), Eventos=("Issue Key", "count"), CardsUnicos=("Issue Key", "nunique"))
+            .agg(
+                HorasExecucaoPeriodo=("HorasNoPeriodo", "sum"),
+                HorasExecucaoUteisPeriodo=("HorasUteisPeriodo", "sum"),
+                Eventos=("Issue Key", "count"),
+                CardsUnicos=("Issue Key", "nunique"),
+            )
             .reset_index()
             .rename(columns={"To Status": "Status"})
             .sort_values("HorasExecucaoPeriodo", ascending=False)
         )
         exec_by_status["HorasExecucaoPeriodo"] = _safe_num(exec_by_status["HorasExecucaoPeriodo"]).fillna(0).round(2)
+        exec_by_status["HorasExecucaoUteisPeriodo"] = _safe_num(exec_by_status["HorasExecucaoUteisPeriodo"]).fillna(0).round(2)
     exec_total_h = float(_safe_num(exec_event_hours.get("HorasNoPeriodo", pd.Series(dtype=float))).fillna(0).sum()) if not exec_event_hours.empty else 0.0
     exec_mean_h_event = float(_safe_num(exec_event_hours.get("HorasNoPeriodo", pd.Series(dtype=float))).replace(0, np.nan).dropna().mean()) if not exec_event_hours.empty else float("nan")
+    exec_useful_total_h = float(_safe_num(exec_event_hours.get("HorasUteisPeriodo", pd.Series(dtype=float))).fillna(0).sum()) if not exec_event_hours.empty else 0.0
+    exec_useful_mean_h_event = float(_safe_num(exec_event_hours.get("HorasUteisPeriodo", pd.Series(dtype=float))).replace(0, np.nan).dropna().mean()) if not exec_event_hours.empty else float("nan")
 
     total_concluidos = int(pd.to_numeric(pm_people.get("Itens Concluidos", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int(pm_cases["Issue Key"].nunique()) if "Issue Key" in pm_cases.columns else 0
     itens_retrabalho = int(pd.to_numeric(pm_people.get("Itens Com Retrabalho", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int((pd.to_numeric(pm_cases.get("Rework Score", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
@@ -615,8 +627,10 @@ def render_pm(data, start_date, end_date, person):
             create_kpi_card("Conformidade Média", f"{conf_media_val:.2f}" if pd.notna(conf_media_val) else "—"),
             create_kpi_card("Horas Execução (período)", f"{exec_total_h:,.1f}"),
             create_kpi_card("Média h/Evento Exec", f"{exec_mean_h_event:.1f}" if pd.notna(exec_mean_h_event) else "—"),
+            create_kpi_card("Horas Úteis Exec (período)", f"{exec_useful_total_h:,.1f}"),
+            create_kpi_card("Média h úteis/Evento", f"{exec_useful_mean_h_event:.1f}" if pd.notna(exec_useful_mean_h_event) else "—"),
         ],
-        style={"display": "grid", "gridTemplateColumns": "repeat(6, minmax(180px, 1fr))", "gap": "10px", "marginBottom": "16px"},
+        style={"display": "grid", "gridTemplateColumns": "repeat(8, minmax(180px, 1fr))", "gap": "10px", "marginBottom": "16px"},
     )
 
     fig_vazao = go.Figure()
@@ -718,12 +732,12 @@ def render_pm(data, start_date, end_date, person):
         x = exec_by_person.head(20).copy()
         fig_exec_by_person = px.bar(
             x,
-            x="HorasExecucaoPeriodo",
+            x="HorasExecucaoUteisPeriodo" if "HorasExecucaoUteisPeriodo" in x.columns else "HorasExecucaoPeriodo",
             y="Responsavel",
             orientation="h",
-            color="MediaHorasPorEvento",
+            color="MediaHorasUteisPorEvento" if "MediaHorasUteisPorEvento" in x.columns else "MediaHorasPorEvento",
             color_continuous_scale="Teal",
-            title="Horas de Execução no Período por Pessoa (proxy)",
+            title="Horas Úteis de Execução no Período por Pessoa (heurística)",
         )
         fig_exec_by_person.update_layout(height=520, yaxis={"categoryorder": "total ascending"})
 
@@ -733,10 +747,10 @@ def render_pm(data, start_date, end_date, person):
         x["Pessoa-Status"] = x["Responsavel"].astype(str) + " | " + x["Status"].astype(str)
         fig_exec_by_status = px.bar(
             x,
-            x="HorasExecucaoPeriodo",
+            x="HorasExecucaoUteisPeriodo" if "HorasExecucaoUteisPeriodo" in x.columns else "HorasExecucaoPeriodo",
             y="Pessoa-Status",
             orientation="h",
-            title="Horas de Execução no Período por Pessoa e Status (Top 20)",
+            title="Horas Úteis de Execução no Período por Pessoa e Status (Top 20)",
         )
         fig_exec_by_status.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
 
@@ -766,8 +780,8 @@ def render_pm(data, start_date, end_date, person):
     meta_cols = [c for c in ["Metrica", "Valor"] if c in pm_meta.columns]
     horas_people_cols = [c for c in ["Responsavel", "HorasNoFluxo", "HorasMediasPorEvento", "Eventos", "CardsUnicos"] if c in pm_hours_people.columns]
     horas_status_cols = [c for c in ["Responsavel", "Status", "HorasNoFluxo", "Eventos", "CardsUnicos"] if c in pm_hours_status.columns]
-    exec_people_cols = [c for c in ["Responsavel", "HorasExecucaoPeriodo", "MediaHorasPorEvento", "Eventos", "CardsUnicos"] if c in exec_by_person.columns]
-    exec_status_cols = [c for c in ["Responsavel", "Status", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
+    exec_people_cols = [c for c in ["Responsavel", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "MediaHorasUteisPorEvento", "MediaHorasPorEvento", "Eventos", "CardsUnicos"] if c in exec_by_person.columns]
+    exec_status_cols = [c for c in ["Responsavel", "Status", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
 
     model_cards = []
     model_titles = {
@@ -825,6 +839,10 @@ def render_pm(data, start_date, end_date, person):
                 "Horas de execução no período usam a interseção do intervalo do evento (`History Created` até `Next Timestamp`) com o período selecionado.",
                 style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
             ),
+            html.Div(
+                "Heurística de horas úteis: considera somente dias úteis, janela comercial e teto diário (aproximação de horas trabalhadas, não timesheet).",
+                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+            ),
             dcc.Graph(figure=fig_exec_by_person),
             dcc.Graph(figure=fig_exec_by_status),
             dcc.Graph(figure=fig_horas_pessoa),
@@ -843,7 +861,7 @@ def render_pm(data, start_date, end_date, person):
                 sort_action="native",
                 page_size=12,
             ),
-            html.H4("Horas de Execução no Período por Pessoa (proxy)"),
+            html.H4("Horas de Execução no Período por Pessoa (proxy + heurística útil)"),
             dash_table.DataTable(
                 columns=[{"name": c, "id": c} for c in exec_people_cols],
                 data=exec_by_person[exec_people_cols].head(50).to_dict("records") if exec_people_cols else [],
@@ -853,7 +871,7 @@ def render_pm(data, start_date, end_date, person):
                 sort_action="native",
                 page_size=12,
             ),
-            html.H4("Horas de Execução no Período por Pessoa e Status (proxy)"),
+            html.H4("Horas de Execução no Período por Pessoa e Status (proxy + heurística útil)"),
             dash_table.DataTable(
                 columns=[{"name": c, "id": c} for c in exec_status_cols],
                 data=exec_by_status[exec_status_cols].head(50).to_dict("records") if exec_status_cols else [],

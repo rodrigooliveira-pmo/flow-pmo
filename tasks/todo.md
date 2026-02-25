@@ -1,5 +1,70 @@
 # Task Plan
 
+## Current Task (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
+- [x] Identificar lógica existente de histórias/tasks sem vínculo com feature no `dashboard_full.py`
+- [x] Adicionar indicador dedicado (% + numerador/denominador) no bloco de Cobertura Estrutural
+- [x] Expor contagem em KPI executivo e colunas por TEAM com rótulo explícito
+- [x] Validar sintaxe/diff e registrar review/evidências
+
+## Specification (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
+- Objetivo: adicionar no painel de Portfólio um indicador com semântica explícita para histórias/tasks (melhorias) sem vínculo com feature do board tático, evitando confusão com o indicador de “órfãos”.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A seção `Cobertura Estrutural` exibe um novo card `% histórias/tasks (melhorias) sem feature tática`.
+  - A tabela por TEAM mostra contagem e percentual correspondentes.
+  - O indicador atual `% histórias/tasks órfãos` permanece disponível.
+
+## Review (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
+- What was validated:
+  - `dashboard_full.py` agora cria o KPI `% histórias/tasks (melhorias) sem feature tática` com base em `story_task_sem_feature` (histórias/tasks sem `ParentID` apontando para feature do board tático).
+  - O resumo de `Cobertura Estrutural` passou a exibir esse novo card sem remover o KPI existente de `% histórias/tasks órfãos`.
+  - A tabela `Cobertura estrutural por TEAM` passou a incluir colunas de contagem e percentual do novo indicador (`StoryTaskSemFeatureTatico` e `% Story/Task sem feature tática`).
+  - O conjunto de KPIs executivos também exibe a contagem `Hist./Tasks sem feature tática`.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('dashboard_full syntax ok')"`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Notes:
+  - No snapshot de portfólio, este indicador usa vínculo direto com feature via `ParentID` (semântica explícita de feature tática), enquanto `% histórias/tasks órfãos` continua com sua regra atual/fallback downstream.
+- Suggested commit message:
+  - `feat(portfolio): add explicit story-task without tactical feature KPI`
+
+
+## Current Task (Smoke test do dashboard_full + split de dependências prod/dev)
+- [x] Executar smoke test local das rotas principais do `dashboard_full` e validar abas de serviço
+- [x] Separar dependências em `requirements-vercel.txt` e `requirements-dev.txt`
+- [x] Manter `requirements.txt` compatível com deploy e registrar evidências
+
+## Specification (Smoke test do dashboard_full + split de dependências prod/dev)
+- Objetivo: validar rapidamente que o `dashboard_full` responde nas rotas base após as correções de deploy e separar dependências de produção/local para evitar regressões na Vercel por excesso de pacotes.
+- Escopo:
+  - `requirements.txt`
+  - `requirements-vercel.txt`
+  - `requirements-dev.txt`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Smoke test local retorna `200` em `/`, `/_dash-layout` e `/_dash-dependencies`.
+  - Layout contém as abas principais de `SERVICE_TABS`.
+  - `requirements.txt` continua sendo entrypoint de instalação (apontando para `requirements-vercel.txt`).
+  - `requirements-dev.txt` inclui stack opcional local (`pm4py`) sem impactar produção.
+
+## Review (Smoke test do dashboard_full + split de dependências prod/dev)
+- What was validated:
+  - Smoke test com `app.server.test_client()` retornou `200` para `/`, `/_dash-layout` e `/_dash-dependencies`.
+  - As 13 abas principais listadas em `SERVICE_TABS` foram encontradas no payload do layout (`missing = []`).
+  - Dependências foram separadas em arquivos dedicados: produção em `requirements-vercel.txt`, local em `requirements-dev.txt`, com `requirements.txt` delegando para o arquivo de produção.
+  - `dashboard_full` continuou respondendo normalmente após a reorganização dos requirements.
+- Evidence (tests/logs/diff):
+  - `python -c "import dashboard_full as d; c=d.app.server.test_client(); import json; r1=c.get('/'); r2=c.get('/_dash-layout'); r3=c.get('/_dash-dependencies'); ..."`
+  - `python -c "import dashboard_full as d; c=d.app.server.test_client(); print(c.get('/').status_code, c.get('/_dash-layout').status_code, c.get('/_dash-dependencies').status_code)"`
+  - `git diff -- requirements.txt requirements-vercel.txt requirements-dev.txt tasks/todo.md`
+- Notes:
+  - Para ambiente local com process mining, instalar via `pip install -r requirements-dev.txt`.
+  - Para produção/Vercel, manter `requirements.txt` (que referencia `requirements-vercel.txt`).
+- Suggested commit message:
+  - `chore(deps): split vercel and local requirements and add dashboard smoke test validation`
+
 ## Current Task (Falha de deploy Vercel por falta de espaço ao instalar dependências)
 - [x] Diagnosticar logs de runtime da Vercel e identificar erro real (`No space left on device`)
 - [x] Remover dependência pesada opcional (`pm4py`) do `requirements.txt` de produção
