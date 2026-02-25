@@ -47,7 +47,7 @@ def parse_json_env(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else default
 
 
-def load_env_file(env_file: str) -> None:
+def load_env_file(env_file: str, overwrite: bool = True) -> None:
     path = Path(env_file)
     if not path.exists():
         return
@@ -58,7 +58,7 @@ def load_env_file(env_file: str) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        if key and value and key not in os.environ:
+        if key and value and (overwrite or key not in os.environ):
             os.environ[key] = value
 
 
@@ -347,7 +347,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    load_env_file(args.env_file)
+    load_env_file(args.env_file, overwrite=True)
     base_url = os.getenv("JIRA_BASE_URL", "").strip().rstrip("/")
     email = os.getenv("JIRA_EMAIL", "").strip()
     token = os.getenv("JIRA_API_TOKEN", "").strip()

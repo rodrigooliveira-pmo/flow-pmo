@@ -1,5 +1,65 @@
 # Task Plan
 
+## Current Task (Diagnóstico de falha de startup no deploy Vercel do dashboard_full)
+- [x] Reproduzir/diagnosticar padrão de erro `500` em assets do Dash em produção
+- [x] Corrigir fallback de `api/index.py` para exibir erro real de inicialização sem quebrar assets do app diagnóstico
+- [x] Validar sintaxe/comportamento de fallback e registrar evidências
+
+## Specification (Diagnóstico de falha de startup no deploy Vercel do dashboard_full)
+- Objetivo: evitar que falhas de import do `dashboard_full` (ex.: modelo/ENV ausente) se manifestem apenas como erro genérico de assets `500`, expondo uma página diagnóstica com a causa real no deploy Vercel.
+- Escopo:
+  - `api/index.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Se `dashboard_full` falhar ao importar, a aplicação ainda responde em `/` com página diagnóstica legível.
+  - O erro real (mensagem e traceback) fica visível para acelerar diagnóstico.
+  - Fallback textual Flask permanece disponível caso a criação do Dash diagnóstico também falhe.
+
+## Review (Diagnóstico de falha de startup no deploy Vercel do dashboard_full)
+- What was validated:
+  - Identificado que o padrão de console reportado (`500` em `/_dash-component-suites/*` e `assets/*`) é compatível com falha no `import` do módulo alvo em `api/index.py`, que antes caía em fallback Flask retornando `500` para qualquer rota.
+  - `api/index.py` agora tenta subir um Dash mínimo com layout de erro e traceback quando a importação do dashboard falha, evitando mascarar a causa como simples falha de assets.
+  - Mantido fallback Flask textual como contingência se até o Dash diagnóstico não puder ser criado.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('api/index.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import os, importlib; os.environ['FLOW_PMO_DASH_MODULE']='module_that_does_not_exist'; m=importlib.import_module('api.index'); print(type(m.app).__name__)"`
+  - `python -c "import os, importlib; os.environ['FLOW_PMO_DASH_MODULE']='module_that_does_not_exist_2'; m=importlib.import_module('api.index'); c=m.app.test_client(); r=c.get('/'); print(r.status_code); print(r.get_data(as_text=True)[:220])"`
+- Notes:
+  - A causa específica no seu deploy provavelmente é falha de startup do `dashboard_full` (muito comum por ausência de `FLOW_PMO_MODEL_URL`/`FLOW_PMO_MODEL_FILE` ou arquivo `.xlsx` inacessível). A página diagnóstica passará a mostrar o erro exato em produção.
+- Suggested commit message:
+  - `fix(vercel): show dash startup diagnostics instead of generic asset 500s`
+
+## Current Task (Falha no processamento por exportação Jira retornando 0 issues)
+- [x] Diagnosticar por que exportadores Jira retornam 0 issues e geram CSVs vazios no `run_all_projects.ps1`
+- [x] Corrigir carregamento de credenciais para priorizar `jira_env.txt` (evitar env antiga na sessão)
+- [x] Validar diff e registrar review/evidências
+
+## Specification (Falha no processamento por exportação Jira retornando 0 issues)
+- Objetivo: eliminar falha recorrente em que a exportação Jira retorna listas vazias por uso involuntário de credenciais antigas presentes na sessão PowerShell/Python, levando o pipeline de métricas a processar CSVs vazios.
+- Escopo:
+  - `run_all_projects.ps1`
+  - `jira_to_pipeline_csv.py`
+  - `jira_portfolio_to_csv.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `run_all_projects.ps1` carrega `jira_env.txt` sobrescrevendo variáveis pré-existentes por padrão.
+  - Exportadores Python também priorizam `--env-file` sobre variáveis herdadas da sessão.
+  - Correção é mínima e não altera JQL/fluxo de exportação quando credenciais já estão corretas.
+
+## Review (Falha no processamento por exportação Jira retornando 0 issues)
+- What was validated:
+  - A causa provável foi identificada como precedência errada de credenciais: PowerShell e Python preservavam variáveis de ambiente já existentes, ignorando credenciais atualizadas no `jira_env.txt`.
+  - `run_all_projects.ps1` agora sobrescreve variáveis existentes ao importar `jira_env.txt` (`OverrideExisting = $true` por padrão).
+  - `jira_to_pipeline_csv.py` e `jira_portfolio_to_csv.py` agora carregam `--env-file` com `overwrite=True`, evitando herança acidental de token/email antigos.
+  - A mudança é localizada e não altera a lógica de JQL, status map, nem geração de CSV quando as credenciais já estão corretas.
+- Evidence (tests/logs/diff):
+  - `git diff -- run_all_projects.ps1 jira_to_pipeline_csv.py jira_portfolio_to_csv.py tasks/todo.md`
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['jira_to_pipeline_csv.py','jira_portfolio_to_csv.py']]; print('syntax ok')"`
+- Notes:
+  - Não foi possível validar consulta real ao Jira neste ambiente (sem acesso de rede), então a confirmação final depende de reexecutar `run_all_projects.ps1`.
+- Suggested commit message:
+  - `fix(jira-export): prioritize env file credentials over stale session variables`
+
 ## Current Task (Hierarquia no downstream + indicador exato de órfãos no fluxo operacional)
 - [x] Mapear vínculos hierárquicos disponíveis no `jira_to_pipeline_csv.py` além de `ParentID`
 - [x] Exportar colunas de hierarquia no downstream (`ParentID`, `ParentTipo` e vínculos inferidos de feature/épico)
@@ -145,6 +205,34 @@
   - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
 - Suggested commit message:
   - `feat(process-mining-ui): add sankey and variant charts to sandbox dashboard`
+
+## Current Task (Modelos pm4py + horas por pessoa no fluxo)
+- [x] Adicionar geração de artefatos `pm4py` (DFG, Heuristics, Inductive/Petri) no `process_mining_jira.py`
+- [x] Adicionar relatório de horas por pessoa e por pessoa-status (proxy por tempo em status) no script
+- [x] Exibir modelos/artefatos `pm4py` e gráficos de horas por pessoa no `dashboard_process_mining.py`
+- [x] Validar sintaxe e `--help`
+
+## Specification (Modelos pm4py + horas por pessoa no fluxo)
+- Objetivo: disponibilizar artefatos clássicos de process mining (DFG, Heuristics Miner, Inductive Miner e Rede de Petri) e uma visão de horas por pessoa no fluxo a partir do changelog do Jira.
+- Escopo:
+  - `process_mining_jira.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Script gera (quando `pm4py` estiver disponível) arquivos visuais de DFG, Heuristics, Inductive Tree e Petri net com prefixo do relatório.
+  - Workbook/CSVs incluem horas por pessoa (`HorasPessoaResumo`) e por pessoa-status (`HorasPessoaStatus`) usando `TempoStatusDias * 24` como proxy.
+  - Dashboard sandbox exibe imagens dos modelos `pm4py` quando presentes e gráficos/tabelas de horas por pessoa.
+
+## Review (Modelos pm4py + horas por pessoa no fluxo)
+- What was validated:
+  - `process_mining_jira.py` passou a gerar datasets adicionais (`HorasPessoaResumo`, `HorasPessoaStatus`, `PM4PyDFGEdges`) e tenta salvar imagens `pm4py` (DFG, Heuristics, Inductive Tree, Petri) sem quebrar o fluxo quando a visualização falha.
+  - `dashboard_process_mining.py` carrega os novos datasets, mostra barra de `DFG` (top arestas pm4py), renderiza imagens dos modelos `pm4py` quando existirem e adiciona gráficos/tabelas de horas por pessoa (proxy por tempo em status).
+  - O app sandbox preserva fallback quando `pm4py` não estiver instalado, mas passa a aproveitar automaticamente os artefatos quando o relatório os inclui.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['process_mining_jira.py','dashboard_process_mining.py']]; print('syntax ok')"`
+  - `python process_mining_jira.py --help`
+- Suggested commit message:
+  - `feat(process-mining): add pm4py model artifacts and person-hours views`
 
 ## Current Task (Weibull shape/lambda na estatística descritiva)
 - [x] Inspecionar referência da planilha `LT_STATS_WEIBULL.xlsx` e alinhar fórmula de ajuste Weibull

@@ -11,7 +11,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Import-EnvFile {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [bool]$OverrideExisting = $true
+    )
 
     if (-not (Test-Path $Path)) {
         return
@@ -27,13 +30,13 @@ function Import-EnvFile {
         $key = $parts[0].Trim()
         $value = $parts[1].Trim().Trim('"').Trim("'")
 
-        if ($key -and $value -and -not (Test-Path "Env:$key")) {
+        if ($key -and $value -and ($OverrideExisting -or -not (Test-Path "Env:$key"))) {
             Set-Item -Path "Env:$key" -Value $value
         }
     }
 }
 
-Import-EnvFile -Path $EnvFile
+Import-EnvFile -Path $EnvFile -OverrideExisting $true
 
 if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKEN) {
     throw "Defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN (ou preencha o arquivo $EnvFile) antes de executar."

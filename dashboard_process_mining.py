@@ -1,3 +1,4 @@
+import base64
 import os
 import platform
 from datetime import datetime
@@ -86,8 +87,11 @@ def load_report(path):
         "TemposPorStatus",
         "VazaoPessoaSemanal",
         "VazaoPessoaResumo",
+        "HorasPessoaResumo",
+        "HorasPessoaStatus",
         "VariantesTop",
         "EventosFiltrados",
+        "PM4PyDFGEdges",
         "Metadados",
     ]
     xls = pd.ExcelFile(path)
@@ -111,6 +115,26 @@ def create_kpi_card(title, value):
             "boxShadow": "0 1px 4px rgba(0,0,0,0.04)",
         },
     )
+
+
+def _load_artifact_images_from_base(base_no_ext):
+    img_suffixes = {
+        "dfg": "-pm4py-dfg.png",
+        "heuristics": "-pm4py-heuristics.png",
+        "inductive_tree": "-pm4py-inductive-tree.png",
+        "petri": "-pm4py-petri.png",
+    }
+    out = {}
+    for key, suffix in img_suffixes.items():
+        path = f"{base_no_ext}{suffix}"
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                out[key] = {"path": path, "b64": base64.b64encode(f.read()).decode("ascii")}
+        except Exception:
+            continue
+    return out
 
 
 def _safe_num(series):
@@ -334,6 +358,8 @@ def reload_report(_):
             if pd.api.types.is_datetime64_any_dtype(tmp[c]):
                 tmp[c] = tmp[c].dt.strftime("%Y-%m-%d %H:%M:%S")
         serializable[k] = tmp.to_dict("records")
+    serializable["_artifact_images"] = _load_artifact_images_from_base(os.path.splitext(path)[0])
+    serializable["_report_file"] = path
     return serializable, header, start_date, end_date, options
 
 
@@ -354,9 +380,13 @@ def render_pm(data, start_date, end_date, person):
     pm_status = pd.DataFrame(data.get("TemposPorStatus", []))
     pm_weekly = pd.DataFrame(data.get("VazaoPessoaSemanal", []))
     pm_people = pd.DataFrame(data.get("VazaoPessoaResumo", []))
+    pm_hours_people = pd.DataFrame(data.get("HorasPessoaResumo", []))
+    pm_hours_status = pd.DataFrame(data.get("HorasPessoaStatus", []))
     pm_variants = pd.DataFrame(data.get("VariantesTop", []))
     pm_events = pd.DataFrame(data.get("EventosFiltrados", []))
+    pm_dfg_edges = pd.DataFrame(data.get("PM4PyDFGEdges", []))
     pm_meta = pd.DataFrame(data.get("Metadados", []))
+    artifact_images = data.get("_artifact_images", {}) or {}
 
     if "Done Final Date" in pm_cases.columns:
         pm_cases["Done Final Date"] = pd.to_datetime(pm_cases["Done Final Date"], errors="coerce")
@@ -390,6 +420,10 @@ def render_pm(data, start_date, end_date, person):
             pm_cases = pm_cases[pm_cases["Done Final Author"] == person]
         if "Author" in pm_events.columns:
             pm_events = pm_events[pm_events["Author"] == person]
+        if "Responsavel" in pm_hours_people.columns:
+            pm_hours_people = pm_hours_people[pm_hours_people["Responsavel"] == person]
+        if "Responsavel" in pm_hours_status.columns:
+            pm_hours_status = pm_hours_status[pm_hours_status["Responsavel"] == person]
 
     total_concluidos = int(pd.to_numeric(pm_people.get("Itens Concluidos", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int(pm_cases["Issue Key"].nunique()) if "Issue Key" in pm_cases.columns else 0
     itens_retrabalho = int(pd.to_numeric(pm_people.get("Itens Com Retrabalho", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int((pd.to_numeric(pm_cases.get("Rework Score", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
@@ -450,10 +484,52 @@ def render_pm(data, start_date, end_date, person):
         fig_tempo_status = px.bar(x, x="Tempo Mediano (dias)", y="Status", orientation="h", title="Tempos por Status (Mediana)")
         fig_tempo_status.update_layout(height=480, yaxis={"categoryorder": "total ascending"})
 
+    fig_horas_pessoa = go.Figure()
+    if not pm_hours_people.empty and {"Responsavel", "HorasNoFluxo"}.issubset(pm_hours_people.columns):
+        x = pm_hours_people.copy()
+        x["HorasNoFluxo"] = _safe_num(x["HorasNoFluxo"]).fillna(0)
+        if "HorasMediasPorEvento" in x.columns:
+            x["HorasMediasPorEvento"] = _safe_num(x["HorasMediasPorEvento"])
+        x = x.sort_values("HorasNoFluxo", ascending=False).head(20)
+        fig_horas_pessoa = px.bar(
+            x,
+            x="HorasNoFluxo",
+            y="Responsavel",
+            orientation="h",
+            color="HorasMediasPorEvento" if "HorasMediasPorEvento" in x.columns else None,
+            title="Horas no Fluxo por Pessoa (proxy por transição/status)",
+            color_continuous_scale="Blues",
+        )
+        fig_horas_pessoa.update_layout(height=520, yaxis={"categoryorder": "total ascending"})
+
+    fig_horas_status = go.Figure()
+    if not pm_hours_status.empty and {"Responsavel", "Status", "HorasNoFluxo"}.issubset(pm_hours_status.columns):
+        x = pm_hours_status.copy()
+        x["HorasNoFluxo"] = _safe_num(x["HorasNoFluxo"]).fillna(0)
+        x["Pessoa-Status"] = x["Responsavel"].astype(str) + " | " + x["Status"].astype(str)
+        x = x.sort_values("HorasNoFluxo", ascending=False).head(20)
+        fig_horas_status = px.bar(
+            x,
+            x="HorasNoFluxo",
+            y="Pessoa-Status",
+            orientation="h",
+            title="Horas no Fluxo por Pessoa e Status (Top 20 combinações)",
+        )
+        fig_horas_status.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
     fig_transition_map = build_transition_sankey(pm_events)
     fig_variants = build_variants_pareto(pm_variants)
     fig_conf_hist, fig_lt_rework = build_conformance_rework_figs(pm_cases)
     fig_event_vol = build_event_volume_fig(pm_events)
+
+    fig_dfg_edges = go.Figure()
+    if not pm_dfg_edges.empty and {"From", "To", "Count"}.issubset(pm_dfg_edges.columns):
+        x = pm_dfg_edges.copy()
+        x["Count"] = _safe_num(x["Count"]).fillna(0)
+        x["Aresta"] = x["From"].astype(str) + " → " + x["To"].astype(str)
+        x = x.sort_values("Count", ascending=False).head(20)
+        fig_dfg_edges = px.bar(x, x="Count", y="Aresta", orientation="h", title="DFG (pm4py) - Top Arestas")
+        fig_dfg_edges.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
 
     pm4py_banner = None
     if not pm_meta.empty and {"Metrica", "Valor"}.issubset(pm_meta.columns):
@@ -479,6 +555,33 @@ def render_pm(data, start_date, end_date, person):
     rework_cols = [c for c in ["Issue Key", "Tipo de Problema", "Rework Score", "Reopen Count", "Backward Moves", "QA Returns", "Revisitas Status", "Conformance Score", "Done Final Author", "Done Final Date"] if c in pm_rework.columns]
     summary_cols = [c for c in ["Metrica", "Valor"] if c in pm_summary.columns]
     meta_cols = [c for c in ["Metrica", "Valor"] if c in pm_meta.columns]
+    horas_people_cols = [c for c in ["Responsavel", "HorasNoFluxo", "HorasMediasPorEvento", "Eventos", "CardsUnicos"] if c in pm_hours_people.columns]
+    horas_status_cols = [c for c in ["Responsavel", "Status", "HorasNoFluxo", "Eventos", "CardsUnicos"] if c in pm_hours_status.columns]
+
+    model_cards = []
+    model_titles = {
+        "dfg": "DFG (pm4py)",
+        "heuristics": "Heuristics Miner (pm4py)",
+        "inductive_tree": "Inductive Miner - Process Tree (pm4py)",
+        "petri": "Inductive Miner - Rede de Petri (pm4py)",
+    }
+    for key in ["dfg", "heuristics", "inductive_tree", "petri"]:
+        payload = artifact_images.get(key)
+        if not payload:
+            continue
+        model_cards.append(
+            html.Div(
+                [
+                    html.H4(model_titles.get(key, key), style={"marginBottom": "6px"}),
+                    html.Div(html.Code(os.path.basename(payload.get("path", ""))), style={"fontSize": "12px", "color": "#555", "marginBottom": "6px"}),
+                    html.Img(
+                        src=f"data:image/png;base64,{payload['b64']}",
+                        style={"maxWidth": "100%", "border": "1px solid #ddd", "borderRadius": "8px", "background": "white"},
+                    ),
+                ],
+                style={"flex": "1 1 560px", "minWidth": "420px"},
+            )
+        )
 
     if not pm_rework.empty:
         sort_cols = [c for c in ["Rework Score", "Reopen Count", "Backward Moves"] if c in pm_rework.columns]
@@ -490,6 +593,11 @@ def render_pm(data, start_date, end_date, person):
             pm4py_banner if pm4py_banner else html.Div(),
             kpi_grid,
             html.H3("Visualizações de Process Mining", style={"marginTop": "6px"}),
+            html.Div(
+                model_cards if model_cards else [html.Div("Artefatos visuais pm4py (DFG / Heuristics / Inductive / Petri) ainda não encontrados neste relatório.")],
+                style={"display": "flex", "gap": "12px", "flexWrap": "wrap", "marginBottom": "8px"},
+            ),
+            dcc.Graph(figure=fig_dfg_edges),
             dcc.Graph(figure=fig_transition_map),
             dcc.Graph(figure=fig_variants),
             html.Div(
@@ -501,6 +609,8 @@ def render_pm(data, start_date, end_date, person):
             ),
             dcc.Graph(figure=fig_event_vol),
             html.H3("Análises Operacionais", style={"marginTop": "6px"}),
+            dcc.Graph(figure=fig_horas_pessoa),
+            dcc.Graph(figure=fig_horas_status),
             dcc.Graph(figure=fig_vazao),
             dcc.Graph(figure=fig_vazao_sem),
             dcc.Graph(figure=fig_retrabalho),
@@ -513,6 +623,27 @@ def render_pm(data, start_date, end_date, person):
                 style_cell={"textAlign": "left", "padding": "6px"},
                 style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
                 sort_action="native",
+                page_size=12,
+            ),
+            html.H4("Horas no Fluxo por Pessoa (proxy)"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in horas_people_cols],
+                data=pm_hours_people[horas_people_cols].head(50).to_dict("records") if horas_people_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                page_size=12,
+            ),
+            html.H4("Horas no Fluxo por Pessoa e Status (proxy)"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in horas_status_cols],
+                data=pm_hours_status[horas_status_cols].head(50).to_dict("records") if horas_status_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                filter_action="native",
                 page_size=12,
             ),
             html.H4("Top Itens com Retrabalho"),

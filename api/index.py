@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import traceback
 
 from flask import Flask, Response
 
@@ -15,15 +16,47 @@ try:
     app = getattr(dash_obj, "server", dash_obj)
 except Exception as exc:  # pragma: no cover - runtime safeguard
     error_message = str(exc)
-    fallback = Flask(__name__)
+    error_trace = traceback.format_exc()
+    try:
+        import dash
+        from dash import html
 
-    @fallback.get("/")
-    @fallback.get("/<path:_path>")
-    def _startup_error(_path=None):
-        return Response(
-            f"Falha ao inicializar o Dash ({DASH_MODULE}.{DASH_ATTR}): {error_message}",
-            status=500,
-            mimetype="text/plain",
+        diagnostic_dash = dash.Dash(__name__)
+        diagnostic_dash.title = "Falha ao inicializar dashboard"
+        diagnostic_dash.layout = html.Div(
+            [
+                html.H2("Falha ao inicializar o dashboard"),
+                html.P(f"Módulo alvo: {DASH_MODULE}.{DASH_ATTR}"),
+                html.P(f"Erro: {error_message}"),
+                html.Pre(
+                    error_trace,
+                    style={
+                        "whiteSpace": "pre-wrap",
+                        "background": "#111",
+                        "color": "#eee",
+                        "padding": "12px",
+                        "borderRadius": "6px",
+                        "overflowX": "auto",
+                        "fontSize": "12px",
+                    },
+                ),
+            ],
+            style={"maxWidth": "1100px", "margin": "24px auto", "fontFamily": "Arial, sans-serif"},
         )
+        app = diagnostic_dash.server
+    except Exception:
+        fallback = Flask(__name__)
 
-    app = fallback
+        @fallback.get("/")
+        @fallback.get("/<path:_path>")
+        def _startup_error(_path=None):
+            return Response(
+                (
+                    f"Falha ao inicializar o Dash ({DASH_MODULE}.{DASH_ATTR}): {error_message}\n\n"
+                    f"{error_trace}"
+                ),
+                status=500,
+                mimetype="text/plain",
+            )
+
+        app = fallback

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
+import shutil
+import glob
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -267,6 +270,64 @@ def summarize_people(case_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
     return weekly, summary
 
 
+def summarize_person_hours(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Proxy de horas no fluxo por pessoa: aloca o tempo até a próxima transição ao autor que moveu o card
+    para o status atual (`Author` + `To Status`).
+    """
+    if events.empty or "TempoStatusDias" not in events.columns:
+        return pd.DataFrame(), pd.DataFrame()
+
+    x = events.dropna(subset=["TempoStatusDias"]).copy()
+    if x.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    x["Author"] = x.get("Author", pd.Series(dtype=str)).fillna("").replace("", "Sem Autor").astype(str)
+    x["To Status"] = x.get("To Status", pd.Series(dtype=str)).fillna("").astype(str)
+    x["TempoStatusDias"] = pd.to_numeric(x["TempoStatusDias"], errors="coerce")
+    x = x.dropna(subset=["TempoStatusDias"])
+    x = x[x["TempoStatusDias"] >= 0].copy()
+    if x.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    x["HorasNoFluxo"] = x["TempoStatusDias"] * 24.0
+    if "History Created" in x.columns:
+        x["Semana"] = pd.to_datetime(x["History Created"], errors="coerce").dt.to_period("W-SUN").dt.start_time
+
+    resumo = (
+        x.groupby("Author", dropna=False)
+        .agg(
+            **{
+                "HorasNoFluxo": ("HorasNoFluxo", "sum"),
+                "HorasMediasPorEvento": ("HorasNoFluxo", "mean"),
+                "Eventos": ("Issue Key", "count"),
+                "CardsUnicos": ("Issue Key", "nunique"),
+            }
+        )
+        .reset_index()
+        .rename(columns={"Author": "Responsavel"})
+    )
+    resumo["HorasNoFluxo"] = pd.to_numeric(resumo["HorasNoFluxo"], errors="coerce").fillna(0).round(2)
+    resumo["HorasMediasPorEvento"] = pd.to_numeric(resumo["HorasMediasPorEvento"], errors="coerce").fillna(0).round(2)
+    resumo = resumo.sort_values("HorasNoFluxo", ascending=False).reset_index(drop=True)
+
+    por_status = (
+        x.groupby(["Author", "To Status"], dropna=False)
+        .agg(
+            **{
+                "HorasNoFluxo": ("HorasNoFluxo", "sum"),
+                "Eventos": ("Issue Key", "count"),
+                "CardsUnicos": ("Issue Key", "nunique"),
+            }
+        )
+        .reset_index()
+        .rename(columns={"Author": "Responsavel", "To Status": "Status"})
+    )
+    por_status["HorasNoFluxo"] = pd.to_numeric(por_status["HorasNoFluxo"], errors="coerce").fillna(0).round(2)
+    por_status = por_status.sort_values("HorasNoFluxo", ascending=False).reset_index(drop=True)
+    return resumo, por_status
+
+
 def summarize_variants(case_df: pd.DataFrame, max_top: int) -> pd.DataFrame:
     if case_df.empty or "Variant" not in case_df.columns:
         return pd.DataFrame()
@@ -305,6 +366,143 @@ def build_pm4py_meta(events: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _ensure_graphviz_dot_on_path() -> tuple[bool, str]:
+    """
+    Garantir que o executável `dot` (Graphviz) esteja acessível para visualizações do pm4py.
+    Retorna (disponivel, detalhe).
+    """
+    dot_path = shutil.which("dot")
+    if dot_path:
+        return True, dot_path
+
+    candidates: list[str] = []
+
+    # Conda (Windows): Graphviz costuma instalar em Library/bin
+    conda_prefix = os.getenv("CONDA_PREFIX", "").strip()
+    if conda_prefix:
+        candidates.append(os.path.join(conda_prefix, "Library", "bin"))
+        candidates.append(os.path.join(conda_prefix, "bin"))
+
+    # Instalações comuns do Graphviz no Windows
+    program_files = os.getenv("ProgramFiles", r"C:\Program Files")
+    program_files_x86 = os.getenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    candidates.extend(
+        [
+            os.path.join(program_files, "Graphviz", "bin"),
+            os.path.join(program_files_x86, "Graphviz", "bin"),
+        ]
+    )
+    candidates.extend(glob.glob(os.path.join(program_files, "Graphviz*", "bin")))
+    candidates.extend(glob.glob(os.path.join(program_files_x86, "Graphviz*", "bin")))
+
+    checked = []
+    for folder in candidates:
+        if not folder or not os.path.isdir(folder):
+            continue
+        dot_exe = os.path.join(folder, "dot.exe")
+        dot_unix = os.path.join(folder, "dot")
+        checked.append(folder)
+        if os.path.isfile(dot_exe) or os.path.isfile(dot_unix):
+            os.environ["PATH"] = folder + os.pathsep + os.environ.get("PATH", "")
+            found = shutil.which("dot")
+            if found:
+                return True, found
+
+    detail = "dot_not_found"
+    if checked:
+        detail += " | checked: " + "; ".join(checked[:8])
+    return False, detail
+
+
+def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) -> tuple[dict[str, pd.DataFrame], dict[str, str], list[dict[str, Any]]]:
+    extra_datasets: dict[str, pd.DataFrame] = {}
+    extra_files: dict[str, str] = {}
+    meta_rows: list[dict[str, Any]] = []
+    if events.empty or not PM4PY_AVAILABLE:
+        return extra_datasets, extra_files, meta_rows
+
+    dot_ok, dot_detail = _ensure_graphviz_dot_on_path()
+    meta_rows.append({"Metrica": "graphviz_dot_available", "Valor": str(dot_ok)})
+    meta_rows.append({"Metrica": "graphviz_dot_path", "Valor": str(dot_detail)})
+
+    try:
+        pm_df = events.rename(
+            columns={
+                "Issue Key": "case:concept:name",
+                "To Status": "concept:name",
+                "History Created": "time:timestamp",
+                "Author": "org:resource",
+            }
+        ).copy()
+        pm_df = pm4py.format_dataframe(pm_df, case_id="case:concept:name", activity_key="concept:name", timestamp_key="time:timestamp")
+    except Exception as exc:
+        meta_rows.append({"Metrica": "pm4py_artifacts_error", "Valor": f"format_dataframe: {exc}"})
+        return extra_datasets, extra_files, meta_rows
+
+    # DFG data + image
+    try:
+        dfg, sa, ea = pm4py.discover_dfg(pm_df)
+        dfg_rows = []
+        for edge, count in (dfg or {}).items():
+            if not isinstance(edge, tuple) or len(edge) != 2:
+                continue
+            dfg_rows.append({"From": edge[0], "To": edge[1], "Count": int(count)})
+        extra_datasets["pm4py_dfg_edges"] = pd.DataFrame(dfg_rows).sort_values("Count", ascending=False).reset_index(drop=True) if dfg_rows else pd.DataFrame()
+        if dot_ok:
+            try:
+                dfg_img = out_dir / f"{base}-pm4py-dfg.png"
+                pm4py.save_vis_dfg(dfg, sa, ea, str(dfg_img))
+                extra_files["pm4py_dfg_png"] = str(dfg_img)
+                meta_rows.append({"Metrica": "pm4py_dfg_png", "Valor": str(dfg_img)})
+            except Exception as exc:
+                meta_rows.append({"Metrica": "pm4py_dfg_vis_error", "Valor": str(exc)})
+        else:
+            meta_rows.append({"Metrica": "pm4py_dfg_vis_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
+    except Exception as exc:
+        meta_rows.append({"Metrica": "pm4py_dfg_error", "Valor": str(exc)})
+
+    # Heuristics miner image
+    try:
+        heu_net = pm4py.discover_heuristics_net(pm_df)
+        if dot_ok:
+            heu_img = out_dir / f"{base}-pm4py-heuristics.png"
+            pm4py.save_vis_heuristics_net(heu_net, str(heu_img))
+            extra_files["pm4py_heuristics_png"] = str(heu_img)
+            meta_rows.append({"Metrica": "pm4py_heuristics_png", "Valor": str(heu_img)})
+        else:
+            meta_rows.append({"Metrica": "pm4py_heuristics_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
+    except Exception as exc:
+        meta_rows.append({"Metrica": "pm4py_heuristics_error", "Valor": str(exc)})
+
+    # Inductive miner (process tree) image
+    try:
+        tree = pm4py.discover_process_tree_inductive(pm_df)
+        if dot_ok:
+            tree_img = out_dir / f"{base}-pm4py-inductive-tree.png"
+            pm4py.save_vis_process_tree(tree, str(tree_img))
+            extra_files["pm4py_inductive_tree_png"] = str(tree_img)
+            meta_rows.append({"Metrica": "pm4py_inductive_tree_png", "Valor": str(tree_img)})
+        else:
+            meta_rows.append({"Metrica": "pm4py_inductive_tree_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
+    except Exception as exc:
+        meta_rows.append({"Metrica": "pm4py_inductive_tree_error", "Valor": str(exc)})
+
+    # Inductive miner -> Petri net image
+    try:
+        net, im, fm = pm4py.discover_petri_net_inductive(pm_df)
+        if dot_ok:
+            petri_img = out_dir / f"{base}-pm4py-petri.png"
+            pm4py.save_vis_petri_net(net, im, fm, str(petri_img))
+            extra_files["pm4py_petri_png"] = str(petri_img)
+            meta_rows.append({"Metrica": "pm4py_petri_png", "Valor": str(petri_img)})
+        else:
+            meta_rows.append({"Metrica": "pm4py_petri_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
+    except Exception as exc:
+        meta_rows.append({"Metrica": "pm4py_petri_error", "Valor": str(exc)})
+
+    return extra_datasets, extra_files, meta_rows
+
+
 def _csv_ready(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for c in out.columns:
@@ -318,6 +516,18 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame])
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{prefix}-{stamp}"
     excel = out_dir / f"{base}.xlsx"
+
+    pm_extra_datasets, pm_extra_files, pm_meta_rows = build_pm4py_model_artifacts(
+        datasets.get("eventos_filtrados", pd.DataFrame()),
+        out_dir=out_dir,
+        base=base,
+    )
+    if pm_meta_rows:
+        meta_df = datasets.get("metadados", pd.DataFrame())
+        datasets["metadados"] = pd.concat([meta_df, pd.DataFrame(pm_meta_rows)], ignore_index=True)
+    for key, df in pm_extra_datasets.items():
+        datasets[key] = df
+
     sheet_map = {
         "Metadados": datasets["metadados"],
         "ResumoConformidade": datasets["conformidade_resumo"],
@@ -326,8 +536,11 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame])
         "TemposPorStatus": datasets["tempos_status"],
         "VazaoPessoaSemanal": datasets["vazao_pessoa_semanal"],
         "VazaoPessoaResumo": datasets["vazao_pessoa_resumo"],
+        "HorasPessoaResumo": datasets.get("horas_pessoa_resumo", pd.DataFrame()),
+        "HorasPessoaStatus": datasets.get("horas_pessoa_status", pd.DataFrame()),
         "VariantesTop": datasets["variantes_top"],
         "EventosFiltrados": datasets["eventos_filtrados"],
+        "PM4PyDFGEdges": datasets.get("pm4py_dfg_edges", pd.DataFrame()),
     }
     excel_written = False
     excel_engine_used = None
@@ -353,6 +566,8 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame])
         csv_path = out_dir / f"{base}-{key}.csv"
         _csv_ready(df).to_csv(csv_path, index=False, encoding="utf-8-sig")
         paths[key] = str(csv_path)
+    for key, value in pm_extra_files.items():
+        paths[key] = value
     return paths
 
 
@@ -379,6 +594,7 @@ def main() -> int:
     rework_df = rework_df.sort_values(["Rework Score", "Reopen Count", "Backward Moves"], ascending=False).reset_index(drop=True) if not rework_df.empty else rework_df
     tempos_status = summarize_status_times(events_feat)
     vazao_sem, vazao_res = summarize_people(case_df)
+    horas_resumo, horas_status = summarize_person_hours(events_feat)
     variantes = summarize_variants(case_df, max_top=max(5, int(args.max_top)))
     metadados = build_pm4py_meta(events_feat)
 
@@ -395,6 +611,8 @@ def main() -> int:
         "tempos_status": tempos_status,
         "vazao_pessoa_semanal": vazao_sem,
         "vazao_pessoa_resumo": vazao_res,
+        "horas_pessoa_resumo": horas_resumo,
+        "horas_pessoa_status": horas_status,
         "variantes_top": variantes,
         "eventos_filtrados": export_events,
     }
