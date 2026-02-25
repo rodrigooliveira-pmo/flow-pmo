@@ -65,6 +65,16 @@ def candidate_data_folders():
 
 
 DATA_FOLDERS = candidate_data_folders()
+EXECUTION_STATUS_HINTS = (
+    "in progress",
+    "desenvol",
+    "development",
+    "code review",
+    "testing",
+    "qa",
+    "homolog",
+    "staging",
+)
 
 
 def find_latest_process_mining_report():
@@ -145,6 +155,75 @@ def _load_artifact_images_from_base(base_no_ext):
 
 def _safe_num(series):
     return pd.to_numeric(series, errors="coerce")
+
+
+def is_execution_status(status_name: str) -> bool:
+    s = str(status_name or "").strip().lower()
+    return any(h in s for h in EXECUTION_STATUS_HINTS)
+
+
+def compute_overlap_hours(events_df: pd.DataFrame, start_ts=None, end_ts=None) -> pd.DataFrame:
+    """
+    Calcula horas no período por evento usando interseção do intervalo:
+    [History Created, Next Timestamp] com [start_ts, end_ts+1d].
+    Fallback para TempoStatusDias*24 se não houver Next Timestamp.
+    """
+    if events_df is None or events_df.empty:
+        return pd.DataFrame()
+    x = events_df.copy()
+    if "History Created" not in x.columns:
+        return pd.DataFrame()
+    x["History Created"] = pd.to_datetime(x["History Created"], errors="coerce")
+    if "Next Timestamp" in x.columns:
+        x["Next Timestamp"] = pd.to_datetime(x["Next Timestamp"], errors="coerce")
+    else:
+        x["Next Timestamp"] = pd.NaT
+    if "TempoStatusDias" in x.columns:
+        x["TempoStatusDias"] = _safe_num(x["TempoStatusDias"])
+    else:
+        x["TempoStatusDias"] = np.nan
+    x = x.dropna(subset=["History Created"]).copy()
+    if x.empty:
+        return x
+
+    if start_ts is None or end_ts is None:
+        x["HorasNoPeriodo"] = (x["TempoStatusDias"] * 24.0).fillna(0)
+        return x
+
+    window_start = pd.to_datetime(start_ts)
+    window_end = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
+    starts = x["History Created"].clip(lower=window_start, upper=window_end)
+    raw_ends = x["Next Timestamp"].copy()
+    # Fallback: se não existe próxima transição, usa duração estimada pela coluna de tempo em status.
+    missing_end = raw_ends.isna()
+    raw_ends.loc[missing_end] = x.loc[missing_end, "History Created"] + pd.to_timedelta(
+        x.loc[missing_end, "TempoStatusDias"].fillna(0), unit="D"
+    )
+    ends = raw_ends.clip(lower=window_start, upper=window_end)
+    overlap_h = (ends - starts).dt.total_seconds() / 3600.0
+    x["HorasNoPeriodo"] = overlap_h.where(overlap_h.notna() & (overlap_h > 0), 0.0)
+    return x
+
+
+def build_dfg_edges_from_events(events_df):
+    if events_df is None or events_df.empty:
+        return pd.DataFrame()
+    needed = {"From Status", "To Status"}
+    if not needed.issubset(events_df.columns):
+        return pd.DataFrame()
+    x = events_df.copy()
+    x["From Status"] = x["From Status"].fillna("").astype(str).str.strip()
+    x["To Status"] = x["To Status"].fillna("").astype(str).str.strip()
+    x = x[(x["From Status"] != "") & (x["To Status"] != "")]
+    if x.empty:
+        return pd.DataFrame()
+    return (
+        x.groupby(["From Status", "To Status"], dropna=False)
+        .size()
+        .reset_index(name="Count")
+        .sort_values("Count", ascending=False)
+        .reset_index(drop=True)
+    )
 
 
 def build_transition_sankey(events_df, top_edges=40):

@@ -2,7 +2,10 @@ import dash
 from dash import dcc, html, Input, Output, dash_table
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+try:
+    from plotly.subplots import make_subplots
+except ImportError:
+    from plotly.tools import make_subplots
 import pandas as pd
 import numpy as np
 import glob

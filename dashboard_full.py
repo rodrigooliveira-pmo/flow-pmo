@@ -17,7 +17,10 @@ import hashlib
 import urllib.request
 import urllib.parse
 import re
-from plotly.subplots import make_subplots
+try:
+    from plotly.subplots import make_subplots
+except ImportError:
+    from plotly.tools import make_subplots
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
