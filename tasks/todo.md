@@ -1667,4 +1667,28 @@
 - Suggested commit message:
   - `docs(portfolio): add implementation matrix and roadmap for portfolio indicators`
 
+## Current Task (Process Mining: capacidade normalizada + gargalo no fluxo)
+- [x] Definir heurística de capacidade diária normalizada por pessoa (cap 8h/dia) sobre horas úteis por evento
+- [x] Implementar agregações e gráficos comparando carga de fluxo vs horas estimadas de trabalho
+- [x] Implementar painel de gargalo por status (mediana/p85/carga total) para validar `In Progress` vs `Homologation`
+- [x] Validar sintaxe/import do `dashboard_process_mining.py`
+
+## Review (Process Mining: capacidade normalizada + gargalo no fluxo)
+- What was validated:
+  - `dashboard_process_mining.py` passou a quebrar eventos de execução em slices diários úteis e normalizar por `Responsavel + Dia` com teto de `8h/dia`, reduzindo superestimação quando uma pessoa possui vários cards simultâneos.
+  - Novas visões adicionadas:
+    - KPIs de horas estimadas normalizadas (total, ponderadas e por bucket Ativa/Validação/QA/Espera)
+    - gráficos comparativos `Carga de Fluxo vs Horas Estimadas`
+    - gráficos de horas estimadas por pessoa e por etapa do fluxo (stacked por bucket)
+  - Painel de gargalo por status adicionado com 3 lentes:
+    - tempo útil mediano/p85 por evento
+    - carga total de horas úteis no período
+    - scatter `mediana x carga total` para triangulação do gargalo
+  - O filtro de período continua aplicado no nível de evento (`History Created`) e as horas usam interseção com o intervalo do evento (`History Created` -> `Next Timestamp`).
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import dashboard_process_mining; print('import_ok')"`
+- Suggested commit message:
+  - `feat(process-mining-ui): add normalized person-day capacity heuristic and bottleneck analytics`
+
 
