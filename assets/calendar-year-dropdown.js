@@ -5,11 +5,8 @@
 (function () {
     const MIN_YEAR = 2020;
     const MAX_YEAR = 2030;
-    const CONTROLS_SELECTORS = [
-        '.dash-datepicker-controls',
-        '.DatePicker_caption',
-        '.CalendarMonth_caption',
-    ];
+    const LEGACY_CONTROLS_SELECTOR = '.dash-datepicker-controls';
+    const MODERN_PICKER_ROOTS_SELECTOR = '.DateRangePicker_picker, .SingleDatePicker_picker, .DayPicker';
 
     // Setter nativo do input para contornar o override do React
     var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
@@ -133,11 +130,32 @@
 
     function listControls() {
         var all = [];
-        CONTROLS_SELECTORS.forEach(function (sel) {
-            document.querySelectorAll(sel).forEach(function (node) {
+
+        document.querySelectorAll(LEGACY_CONTROLS_SELECTOR).forEach(function (node) {
+            if (all.indexOf(node) === -1) all.push(node);
+        });
+
+        // React-dates/Dash moderno pode renderizar vários meses (incluindo buffers ocultos).
+        // Seleciona apenas captions visíveis e limita a quantidade por calendário aberto.
+        document.querySelectorAll(MODERN_PICKER_ROOTS_SELECTOR).forEach(function (root) {
+            var visibleCaptions = Array.from(
+                root.querySelectorAll('.CalendarMonth_caption, .DatePicker_caption')
+            ).filter(function (node) {
+                if (!node) return false;
+                var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+                if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+                    return false;
+                }
+                var rect = node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+                return !!rect && rect.width > 0 && rect.height > 0;
+            });
+
+            // Mantém só os primeiros cabeçalhos visíveis (DatePickerRange geralmente mostra 1 ou 2).
+            visibleCaptions.slice(0, 2).forEach(function (node) {
                 if (all.indexOf(node) === -1) all.push(node);
             });
         });
+
         return all;
     }
 
