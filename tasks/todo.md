@@ -126,6 +126,36 @@
   - A tabela por TEAM mostra contagem e percentual correspondentes.
   - O indicador atual `% histórias/tasks órfãos` permanece disponível.
 
+## Current Task (Process mining: abas por domínio + DFG performance PM4Py)
+- [x] Separar `dashboard_process_mining.py` em abas por domínio/função (descoberta, gargalos, conformidade, operacional/dados)
+- [x] Implementar no exportador `process_mining_jira.py` o artefato `DFG performance` (sheet + PNG + metadados)
+- [x] Consumir `PM4PyDFGPerfEdges` e imagem `-pm4py-dfg-performance.png` no `dashboard_process_mining.py`
+- [x] Validar sintaxe/import dos módulos alterados e revisar diff
+
+## Specification (Process mining: abas por domínio + DFG performance PM4Py)
+- Objetivo: melhorar a navegabilidade do dashboard de process mining com separação por domínio analítico e iniciar a implementação do plano de PM4Py com `DFG performance`, mantendo compatibilidade com fallback sem PM4Py.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `process_mining_jira.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O dashboard passa a exibir abas por domínio/função com agrupamento coerente das visualizações existentes.
+  - O exportador gera dataset `PM4PyDFGPerfEdges` e tenta salvar `-pm4py-dfg-performance.png` quando PM4Py + Graphviz estiverem disponíveis.
+  - O dashboard carrega/mostra o DFG performance (gráfico e/ou imagem) quando o artefato existir, sem quebrar quando ausente.
+
+## Review (Process mining: abas por domínio + DFG performance PM4Py)
+- What was validated:
+  - `dashboard_process_mining.py` foi reorganizado em abas por domínio: `Descoberta`, `Gargalos`, `Conformidade`, `Operacional`, `Dados/Meta`.
+  - O dashboard passou a carregar `PM4PyDFGPerfEdges` e o PNG `-pm4py-dfg-performance.png` (quando disponível).
+  - O exportador `process_mining_jira.py` agora gera dataset de DFG performance (`pm4py_dfg_perf_edges`) e tenta salvar visual PM4Py de performance com fallback de API/metadados de erro.
+  - O import dos módulos continua funcionando após a refatoração.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('process_mining_jira.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import dashboard_process_mining; import process_mining_jira; print('imports ok')"`
+  - `git diff -- dashboard_process_mining.py process_mining_jira.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add domain tabs and pm4py performance dfg support`
+
 ## Review (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
 - What was validated:
   - `dashboard_full.py` agora cria o KPI `% histórias/tasks (melhorias) sem feature tática` com base em `story_task_sem_feature` (histórias/tasks sem `ParentID` apontando para feature do board tático).

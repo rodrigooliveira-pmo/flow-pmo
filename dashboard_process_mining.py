@@ -144,6 +144,7 @@ def load_report(path):
         "VariantesTop",
         "EventosFiltrados",
         "PM4PyDFGEdges",
+        "PM4PyDFGPerfEdges",
         "Metadados",
     ]
     xls = pd.ExcelFile(path)
@@ -172,6 +173,7 @@ def create_kpi_card(title, value):
 def _load_artifact_images_from_base(base_no_ext):
     img_suffixes = {
         "dfg": "-pm4py-dfg.png",
+        "dfg_performance": "-pm4py-dfg-performance.png",
         "heuristics": "-pm4py-heuristics.png",
         "inductive_tree": "-pm4py-inductive-tree.png",
         "petri": "-pm4py-petri.png",
@@ -1012,6 +1014,7 @@ def render_pm(data, start_date, end_date, person):
     pm_variants = pd.DataFrame(data.get("VariantesTop", []))
     pm_events = pd.DataFrame(data.get("EventosFiltrados", []))
     pm_dfg_edges = pd.DataFrame(data.get("PM4PyDFGEdges", []))
+    pm_dfg_perf_edges = pd.DataFrame(data.get("PM4PyDFGPerfEdges", []))
     pm_meta = pd.DataFrame(data.get("Metadados", []))
     artifact_images = data.get("_artifact_images", {}) or {}
 
@@ -1313,6 +1316,37 @@ def render_pm(data, start_date, end_date, person):
         fig_dfg_edges = px.bar(x, x="Count", y="Aresta", orientation="h", title=dfg_title)
         fig_dfg_edges.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
 
+    fig_dfg_perf_edges = go.Figure()
+    if not pm_dfg_perf_edges.empty and {"From", "To"}.issubset(pm_dfg_perf_edges.columns):
+        x = pm_dfg_perf_edges.copy()
+        if "PerfHours" in x.columns:
+            x["PerfHours"] = _safe_num(x["PerfHours"])
+        if "PerfSeconds" in x.columns:
+            x["PerfSeconds"] = _safe_num(x["PerfSeconds"])
+        metric_col = "PerfHours" if "PerfHours" in x.columns else "PerfSeconds" if "PerfSeconds" in x.columns else None
+        if metric_col:
+            x = x.dropna(subset=[metric_col]).copy()
+            if not x.empty:
+                x["Count"] = _safe_num(x.get("Count", 0)).fillna(0)
+                x["Aresta"] = x["From"].astype(str) + " → " + x["To"].astype(str)
+                x = x.sort_values([metric_col, "Count"], ascending=[False, False]).head(20)
+                title = "DFG Performance (pm4py) - Top Arestas por Tempo"
+                fig_dfg_perf_edges = px.bar(
+                    x,
+                    x=metric_col,
+                    y="Aresta",
+                    orientation="h",
+                    color="Count" if "Count" in x.columns else None,
+                    color_continuous_scale="YlOrRd",
+                    hover_data=[c for c in ["Count", "PerfSeconds", "PerfHours"] if c in x.columns],
+                    title=title,
+                )
+                fig_dfg_perf_edges.update_layout(
+                    height=560,
+                    yaxis={"categoryorder": "total ascending"},
+                    xaxis_title="Horas entre atividades" if metric_col == "PerfHours" else "Segundos entre atividades",
+                )
+
     fig_exec_by_person = go.Figure()
     if not exec_by_person.empty:
         x = exec_by_person.head(20).copy()
@@ -1567,11 +1601,12 @@ def render_pm(data, start_date, end_date, person):
     model_cards = []
     model_titles = {
         "dfg": "DFG (pm4py)",
+        "dfg_performance": "DFG Performance (pm4py)",
         "heuristics": "Heuristics Miner (pm4py)",
         "inductive_tree": "Inductive Miner - Process Tree (pm4py)",
         "petri": "Inductive Miner - Rede de Petri (pm4py)",
     }
-    for key in ["dfg", "heuristics", "inductive_tree", "petri"]:
+    for key in ["dfg", "dfg_performance", "heuristics", "inductive_tree", "petri"]:
         payload = artifact_images.get(key)
         if not payload:
             continue
@@ -1594,200 +1629,231 @@ def render_pm(data, start_date, end_date, person):
         if sort_cols:
             pm_rework = pm_rework.sort_values(sort_cols, ascending=[False] * len(sort_cols))
 
+    tab_style = {"padding": "12px 10px"}
+    tab_content_style = {"padding": "12px 4px"}
+
+    discovery_tab = [
+        html.H3("Visualizações de Process Mining", style={"marginTop": "6px"}),
+        html.Div(
+            model_cards if model_cards else [html.Div("Artefatos visuais pm4py (DFG / Heuristics / Inductive / Petri) ainda não encontrados neste relatório.")],
+            style={"display": "flex", "gap": "12px", "flexWrap": "wrap", "marginBottom": "8px"},
+        ),
+        dcc.Graph(figure=fig_dfg_edges),
+        dcc.Graph(figure=fig_transition_map),
+        dcc.Graph(figure=fig_variants),
+        dcc.Graph(figure=fig_event_vol),
+    ]
+
+    bottlenecks_tab = [
+        html.H3("Rede de Petri e Gargalos do Fluxo", style={"marginTop": "6px"}),
+        html.Div(
+            [
+                html.Span(
+                    "A imagem pm4py (quando disponível) mostra a estrutura do processo; os gráficos abaixo ranqueiam gargalos no recorte atual "
+                    "usando horas úteis por transição/etapa (com destaque para bucket de espera)."
+                )
+            ],
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        dcc.Graph(figure=fig_dfg_perf_edges),
+        dcc.Graph(figure=fig_petri_network),
+        html.Div(
+            [
+                html.Div(dcc.Graph(figure=fig_petri_transitions), style={"flex": "1 1 540px"}),
+                html.Div(dcc.Graph(figure=fig_petri_status), style={"flex": "1 1 540px"}),
+            ],
+            style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+        ),
+        html.H4("Gargalo no Fluxo (tempo vs carga por status)"),
+        html.Div(
+            "Segurança da avaliação: compare 3 lentes em conjunto. "
+            "1) tempo mediano/p85 por evento (gargalo de espera), "
+            "2) carga total de horas úteis (pressão acumulada), "
+            "3) mapa mediana x carga (status que combinam tempo alto e volume).",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        html.Div(
+            [
+                html.Div(dcc.Graph(figure=fig_bottleneck_median), style={"flex": "1 1 460px"}),
+                html.Div(dcc.Graph(figure=fig_bottleneck_load), style={"flex": "1 1 460px"}),
+            ],
+            style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+        ),
+        dcc.Graph(figure=fig_bottleneck_scatter),
+        dcc.Graph(figure=fig_tempo_status),
+        dcc.Graph(figure=fig_exec_bucket_status),
+        dcc.Graph(figure=fig_exec_norm_bucket_status),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in bottleneck_cols],
+            data=bottlenecks[bottleneck_cols].head(50).to_dict("records") if bottleneck_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+    ]
+
+    conformance_tab = [
+        html.H3("Conformidade e Retrabalho", style={"marginTop": "6px"}),
+        html.Div(
+            [
+                html.Div(dcc.Graph(figure=fig_conf_hist), style={"flex": "1 1 420px"}),
+                html.Div(dcc.Graph(figure=fig_lt_rework), style={"flex": "1 1 420px"}),
+            ],
+            style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+        ),
+        html.H4("Top Itens com Retrabalho"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in rework_cols],
+            data=pm_rework[rework_cols].head(50).to_dict("records") if rework_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+        html.H4("Resumo de Conformidade"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in summary_cols],
+            data=pm_summary[summary_cols].to_dict("records") if summary_cols else [],
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            page_size=12,
+        ),
+    ]
+
+    operational_tab = [
+        html.H3("Análises Operacionais", style={"marginTop": "6px"}),
+        html.Div(
+            "Filtro de data aplicado aos eventos do changelog por `History Created`. "
+            "Horas de execução no período usam a interseção do intervalo do evento (`History Created` até `Next Timestamp`) com o período selecionado.",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        html.Div(
+            "Heurística de horas úteis: considera somente dias úteis, janela comercial e teto diário. "
+            "Buckets: Execução Ativa, Validação/QA e Espera (com pesos por status para estimativa ponderada).",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        html.Div(
+            f"Heurística de capacidade (normalizada): horas úteis são quebradas por dia e normalizadas por pessoa/dia com teto de {WORKDAY_DAILY_CAP_HOURS:.0f}h. "
+            "Use esta visão para estimar trabalho humano; use carga de fluxo para detectar pressão/gargalo.",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        dcc.Graph(figure=fig_exec_by_person),
+        dcc.Graph(figure=fig_exec_norm_by_person),
+        dcc.Graph(figure=fig_exec_norm_vs_load),
+        dcc.Graph(figure=fig_exec_bucket_person),
+        dcc.Graph(figure=fig_exec_norm_bucket_person),
+        dcc.Graph(figure=fig_exec_by_status),
+        dcc.Graph(figure=fig_horas_pessoa),
+        dcc.Graph(figure=fig_horas_status),
+        dcc.Graph(figure=fig_vazao),
+        dcc.Graph(figure=fig_vazao_sem),
+        dcc.Graph(figure=fig_retrabalho),
+        html.H4("Resumo por Pessoa"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in people_cols],
+            data=pm_people[people_cols].head(50).to_dict("records") if people_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            page_size=12,
+        ),
+        html.H4("Horas de Execução no Período por Pessoa (proxy + heurística útil)"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in exec_people_cols],
+            data=exec_by_person[exec_people_cols].head(50).to_dict("records") if exec_people_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            page_size=12,
+        ),
+        html.H4(f"Horas Estimadas de Trabalho por Pessoa (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in exec_norm_people_cols],
+            data=exec_norm_by_person[exec_norm_people_cols].head(50).to_dict("records") if exec_norm_people_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            page_size=12,
+        ),
+        html.H4("Horas de Execução no Período por Pessoa e Status (proxy + heurística útil)"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in exec_status_cols],
+            data=exec_by_status[exec_status_cols].head(50).to_dict("records") if exec_status_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+        html.H4(f"Horas Estimadas de Trabalho por Pessoa e Status (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in exec_norm_status_cols],
+            data=exec_norm_by_status[exec_norm_status_cols].head(80).to_dict("records") if exec_norm_status_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "260px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+        html.H4("Horas no Fluxo por Pessoa (proxy)"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in horas_people_cols],
+            data=pm_hours_people[horas_people_cols].head(50).to_dict("records") if horas_people_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            page_size=12,
+        ),
+        html.H4("Horas no Fluxo por Pessoa e Status (proxy)"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in horas_status_cols],
+            data=pm_hours_status[horas_status_cols].head(50).to_dict("records") if horas_status_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+    ]
+
+    data_tab = [
+        html.H3("Resumo e Metadados", style={"marginTop": "6px"}),
+        html.H4("Metadados"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in meta_cols],
+            data=pm_meta[meta_cols].to_dict("records") if meta_cols else [],
+            style_cell={"textAlign": "left", "padding": "6px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            page_size=12,
+        ),
+    ]
+
     return html.Div(
         [
             pm4py_banner if pm4py_banner else html.Div(),
             kpi_grid,
-            html.H3("Rede de Petri e Gargalos do Fluxo", style={"marginTop": "6px"}),
-            html.Div(
-                [
-                    html.Span(
-                        "A imagem pm4py (quando disponível) mostra a estrutura do processo; os gráficos abaixo ranqueiam gargalos no recorte atual "
-                        "usando horas úteis por transição/etapa (com destaque para bucket de espera)."
-                    )
+            dcc.Tabs(
+                id="pm-domain-tabs",
+                value="tab-discovery",
+                children=[
+                    dcc.Tab(label="Descoberta", value="tab-discovery", style=tab_style, selected_style=tab_style, children=html.Div(discovery_tab, style=tab_content_style)),
+                    dcc.Tab(label="Gargalos", value="tab-bottlenecks", style=tab_style, selected_style=tab_style, children=html.Div(bottlenecks_tab, style=tab_content_style)),
+                    dcc.Tab(label="Conformidade", value="tab-conformance", style=tab_style, selected_style=tab_style, children=html.Div(conformance_tab, style=tab_content_style)),
+                    dcc.Tab(label="Operacional", value="tab-operational", style=tab_style, selected_style=tab_style, children=html.Div(operational_tab, style=tab_content_style)),
+                    dcc.Tab(label="Dados/Meta", value="tab-data", style=tab_style, selected_style=tab_style, children=html.Div(data_tab, style=tab_content_style)),
                 ],
-                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
-            ),
-            dcc.Graph(figure=fig_petri_network),
-            html.Div(
-                [
-                    html.Div(dcc.Graph(figure=fig_petri_transitions), style={"flex": "1 1 540px"}),
-                    html.Div(dcc.Graph(figure=fig_petri_status), style={"flex": "1 1 540px"}),
-                ],
-                style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
-            ),
-            html.H3("Visualizações de Process Mining", style={"marginTop": "6px"}),
-            html.Div(
-                model_cards if model_cards else [html.Div("Artefatos visuais pm4py (DFG / Heuristics / Inductive / Petri) ainda não encontrados neste relatório.")],
-                style={"display": "flex", "gap": "12px", "flexWrap": "wrap", "marginBottom": "8px"},
-            ),
-            dcc.Graph(figure=fig_dfg_edges),
-            dcc.Graph(figure=fig_transition_map),
-            dcc.Graph(figure=fig_variants),
-            html.Div(
-                [
-                    html.Div(dcc.Graph(figure=fig_conf_hist), style={"flex": "1 1 420px"}),
-                    html.Div(dcc.Graph(figure=fig_lt_rework), style={"flex": "1 1 420px"}),
-                ],
-                style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
-            ),
-            dcc.Graph(figure=fig_event_vol),
-            html.H3("Análises Operacionais", style={"marginTop": "6px"}),
-            html.Div(
-                "Filtro de data aplicado aos eventos do changelog por `History Created`. "
-                "Horas de execução no período usam a interseção do intervalo do evento (`History Created` até `Next Timestamp`) com o período selecionado.",
-                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
-            ),
-            html.Div(
-                "Heurística de horas úteis: considera somente dias úteis, janela comercial e teto diário. "
-                "Buckets: Execução Ativa, Validação/QA e Espera (com pesos por status para estimativa ponderada).",
-                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
-            ),
-            html.Div(
-                f"Heurística de capacidade (normalizada): horas úteis são quebradas por dia e normalizadas por pessoa/dia com teto de {WORKDAY_DAILY_CAP_HOURS:.0f}h. "
-                "Use esta visão para estimar trabalho humano; use carga de fluxo para detectar pressão/gargalo.",
-                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
-            ),
-            html.H4("Gargalo no Fluxo (tempo vs carga por status)"),
-            html.Div(
-                "Segurança da avaliação: compare 3 lentes em conjunto. "
-                "1) tempo mediano/p85 por evento (gargalo de espera), "
-                "2) carga total de horas úteis (pressão acumulada), "
-                "3) mapa mediana x carga (status que combinam tempo alto e volume).",
-                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
-            ),
-            html.Div(
-                [
-                    html.Div(dcc.Graph(figure=fig_bottleneck_median), style={"flex": "1 1 460px"}),
-                    html.Div(dcc.Graph(figure=fig_bottleneck_load), style={"flex": "1 1 460px"}),
-                ],
-                style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
-            ),
-            dcc.Graph(figure=fig_bottleneck_scatter),
-            dcc.Graph(figure=fig_exec_by_person),
-            dcc.Graph(figure=fig_exec_norm_by_person),
-            dcc.Graph(figure=fig_exec_norm_vs_load),
-            dcc.Graph(figure=fig_exec_bucket_person),
-            dcc.Graph(figure=fig_exec_norm_bucket_person),
-            dcc.Graph(figure=fig_exec_bucket_status),
-            dcc.Graph(figure=fig_exec_norm_bucket_status),
-            dcc.Graph(figure=fig_exec_by_status),
-            dcc.Graph(figure=fig_horas_pessoa),
-            dcc.Graph(figure=fig_horas_status),
-            dcc.Graph(figure=fig_vazao),
-            dcc.Graph(figure=fig_vazao_sem),
-            dcc.Graph(figure=fig_retrabalho),
-            dcc.Graph(figure=fig_tempo_status),
-            html.H4("Resumo por Pessoa"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in people_cols],
-                data=pm_people[people_cols].head(50).to_dict("records") if people_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                page_size=12,
-            ),
-            html.H4("Horas de Execução no Período por Pessoa (proxy + heurística útil)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in exec_people_cols],
-                data=exec_by_person[exec_people_cols].head(50).to_dict("records") if exec_people_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                page_size=12,
-            ),
-            html.H4(f"Horas Estimadas de Trabalho por Pessoa (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in exec_norm_people_cols],
-                data=exec_norm_by_person[exec_norm_people_cols].head(50).to_dict("records") if exec_norm_people_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                page_size=12,
-            ),
-            html.H4("Horas de Execução no Período por Pessoa e Status (proxy + heurística útil)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in exec_status_cols],
-                data=exec_by_status[exec_status_cols].head(50).to_dict("records") if exec_status_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                filter_action="native",
-                page_size=12,
-            ),
-            html.H4(f"Horas Estimadas de Trabalho por Pessoa e Status (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in exec_norm_status_cols],
-                data=exec_norm_by_status[exec_norm_status_cols].head(80).to_dict("records") if exec_norm_status_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "260px", "whiteSpace": "normal"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                filter_action="native",
-                page_size=12,
-            ),
-            html.H4("Gargalos por Status (tempo útil no período filtrado)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in bottleneck_cols],
-                data=bottlenecks[bottleneck_cols].head(50).to_dict("records") if bottleneck_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                filter_action="native",
-                page_size=12,
-            ),
-            html.H4("Horas no Fluxo por Pessoa (proxy)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in horas_people_cols],
-                data=pm_hours_people[horas_people_cols].head(50).to_dict("records") if horas_people_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                page_size=12,
-            ),
-            html.H4("Horas no Fluxo por Pessoa e Status (proxy)"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in horas_status_cols],
-                data=pm_hours_status[horas_status_cols].head(50).to_dict("records") if horas_status_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                filter_action="native",
-                page_size=12,
-            ),
-            html.H4("Top Itens com Retrabalho"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in rework_cols],
-                data=pm_rework[rework_cols].head(50).to_dict("records") if rework_cols else [],
-                style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                sort_action="native",
-                filter_action="native",
-                page_size=12,
-            ),
-            html.H4("Resumo de Conformidade"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in summary_cols],
-                data=pm_summary[summary_cols].to_dict("records") if summary_cols else [],
-                style_cell={"textAlign": "left", "padding": "6px"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                page_size=12,
-            ),
-            html.H4("Metadados"),
-            dash_table.DataTable(
-                columns=[{"name": c, "id": c} for c in meta_cols],
-                data=pm_meta[meta_cols].to_dict("records") if meta_cols else [],
-                style_cell={"textAlign": "left", "padding": "6px", "whiteSpace": "normal"},
-                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
-                page_size=10,
             ),
         ]
     )

@@ -437,7 +437,29 @@ def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) 
         meta_rows.append({"Metrica": "pm4py_artifacts_error", "Valor": f"format_dataframe: {exc}"})
         return extra_datasets, extra_files, meta_rows
 
-    # DFG data + image
+    def _perf_to_seconds(value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return float(value)
+        if isinstance(value, pd.Timedelta):
+            return float(value.total_seconds())
+        if isinstance(value, dict):
+            for key in ("mean", "median", "value", "performance", "avg"):
+                if key in value:
+                    return _perf_to_seconds(value.get(key))
+        try:
+            td = pd.to_timedelta(value)
+            if pd.notna(td):
+                return float(td.total_seconds())
+        except Exception:
+            pass
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    # DFG data + image (frequency)
     try:
         dfg, sa, ea = pm4py.discover_dfg(pm_df)
         dfg_rows = []
@@ -458,6 +480,58 @@ def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) 
             meta_rows.append({"Metrica": "pm4py_dfg_vis_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
     except Exception as exc:
         meta_rows.append({"Metrica": "pm4py_dfg_error", "Valor": str(exc)})
+
+    # DFG performance data + image
+    try:
+        dfg_perf, sa_perf, ea_perf = pm4py.discover_performance_dfg(pm_df)
+        freq_lookup = {
+            (str(r["From"]), str(r["To"])): int(r["Count"])
+            for _, r in extra_datasets.get("pm4py_dfg_edges", pd.DataFrame()).iterrows()
+            if {"From", "To", "Count"}.issubset(extra_datasets.get("pm4py_dfg_edges", pd.DataFrame()).columns)
+        }
+        perf_rows = []
+        for edge, perf_val in (dfg_perf or {}).items():
+            if not isinstance(edge, tuple) or len(edge) != 2:
+                continue
+            perf_seconds = _perf_to_seconds(perf_val)
+            perf_rows.append(
+                {
+                    "From": edge[0],
+                    "To": edge[1],
+                    "Count": int(freq_lookup.get((str(edge[0]), str(edge[1])), 0)),
+                    "PerfSeconds": perf_seconds,
+                    "PerfHours": (perf_seconds / 3600.0) if perf_seconds is not None else None,
+                }
+            )
+        extra_datasets["pm4py_dfg_perf_edges"] = (
+            pd.DataFrame(perf_rows)
+            .sort_values(["PerfSeconds", "Count"], ascending=[False, False], na_position="last")
+            .reset_index(drop=True)
+            if perf_rows
+            else pd.DataFrame()
+        )
+        if dot_ok:
+            perf_img = out_dir / f"{base}-pm4py-dfg-performance.png"
+            perf_saved = False
+            try:
+                pm4py.save_vis_dfg(dfg_perf, sa_perf, ea_perf, str(perf_img), variant="performance")
+                perf_saved = True
+            except Exception as exc1:
+                try:
+                    if hasattr(pm4py, "save_vis_performance_dfg"):
+                        pm4py.save_vis_performance_dfg(dfg_perf, sa_perf, ea_perf, str(perf_img))
+                        perf_saved = True
+                    else:
+                        raise exc1
+                except Exception as exc2:
+                    meta_rows.append({"Metrica": "pm4py_dfg_performance_vis_error", "Valor": str(exc2)})
+            if perf_saved:
+                extra_files["pm4py_dfg_performance_png"] = str(perf_img)
+                meta_rows.append({"Metrica": "pm4py_dfg_performance_png", "Valor": str(perf_img)})
+        else:
+            meta_rows.append({"Metrica": "pm4py_dfg_performance_vis_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
+    except Exception as exc:
+        meta_rows.append({"Metrica": "pm4py_dfg_performance_error", "Valor": str(exc)})
 
     # Heuristics miner image
     try:
@@ -539,6 +613,7 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame])
         "VariantesTop": datasets["variantes_top"],
         "EventosFiltrados": datasets["eventos_filtrados"],
         "PM4PyDFGEdges": datasets.get("pm4py_dfg_edges", pd.DataFrame()),
+        "PM4PyDFGPerfEdges": datasets.get("pm4py_dfg_perf_edges", pd.DataFrame()),
     }
     excel_written = False
     excel_engine_used = None
