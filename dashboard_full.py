@@ -1,5 +1,11 @@
 import dash
-from dash import dcc, html, Input, Output, State, dash_table
+try:
+    from dash import dcc, html, Input, Output, State, dash_table
+except ImportError:
+    import dash_core_components as dcc
+    import dash_html_components as html
+    from dash.dependencies import Input, Output, State
+    import dash_table
 from dash.exceptions import PreventUpdate
 import plotly.express as px
 import pandas as pd
