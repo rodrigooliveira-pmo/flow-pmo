@@ -75,6 +75,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--done-status", nargs="*", default=["Done", "Itens concluídos", "Concluído"])
     p.add_argument("--prefix", default="w1nner-process-mining")
     p.add_argument("--max-top", type=int, default=25)
+    p.add_argument("--pm4py-align-max-cases", type=int, default=500, help="Limite de casos para alignments PM4Py (0=desabilita)")
     return p.parse_args()
 
 
@@ -412,7 +413,12 @@ def _ensure_graphviz_dot_on_path() -> tuple[bool, str]:
     return False, detail
 
 
-def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) -> tuple[dict[str, pd.DataFrame], dict[str, str], list[dict[str, Any]]]:
+def build_pm4py_model_artifacts(
+    events: pd.DataFrame,
+    out_dir: Path,
+    base: str,
+    pm4py_align_max_cases: int = 500,
+) -> tuple[dict[str, pd.DataFrame], dict[str, str], list[dict[str, Any]]]:
     extra_datasets: dict[str, pd.DataFrame] = {}
     extra_files: dict[str, str] = {}
     meta_rows: list[dict[str, Any]] = []
@@ -436,6 +442,23 @@ def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) 
     except Exception as exc:
         meta_rows.append({"Metrica": "pm4py_artifacts_error", "Valor": f"format_dataframe: {exc}"})
         return extra_datasets, extra_files, meta_rows
+    case_order = (
+        pm_df.sort_values(["case:concept:name", "time:timestamp"])
+        ["case:concept:name"]
+        .drop_duplicates()
+        .astype(str)
+        .tolist()
+        if {"case:concept:name", "time:timestamp"}.issubset(pm_df.columns)
+        else pm_df.get("case:concept:name", pd.Series(dtype=str)).astype(str).drop_duplicates().tolist()
+    )
+
+    def _dict_get_any(d: Any, keys: Sequence[str], default: Any = None) -> Any:
+        if not isinstance(d, dict):
+            return default
+        for key in keys:
+            if key in d:
+                return d.get(key)
+        return default
 
     def _perf_to_seconds(value: Any) -> float | None:
         if value is None:
@@ -559,6 +582,7 @@ def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) 
     except Exception as exc:
         meta_rows.append({"Metrica": "pm4py_inductive_tree_error", "Valor": str(exc)})
 
+    net = im = fm = None
     # Inductive miner -> Petri net image
     try:
         net, im, fm = pm4py.discover_petri_net_inductive(pm_df)
@@ -572,6 +596,173 @@ def build_pm4py_model_artifacts(events: pd.DataFrame, out_dir: Path, base: str) 
     except Exception as exc:
         meta_rows.append({"Metrica": "pm4py_petri_error", "Valor": str(exc)})
 
+    # Token-based replay (conformance)
+    if net is not None and im is not None and fm is not None:
+        try:
+            tbr_summary_rows: list[dict[str, Any]] = []
+            try:
+                tbr_fit = pm4py.fitness_token_based_replay(pm_df, net, im, fm)
+                if isinstance(tbr_fit, dict):
+                    for k, v in tbr_fit.items():
+                        tbr_summary_rows.append({"Metric": str(k), "Value": v})
+            except Exception as exc:
+                meta_rows.append({"Metrica": "pm4py_tbr_fitness_error", "Valor": str(exc)})
+            tbr_diag = pm4py.conformance_diagnostics_token_based_replay(pm_df, net, im, fm)
+            tbr_case_rows = []
+            for idx, row in enumerate(tbr_diag or []):
+                issue_key = case_order[idx] if idx < len(case_order) else f"trace_{idx+1}"
+                entry = row if isinstance(row, dict) else {}
+                tbr_case_rows.append(
+                    {
+                        "Issue Key": issue_key,
+                        "TraceIsFit": _dict_get_any(entry, ["trace_is_fit", "is_fit"]),
+                        "TraceFitness": _dict_get_any(entry, ["trace_fitness", "fitness"]),
+                        "MissingTokens": _dict_get_any(entry, ["missing_tokens", "missing"]),
+                        "RemainingTokens": _dict_get_any(entry, ["remaining_tokens", "remaining"]),
+                        "ConsumedTokens": _dict_get_any(entry, ["consumed_tokens", "consumed"]),
+                        "ProducedTokens": _dict_get_any(entry, ["produced_tokens", "produced"]),
+                    }
+                )
+            if tbr_case_rows:
+                tbr_cases_df = pd.DataFrame(tbr_case_rows)
+                for c in ["TraceFitness", "MissingTokens", "RemainingTokens", "ConsumedTokens", "ProducedTokens"]:
+                    if c in tbr_cases_df.columns:
+                        tbr_cases_df[c] = pd.to_numeric(tbr_cases_df[c], errors="coerce")
+                extra_datasets["pm4py_tbr_cases"] = tbr_cases_df.sort_values(
+                    ["TraceIsFit", "TraceFitness"], ascending=[True, True], na_position="last"
+                ).reset_index(drop=True)
+                # fill summary if not provided by pm4py helper
+                if not tbr_summary_rows:
+                    s = tbr_cases_df.copy()
+                    n_cases = int(len(s))
+                    fit_vals = pd.to_numeric(s.get("TraceFitness", pd.Series(dtype=float)), errors="coerce").dropna()
+                    is_fit = s.get("TraceIsFit", pd.Series(dtype=object)).astype(str).str.lower()
+                    tbr_summary_rows.extend(
+                        [
+                            {"Metric": "num_cases", "Value": n_cases},
+                            {"Metric": "perc_fit_traces", "Value": float((is_fit.isin(["true", "1"]).mean() * 100.0) if n_cases else 0.0)},
+                            {"Metric": "average_trace_fitness", "Value": float(fit_vals.mean()) if not fit_vals.empty else None},
+                        ]
+                    )
+            else:
+                extra_datasets["pm4py_tbr_cases"] = pd.DataFrame()
+            extra_datasets["pm4py_tbr_summary"] = pd.DataFrame(tbr_summary_rows)
+        except Exception as exc:
+            meta_rows.append({"Metrica": "pm4py_tbr_error", "Valor": str(exc)})
+
+    # Alignments (conformance, bounded)
+    if net is not None and im is not None and fm is not None:
+        try:
+            max_cases = max(int(pm4py_align_max_cases or 0), 0)
+        except Exception:
+            max_cases = 500
+        meta_rows.append({"Metrica": "pm4py_alignments_max_cases", "Valor": int(max_cases)})
+        if max_cases <= 0:
+            meta_rows.append({"Metrica": "pm4py_alignments_skipped", "Valor": "disabled_by_limit"})
+        else:
+            try:
+                limited_cases = set(case_order[:max_cases])
+                pm_align_df = pm_df[pm_df["case:concept:name"].astype(str).isin(limited_cases)].copy()
+                align_case_order = (
+                    pm_align_df.sort_values(["case:concept:name", "time:timestamp"])["case:concept:name"]
+                    .drop_duplicates().astype(str).tolist()
+                )
+                aligned_traces = pm4py.conformance_diagnostics_alignments(pm_align_df, net, im, fm)
+
+                def _normalize_move(raw: Any) -> tuple[str | None, str | None]:
+                    if isinstance(raw, tuple):
+                        # PM4Py often returns tuples like ((log_act, trans), (model_act, trans)) or variants
+                        if len(raw) == 2 and isinstance(raw[0], tuple) and isinstance(raw[1], tuple):
+                            log_act = raw[0][0] if raw[0] else None
+                            model_act = raw[1][0] if raw[1] else None
+                            return (None if log_act in (None, ">>") else str(log_act), None if model_act in (None, ">>") else str(model_act))
+                        if len(raw) == 2:
+                            a, b = raw
+                            return (None if a in (None, ">>") else str(a), None if b in (None, ">>") else str(b))
+                    if isinstance(raw, dict):
+                        a = _dict_get_any(raw, ["label", "activity", "log_label"])
+                        b = _dict_get_any(raw, ["model_label", "model_activity"])
+                        return (None if a in (None, ">>") else str(a), None if b in (None, ">>") else str(b))
+                    return (None, None)
+
+                align_rows = []
+                move_rows = []
+                for idx, row in enumerate(aligned_traces or []):
+                    issue_key = align_case_order[idx] if idx < len(align_case_order) else f"trace_{idx+1}"
+                    entry = row if isinstance(row, dict) else {}
+                    fitness = _dict_get_any(entry, ["fitness", "trace_fitness"])
+                    cost = _dict_get_any(entry, ["cost", "alignment_cost"])
+                    align_seq = _dict_get_any(entry, ["alignment", "moves"], default=[])
+                    sync_moves = log_moves = model_moves = 0
+                    for mv in (align_seq or []):
+                        log_act, model_act = _normalize_move(mv)
+                        if log_act and model_act and log_act == model_act:
+                            sync_moves += 1
+                        elif log_act and not model_act:
+                            log_moves += 1
+                            move_rows.append({"Issue Key": issue_key, "MoveType": "log_move", "Activity": log_act})
+                        elif model_act and not log_act:
+                            model_moves += 1
+                            move_rows.append({"Issue Key": issue_key, "MoveType": "model_move", "Activity": model_act})
+                        elif log_act or model_act:
+                            # fallback mixed mismatch counts as both sides deviating
+                            if log_act:
+                                log_moves += 1
+                                move_rows.append({"Issue Key": issue_key, "MoveType": "log_move", "Activity": log_act})
+                            if model_act:
+                                model_moves += 1
+                                move_rows.append({"Issue Key": issue_key, "MoveType": "model_move", "Activity": model_act})
+                    align_rows.append(
+                        {
+                            "Issue Key": issue_key,
+                            "AlignmentFitness": fitness,
+                            "AlignmentCost": cost,
+                            "SyncMoves": sync_moves,
+                            "LogMoves": log_moves,
+                            "ModelMoves": model_moves,
+                            "DesviosTotal": log_moves + model_moves,
+                        }
+                    )
+                align_cases_df = pd.DataFrame(align_rows)
+                if not align_cases_df.empty:
+                    for c in ["AlignmentFitness", "AlignmentCost", "SyncMoves", "LogMoves", "ModelMoves", "DesviosTotal"]:
+                        align_cases_df[c] = pd.to_numeric(align_cases_df[c], errors="coerce")
+                    align_cases_df = align_cases_df.sort_values(
+                        ["DesviosTotal", "AlignmentCost", "AlignmentFitness"],
+                        ascending=[False, False, True],
+                        na_position="last",
+                    ).reset_index(drop=True)
+                extra_datasets["pm4py_align_cases"] = align_cases_df
+
+                align_summary_rows = []
+                if not align_cases_df.empty:
+                    fit_vals = pd.to_numeric(align_cases_df["AlignmentFitness"], errors="coerce").dropna()
+                    cost_vals = pd.to_numeric(align_cases_df["AlignmentCost"], errors="coerce").dropna()
+                    perfect = (pd.to_numeric(align_cases_df["DesviosTotal"], errors="coerce").fillna(0) == 0).mean() * 100.0
+                    align_summary_rows = [
+                        {"Metric": "num_cases_aligned", "Value": int(len(align_cases_df))},
+                        {"Metric": "avg_fitness", "Value": float(fit_vals.mean()) if not fit_vals.empty else None},
+                        {"Metric": "alignment_cost_total", "Value": float(cost_vals.sum()) if not cost_vals.empty else None},
+                        {"Metric": "perc_perfect_alignments", "Value": float(perfect)},
+                    ]
+                extra_datasets["pm4py_align_summary"] = pd.DataFrame(align_summary_rows)
+
+                move_df = pd.DataFrame(move_rows)
+                if not move_df.empty:
+                    move_top = (
+                        move_df.groupby(["MoveType", "Activity"], dropna=False)
+                        .agg(Count=("Issue Key", "size"), CasesAffected=("Issue Key", "nunique"))
+                        .reset_index()
+                        .sort_values(["Count", "CasesAffected"], ascending=False)
+                        .reset_index(drop=True)
+                    )
+                else:
+                    move_top = pd.DataFrame(columns=["MoveType", "Activity", "Count", "CasesAffected"])
+                extra_datasets["pm4py_align_top_moves"] = move_top
+                meta_rows.append({"Metrica": "pm4py_alignments_cases_processed", "Valor": int(len(align_case_order))})
+            except Exception as exc:
+                meta_rows.append({"Metrica": "pm4py_alignments_error", "Valor": str(exc)})
+
     return extra_datasets, extra_files, meta_rows
 
 
@@ -583,7 +774,7 @@ def _csv_ready(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame]) -> dict[str, str]:
+def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame], pm4py_align_max_cases: int = 500) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{prefix}-{stamp}"
@@ -593,6 +784,7 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame])
         datasets.get("eventos_filtrados", pd.DataFrame()),
         out_dir=out_dir,
         base=base,
+        pm4py_align_max_cases=pm4py_align_max_cases,
     )
     if pm_meta_rows:
         meta_df = datasets.get("metadados", pd.DataFrame())
@@ -614,6 +806,11 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame])
         "EventosFiltrados": datasets["eventos_filtrados"],
         "PM4PyDFGEdges": datasets.get("pm4py_dfg_edges", pd.DataFrame()),
         "PM4PyDFGPerfEdges": datasets.get("pm4py_dfg_perf_edges", pd.DataFrame()),
+        "PM4PyTBRResumo": datasets.get("pm4py_tbr_summary", pd.DataFrame()),
+        "PM4PyTBRCasos": datasets.get("pm4py_tbr_cases", pd.DataFrame()),
+        "PM4PyAlignResumo": datasets.get("pm4py_align_summary", pd.DataFrame()),
+        "PM4PyAlignCasos": datasets.get("pm4py_align_cases", pd.DataFrame()),
+        "PM4PyAlignTopMoves": datasets.get("pm4py_align_top_moves", pd.DataFrame()),
     }
     excel_written = False
     excel_engine_used = None
@@ -689,7 +886,7 @@ def main() -> int:
         "variantes_top": variantes,
         "eventos_filtrados": export_events,
     }
-    paths = write_outputs(out_dir, args.prefix, datasets)
+    paths = write_outputs(out_dir, args.prefix, datasets, pm4py_align_max_cases=args.pm4py_align_max_cases)
     print("Relatórios gerados:")
     for k, v in paths.items():
         print(f"- {k}: {v}")

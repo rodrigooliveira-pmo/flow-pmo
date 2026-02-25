@@ -1,5 +1,32 @@
 # Task Plan
 
+## Current Task (Refatorar layout dos indicadores no Process Mining para alinhamento em até 3 linhas)
+- [x] Localizar bloco de KPIs no `dashboard_process_mining.py` e confirmar causa do desalinhamento (grid fixo em 12 colunas)
+- [x] Definir ajuste mínimo de layout para distribuir os cards de forma alinhada sem alterar cálculos/callbacks
+- [x] Validar sintaxe/import e revisar diff da mudança
+- [x] Registrar review/evidências e sugestão de commit
+
+## Specification (Refatorar layout dos indicadores no Process Mining para alinhamento em até 3 linhas)
+- Objetivo: reorganizar os cards de indicadores da tela de process mining para evitar a quebra 12+6 com grande espaço vazio e manter leitura alinhada em até 3 linhas.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Os KPIs passam a ser renderizados em grade visualmente alinhada no cenário atual (18 indicadores).
+  - A alteração não muda cálculos dos indicadores nem callbacks da tela.
+  - O módulo continua importando normalmente.
+
+## Review (Refatorar layout dos indicadores no Process Mining para alinhamento em até 3 linhas)
+- What was validated:
+  - O bloco `kpi_grid` em `dashboard_process_mining.py` foi mantido intacto nos cálculos/ordem dos indicadores; apenas o layout da grade foi ajustado.
+  - A grade passou de `repeat(12, ...)` para `repeat(6, ...)`, o que organiza os 18 cards atuais em 3 linhas de 6 cards (evitando a quebra 12 + 6 com espaço vazio grande).
+  - `dashboard_process_mining.py` continua importando normalmente após a alteração.
+- Evidence (tests/logs/diff):
+  - `python -c "import dashboard_process_mining; print('dashboard_process_mining import ok')"`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md` (observação: há mudanças pré-existentes no arquivo; a alteração desta tarefa é a linha do `gridTemplateColumns` do `kpi_grid`)
+- Suggested commit message:
+  - `fix(process-mining): align kpi cards into 3-row grid`
+
 ## Current Task (Alinhar versão do DatePicker local x produção no Vercel)
 - [x] Confirmar diferença de versão do Dash entre localhost e produção
 - [x] Atualizar pins de dependência para `dash==4.0.0` no deploy
@@ -155,6 +182,40 @@
   - `git diff -- dashboard_process_mining.py process_mining_jira.py tasks/todo.md`
 - Suggested commit message:
   - `feat(process-mining): add domain tabs and pm4py performance dfg support`
+
+## Current Task (Process mining: TBR + Alignments + Dotted chart)
+- [x] Implementar no exportador `process_mining_jira.py` as sheets `PM4PyTBRResumo` e `PM4PyTBRCasos`
+- [x] Implementar no exportador `process_mining_jira.py` as sheets de alignments (`PM4PyAlignResumo`, `PM4PyAlignCasos`, `PM4PyAlignTopMoves`) com limite de casos
+- [x] Renderizar TBR e Alignments na aba `Conformidade` de `dashboard_process_mining.py`
+- [x] Adicionar `Dotted chart` (Plotly via `EventosFiltrados`) na aba `Gargalos`
+- [x] Validar sintaxe/import e revisar diff
+
+## Specification (Process mining: TBR + Alignments + Dotted chart)
+- Objetivo: avançar o plano de process mining adicionando conformidade PM4Py (token replay e alignments) ao workbook/dashboard e um dotted chart filtrável para leitura temporal de gargalos.
+- Escopo:
+  - `process_mining_jira.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O exportador escreve `PM4PyTBRResumo` e `PM4PyTBRCasos` quando PM4Py estiver disponível (com metadados/fallback em caso de erro).
+  - O exportador escreve `PM4PyAlignResumo`, `PM4PyAlignCasos` e `PM4PyAlignTopMoves` com limite de casos configurável para evitar execução excessiva.
+  - A aba `Conformidade` exibe visualizações/tabelas de TBR e Alignments quando as sheets existirem.
+  - A aba `Gargalos` exibe dotted chart Plotly usando `EventosFiltrados` e respeitando filtros de data/pessoa.
+
+## Review (Process mining: TBR + Alignments + Dotted chart)
+- What was validated:
+  - `process_mining_jira.py` agora aceita `--pm4py-align-max-cases` e tenta exportar `PM4PyTBRResumo`, `PM4PyTBRCasos`, `PM4PyAlignResumo`, `PM4PyAlignCasos`, `PM4PyAlignTopMoves`.
+  - O exportador registra metadados de erro/limite para TBR/Alignments sem derrubar a geração do workbook quando PM4Py falha.
+  - `dashboard_process_mining.py` passou a carregar as novas sheets, renderizar histogramas/rankings/tabelas de TBR/Alignments na aba `Conformidade` e um dotted chart Plotly na aba `Gargalos`.
+  - Os módulos continuam importando normalmente após as alterações.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('process_mining_jira.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import process_mining_jira, dashboard_process_mining; print('imports ok')"`
+  - `git diff -- process_mining_jira.py dashboard_process_mining.py tasks/todo.md`
+- Notes:
+  - O ambiente local atual está com instalação de `pm4py` inconsistente (`ModuleNotFoundError: pm4py.util`); portanto a validação funcional dos novos artefatos PM4Py depende de rodar o exportador em ambiente com PM4Py íntegro.
+- Suggested commit message:
+  - `feat(process-mining): add tbr/alignments exports and conformance visualizations`
 
 ## Review (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
 - What was validated:

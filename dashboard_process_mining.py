@@ -145,6 +145,11 @@ def load_report(path):
         "EventosFiltrados",
         "PM4PyDFGEdges",
         "PM4PyDFGPerfEdges",
+        "PM4PyTBRResumo",
+        "PM4PyTBRCasos",
+        "PM4PyAlignResumo",
+        "PM4PyAlignCasos",
+        "PM4PyAlignTopMoves",
         "Metadados",
     ]
     xls = pd.ExcelFile(path)
@@ -616,6 +621,101 @@ def build_event_volume_fig(events_df):
     return fig
 
 
+def build_dotted_chart_fig(events_df: pd.DataFrame):
+    fig = go.Figure()
+    if events_df is None or events_df.empty:
+        return fig
+    needed = {"History Created", "Issue Key"}
+    if not needed.issubset(events_df.columns):
+        return fig
+    x = events_df.copy()
+    x["History Created"] = pd.to_datetime(x["History Created"], errors="coerce")
+    x = x.dropna(subset=["History Created"]).copy()
+    if x.empty:
+        return fig
+    x["Issue Key"] = x["Issue Key"].astype(str)
+    x["To Status"] = x.get("To Status", "").astype(str) if "To Status" in x.columns else "Status N/A"
+    x["Author"] = x.get("Author", "").fillna("").replace("", "Sem Autor").astype(str) if "Author" in x.columns else "Sem Autor"
+    # Limitar cardinalidade visual sem perder percepção temporal.
+    top_cases = x["Issue Key"].value_counts().head(80).index.tolist()
+    x = x[x["Issue Key"].isin(top_cases)].copy()
+    if x.empty:
+        return fig
+    x = x.sort_values("History Created")
+    fig = px.scatter(
+        x,
+        x="History Created",
+        y="Issue Key",
+        color="To Status" if "To Status" in x.columns else None,
+        hover_data=[c for c in ["Author", "From Status", "To Status", "History Id"] if c in x.columns],
+        title="Dotted Chart (Eventos do changelog por caso no tempo)",
+    )
+    fig.update_traces(marker=dict(size=7, opacity=0.75))
+    fig.update_layout(height=620, xaxis_title="Data/Hora do evento", yaxis_title="Issue Key (top 80 por volume)")
+    return fig
+
+
+def build_tbr_figs(tbr_cases_df: pd.DataFrame):
+    fig_hist = go.Figure()
+    fig_dev = go.Figure()
+    if tbr_cases_df is None or tbr_cases_df.empty:
+        return fig_hist, fig_dev
+    x = tbr_cases_df.copy()
+    for c in ["TraceFitness", "MissingTokens", "RemainingTokens"]:
+        if c in x.columns:
+            x[c] = _safe_num(x[c])
+    if "TraceFitness" in x.columns and x["TraceFitness"].notna().any():
+        fig_hist = px.histogram(x.dropna(subset=["TraceFitness"]), x="TraceFitness", nbins=20, title="TBR - Distribuição de Trace Fitness")
+        fig_hist.update_layout(height=380)
+    if {"MissingTokens", "RemainingTokens", "Issue Key"}.issubset(x.columns):
+        x["DesvioTokens"] = _safe_num(x["MissingTokens"]).fillna(0) + _safe_num(x["RemainingTokens"]).fillna(0)
+        plot_df = x.sort_values(["DesvioTokens", "TraceFitness"], ascending=[False, True], na_position="last").head(20).copy()
+        if not plot_df.empty:
+            fig_dev = px.bar(
+                plot_df,
+                x="DesvioTokens",
+                y="Issue Key",
+                orientation="h",
+                color="TraceFitness" if "TraceFitness" in plot_df.columns else None,
+                color_continuous_scale="OrRd_r",
+                hover_data=[c for c in ["MissingTokens", "RemainingTokens", "ConsumedTokens", "ProducedTokens"] if c in plot_df.columns],
+                title="TBR - Casos com maior desvio de tokens",
+            )
+            fig_dev.update_layout(height=460, yaxis={"categoryorder": "total ascending"})
+    return fig_hist, fig_dev
+
+
+def build_align_figs(align_cases_df: pd.DataFrame, align_moves_df: pd.DataFrame):
+    fig_hist = go.Figure()
+    fig_moves = go.Figure()
+    if align_cases_df is not None and not align_cases_df.empty:
+        x = align_cases_df.copy()
+        for c in ["AlignmentFitness", "AlignmentCost", "DesviosTotal"]:
+            if c in x.columns:
+                x[c] = _safe_num(x[c])
+        if "AlignmentFitness" in x.columns and x["AlignmentFitness"].notna().any():
+            fig_hist = px.histogram(x.dropna(subset=["AlignmentFitness"]), x="AlignmentFitness", nbins=20, title="Alignments - Distribuição de Fitness")
+            fig_hist.update_layout(height=380)
+    if align_moves_df is not None and not align_moves_df.empty and {"MoveType", "Activity", "Count"}.issubset(align_moves_df.columns):
+        m = align_moves_df.copy()
+        m["Count"] = _safe_num(m["Count"]).fillna(0)
+        m["MoveType"] = m["MoveType"].astype(str)
+        m["Label"] = m["MoveType"].astype(str) + " | " + m["Activity"].astype(str)
+        m = m.sort_values("Count", ascending=False).head(20)
+        fig_moves = px.bar(
+            m,
+            x="Count",
+            y="Label",
+            orientation="h",
+            color="MoveType",
+            title="Alignments - Top movimentos de desvio",
+            hover_data=[c for c in ["CasesAffected"] if c in m.columns],
+            color_discrete_map={"log_move": "#ef4444", "model_move": "#2563eb"},
+        )
+        fig_moves.update_layout(height=460, yaxis={"categoryorder": "total ascending"})
+    return fig_hist, fig_moves
+
+
 def _empty_pm_figure(title, message):
     fig = go.Figure()
     fig.update_layout(title=title, height=420)
@@ -1015,6 +1115,11 @@ def render_pm(data, start_date, end_date, person):
     pm_events = pd.DataFrame(data.get("EventosFiltrados", []))
     pm_dfg_edges = pd.DataFrame(data.get("PM4PyDFGEdges", []))
     pm_dfg_perf_edges = pd.DataFrame(data.get("PM4PyDFGPerfEdges", []))
+    pm_tbr_summary = pd.DataFrame(data.get("PM4PyTBRResumo", []))
+    pm_tbr_cases = pd.DataFrame(data.get("PM4PyTBRCasos", []))
+    pm_align_summary = pd.DataFrame(data.get("PM4PyAlignResumo", []))
+    pm_align_cases = pd.DataFrame(data.get("PM4PyAlignCasos", []))
+    pm_align_moves = pd.DataFrame(data.get("PM4PyAlignTopMoves", []))
     pm_meta = pd.DataFrame(data.get("Metadados", []))
     artifact_images = data.get("_artifact_images", {}) or {}
 
@@ -1028,6 +1133,9 @@ def render_pm(data, start_date, end_date, person):
         pm_events["History Created"] = pd.to_datetime(pm_events["History Created"], errors="coerce")
     if "Next Timestamp" in pm_events.columns:
         pm_events["Next Timestamp"] = pd.to_datetime(pm_events["Next Timestamp"], errors="coerce")
+    for _df in [pm_tbr_cases, pm_align_cases]:
+        if "Done Final Date" in _df.columns:
+            _df["Done Final Date"] = pd.to_datetime(_df["Done Final Date"], errors="coerce")
 
     start_ts = pd.to_datetime(start_date) if start_date else None
     end_ts = pd.to_datetime(end_date) if end_date else None
@@ -1040,6 +1148,10 @@ def render_pm(data, start_date, end_date, person):
             pm_rework = pm_rework[pm_rework["Done Final Date"].isna() | ((pm_rework["Done Final Date"] >= start_ts) & (pm_rework["Done Final Date"] <= end_ts))]
         if "History Created" in pm_events.columns:
             pm_events = pm_events[(pm_events["History Created"] >= start_ts) & (pm_events["History Created"] <= end_ts + pd.Timedelta(days=1))]
+        if "Done Final Date" in pm_tbr_cases.columns:
+            pm_tbr_cases = pm_tbr_cases[pm_tbr_cases["Done Final Date"].isna() | ((pm_tbr_cases["Done Final Date"] >= start_ts) & (pm_tbr_cases["Done Final Date"] <= end_ts))]
+        if "Done Final Date" in pm_align_cases.columns:
+            pm_align_cases = pm_align_cases[pm_align_cases["Done Final Date"].isna() | ((pm_align_cases["Done Final Date"] >= start_ts) & (pm_align_cases["Done Final Date"] <= end_ts))]
 
     if person:
         if "Responsavel" in pm_people.columns:
@@ -1052,6 +1164,10 @@ def render_pm(data, start_date, end_date, person):
             pm_cases = pm_cases[pm_cases["Done Final Author"] == person]
         if "Author" in pm_events.columns:
             pm_events = pm_events[pm_events["Author"] == person]
+        if "Done Final Author" in pm_tbr_cases.columns:
+            pm_tbr_cases = pm_tbr_cases[pm_tbr_cases["Done Final Author"] == person]
+        if "Done Final Author" in pm_align_cases.columns:
+            pm_align_cases = pm_align_cases[pm_align_cases["Done Final Author"] == person]
         if "Responsavel" in pm_hours_people.columns:
             pm_hours_people = pm_hours_people[pm_hours_people["Responsavel"] == person]
         if "Responsavel" in pm_hours_status.columns:
@@ -1215,7 +1331,7 @@ def render_pm(data, start_date, end_date, person):
             create_kpi_card("Horas Est. Validação/QA (norm)", f"{exec_validation_norm_h:,.1f}"),
             create_kpi_card("Horas Est. Espera (norm)", f"{exec_wait_norm_h:,.1f}"),
         ],
-        style={"display": "grid", "gridTemplateColumns": "repeat(12, minmax(165px, 1fr))", "gap": "10px", "marginBottom": "16px"},
+        style={"display": "grid", "gridTemplateColumns": "repeat(6, minmax(165px, 1fr))", "gap": "10px", "marginBottom": "16px"},
     )
 
     fig_vazao = go.Figure()
@@ -1298,6 +1414,9 @@ def render_pm(data, start_date, end_date, person):
     fig_variants = build_variants_pareto(pm_variants)
     fig_conf_hist, fig_lt_rework = build_conformance_rework_figs(pm_cases)
     fig_event_vol = build_event_volume_fig(pm_events)
+    fig_dotted_chart = build_dotted_chart_fig(pm_events)
+    fig_tbr_hist, fig_tbr_dev = build_tbr_figs(pm_tbr_cases)
+    fig_align_hist, fig_align_moves = build_align_figs(pm_align_cases, pm_align_moves)
     petri_source_events = exec_event_hours if not exec_event_hours.empty else event_hours
     fig_petri_network = build_petri_bottleneck_network_fig(petri_source_events)
     fig_petri_transitions = build_petri_bottleneck_transition_fig(petri_source_events)
@@ -1590,6 +1709,11 @@ def render_pm(data, start_date, end_date, person):
     rework_cols = [c for c in ["Issue Key", "Tipo de Problema", "Rework Score", "Reopen Count", "Backward Moves", "QA Returns", "Revisitas Status", "Conformance Score", "Done Final Author", "Done Final Date"] if c in pm_rework.columns]
     summary_cols = [c for c in ["Metrica", "Valor"] if c in pm_summary.columns]
     meta_cols = [c for c in ["Metrica", "Valor"] if c in pm_meta.columns]
+    tbr_summary_cols = [c for c in ["Metric", "Value"] if c in pm_tbr_summary.columns]
+    tbr_case_cols = [c for c in ["Issue Key", "TraceIsFit", "TraceFitness", "MissingTokens", "RemainingTokens", "ConsumedTokens", "ProducedTokens", "Done Final Author", "Done Final Date"] if c in pm_tbr_cases.columns]
+    align_summary_cols = [c for c in ["Metric", "Value"] if c in pm_align_summary.columns]
+    align_case_cols = [c for c in ["Issue Key", "AlignmentFitness", "AlignmentCost", "SyncMoves", "LogMoves", "ModelMoves", "DesviosTotal", "Done Final Author", "Done Final Date"] if c in pm_align_cases.columns]
+    align_move_cols = [c for c in ["MoveType", "Activity", "Count", "CasesAffected"] if c in pm_align_moves.columns]
     horas_people_cols = [c for c in ["Responsavel", "HorasNoFluxo", "HorasMediasPorEvento", "Eventos", "CardsUnicos"] if c in pm_hours_people.columns]
     horas_status_cols = [c for c in ["Responsavel", "Status", "HorasNoFluxo", "Eventos", "CardsUnicos"] if c in pm_hours_status.columns]
     exec_people_cols = [c for c in ["Responsavel", "HorasExecucaoUteisPonderadasPeriodo", "HorasExecucaoUteisPeriodo", "HorasExecucaoPonderadasPeriodo", "HorasExecucaoPeriodo", "MediaHorasUteisPorEvento", "MediaHorasPorEvento", "Eventos", "CardsUnicos"] if c in exec_by_person.columns]
@@ -1656,6 +1780,7 @@ def render_pm(data, start_date, end_date, person):
             style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
         ),
         dcc.Graph(figure=fig_dfg_perf_edges),
+        dcc.Graph(figure=fig_dotted_chart),
         dcc.Graph(figure=fig_petri_network),
         html.Div(
             [
@@ -1703,6 +1828,72 @@ def render_pm(data, start_date, end_date, person):
                 html.Div(dcc.Graph(figure=fig_lt_rework), style={"flex": "1 1 420px"}),
             ],
             style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+        ),
+        html.H4("Token-Based Replay (PM4Py)"),
+        html.Div(
+            [
+                html.Div(
+                    dash_table.DataTable(
+                        columns=[{"name": c, "id": c} for c in tbr_summary_cols],
+                        data=pm_tbr_summary[tbr_summary_cols].to_dict("records") if tbr_summary_cols else [],
+                        style_cell={"textAlign": "left", "padding": "6px"},
+                        style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                        page_size=8,
+                    ),
+                    style={"flex": "1 1 320px"},
+                ),
+                html.Div(dcc.Graph(figure=fig_tbr_hist), style={"flex": "1 1 420px"}),
+                html.Div(dcc.Graph(figure=fig_tbr_dev), style={"flex": "1 1 480px"}),
+            ],
+            style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+        ),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in tbr_case_cols],
+            data=pm_tbr_cases[tbr_case_cols].head(50).to_dict("records") if tbr_case_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "220px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+        html.H4("Alignments (PM4Py)"),
+        html.Div(
+            [
+                html.Div(
+                    dash_table.DataTable(
+                        columns=[{"name": c, "id": c} for c in align_summary_cols],
+                        data=pm_align_summary[align_summary_cols].to_dict("records") if align_summary_cols else [],
+                        style_cell={"textAlign": "left", "padding": "6px"},
+                        style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                        page_size=8,
+                    ),
+                    style={"flex": "1 1 320px"},
+                ),
+                html.Div(dcc.Graph(figure=fig_align_hist), style={"flex": "1 1 420px"}),
+                html.Div(dcc.Graph(figure=fig_align_moves), style={"flex": "1 1 480px"}),
+            ],
+            style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+        ),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in align_move_cols],
+            data=pm_align_moves[align_move_cols].head(50).to_dict("records") if align_move_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=10,
+        ),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in align_case_cols],
+            data=pm_align_cases[align_case_cols].head(50).to_dict("records") if align_case_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "220px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
         ),
         html.H4("Top Itens com Retrabalho"),
         dash_table.DataTable(
