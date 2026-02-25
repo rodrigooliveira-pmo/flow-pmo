@@ -1,5 +1,34 @@
 # Task Plan
 
+## Current Task (Falha de deploy Vercel por falta de espaço ao instalar dependências)
+- [x] Diagnosticar logs de runtime da Vercel e identificar erro real (`No space left on device`)
+- [x] Remover dependência pesada opcional (`pm4py`) do `requirements.txt` de produção
+- [x] Validar import local do `dashboard_full` e registrar mitigação
+
+## Specification (Falha de deploy Vercel por falta de espaço ao instalar dependências)
+- Objetivo: reduzir o footprint de dependências instaladas no runtime da Vercel para evitar instalações parciais de `dash/plotly` causadas por `No space left on device`.
+- Escopo:
+  - `requirements.txt`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `requirements.txt` não inclui `pm4py` (uso opcional/local).
+  - `dashboard_full` continua importando localmente.
+  - Fica documentado que os erros de `dash/plotly` eram sintomas de instalação parcial por falta de espaço.
+
+## Review (Falha de deploy Vercel por falta de espaço ao instalar dependências)
+- What was validated:
+  - Logs da Vercel mostram falha explícita de instalação com `No space left on device` ao copiar arquivos de `dash`, `plotly` e `pytz`, causando ambiente parcial e erros enganosos (`dash._grouping`, `dcc`, `plotly.subplots` ausentes).
+  - `pm4py` (e dependências transitivas pesadas como `matplotlib`, `networkx`, `pillow`, `fonttools`) não é necessário para o runtime do `dashboard_full`, então foi removido do `requirements.txt`.
+  - `dashboard_full` continua importando localmente após a redução de dependências.
+- Evidence (tests/logs/diff):
+  - Logs Vercel fornecidos pelo usuário com `No space left on device (os error 28)`
+  - `python -c "import dashboard_full; print('dashboard_full import ok')"`
+  - `git diff -- requirements.txt tasks/todo.md`
+- Notes:
+  - Para executar `process_mining_jira.py` com geração de modelos `pm4py`, instalar `pm4py` localmente (fora do deploy Vercel) no ambiente de análise.
+- Suggested commit message:
+  - `fix(vercel): remove optional pm4py from runtime deps to avoid disk exhaustion`
+
 ## Current Task (Falha de import `dash._grouping` no deploy Vercel)
 - [x] Diagnosticar traceback de produção e identificar problema de empacotamento/versão do Dash
 - [x] Fixar versões compatíveis de dependências web no `requirements.txt`
