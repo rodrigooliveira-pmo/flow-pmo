@@ -23,18 +23,16 @@ except Exception:
 
 W1NNER_PROJECT_ALIASES = {"w1nner", "w1nnr"}
 DEFAULT_EXPECTED_FLOW = [
-    "Triagem",
-    "Backlog",
-    "Ready to Start",
-    "In progress",
-    "ready code review",
-    "Code review",
-    "ready testing/Qa",
-    "Testing/QA",
-    "ready homolog",
-    "Homolog",
-    "ready for production",
-    "Itens concluídos",
+    "Sprint Backlog",
+    "In Progress",
+    "Ready to Homologation",
+    "Homologation",
+    "QA Approved Hml",
+    "Ready To Staging",
+    "In Staging",
+    "QA Approved Staging",
+    "Ready for production",
+    "Done",
 ]
 DEFAULT_DONE_STATUSES = {"itens concluidos", "itens concluídos", "done", "concluido", "concluído"}
 QA_HINTS = ("qa", "test", "homolog", "valid")

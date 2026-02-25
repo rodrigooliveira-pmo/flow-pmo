@@ -1,5 +1,66 @@
 # Task Plan
 
+## Current Task (Rede de Petri no dashboard de process mining para análise de gargalos)
+- [x] Mapear pontos existentes de artefatos pm4py (`petri`) e métricas de horas/eventos no `dashboard_process_mining.py`
+- [x] Implementar gráficos analíticos de rede de Petri (aproximação) + gargalos por transição/etapa no recorte filtrado
+- [x] Destacar seção de Rede de Petri no layout do dashboard com orientação de uso para gargalos
+- [x] Validar sintaxe/import, revisar diff e registrar evidências
+
+## Specification (Rede de Petri no dashboard de process mining para análise de gargalos)
+- Objetivo: disponibilizar visualizações de rede de Petri focadas em gargalos diretamente no `dashboard_process_mining.py`, aproveitando o recorte por data/pessoa e as horas úteis por evento já calculadas.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Dashboard exibe seção explícita de `Rede de Petri e Gargalos do Fluxo`.
+  - Existe visualização em formato de rede (aproximação Petri via lugares/transições) com destaque para gargalos.
+  - Existem gráficos auxiliares de ranking por transição e/ou etapa para suportar análise de gargalo.
+  - Alteração continua funcionando mesmo sem artefato visual pm4py (`-pm4py-petri.png`), usando dados do changelog filtrado.
+
+## Review (Rede de Petri no dashboard de process mining para análise de gargalos)
+- What was validated:
+  - `dashboard_process_mining.py` ganhou uma seção explícita `Rede de Petri e Gargalos do Fluxo` com 3 gráficos: rede Petri analítica (aproximação por lugares/transições), ranking de gargalos por transição e ranking de gargalos por etapa.
+  - As visualizações usam o recorte filtrado atual (data/pessoa) e funcionam com fallback em dados do changelog (`event_hours`) quando não houver bucket de execução (`exec_event_hours`) no recorte.
+  - A análise de gargalo prioriza horas úteis em `Espera` por transição e mantém decomposição por bucket (`Execução Ativa`, `Validação/QA`, `Espera`) para leitura operacional.
+  - O módulo continua importando normalmente após a alteração.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('dashboard_process_mining syntax ok')"`
+  - `python -c "import dashboard_process_mining; print('dashboard_process_mining import ok')"`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add petri bottleneck network charts to dashboard`
+
+## Current Task (Auditoria de indicadores de portfólio: docs x código)
+- [x] Confirmar módulo/arquivo responsável pelos indicadores de portfólio
+- [x] Comparar roadmap documentado com indicadores implementados no `dashboard_full.py`
+- [x] Identificar pendências reais vs itens já implementados e registrar em documentos do projeto
+
+## Specification (Auditoria de indicadores de portfólio: docs x código)
+- Objetivo: avaliar quais indicadores de portfólio ainda não foram implementados, confrontando documentação e código, e registrar o resultado para evitar backlog/documentação desatualizados.
+- Escopo:
+  - `ROADMAP_INDICADORES_PORTFOLIO.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Fica documentado que o módulo de Portfólio está em `dashboard_full.py`.
+  - Fica documentada a divergência entre a matriz do roadmap e o código atual.
+  - Ficam listados os indicadores realmente pendentes (principalmente bloqueados por dados/exportador).
+
+## Review (Auditoria de indicadores de portfólio: docs x código)
+- What was validated:
+  - `dashboard_process_mining.py` não implementa o módulo de Portfólio; a aba e os cálculos de portfólio estão em `dashboard_full.py`.
+  - A matriz de `ROADMAP_INDICADORES_PORTFOLIO.md` está parcialmente desatualizada: diversos itens marcados como `Pendente` já têm cálculo/renderização no `dashboard_full.py` (ex.: `% WIP`, `% backlog parado`, fila de decisão, status fora do workflow, concentração, effort x aging, data freshness, mix/balanceamento).
+  - As pendências reais concentram-se em indicadores temporais/históricos e estratégicos, bloqueados por ausência de `CreatedAt`/`ResolvedAt`, snapshots históricos ou changelog no exportador `jira_portfolio_to_csv.py`.
+  - `% cancelados antes/depois de iniciar` permanece apenas parcial com o snapshot atual (sem timestamps de transição).
+- Evidence (tests/logs/diff):
+  - `rg -n "Portf|Portfólio|portfolio" dashboard_process_mining.py` (sem ocorrências)
+  - `rg -n "Portf|Portfólio|portfolio|Cobertura Estrutural|Indicador" dashboard_full.py`
+  - `rg -n "CreatedAt|ResolvedAt|changelog|history|transition|status" jira_portfolio_to_csv.py`
+  - leitura da matriz em `ROADMAP_INDICADORES_PORTFOLIO.md` + leitura dos blocos de cálculo/renderização em `dashboard_full.py`
+- Notes:
+  - Foi adicionada seção de auditoria no roadmap para reconciliar `docs x código` sem reescrever toda a matriz histórica.
+- Suggested commit message:
+  - `docs(portfolio): record audit reconciling roadmap and implemented indicators`
+
 ## Current Task (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
 - [x] Identificar lógica existente de histórias/tasks sem vínculo com feature no `dashboard_full.py`
 - [x] Adicionar indicador dedicado (% + numerador/denominador) no bloco de Cobertura Estrutural
@@ -355,6 +416,32 @@
   - `python process_mining_jira.py --help`
 - Suggested commit message:
   - `feat(process-mining): add pm4py model artifacts and person-hours views`
+
+## Current Task (Heurística de horas úteis + execução ativa vs espera)
+- [x] Ajustar filtro temporal do dashboard sandbox para cálculo de horas por interseção de intervalos de eventos
+- [x] Implementar heurística de horas úteis (dias úteis + horário comercial + teto diário)
+- [x] Separar execução ativa vs execução com espera por status/peso e expor KPIs/gráficos/tabelas
+- [x] Validar sintaxe
+
+## Specification (Heurística de horas úteis + execução ativa vs espera)
+- Objetivo: aproximar “horas trabalhadas de fato” sem timesheet via heurística baseada em changelog, usando apenas tempo útil no período e ponderação por tipo de etapa de execução.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Filtro de data passa a afetar corretamente horas por evento usando interseção `History Created` → `Next Timestamp`.
+  - Dashboard exibe horas de execução úteis no período (soma e média).
+  - Dashboard separa execução ativa vs execução com espera e inclui versão ponderada por status.
+
+## Review (Heurística de horas úteis + execução ativa vs espera)
+- What was validated:
+  - `dashboard_process_mining.py` ganhou cálculo de sobreposição temporal por evento (`compute_overlap_hours`) e horas úteis com dias úteis/janela comercial/teto diário (`business_hours_overlap` / `add_business_hours_overlap`).
+  - Novos KPIs e gráficos exibem horas de execução brutas, úteis, ativa vs espera e horas úteis ponderadas por status.
+  - Tabelas de execução por pessoa e por pessoa-status passaram a incluir colunas de horas úteis e ponderadas.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
+- Suggested commit message:
+  - `feat(process-mining-ui): add business-hours weighted execution heuristic`
 
 ## Current Task (Weibull shape/lambda na estatística descritiva)
 - [x] Inspecionar referência da planilha `LT_STATS_WEIBULL.xlsx` e alinhar fórmula de ajuste Weibull

@@ -194,6 +194,55 @@ Foram adicionados cálculos e visualizações para:
 - Uso de `TEAM` herdado para escopo visual, mas `TEAM` original para métrica de qualidade de cadastro
 - Categorização de status com fallback (`Não mapeado`) para governança de taxonomia
 
+## Auditoria de status (docs x código) - 2026-02-25
+
+Resumo da auditoria realizada no código atual:
+
+- O módulo de Portfólio está implementado em `dashboard_full.py` (não em `dashboard_process_mining.py`).
+- A matriz deste roadmap está parcialmente desatualizada: vários itens marcados como `Pendente` já possuem cálculo e visualização no dashboard.
+- O que permanece não implementado está majoritariamente bloqueado por dados históricos/temporais ausentes no exportador de snapshot (`jira_portfolio_to_csv.py`).
+
+### Itens da matriz (snapshot) já implementados no código atual
+
+- `% WIP no portfólio` e `% backlog parado (>X dias)` (resumo + por TEAM)
+- `Distribuição de effort x aging`
+- `% sem movimentação 15/30 dias por effort`
+- `Distribuição de status original (Top N)`
+- `% features com filhos`
+- `% épicos com itens de fluxo`
+- `% itens órfãos (story/task sem feature)` com percentual (além da contagem)
+- `Concentração por team (% top 3/top 5)` e concentração por épico (% top N)
+- `Fila de decisão por aging`
+- `Status fora do workflow padrão`
+- `Índice de balanceamento por tipo (mix atual vs alvo)`
+- `Mix por projeto / tipo / team` (visão explícita)
+- `Data freshness por etapa`
+
+### Itens ainda não implementados (bloqueados por dados/exportador)
+
+- `Lead time de portfólio (Feature/Épico)`
+- `Throughput semanal/mensal de portfólio`
+- `Flow Predictability (planejado vs entregue)`
+- `CFD de portfólio`
+- `Queue time por etapa de portfólio`
+- `Tempo de decisão (entrada -> aprovado/rejeitado)`
+- `Taxa de repriorização`
+- `% capacidade consumida por baixa prioridade`
+- `Demanda vs capacidade por TEAM`
+- `Funding allocation por fluxo/tema`
+- `Run/Grow/Transform mix`
+- `% budget guardrails breach (SAFe)`
+- indicadores estratégicos/benefícios/risco/dependências/marcos (tema estratégico, benefícios, riscos, dependências, milestones)
+
+### Parcial / com limitação atual
+
+- `% cancelados antes/depois de iniciar`: snapshot atual mostra cancelados, mas sem timestamps de transição não permite separar com precisão "antes" vs "depois de iniciar".
+
+### Evidência de limitação de dados (exportador atual)
+
+- `jira_portfolio_to_csv.py` exporta snapshot com `UpdatedAt` e `StatusChangedAt`.
+- Não exporta `CreatedAt`, `ResolvedAt` nem histórico/changelog de transições, o que bloqueia indicadores temporais e de fluxo histórico.
+
 ## O que falta fazer (prioridade prática)
 
 ### Próxima onda (sem mexer no exportador) - alta relação valor/esforço
@@ -295,4 +344,3 @@ Implementar o pacote de Fase 1 sem mudar o exportador:
 2. `Status fora do workflow padrão`
 3. `Concentração relativa (% top N)`
 4. `Effort x aging`
-

@@ -75,6 +75,39 @@ EXECUTION_STATUS_HINTS = (
     "homolog",
     "staging",
 )
+ACTIVE_EXECUTION_STATUS_HINTS = (
+    "in progress",
+    "desenvol",
+    "development",
+    "code review",
+)
+VALIDATION_QA_STATUS_HINTS = (
+    "testing",
+    "qa",
+    "homolog",
+)
+WAIT_EXECUTION_STATUS_HINTS = (
+    "ready",
+    "staging",
+)
+STATUS_EXECUTION_WEIGHTS = {
+    "in progress": 1.0,
+    "desenvolvimento": 1.0,
+    "development": 1.0,
+    "code review": 0.7,
+    "testing/qa": 0.8,
+    "testing": 0.8,
+    "qa": 0.8,
+    "homologation": 0.8,
+    "homolog": 0.8,
+    "in staging": 0.7,
+    "staging": 0.5,
+    "ready to homologation": 0.15,
+    "qa approved hml": 0.1,
+    "ready to staging": 0.1,
+    "qa approved staging": 0.05,
+    "ready for production": 0.05,
+}
 WORKDAY_START_HOUR = 9
 WORKDAY_END_HOUR = 18
 WORKDAY_DAILY_CAP_HOURS = 8.0
@@ -163,6 +196,31 @@ def _safe_num(series):
 def is_execution_status(status_name: str) -> bool:
     s = str(status_name or "").strip().lower()
     return any(h in s for h in EXECUTION_STATUS_HINTS)
+
+
+def execution_status_bucket(status_name: str) -> str:
+    s = str(status_name or "").strip().lower()
+    if any(h in s for h in ACTIVE_EXECUTION_STATUS_HINTS):
+        return "Execucao Ativa"
+    if any(h in s for h in VALIDATION_QA_STATUS_HINTS):
+        return "Validacao/QA"
+    if any(h in s for h in WAIT_EXECUTION_STATUS_HINTS):
+        return "Espera"
+    return "Nao Execucao"
+
+
+def execution_status_weight(status_name: str) -> float:
+    s = str(status_name or "").strip().lower()
+    for key, weight in STATUS_EXECUTION_WEIGHTS.items():
+        if key in s:
+            return float(weight)
+    if execution_status_bucket(s) == "Execucao Ativa":
+        return 1.0
+    if execution_status_bucket(s) == "Validacao/QA":
+        return 0.8
+    if execution_status_bucket(s) == "Espera":
+        return 0.4
+    return 0.0
 
 
 def compute_overlap_hours(events_df: pd.DataFrame, start_ts=None, end_ts=None) -> pd.DataFrame:
@@ -258,7 +316,146 @@ def add_business_hours_overlap(events_df: pd.DataFrame, start_ts=None, end_ts=No
         business_hours_overlap(s, e)
         for s, e in zip(starts.tolist(), ends.tolist())
     ]
+    x["PeriodoStart"] = starts
+    x["PeriodoEnd"] = ends
     return x
+
+
+def business_hours_daily_slices(start_dt, end_dt, work_start_hour=WORKDAY_START_HOUR, work_end_hour=WORKDAY_END_HOUR, daily_cap_hours=WORKDAY_DAILY_CAP_HOURS):
+    """Retorna slices diários úteis (dia, horas) para um intervalo, com teto diário por evento."""
+    if pd.isna(start_dt) or pd.isna(end_dt):
+        return []
+    start_dt = pd.to_datetime(start_dt)
+    end_dt = pd.to_datetime(end_dt)
+    if end_dt <= start_dt:
+        return []
+    out = []
+    cur_date = start_dt.date()
+    last_date = end_dt.date()
+    while cur_date <= last_date:
+        if cur_date.weekday() < 5:
+            day_start = pd.Timestamp(datetime.combine(cur_date, time(hour=work_start_hour)))
+            day_end = pd.Timestamp(datetime.combine(cur_date, time(hour=work_end_hour)))
+            seg_start = max(start_dt, day_start)
+            seg_end = min(end_dt, day_end)
+            if seg_end > seg_start:
+                hours = (seg_end - seg_start).total_seconds() / 3600.0
+                out.append((pd.Timestamp(cur_date), max(0.0, min(float(daily_cap_hours), hours))))
+        cur_date = cur_date + timedelta(days=1)
+    return out
+
+
+def explode_event_business_daily_slices(events_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Explode eventos em slices diários úteis usando PeriodoStart/PeriodoEnd.
+    Útil para normalizar capacidade por pessoa/dia e reduzir superestimação por cards simultâneos.
+    """
+    if events_df is None or events_df.empty:
+        return pd.DataFrame()
+    needed = {"PeriodoStart", "PeriodoEnd"}
+    if not needed.issubset(events_df.columns):
+        return pd.DataFrame()
+    rows = []
+    for _, r in events_df.iterrows():
+        start_dt = r.get("PeriodoStart")
+        end_dt = r.get("PeriodoEnd")
+        slices = business_hours_daily_slices(start_dt, end_dt)
+        if not slices:
+            continue
+        author = str(r.get("Author", "") or "").strip() or "Sem Autor"
+        issue_key = str(r.get("Issue Key", "") or "")
+        status = str(r.get("To Status", "") or "")
+        bucket = str(r.get("ExecBucket", "") or "")
+        weight = float(pd.to_numeric(pd.Series([r.get("ExecWeight", 0.0)]), errors="coerce").fillna(0).iloc[0])
+        for day_ts, hours in slices:
+            rows.append(
+                {
+                    "Responsavel": author,
+                    "Dia": pd.to_datetime(day_ts),
+                    "Issue Key": issue_key,
+                    "Status": status,
+                    "ExecBucket": bucket,
+                    "ExecWeight": weight,
+                    "HorasUteisSlice": float(hours),
+                    "HorasUteisPonderadasSlice": float(hours) * float(weight),
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    out["Dia"] = pd.to_datetime(out["Dia"], errors="coerce")
+    return out
+
+
+def normalize_capacity_by_person_day(daily_slices: pd.DataFrame, daily_cap_hours=WORKDAY_DAILY_CAP_HOURS) -> pd.DataFrame:
+    """
+    Aplica teto por pessoa/dia (ex.: 8h) normalizando proporcionalmente entre eventos concorrentes do mesmo dia.
+    """
+    if daily_slices is None or daily_slices.empty:
+        return pd.DataFrame()
+    x = daily_slices.copy()
+    if not {"Responsavel", "Dia", "HorasUteisSlice"}.issubset(x.columns):
+        return pd.DataFrame()
+    x["HorasUteisSlice"] = _safe_num(x["HorasUteisSlice"]).fillna(0)
+    if "HorasUteisPonderadasSlice" not in x.columns:
+        x["HorasUteisPonderadasSlice"] = x["HorasUteisSlice"]
+    x["HorasUteisPonderadasSlice"] = _safe_num(x["HorasUteisPonderadasSlice"]).fillna(0)
+    day_totals = (
+        x.groupby(["Responsavel", "Dia"], dropna=False)["HorasUteisSlice"]
+        .sum()
+        .reset_index(name="HorasUteisPessoaDia")
+    )
+    day_totals["FatorNormalizacao"] = np.where(
+        day_totals["HorasUteisPessoaDia"] > float(daily_cap_hours),
+        float(daily_cap_hours) / day_totals["HorasUteisPessoaDia"],
+        1.0,
+    )
+    x = x.merge(day_totals, on=["Responsavel", "Dia"], how="left")
+    x["FatorNormalizacao"] = _safe_num(x["FatorNormalizacao"]).fillna(1.0)
+    x["HorasUteisNormalizadas"] = x["HorasUteisSlice"] * x["FatorNormalizacao"]
+    x["HorasUteisPonderadasNormalizadas"] = x["HorasUteisPonderadasSlice"] * x["FatorNormalizacao"]
+    return x
+
+
+def summarize_bottlenecks(event_hours: pd.DataFrame) -> pd.DataFrame:
+    """Resumo de gargalo por status usando tempo útil por evento no período filtrado."""
+    if event_hours is None or event_hours.empty:
+        return pd.DataFrame()
+    needed = {"To Status", "Issue Key", "HorasUteisPeriodo"}
+    if not needed.issubset(event_hours.columns):
+        return pd.DataFrame()
+    x = event_hours.copy()
+    x["Status"] = x["To Status"].fillna("").astype(str).str.strip()
+    x["HorasUteisPeriodo"] = _safe_num(x["HorasUteisPeriodo"]).fillna(0)
+    x = x[(x["Status"] != "") & (x["HorasUteisPeriodo"] > 0)].copy()
+    if x.empty:
+        return pd.DataFrame()
+    if "History Created" in x.columns:
+        x["History Created"] = pd.to_datetime(x["History Created"], errors="coerce")
+    rows = []
+    for status, g in x.groupby("Status", dropna=False):
+        vals = _safe_num(g["HorasUteisPeriodo"]).fillna(0)
+        vals = vals[vals > 0]
+        if vals.empty:
+            continue
+        rows.append(
+            {
+                "Status": status,
+                "Eventos": int(len(g)),
+                "CardsUnicos": int(g["Issue Key"].nunique()),
+                "HorasUteisTotalPeriodo": float(vals.sum()),
+                "HorasUteisMediaEvento": float(vals.mean()),
+                "HorasUteisMedianaEvento": float(vals.median()),
+                "HorasUteisP85Evento": float(vals.quantile(0.85)),
+                "HorasUteisP95Evento": float(vals.quantile(0.95)),
+                "PrimeiroEvento": g["History Created"].min() if "History Created" in g.columns else pd.NaT,
+                "UltimoEvento": g["History Created"].max() if "History Created" in g.columns else pd.NaT,
+            }
+        )
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(["HorasUteisMedianaEvento", "HorasUteisTotalPeriodo"], ascending=[False, False]).reset_index(drop=True)
 
 
 def build_dfg_edges_from_events(events_df):
@@ -417,6 +614,295 @@ def build_event_volume_fig(events_df):
     return fig
 
 
+def _empty_pm_figure(title, message):
+    fig = go.Figure()
+    fig.update_layout(title=title, height=420)
+    fig.add_annotation(text=message, x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+    return fig
+
+
+def build_petri_bottleneck_metrics(events_df: pd.DataFrame) -> pd.DataFrame:
+    if events_df is None or events_df.empty:
+        return pd.DataFrame()
+    needed = {"From Status", "To Status"}
+    if not needed.issubset(events_df.columns):
+        return pd.DataFrame()
+
+    x = events_df.copy()
+    x["From Status"] = x["From Status"].fillna("").astype(str).str.strip()
+    x["To Status"] = x["To Status"].fillna("").astype(str).str.strip()
+    x = x[(x["From Status"] != "") & (x["To Status"] != "")]
+    if x.empty:
+        return pd.DataFrame()
+
+    if "HorasUteisPeriodo" not in x.columns:
+        x["HorasUteisPeriodo"] = _safe_num(x.get("HorasNoPeriodo", 0)).fillna(0)
+    else:
+        x["HorasUteisPeriodo"] = _safe_num(x["HorasUteisPeriodo"]).fillna(0)
+    x["HorasNoPeriodo"] = _safe_num(x.get("HorasNoPeriodo", 0)).fillna(0)
+    if "ExecBucket" not in x.columns:
+        x["ExecBucket"] = "SemBucket"
+    x["ExecBucket"] = x["ExecBucket"].fillna("SemBucket").astype(str)
+
+    grouped = (
+        x.groupby(["From Status", "To Status", "ExecBucket"], dropna=False)
+        .agg(
+            HorasUteisPeriodo=("HorasUteisPeriodo", "sum"),
+            HorasNoPeriodo=("HorasNoPeriodo", "sum"),
+            Eventos=("Issue Key", "count") if "Issue Key" in x.columns else ("To Status", "count"),
+            CardsUnicos=("Issue Key", "nunique") if "Issue Key" in x.columns else ("To Status", "count"),
+        )
+        .reset_index()
+    )
+    if grouped.empty:
+        return pd.DataFrame()
+
+    pivot_hours = (
+        grouped.pivot_table(
+            index=["From Status", "To Status"],
+            columns="ExecBucket",
+            values="HorasUteisPeriodo",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        .reset_index()
+    )
+    totals = (
+        grouped.groupby(["From Status", "To Status"], dropna=False)
+        .agg(
+            HorasUteisTotal=("HorasUteisPeriodo", "sum"),
+            HorasTotal=("HorasNoPeriodo", "sum"),
+            Eventos=("Eventos", "sum"),
+            CardsUnicos=("CardsUnicos", "max"),
+        )
+        .reset_index()
+    )
+    out = totals.merge(pivot_hours, on=["From Status", "To Status"], how="left")
+    for c in ["Execucao Ativa", "Validacao/QA", "Espera"]:
+        if c not in out.columns:
+            out[c] = 0.0
+    out["PctEspera"] = np.where(
+        out["HorasUteisTotal"] > 0,
+        (out["Espera"] / out["HorasUteisTotal"]) * 100.0,
+        0.0,
+    )
+    out["Aresta"] = out["From Status"].astype(str) + " → " + out["To Status"].astype(str)
+    return out.sort_values(["Espera", "HorasUteisTotal", "Eventos"], ascending=False).reset_index(drop=True)
+
+
+def build_petri_bottleneck_network_fig(events_df: pd.DataFrame, top_edges: int = 16):
+    metrics = build_petri_bottleneck_metrics(events_df)
+    if metrics.empty:
+        return _empty_pm_figure(
+            "Rede de Petri (aproximação) - Gargalos",
+            "Sem transições suficientes para montar a rede de Petri analítica.",
+        )
+
+    m = metrics.head(top_edges).copy()
+    if m.empty:
+        return _empty_pm_figure(
+            "Rede de Petri (aproximação) - Gargalos",
+            "Sem transições no recorte selecionado.",
+        )
+
+    statuses = pd.unique(pd.concat([m["From Status"], m["To Status"]], ignore_index=True)).tolist()
+    n = max(len(statuses), 1)
+    radius = 1.0
+    place_pos = {}
+    for i, status in enumerate(statuses):
+        ang = (2 * np.pi * i / n) - (np.pi / 2)
+        place_pos[status] = (radius * np.cos(ang), radius * np.sin(ang))
+
+    max_wait = float(m["Espera"].max()) if "Espera" in m.columns and not m["Espera"].empty else 0.0
+    max_events = max(float(m["Eventos"].max()), 1.0)
+
+    line_x = []
+    line_y = []
+    trans_x = []
+    trans_y = []
+    trans_size = []
+    trans_color = []
+    trans_text = []
+    trans_label = []
+
+    for i, row in m.reset_index(drop=True).iterrows():
+        fx, fy = place_pos.get(row["From Status"], (0.0, 0.0))
+        tx, ty = place_pos.get(row["To Status"], (0.0, 0.0))
+        mx = (fx + tx) / 2.0
+        my = (fy + ty) / 2.0
+        dx = tx - fx
+        dy = ty - fy
+        norm = float((dx**2 + dy**2) ** 0.5) or 1.0
+        bend = 0.10 + (0.03 * (i % 3))
+        px_off = -dy / norm * bend
+        py_off = dx / norm * bend
+        if i % 2:
+            px_off *= -1
+            py_off *= -1
+        cx = mx + px_off
+        cy = my + py_off
+
+        line_x.extend([fx, cx, None, cx, tx, None])
+        line_y.extend([fy, cy, None, cy, ty, None])
+
+        trans_x.append(cx)
+        trans_y.append(cy)
+        trans_size.append(12 + 22 * (float(row.get("Eventos", 0)) / max_events))
+        wait_val = float(row.get("Espera", 0.0))
+        trans_color.append(wait_val)
+        trans_label.append(f"T{i+1}")
+        trans_text.append(
+            "<br>".join(
+                [
+                    f"<b>{row['From Status']} → {row['To Status']}</b>",
+                    f"Eventos: {int(row.get('Eventos', 0) or 0)}",
+                    f"Horas úteis (total): {float(row.get('HorasUteisTotal', 0)):.1f}",
+                    f"Horas úteis em espera: {wait_val:.1f}",
+                    f"% espera: {float(row.get('PctEspera', 0)):.1f}%",
+                ]
+            )
+        )
+
+    place_x = [place_pos[s][0] for s in statuses]
+    place_y = [place_pos[s][1] for s in statuses]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=line_x,
+            y=line_y,
+            mode="lines",
+            line=dict(color="rgba(107,114,128,0.45)", width=1.5),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=place_x,
+            y=place_y,
+            mode="markers+text",
+            text=statuses,
+            textposition="top center",
+            marker=dict(size=26, color="#ffffff", line=dict(color="#111827", width=2)),
+            name="Lugares (status)",
+            hovertemplate="Status: %{text}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trans_x,
+            y=trans_y,
+            mode="markers+text",
+            text=trans_label,
+            textposition="middle center",
+            marker=dict(
+                symbol="square",
+                size=trans_size,
+                color=trans_color,
+                colorscale="YlOrRd",
+                cmin=0,
+                cmax=max(max_wait, 1.0),
+                colorbar=dict(title="h úteis em espera"),
+                line=dict(color="#7c2d12", width=1),
+            ),
+            customdata=trans_text,
+            name="Transições",
+            hovertemplate="%{customdata}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Rede de Petri (aproximação a partir do changelog) - transições com gargalo por espera",
+        height=700,
+        showlegend=True,
+        margin=dict(l=20, r=20, t=60, b=20),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False, scaleanchor="x", scaleratio=1),
+        plot_bgcolor="white",
+    )
+    return fig
+
+
+def build_petri_bottleneck_transition_fig(events_df: pd.DataFrame):
+    metrics = build_petri_bottleneck_metrics(events_df)
+    if metrics.empty:
+        return _empty_pm_figure(
+            "Gargalos por Transição (Rede de Petri)",
+            "Sem dados de transição para calcular gargalos.",
+        )
+    x = metrics.head(15).copy()
+    fig = go.Figure()
+    for col, name, color in [
+        ("Execucao Ativa", "Execução Ativa", "#0f766e"),
+        ("Validacao/QA", "Validação/QA", "#2563eb"),
+        ("Espera", "Espera", "#f59e0b"),
+    ]:
+        if col in x.columns:
+            fig.add_bar(
+                x=x[col],
+                y=x["Aresta"],
+                orientation="h",
+                name=name,
+                marker_color=color,
+                customdata=np.stack([x["Eventos"], x["PctEspera"]], axis=1),
+                hovertemplate="%{y}<br>Horas úteis: %{x:.1f}<br>Eventos: %{customdata[0]}<br>% espera total da aresta: %{customdata[1]:.1f}%<extra></extra>",
+            )
+    fig.update_layout(
+        title="Gargalos por Transição (horas úteis por bucket)",
+        barmode="stack",
+        height=560,
+        yaxis={"categoryorder": "total ascending"},
+        xaxis_title="Horas úteis no período",
+        legend=dict(orientation="h"),
+    )
+    return fig
+
+
+def build_petri_bottleneck_status_fig(events_df: pd.DataFrame):
+    if events_df is None or events_df.empty or "To Status" not in events_df.columns:
+        return _empty_pm_figure(
+            "Gargalos por Etapa (lugares da rede)",
+            "Sem dados de eventos para calcular gargalos por etapa.",
+        )
+    x = events_df.copy()
+    x["To Status"] = x["To Status"].fillna("").astype(str).str.strip()
+    x = x[x["To Status"] != ""]
+    if x.empty:
+        return _empty_pm_figure(
+            "Gargalos por Etapa (lugares da rede)",
+            "Sem status de destino válidos no recorte selecionado.",
+        )
+    x["HorasUteisPeriodo"] = _safe_num(x.get("HorasUteisPeriodo", x.get("HorasNoPeriodo", 0))).fillna(0)
+    if "ExecBucket" not in x.columns:
+        x["ExecBucket"] = "SemBucket"
+    agg = (
+        x.groupby(["To Status", "ExecBucket"], dropna=False)["HorasUteisPeriodo"]
+        .sum()
+        .reset_index()
+        .rename(columns={"To Status": "Status"})
+    )
+    totals = agg.groupby("Status")["HorasUteisPeriodo"].sum().sort_values(ascending=False)
+    top_status = totals.head(15).index.tolist()
+    agg = agg[agg["Status"].isin(top_status)].copy()
+    if agg.empty:
+        return _empty_pm_figure(
+            "Gargalos por Etapa (lugares da rede)",
+            "Sem dados suficientes para ranking por etapa.",
+        )
+    fig = px.bar(
+        agg,
+        x="HorasUteisPeriodo",
+        y="Status",
+        color="ExecBucket",
+        orientation="h",
+        barmode="stack",
+        title="Gargalos por Etapa (lugares da rede de Petri)",
+        color_discrete_map={"Execucao Ativa": "#0f766e", "Validacao/QA": "#2563eb", "Espera": "#f59e0b", "SemBucket": "#9ca3af"},
+    )
+    fig.update_layout(height=560, yaxis={"categoryorder": "total ascending"}, xaxis_title="Horas úteis no período")
+    return fig
+
+
 app = dash.Dash(__name__)
 app.title = "Process Mining Jira - W1NNER"
 
@@ -572,8 +1058,63 @@ def render_pm(data, start_date, end_date, person):
     exec_event_hours = pd.DataFrame()
     exec_by_person = pd.DataFrame()
     exec_by_status = pd.DataFrame()
+    exec_daily_slices = pd.DataFrame()
+    exec_daily_norm = pd.DataFrame()
+    exec_norm_by_person = pd.DataFrame()
+    exec_norm_by_status = pd.DataFrame()
+    exec_norm_by_bucket = pd.DataFrame()
+    bottlenecks = pd.DataFrame()
     if not event_hours.empty and "To Status" in event_hours.columns:
+        bottlenecks = summarize_bottlenecks(event_hours)
         exec_event_hours = event_hours[event_hours["To Status"].map(is_execution_status)].copy()
+        exec_event_hours["ExecBucket"] = exec_event_hours["To Status"].map(execution_status_bucket)
+        exec_event_hours["ExecWeight"] = exec_event_hours["To Status"].map(execution_status_weight)
+        exec_event_hours["HorasExecucaoPonderadasPeriodo"] = _safe_num(exec_event_hours.get("HorasNoPeriodo", 0)).fillna(0) * _safe_num(exec_event_hours.get("ExecWeight", 0)).fillna(0)
+        exec_event_hours["HorasExecucaoUteisPonderadasPeriodo"] = _safe_num(exec_event_hours.get("HorasUteisPeriodo", 0)).fillna(0) * _safe_num(exec_event_hours.get("ExecWeight", 0)).fillna(0)
+        exec_daily_slices = explode_event_business_daily_slices(exec_event_hours)
+        exec_daily_norm = normalize_capacity_by_person_day(exec_daily_slices)
+        if not exec_daily_norm.empty:
+            exec_norm_by_person = (
+                exec_daily_norm.groupby("Responsavel", dropna=False)
+                .agg(
+                    HorasUteisCargaFluxo=("HorasUteisSlice", "sum"),
+                    HorasEstimadasTrabalho=("HorasUteisNormalizadas", "sum"),
+                    HorasEstimadasTrabalhoPonderadas=("HorasUteisPonderadasNormalizadas", "sum"),
+                    HorasUteisPonderadasCarga=("HorasUteisPonderadasSlice", "sum"),
+                    DiasAtivos=("Dia", "nunique"),
+                    CardsUnicos=("Issue Key", "nunique"),
+                    Slices=("Issue Key", "count"),
+                )
+                .reset_index()
+                .sort_values("HorasEstimadasTrabalho", ascending=False)
+            )
+            exec_norm_by_person["MediaHrsEstimadasPorDiaAtivo"] = np.where(
+                _safe_num(exec_norm_by_person["DiasAtivos"]).fillna(0) > 0,
+                _safe_num(exec_norm_by_person["HorasEstimadasTrabalho"]).fillna(0) / _safe_num(exec_norm_by_person["DiasAtivos"]).fillna(1),
+                0.0,
+            )
+            exec_norm_by_status = (
+                exec_daily_norm.groupby(["Responsavel", "Status", "ExecBucket"], dropna=False)
+                .agg(
+                    HorasUteisCargaFluxo=("HorasUteisSlice", "sum"),
+                    HorasEstimadasTrabalho=("HorasUteisNormalizadas", "sum"),
+                    HorasEstimadasTrabalhoPonderadas=("HorasUteisPonderadasNormalizadas", "sum"),
+                    DiasComAtividade=("Dia", "nunique"),
+                    CardsUnicos=("Issue Key", "nunique"),
+                    Slices=("Issue Key", "count"),
+                )
+                .reset_index()
+                .sort_values("HorasEstimadasTrabalho", ascending=False)
+            )
+            exec_norm_by_bucket = (
+                exec_daily_norm.groupby(["Responsavel", "ExecBucket"], dropna=False)
+                .agg(
+                    HorasUteisCargaFluxo=("HorasUteisSlice", "sum"),
+                    HorasEstimadasTrabalho=("HorasUteisNormalizadas", "sum"),
+                    HorasEstimadasTrabalhoPonderadas=("HorasUteisPonderadasNormalizadas", "sum"),
+                )
+                .reset_index()
+            )
     if not exec_event_hours.empty and "Author" in exec_event_hours.columns:
         exec_by_person = (
             exec_event_hours.assign(Responsavel=exec_event_hours["Author"].fillna("").replace("", "Sem Autor"))
@@ -581,6 +1122,8 @@ def render_pm(data, start_date, end_date, person):
             .agg(
                 HorasExecucaoPeriodo=("HorasNoPeriodo", "sum"),
                 HorasExecucaoUteisPeriodo=("HorasUteisPeriodo", "sum"),
+                HorasExecucaoPonderadasPeriodo=("HorasExecucaoPonderadasPeriodo", "sum"),
+                HorasExecucaoUteisPonderadasPeriodo=("HorasExecucaoUteisPonderadasPeriodo", "sum"),
                 MediaHorasPorEvento=("HorasNoPeriodo", "mean"),
                 MediaHorasUteisPorEvento=("HorasUteisPeriodo", "mean"),
                 Eventos=("Issue Key", "count"),
@@ -591,14 +1134,18 @@ def render_pm(data, start_date, end_date, person):
         )
         exec_by_person["HorasExecucaoPeriodo"] = _safe_num(exec_by_person["HorasExecucaoPeriodo"]).fillna(0).round(2)
         exec_by_person["HorasExecucaoUteisPeriodo"] = _safe_num(exec_by_person["HorasExecucaoUteisPeriodo"]).fillna(0).round(2)
+        exec_by_person["HorasExecucaoPonderadasPeriodo"] = _safe_num(exec_by_person["HorasExecucaoPonderadasPeriodo"]).fillna(0).round(2)
+        exec_by_person["HorasExecucaoUteisPonderadasPeriodo"] = _safe_num(exec_by_person["HorasExecucaoUteisPonderadasPeriodo"]).fillna(0).round(2)
         exec_by_person["MediaHorasPorEvento"] = _safe_num(exec_by_person["MediaHorasPorEvento"]).fillna(0).round(2)
         exec_by_person["MediaHorasUteisPorEvento"] = _safe_num(exec_by_person["MediaHorasUteisPorEvento"]).fillna(0).round(2)
         exec_by_status = (
             exec_event_hours.assign(Responsavel=exec_event_hours["Author"].fillna("").replace("", "Sem Autor"))
-            .groupby(["Responsavel", "To Status"], dropna=False)
+            .groupby(["Responsavel", "To Status", "ExecBucket"], dropna=False)
             .agg(
                 HorasExecucaoPeriodo=("HorasNoPeriodo", "sum"),
                 HorasExecucaoUteisPeriodo=("HorasUteisPeriodo", "sum"),
+                HorasExecucaoPonderadasPeriodo=("HorasExecucaoPonderadasPeriodo", "sum"),
+                HorasExecucaoUteisPonderadasPeriodo=("HorasExecucaoUteisPonderadasPeriodo", "sum"),
                 Eventos=("Issue Key", "count"),
                 CardsUnicos=("Issue Key", "nunique"),
             )
@@ -608,10 +1155,35 @@ def render_pm(data, start_date, end_date, person):
         )
         exec_by_status["HorasExecucaoPeriodo"] = _safe_num(exec_by_status["HorasExecucaoPeriodo"]).fillna(0).round(2)
         exec_by_status["HorasExecucaoUteisPeriodo"] = _safe_num(exec_by_status["HorasExecucaoUteisPeriodo"]).fillna(0).round(2)
+        exec_by_status["HorasExecucaoPonderadasPeriodo"] = _safe_num(exec_by_status["HorasExecucaoPonderadasPeriodo"]).fillna(0).round(2)
+        exec_by_status["HorasExecucaoUteisPonderadasPeriodo"] = _safe_num(exec_by_status["HorasExecucaoUteisPonderadasPeriodo"]).fillna(0).round(2)
     exec_total_h = float(_safe_num(exec_event_hours.get("HorasNoPeriodo", pd.Series(dtype=float))).fillna(0).sum()) if not exec_event_hours.empty else 0.0
     exec_mean_h_event = float(_safe_num(exec_event_hours.get("HorasNoPeriodo", pd.Series(dtype=float))).replace(0, np.nan).dropna().mean()) if not exec_event_hours.empty else float("nan")
     exec_useful_total_h = float(_safe_num(exec_event_hours.get("HorasUteisPeriodo", pd.Series(dtype=float))).fillna(0).sum()) if not exec_event_hours.empty else 0.0
     exec_useful_mean_h_event = float(_safe_num(exec_event_hours.get("HorasUteisPeriodo", pd.Series(dtype=float))).replace(0, np.nan).dropna().mean()) if not exec_event_hours.empty else float("nan")
+    exec_useful_weighted_total_h = float(_safe_num(exec_event_hours.get("HorasExecucaoUteisPonderadasPeriodo", pd.Series(dtype=float))).fillna(0).sum()) if not exec_event_hours.empty else 0.0
+    exec_norm_total_h = float(_safe_num(exec_daily_norm.get("HorasUteisNormalizadas", pd.Series(dtype=float))).fillna(0).sum()) if not exec_daily_norm.empty else 0.0
+    exec_norm_weighted_total_h = float(_safe_num(exec_daily_norm.get("HorasUteisPonderadasNormalizadas", pd.Series(dtype=float))).fillna(0).sum()) if not exec_daily_norm.empty else 0.0
+    exec_norm_person_days = int(pd.DataFrame(exec_daily_norm)[["Responsavel", "Dia"]].drop_duplicates().shape[0]) if (not exec_daily_norm.empty and {"Responsavel","Dia"}.issubset(exec_daily_norm.columns)) else 0
+    exec_norm_mean_person_day = (exec_norm_total_h / exec_norm_person_days) if exec_norm_person_days > 0 else float("nan")
+    if not exec_event_hours.empty and "ExecBucket" in exec_event_hours.columns:
+        _bucket_sum = exec_event_hours.groupby("ExecBucket")["HorasUteisPeriodo"].sum()
+        exec_active_useful_h = float(_bucket_sum.get("Execucao Ativa", 0.0))
+        exec_validation_useful_h = float(_bucket_sum.get("Validacao/QA", 0.0))
+        exec_wait_useful_h = float(_bucket_sum.get("Espera", 0.0))
+    else:
+        exec_active_useful_h = 0.0
+        exec_validation_useful_h = 0.0
+        exec_wait_useful_h = 0.0
+    if not exec_daily_norm.empty and "ExecBucket" in exec_daily_norm.columns:
+        _bucket_norm_sum = exec_daily_norm.groupby("ExecBucket")["HorasUteisNormalizadas"].sum()
+        exec_active_norm_h = float(_bucket_norm_sum.get("Execucao Ativa", 0.0))
+        exec_validation_norm_h = float(_bucket_norm_sum.get("Validacao/QA", 0.0))
+        exec_wait_norm_h = float(_bucket_norm_sum.get("Espera", 0.0))
+    else:
+        exec_active_norm_h = 0.0
+        exec_validation_norm_h = 0.0
+        exec_wait_norm_h = 0.0
 
     total_concluidos = int(pd.to_numeric(pm_people.get("Itens Concluidos", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int(pm_cases["Issue Key"].nunique()) if "Issue Key" in pm_cases.columns else 0
     itens_retrabalho = int(pd.to_numeric(pm_people.get("Itens Com Retrabalho", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not pm_people.empty else int((pd.to_numeric(pm_cases.get("Rework Score", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
@@ -629,8 +1201,18 @@ def render_pm(data, start_date, end_date, person):
             create_kpi_card("Média h/Evento Exec", f"{exec_mean_h_event:.1f}" if pd.notna(exec_mean_h_event) else "—"),
             create_kpi_card("Horas Úteis Exec (período)", f"{exec_useful_total_h:,.1f}"),
             create_kpi_card("Média h úteis/Evento", f"{exec_useful_mean_h_event:.1f}" if pd.notna(exec_useful_mean_h_event) else "—"),
+            create_kpi_card("Horas Úteis Exec Ativa", f"{exec_active_useful_h:,.1f}"),
+            create_kpi_card("Horas Úteis Validação/QA", f"{exec_validation_useful_h:,.1f}"),
+            create_kpi_card("Horas Úteis Exec Espera", f"{exec_wait_useful_h:,.1f}"),
+            create_kpi_card("Horas Úteis Exec Ponderadas", f"{exec_useful_weighted_total_h:,.1f}"),
+            create_kpi_card("Horas Est. Trabalho (normalizadas)", f"{exec_norm_total_h:,.1f}"),
+            create_kpi_card("Horas Est. Trab. Ponderadas", f"{exec_norm_weighted_total_h:,.1f}"),
+            create_kpi_card("Média h est./pessoa-dia", f"{exec_norm_mean_person_day:.1f}" if pd.notna(exec_norm_mean_person_day) else "—"),
+            create_kpi_card("Horas Est. Ativa (norm)", f"{exec_active_norm_h:,.1f}"),
+            create_kpi_card("Horas Est. Validação/QA (norm)", f"{exec_validation_norm_h:,.1f}"),
+            create_kpi_card("Horas Est. Espera (norm)", f"{exec_wait_norm_h:,.1f}"),
         ],
-        style={"display": "grid", "gridTemplateColumns": "repeat(8, minmax(180px, 1fr))", "gap": "10px", "marginBottom": "16px"},
+        style={"display": "grid", "gridTemplateColumns": "repeat(12, minmax(165px, 1fr))", "gap": "10px", "marginBottom": "16px"},
     )
 
     fig_vazao = go.Figure()
@@ -713,6 +1295,10 @@ def render_pm(data, start_date, end_date, person):
     fig_variants = build_variants_pareto(pm_variants)
     fig_conf_hist, fig_lt_rework = build_conformance_rework_figs(pm_cases)
     fig_event_vol = build_event_volume_fig(pm_events)
+    petri_source_events = exec_event_hours if not exec_event_hours.empty else event_hours
+    fig_petri_network = build_petri_bottleneck_network_fig(petri_source_events)
+    fig_petri_transitions = build_petri_bottleneck_transition_fig(petri_source_events)
+    fig_petri_status = build_petri_bottleneck_status_fig(petri_source_events)
 
     fig_dfg_edges = go.Figure()
     dfg_source = pm_dfg_edges if (not start_date and not pm_dfg_edges.empty and {"From", "To", "Count"}.issubset(pm_dfg_edges.columns)) else build_dfg_edges_from_events(pm_events)
@@ -754,6 +1340,198 @@ def render_pm(data, start_date, end_date, person):
         )
         fig_exec_by_status.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
 
+    fig_exec_bucket_person = go.Figure()
+    if not exec_event_hours.empty and {"Author", "ExecBucket", "HorasUteisPeriodo"}.issubset(exec_event_hours.columns):
+        xb = (
+            exec_event_hours.assign(Responsavel=exec_event_hours["Author"].fillna("").replace("", "Sem Autor"))
+            .groupby(["Responsavel", "ExecBucket"], dropna=False)["HorasUteisPeriodo"]
+            .sum()
+            .reset_index()
+        )
+        if not xb.empty:
+            totals = xb.groupby("Responsavel")["HorasUteisPeriodo"].sum().sort_values(ascending=False)
+            top_people = totals.head(15).index.tolist()
+            xb = xb[xb["Responsavel"].isin(top_people)].copy()
+            xb["ExecBucket"] = pd.Categorical(
+                xb["ExecBucket"],
+                categories=["Execucao Ativa", "Validacao/QA", "Espera"],
+                ordered=True,
+            )
+            fig_exec_bucket_person = px.bar(
+                xb,
+                x="HorasUteisPeriodo",
+                y="Responsavel",
+                color="ExecBucket",
+                orientation="h",
+                barmode="stack",
+                title="Horas Úteis por Pessoa (Execução Ativa vs Validação/QA vs Espera)",
+                color_discrete_map={"Execucao Ativa": "#0f766e", "Validacao/QA": "#2563eb", "Espera": "#f59e0b"},
+            )
+            fig_exec_bucket_person.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+    fig_exec_bucket_status = go.Figure()
+    if not exec_event_hours.empty and {"To Status", "ExecBucket", "HorasUteisPeriodo"}.issubset(exec_event_hours.columns):
+        xs = (
+            exec_event_hours.groupby(["To Status", "ExecBucket"], dropna=False)["HorasUteisPeriodo"]
+            .sum()
+            .reset_index()
+            .rename(columns={"To Status": "Status"})
+        )
+        if not xs.empty:
+            totals = xs.groupby("Status")["HorasUteisPeriodo"].sum().sort_values(ascending=False)
+            top_status = totals.head(15).index.tolist()
+            xs = xs[xs["Status"].isin(top_status)].copy()
+            xs["ExecBucket"] = pd.Categorical(
+                xs["ExecBucket"],
+                categories=["Execucao Ativa", "Validacao/QA", "Espera"],
+                ordered=True,
+            )
+            fig_exec_bucket_status = px.bar(
+                xs,
+                x="HorasUteisPeriodo",
+                y="Status",
+                color="ExecBucket",
+                orientation="h",
+                barmode="stack",
+                title="Horas Úteis por Etapa do Fluxo (Ativa vs Validação/QA vs Espera)",
+                color_discrete_map={"Execucao Ativa": "#0f766e", "Validacao/QA": "#2563eb", "Espera": "#f59e0b"},
+            )
+            fig_exec_bucket_status.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+    fig_exec_norm_by_person = go.Figure()
+    if not exec_norm_by_person.empty:
+        x = exec_norm_by_person.head(20).copy()
+        fig_exec_norm_by_person = px.bar(
+            x,
+            x="HorasEstimadasTrabalho",
+            y="Responsavel",
+            orientation="h",
+            color="MediaHrsEstimadasPorDiaAtivo" if "MediaHrsEstimadasPorDiaAtivo" in x.columns else None,
+            color_continuous_scale="Viridis",
+            title=f"Horas Estimadas de Trabalho por Pessoa (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)",
+            hover_data=[c for c in ["HorasUteisCargaFluxo", "HorasEstimadasTrabalhoPonderadas", "DiasAtivos", "CardsUnicos"] if c in x.columns],
+        )
+        fig_exec_norm_by_person.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+    fig_exec_norm_vs_load = go.Figure()
+    if not exec_norm_by_person.empty and {"Responsavel", "HorasUteisCargaFluxo", "HorasEstimadasTrabalho"}.issubset(exec_norm_by_person.columns):
+        x = exec_norm_by_person.head(20).copy()
+        x = x.sort_values("HorasEstimadasTrabalho", ascending=False)
+        fig_exec_norm_vs_load = go.Figure()
+        fig_exec_norm_vs_load.add_bar(
+            x=x["Responsavel"],
+            y=x["HorasUteisCargaFluxo"],
+            name="Carga de Fluxo (h úteis)",
+            marker_color="#93c5fd",
+        )
+        fig_exec_norm_vs_load.add_bar(
+            x=x["Responsavel"],
+            y=x["HorasEstimadasTrabalho"],
+            name="Horas Estimadas (normalizadas)",
+            marker_color="#0f766e",
+        )
+        fig_exec_norm_vs_load.update_layout(
+            barmode="group",
+            height=520,
+            title="Carga de Fluxo vs Horas Estimadas de Trabalho por Pessoa",
+            xaxis_tickangle=-35,
+        )
+
+    fig_exec_norm_bucket_person = go.Figure()
+    if not exec_norm_by_bucket.empty and {"Responsavel", "ExecBucket", "HorasEstimadasTrabalho"}.issubset(exec_norm_by_bucket.columns):
+        xb = exec_norm_by_bucket.copy()
+        totals = xb.groupby("Responsavel")["HorasEstimadasTrabalho"].sum().sort_values(ascending=False)
+        top_people = totals.head(15).index.tolist()
+        xb = xb[xb["Responsavel"].isin(top_people)].copy()
+        xb["ExecBucket"] = pd.Categorical(xb["ExecBucket"], categories=["Execucao Ativa", "Validacao/QA", "Espera"], ordered=True)
+        fig_exec_norm_bucket_person = px.bar(
+            xb,
+            x="HorasEstimadasTrabalho",
+            y="Responsavel",
+            color="ExecBucket",
+            orientation="h",
+            barmode="stack",
+            title=f"Horas Estimadas por Pessoa (Ativa vs Validação/QA vs Espera; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)",
+            color_discrete_map={"Execucao Ativa": "#0f766e", "Validacao/QA": "#2563eb", "Espera": "#f59e0b"},
+        )
+        fig_exec_norm_bucket_person.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+    fig_exec_norm_bucket_status = go.Figure()
+    if not exec_daily_norm.empty and {"Status", "ExecBucket", "HorasEstimadasTrabalho"}.issubset(
+        exec_daily_norm.rename(columns={"HorasUteisNormalizadas": "HorasEstimadasTrabalho"}).columns
+    ):
+        xs = (
+            exec_daily_norm.groupby(["Status", "ExecBucket"], dropna=False)["HorasUteisNormalizadas"]
+            .sum()
+            .reset_index()
+            .rename(columns={"HorasUteisNormalizadas": "HorasEstimadasTrabalho"})
+        )
+        if not xs.empty:
+            totals = xs.groupby("Status")["HorasEstimadasTrabalho"].sum().sort_values(ascending=False)
+            top_status = totals.head(15).index.tolist()
+            xs = xs[xs["Status"].isin(top_status)].copy()
+            xs["ExecBucket"] = pd.Categorical(xs["ExecBucket"], categories=["Execucao Ativa", "Validacao/QA", "Espera"], ordered=True)
+            fig_exec_norm_bucket_status = px.bar(
+                xs,
+                x="HorasEstimadasTrabalho",
+                y="Status",
+                color="ExecBucket",
+                orientation="h",
+                barmode="stack",
+                title=f"Horas Estimadas por Etapa do Fluxo (cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia por pessoa)",
+                color_discrete_map={"Execucao Ativa": "#0f766e", "Validacao/QA": "#2563eb", "Espera": "#f59e0b"},
+            )
+            fig_exec_norm_bucket_status.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+    fig_bottleneck_median = go.Figure()
+    fig_bottleneck_load = go.Figure()
+    fig_bottleneck_scatter = go.Figure()
+    if not bottlenecks.empty:
+        xb = bottlenecks.copy()
+        xb["HorasUteisMedianaEvento"] = _safe_num(xb["HorasUteisMedianaEvento"]).fillna(0)
+        xb["HorasUteisP85Evento"] = _safe_num(xb["HorasUteisP85Evento"]).fillna(0)
+        xb["HorasUteisTotalPeriodo"] = _safe_num(xb["HorasUteisTotalPeriodo"]).fillna(0)
+        xb["Eventos"] = _safe_num(xb["Eventos"]).fillna(0)
+        xb["CardsUnicos"] = _safe_num(xb["CardsUnicos"]).fillna(0)
+        plot_med = xb.sort_values(["HorasUteisMedianaEvento", "HorasUteisP85Evento"], ascending=False).head(15).sort_values("HorasUteisMedianaEvento")
+        fig_bottleneck_median = px.bar(
+            plot_med,
+            x="HorasUteisMedianaEvento",
+            y="Status",
+            orientation="h",
+            color="HorasUteisP85Evento",
+            color_continuous_scale="OrRd",
+            title="Gargalo por Status (Tempo Útil Mediano por Evento; p85 na cor)",
+            hover_data=["Eventos", "CardsUnicos", "HorasUteisTotalPeriodo"],
+        )
+        fig_bottleneck_median.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+        plot_load = xb.sort_values("HorasUteisTotalPeriodo", ascending=False).head(15).sort_values("HorasUteisTotalPeriodo")
+        fig_bottleneck_load = px.bar(
+            plot_load,
+            x="HorasUteisTotalPeriodo",
+            y="Status",
+            orientation="h",
+            color="Eventos",
+            color_continuous_scale="Blues",
+            title="Gargalo por Status (Carga Total de Horas Úteis no Período)",
+            hover_data=["HorasUteisMedianaEvento", "HorasUteisP85Evento", "CardsUnicos"],
+        )
+        fig_bottleneck_load.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+        fig_bottleneck_scatter = px.scatter(
+            xb,
+            x="HorasUteisMedianaEvento",
+            y="HorasUteisTotalPeriodo",
+            size="Eventos",
+            color="CardsUnicos",
+            hover_name="Status",
+            hover_data=["HorasUteisP85Evento"],
+            title="Mapa de Gargalo: Mediana por Evento x Carga Total (Status)",
+            color_continuous_scale="Viridis",
+        )
+        fig_bottleneck_scatter.update_layout(height=520)
+
     pm4py_banner = None
     if not pm_meta.empty and {"Metrica", "Valor"}.issubset(pm_meta.columns):
         meta_map = {str(r["Metrica"]): str(r["Valor"]) for _, r in pm_meta.iterrows()}
@@ -780,8 +1558,11 @@ def render_pm(data, start_date, end_date, person):
     meta_cols = [c for c in ["Metrica", "Valor"] if c in pm_meta.columns]
     horas_people_cols = [c for c in ["Responsavel", "HorasNoFluxo", "HorasMediasPorEvento", "Eventos", "CardsUnicos"] if c in pm_hours_people.columns]
     horas_status_cols = [c for c in ["Responsavel", "Status", "HorasNoFluxo", "Eventos", "CardsUnicos"] if c in pm_hours_status.columns]
-    exec_people_cols = [c for c in ["Responsavel", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "MediaHorasUteisPorEvento", "MediaHorasPorEvento", "Eventos", "CardsUnicos"] if c in exec_by_person.columns]
-    exec_status_cols = [c for c in ["Responsavel", "Status", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
+    exec_people_cols = [c for c in ["Responsavel", "HorasExecucaoUteisPonderadasPeriodo", "HorasExecucaoUteisPeriodo", "HorasExecucaoPonderadasPeriodo", "HorasExecucaoPeriodo", "MediaHorasUteisPorEvento", "MediaHorasPorEvento", "Eventos", "CardsUnicos"] if c in exec_by_person.columns]
+    exec_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasExecucaoUteisPonderadasPeriodo", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
+    exec_norm_people_cols = [c for c in ["Responsavel", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "MediaHrsEstimadasPorDiaAtivo", "DiasAtivos", "CardsUnicos", "Slices"] if c in exec_norm_by_person.columns]
+    exec_norm_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "DiasComAtividade", "CardsUnicos", "Slices"] if c in exec_norm_by_status.columns]
+    bottleneck_cols = [c for c in ["Status", "HorasUteisMedianaEvento", "HorasUteisP85Evento", "HorasUteisP95Evento", "HorasUteisTotalPeriodo", "HorasUteisMediaEvento", "Eventos", "CardsUnicos"] if c in bottlenecks.columns]
 
     model_cards = []
     model_titles = {
@@ -817,6 +1598,24 @@ def render_pm(data, start_date, end_date, person):
         [
             pm4py_banner if pm4py_banner else html.Div(),
             kpi_grid,
+            html.H3("Rede de Petri e Gargalos do Fluxo", style={"marginTop": "6px"}),
+            html.Div(
+                [
+                    html.Span(
+                        "A imagem pm4py (quando disponível) mostra a estrutura do processo; os gráficos abaixo ranqueiam gargalos no recorte atual "
+                        "usando horas úteis por transição/etapa (com destaque para bucket de espera)."
+                    )
+                ],
+                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+            ),
+            dcc.Graph(figure=fig_petri_network),
+            html.Div(
+                [
+                    html.Div(dcc.Graph(figure=fig_petri_transitions), style={"flex": "1 1 540px"}),
+                    html.Div(dcc.Graph(figure=fig_petri_status), style={"flex": "1 1 540px"}),
+                ],
+                style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+            ),
             html.H3("Visualizações de Process Mining", style={"marginTop": "6px"}),
             html.Div(
                 model_cards if model_cards else [html.Div("Artefatos visuais pm4py (DFG / Heuristics / Inductive / Petri) ainda não encontrados neste relatório.")],
@@ -840,10 +1639,38 @@ def render_pm(data, start_date, end_date, person):
                 style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
             ),
             html.Div(
-                "Heurística de horas úteis: considera somente dias úteis, janela comercial e teto diário (aproximação de horas trabalhadas, não timesheet).",
+                "Heurística de horas úteis: considera somente dias úteis, janela comercial e teto diário. "
+                "Buckets: Execução Ativa, Validação/QA e Espera (com pesos por status para estimativa ponderada).",
                 style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
             ),
+            html.Div(
+                f"Heurística de capacidade (normalizada): horas úteis são quebradas por dia e normalizadas por pessoa/dia com teto de {WORKDAY_DAILY_CAP_HOURS:.0f}h. "
+                "Use esta visão para estimar trabalho humano; use carga de fluxo para detectar pressão/gargalo.",
+                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+            ),
+            html.H4("Gargalo no Fluxo (tempo vs carga por status)"),
+            html.Div(
+                "Segurança da avaliação: compare 3 lentes em conjunto. "
+                "1) tempo mediano/p85 por evento (gargalo de espera), "
+                "2) carga total de horas úteis (pressão acumulada), "
+                "3) mapa mediana x carga (status que combinam tempo alto e volume).",
+                style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+            ),
+            html.Div(
+                [
+                    html.Div(dcc.Graph(figure=fig_bottleneck_median), style={"flex": "1 1 460px"}),
+                    html.Div(dcc.Graph(figure=fig_bottleneck_load), style={"flex": "1 1 460px"}),
+                ],
+                style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+            ),
+            dcc.Graph(figure=fig_bottleneck_scatter),
             dcc.Graph(figure=fig_exec_by_person),
+            dcc.Graph(figure=fig_exec_norm_by_person),
+            dcc.Graph(figure=fig_exec_norm_vs_load),
+            dcc.Graph(figure=fig_exec_bucket_person),
+            dcc.Graph(figure=fig_exec_norm_bucket_person),
+            dcc.Graph(figure=fig_exec_bucket_status),
+            dcc.Graph(figure=fig_exec_norm_bucket_status),
             dcc.Graph(figure=fig_exec_by_status),
             dcc.Graph(figure=fig_horas_pessoa),
             dcc.Graph(figure=fig_horas_status),
@@ -871,12 +1698,44 @@ def render_pm(data, start_date, end_date, person):
                 sort_action="native",
                 page_size=12,
             ),
+            html.H4(f"Horas Estimadas de Trabalho por Pessoa (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in exec_norm_people_cols],
+                data=exec_norm_by_person[exec_norm_people_cols].head(50).to_dict("records") if exec_norm_people_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                page_size=12,
+            ),
             html.H4("Horas de Execução no Período por Pessoa e Status (proxy + heurística útil)"),
             dash_table.DataTable(
                 columns=[{"name": c, "id": c} for c in exec_status_cols],
                 data=exec_by_status[exec_status_cols].head(50).to_dict("records") if exec_status_cols else [],
                 style_table={"overflowX": "auto"},
                 style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "240px", "whiteSpace": "normal"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                filter_action="native",
+                page_size=12,
+            ),
+            html.H4(f"Horas Estimadas de Trabalho por Pessoa e Status (normalizadas; cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in exec_norm_status_cols],
+                data=exec_norm_by_status[exec_norm_status_cols].head(80).to_dict("records") if exec_norm_status_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "260px", "whiteSpace": "normal"},
+                style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+                sort_action="native",
+                filter_action="native",
+                page_size=12,
+            ),
+            html.H4("Gargalos por Status (tempo útil no período filtrado)"),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in bottleneck_cols],
+                data=bottlenecks[bottleneck_cols].head(50).to_dict("records") if bottleneck_cols else [],
+                style_table={"overflowX": "auto"},
+                style_cell={"textAlign": "left", "padding": "6px"},
                 style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
                 sort_action="native",
                 filter_action="native",
