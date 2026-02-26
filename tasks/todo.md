@@ -1,5 +1,33 @@
 # Task Plan
 
+## Current Task (Dashboard PM: gráfico backlog restante vs trabalho executado por pessoa)
+- [x] Mapear métricas existentes para leitura proxy (`executado` vs `backlog restante estimado`)
+- [x] Criar novo gráfico por pessoa com separação visual de executado, restante e excedente
+- [x] Validar sintaxe/import e registrar review/evidências
+
+## Specification (Dashboard PM: gráfico backlog restante vs trabalho executado por pessoa)
+- Objetivo: adicionar um gráfico na seção de execução por pessoa que traduza a leitura para `trabalho executado` vs `backlog restante`, sem perder a distinção entre estimativa normalizada e horas úteis executadas.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Novo gráfico aparece na aba de análise de execução/pessoas.
+  - Gráfico mostra ao menos duas partes por pessoa: executado e backlog restante estimado.
+  - Quando executado > estimado, excedente é exibido separadamente (sem mascarar a divergência).
+  - Texto da tela deixa explícito que a leitura é um proxy (não saldo real de backlog).
+
+## Review (Dashboard PM: gráfico backlog restante vs trabalho executado por pessoa)
+- What was validated:
+  - Foi adicionado um gráfico empilhado por pessoa com três componentes: `Trabalho executado`, `Backlog restante (estimado)` e `Executado acima da carga estimada` (quando aplicável).
+  - O gráfico usa merge das métricas existentes (`exec_by_person` + `exec_norm_by_person`) para criar uma leitura proxy sem alterar os cálculos-base.
+  - A seção do dashboard recebeu texto explicando a semântica de proxy para evitar interpretação como saldo real de backlog do Jira.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import dashboard_process_mining; print('import ok')"`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add backlog restante vs trabalho executado proxy chart by person`
+
 ## Current Task (Portfólio Features NS: raias automáticas por prefixo do título)
 - [x] Implementar mapeamento automático de `Lane name` por prefixo do título (S1NC/BeFinance/W1NNR/D&A/CROSS)
 - [x] Expor configuração via CLI/env e manter fallback
@@ -461,6 +489,64 @@
   - O ambiente local atual está com instalação de `pm4py` inconsistente (`ModuleNotFoundError: pm4py.util`); portanto a validação funcional dos novos artefatos PM4Py depende de rodar o exportador em ambiente com PM4Py íntegro.
 - Suggested commit message:
   - `feat(process-mining): add tbr/alignments exports and conformance visualizations`
+
+## Current Task (Process mining: gráficos PM4Py no Dash - DFG/Petri variants)
+- [x] Gerar no exportador `process_mining_jira.py` PNGs PM4Py adicionais de Rede de Petri (decoração por frequência/performance via token replay)
+- [x] Carregar e exibir no `dashboard_process_mining.py` os novos artefatos PM4Py (DFG freq/perf + Petri variants) em cards por tipo
+- [x] Organizar a exibição nas abas de domínio sem quebrar fallback quando os PNGs não existirem
+- [x] Validar sintaxe/import e revisar diff
+
+## Specification (Process mining: gráficos PM4Py no Dash - DFG/Petri variants)
+- Objetivo: incorporar no dashboard de process mining os gráficos PM4Py equivalentes aos exemplos de DFG (frequência/performance) e variantes de Rede de Petri (pura + decoradas), usando o padrão atual de imagens exportadas.
+- Escopo:
+  - `process_mining_jira.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O exportador tenta gerar PNGs adicionais de Petri decorada por frequência/performance (com fallback e metadados de erro se PM4Py/Graphviz/API falharem).
+  - O dashboard reconhece os novos sufixos de arquivo e renderiza cards com títulos distintos para cada gráfico.
+  - A UI continua funcionando quando parte dos artefatos não está presente.
+
+## Review (Process mining: gráficos PM4Py no Dash - DFG/Petri variants)
+- What was validated:
+  - `process_mining_jira.py` tenta gerar `-pm4py-petri-token-freq.png` e `-pm4py-petri-token-perf.png` a partir da mesma Rede de Petri descoberta + `token replay`, com fallbacks para diferenças de assinatura da API do PM4Py.
+  - `dashboard_process_mining.py` passou a reconhecer e exibir esses artefatos como cards com títulos distintos, junto dos cards de DFG/DFG performance/Petri já existentes.
+  - A lógica continua tolerante à ausência de arquivos (somente renderiza os cards encontrados no disco).
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('process_mining_jira.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import process_mining_jira, dashboard_process_mining; print('imports ok')"`
+  - `git diff -- process_mining_jira.py dashboard_process_mining.py tasks/todo.md`
+- Notes:
+  - A validação funcional dos PNGs PM4Py depende de rodar o exportador em ambiente com PM4Py íntegro (o ambiente local desta sessão segue com instalação inconsistente).
+- Suggested commit message:
+  - `feat(process-mining): add pm4py petri token decoration images to dashboard`
+
+## Current Task (Otimização de performance do exportador process mining)
+- [x] Reduzir custo padrão do `process_mining_jira.py` desabilitando `alignments` por padrão (ativação explícita via CLI)
+- [x] Eliminar replay duplicado de TBR (resumo derivado do diagnóstico em vez de rodar `fitness_token_based_replay`)
+- [x] Validar sintaxe/import e registrar evidências
+
+## Specification (Otimização de performance do exportador process mining)
+- Objetivo: reduzir significativamente o tempo de geração do relatório de process mining, mantendo os artefatos pesados (especialmente alignments) disponíveis sob demanda.
+- Escopo:
+  - `process_mining_jira.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `alignments` não roda por padrão sem flag explícita (ex.: `--pm4py-align-max-cases > 0`).
+  - O log deixa de mostrar replay TBR duplicado por causa de chamadas redundantes.
+  - O exportador continua gerando workbook com fallbacks/metadados sem quebrar compatibilidade.
+
+## Review (Otimização de performance do exportador process mining)
+- What was validated:
+  - `process_mining_jira.py` agora usa `--pm4py-align-max-cases=0` por padrão, desabilitando alignments no caminho rápido.
+  - O resumo de TBR passou a ser derivado do resultado de `conformance_diagnostics_token_based_replay`, removendo a chamada redundante a `fitness_token_based_replay` (que causava um segundo replay).
+  - O módulo continua importando normalmente.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('process_mining_jira.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python -c "import process_mining_jira; print('import ok')"`
+  - `git diff -- process_mining_jira.py tasks/todo.md`
+- Suggested commit message:
+  - `perf(process-mining): disable alignments by default and remove duplicate tbr replay`
 
 ## Review (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
 - What was validated:

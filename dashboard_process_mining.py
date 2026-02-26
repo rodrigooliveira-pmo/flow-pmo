@@ -182,6 +182,8 @@ def _load_artifact_images_from_base(base_no_ext):
         "heuristics": "-pm4py-heuristics.png",
         "inductive_tree": "-pm4py-inductive-tree.png",
         "petri": "-pm4py-petri.png",
+        "petri_token_freq": "-pm4py-petri-token-freq.png",
+        "petri_token_perf": "-pm4py-petri-token-perf.png",
     }
     out = {}
     for key, suffix in img_suffixes.items():
@@ -1590,6 +1592,67 @@ def render_pm(data, start_date, end_date, person):
             xaxis_tickangle=-35,
         )
 
+    fig_exec_backlog_vs_executed = go.Figure()
+    if not exec_norm_by_person.empty and not exec_by_person.empty and {"Responsavel", "HorasEstimadasTrabalho"}.issubset(exec_norm_by_person.columns):
+        exec_col = "HorasExecucaoUteisPeriodo" if "HorasExecucaoUteisPeriodo" in exec_by_person.columns else "HorasExecucaoPeriodo"
+        if exec_col in exec_by_person.columns:
+            xb = (
+                exec_norm_by_person[["Responsavel", "HorasEstimadasTrabalho"]]
+                .merge(exec_by_person[["Responsavel", exec_col]], on="Responsavel", how="outer")
+                .fillna(0)
+            )
+            xb["HorasEstimadasTrabalho"] = _safe_num(xb["HorasEstimadasTrabalho"]).fillna(0)
+            xb["TrabalhoExecutado"] = _safe_num(xb[exec_col]).fillna(0)
+            xb["ExecutadoDentroCarga"] = np.minimum(xb["TrabalhoExecutado"], xb["HorasEstimadasTrabalho"])
+            xb["BacklogRestanteEstimado"] = np.maximum(xb["HorasEstimadasTrabalho"] - xb["TrabalhoExecutado"], 0)
+            xb["ExecutadoAcimaEstimado"] = np.maximum(xb["TrabalhoExecutado"] - xb["HorasEstimadasTrabalho"], 0)
+            xb["TotalReferencia"] = np.maximum(xb["HorasEstimadasTrabalho"], xb["TrabalhoExecutado"])
+            xb = xb.sort_values(["TotalReferencia", "BacklogRestanteEstimado"], ascending=[False, False]).head(20)
+            xb = xb.sort_values("TotalReferencia", ascending=True)
+
+            fig_exec_backlog_vs_executed = go.Figure()
+            fig_exec_backlog_vs_executed.add_bar(
+                x=xb["ExecutadoDentroCarga"],
+                y=xb["Responsavel"],
+                orientation="h",
+                name="Trabalho executado (h úteis)",
+                marker_color="#0f766e",
+                customdata=np.stack([xb["HorasEstimadasTrabalho"], xb["TrabalhoExecutado"]], axis=-1),
+                hovertemplate=(
+                    "Responsável: %{y}<br>"
+                    "Executado (na carga): %{x:.1f}h<br>"
+                    "Carga estimada (cap): %{customdata[0]:.1f}h<br>"
+                    "Executado total: %{customdata[1]:.1f}h<extra></extra>"
+                ),
+            )
+            fig_exec_backlog_vs_executed.add_bar(
+                x=xb["BacklogRestanteEstimado"],
+                y=xb["Responsavel"],
+                orientation="h",
+                name="Backlog restante (estimado)",
+                marker_color="#f59e0b",
+                hovertemplate="Responsável: %{y}<br>Backlog restante estimado: %{x:.1f}h<extra></extra>",
+            )
+            if float(xb["ExecutadoAcimaEstimado"].sum()) > 0:
+                fig_exec_backlog_vs_executed.add_bar(
+                    x=xb["ExecutadoAcimaEstimado"],
+                    y=xb["Responsavel"],
+                    orientation="h",
+                    name="Executado acima da carga estimada",
+                    marker_color="#2563eb",
+                    hovertemplate="Responsável: %{y}<br>Executado acima da estimativa: %{x:.1f}h<extra></extra>",
+                )
+            fig_exec_backlog_vs_executed.update_layout(
+                barmode="stack",
+                height=560,
+                title=(
+                    f"Backlog Restante (estimado) vs Trabalho Executado por Pessoa "
+                    f"(proxy: executado heurístico + estimativa normalizada cap {WORKDAY_DAILY_CAP_HOURS:.0f}h/dia)"
+                ),
+                xaxis_title="Horas",
+                yaxis={"categoryorder": "total ascending"},
+            )
+
     fig_exec_norm_bucket_person = go.Figure()
     if not exec_norm_by_bucket.empty and {"Responsavel", "ExecBucket", "HorasEstimadasTrabalho"}.issubset(exec_norm_by_bucket.columns):
         xb = exec_norm_by_bucket.copy()
@@ -1729,8 +1792,10 @@ def render_pm(data, start_date, end_date, person):
         "heuristics": "Heuristics Miner (pm4py)",
         "inductive_tree": "Inductive Miner - Process Tree (pm4py)",
         "petri": "Inductive Miner - Rede de Petri (pm4py)",
+        "petri_token_freq": "Rede de Petri (token replay - frequência)",
+        "petri_token_perf": "Rede de Petri (token replay - performance)",
     }
-    for key in ["dfg", "dfg_performance", "heuristics", "inductive_tree", "petri"]:
+    for key in ["dfg", "dfg_performance", "heuristics", "inductive_tree", "petri", "petri_token_freq", "petri_token_perf"]:
         payload = artifact_images.get(key)
         if not payload:
             continue
@@ -1933,9 +1998,15 @@ def render_pm(data, start_date, end_date, person):
             "Use esta visão para estimar trabalho humano; use carga de fluxo para detectar pressão/gargalo.",
             style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
         ),
+        html.Div(
+            "Leitura de backlog vs executado (proxy): o backlog restante é estimado pela carga normalizada menos horas úteis executadas no período; "
+            "se o executado superar a estimativa, o excedente aparece separado.",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
         dcc.Graph(figure=fig_exec_by_person),
         dcc.Graph(figure=fig_exec_norm_by_person),
         dcc.Graph(figure=fig_exec_norm_vs_load),
+        dcc.Graph(figure=fig_exec_backlog_vs_executed),
         dcc.Graph(figure=fig_exec_bucket_person),
         dcc.Graph(figure=fig_exec_norm_bucket_person),
         dcc.Graph(figure=fig_exec_by_status),

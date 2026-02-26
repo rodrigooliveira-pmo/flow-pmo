@@ -75,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--done-status", nargs="*", default=["Done", "Itens concluídos", "Concluído"])
     p.add_argument("--prefix", default="w1nner-process-mining")
     p.add_argument("--max-top", type=int, default=25)
-    p.add_argument("--pm4py-align-max-cases", type=int, default=500, help="Limite de casos para alignments PM4Py (0=desabilita)")
+    p.add_argument("--pm4py-align-max-cases", type=int, default=0, help="Limite de casos para alignments PM4Py (0=desabilita; default rápido)")
     return p.parse_args()
 
 
@@ -596,17 +596,11 @@ def build_pm4py_model_artifacts(
     except Exception as exc:
         meta_rows.append({"Metrica": "pm4py_petri_error", "Valor": str(exc)})
 
+    tbr_diag = None
     # Token-based replay (conformance)
     if net is not None and im is not None and fm is not None:
         try:
             tbr_summary_rows: list[dict[str, Any]] = []
-            try:
-                tbr_fit = pm4py.fitness_token_based_replay(pm_df, net, im, fm)
-                if isinstance(tbr_fit, dict):
-                    for k, v in tbr_fit.items():
-                        tbr_summary_rows.append({"Metric": str(k), "Value": v})
-            except Exception as exc:
-                meta_rows.append({"Metrica": "pm4py_tbr_fitness_error", "Valor": str(exc)})
             tbr_diag = pm4py.conformance_diagnostics_token_based_replay(pm_df, net, im, fm)
             tbr_case_rows = []
             for idx, row in enumerate(tbr_diag or []):
@@ -631,24 +625,68 @@ def build_pm4py_model_artifacts(
                 extra_datasets["pm4py_tbr_cases"] = tbr_cases_df.sort_values(
                     ["TraceIsFit", "TraceFitness"], ascending=[True, True], na_position="last"
                 ).reset_index(drop=True)
-                # fill summary if not provided by pm4py helper
-                if not tbr_summary_rows:
-                    s = tbr_cases_df.copy()
-                    n_cases = int(len(s))
-                    fit_vals = pd.to_numeric(s.get("TraceFitness", pd.Series(dtype=float)), errors="coerce").dropna()
-                    is_fit = s.get("TraceIsFit", pd.Series(dtype=object)).astype(str).str.lower()
-                    tbr_summary_rows.extend(
-                        [
-                            {"Metric": "num_cases", "Value": n_cases},
-                            {"Metric": "perc_fit_traces", "Value": float((is_fit.isin(["true", "1"]).mean() * 100.0) if n_cases else 0.0)},
-                            {"Metric": "average_trace_fitness", "Value": float(fit_vals.mean()) if not fit_vals.empty else None},
-                        ]
-                    )
+                # summary derived from diagnostics (avoids a second TBR replay pass)
+                s = tbr_cases_df.copy()
+                n_cases = int(len(s))
+                fit_vals = pd.to_numeric(s.get("TraceFitness", pd.Series(dtype=float)), errors="coerce").dropna()
+                is_fit = s.get("TraceIsFit", pd.Series(dtype=object))
+                is_fit_bool = is_fit.map(
+                    lambda v: (bool(v) if isinstance(v, (bool, np.bool_)) else str(v).strip().lower() in {"true", "1", "yes"})
+                ) if len(is_fit) else pd.Series(dtype=bool)
+                tbr_summary_rows.extend(
+                    [
+                        {"Metric": "num_cases", "Value": n_cases},
+                        {"Metric": "perc_fit_traces", "Value": float((is_fit_bool.mean() * 100.0) if n_cases and len(is_fit_bool) else 0.0)},
+                        {"Metric": "average_trace_fitness", "Value": float(fit_vals.mean()) if not fit_vals.empty else None},
+                        {"Metric": "min_trace_fitness", "Value": float(fit_vals.min()) if not fit_vals.empty else None},
+                    ]
+                )
             else:
                 extra_datasets["pm4py_tbr_cases"] = pd.DataFrame()
             extra_datasets["pm4py_tbr_summary"] = pd.DataFrame(tbr_summary_rows)
         except Exception as exc:
             meta_rows.append({"Metrica": "pm4py_tbr_error", "Valor": str(exc)})
+
+    # Petri net decorated visuals via token replay (frequency/performance)
+    if net is not None and im is not None and fm is not None and tbr_diag is not None and dot_ok:
+        def _try_save_petri_variant(img_path: Path, variant_name: str, meta_ok_key: str, meta_err_key: str) -> bool:
+            try:
+                pm4py.save_vis_petri_net(net, im, fm, str(img_path), variant=variant_name, diagnostics=tbr_diag)
+                extra_files[meta_ok_key] = str(img_path)
+                meta_rows.append({"Metrica": meta_ok_key, "Valor": str(img_path)})
+                return True
+            except Exception as exc1:
+                # Fallbacks for API differences across PM4Py versions
+                fallback_attempts = [
+                    {"variant": variant_name, "aggregated_statistics": tbr_diag},
+                    {"variant": variant_name},
+                ]
+                for kwargs in fallback_attempts:
+                    try:
+                        pm4py.save_vis_petri_net(net, im, fm, str(img_path), **kwargs)
+                        extra_files[meta_ok_key] = str(img_path)
+                        meta_rows.append({"Metrica": meta_ok_key, "Valor": str(img_path)})
+                        return True
+                    except Exception:
+                        continue
+                meta_rows.append({"Metrica": meta_err_key, "Valor": str(exc1)})
+                return False
+
+        _try_save_petri_variant(
+            out_dir / f"{base}-pm4py-petri-token-freq.png",
+            "token_decoration_frequency",
+            "pm4py_petri_token_freq_png",
+            "pm4py_petri_token_freq_error",
+        )
+        _try_save_petri_variant(
+            out_dir / f"{base}-pm4py-petri-token-perf.png",
+            "token_decoration_performance",
+            "pm4py_petri_token_perf_png",
+            "pm4py_petri_token_perf_error",
+        )
+    elif net is not None and im is not None and fm is not None and not dot_ok:
+        meta_rows.append({"Metrica": "pm4py_petri_token_freq_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
+        meta_rows.append({"Metrica": "pm4py_petri_token_perf_error", "Valor": "Graphviz 'dot' não encontrado no PATH"})
 
     # Alignments (conformance, bounded)
     if net is not None and im is not None and fm is not None:
