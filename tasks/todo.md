@@ -1,5 +1,250 @@
 # Task Plan
 
+## Current Task (Portfólio Features NS: raias automáticas por prefixo do título)
+- [x] Implementar mapeamento automático de `Lane name` por prefixo do título (S1NC/BeFinance/W1NNR/D&A/CROSS)
+- [x] Expor configuração via CLI/env e manter fallback
+- [x] Validar help/import/sintaxe e orientar comando atualizado
+
+## Specification (Portfólio Features NS: raias automáticas por prefixo do título)
+- Objetivo: distribuir features do portfólio `NS` nas raias corretas do BusinessMap (`S1NC`, `BE FINANCE`, `W1NNER`, `DATA & ANALYTICS`, `CROSS`) usando o prefixo do título como heurística.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador consegue definir `Lane name` a partir de prefixos de título configuráveis.
+  - Caso nenhum prefixo combine, usa fallback configurável (ex.: `CROSS`).
+  - Script continua validando `--help`, import e sintaxe.
+
+## Review (Portfólio Features NS: raias automáticas por prefixo do título)
+- What was validated:
+  - O exportador agora suporta `--lane-by-title-prefix-map` (lista JSON) para preencher `Lane name` por prefixo do título.
+  - Foi adicionado fallback explícito com `--lane-by-title-prefix-fallback` (ex.: `CROSS`).
+  - A resolução da raia por título é aplicada antes do `default-lane-name`, mantendo compatibilidade com fluxos que ainda usam raia fixa.
+  - CLI/help/import/sintaxe continuam válidos.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(integration): support businessmap lane mapping by title prefix`
+
+## Current Task (Portfólio Features NS: status Cancelled/In Progess e histórico)
+- [x] Ajustar exportador para tratar status `Cancelled/Cancelado` como terminal ao preencher datas históricas
+- [x] Validar help/import/sintaxe
+- [x] Orientar mapeamento de colunas de Features com aliases reais (`Cancelled`, `In Progess`)
+
+## Specification (Portfólio Features NS: status Cancelled/In Progess e histórico)
+- Objetivo: eliminar erros de validação na importação de Features do portfólio (`NS`) causados por status Jira não mapeados (`Cancelled`, `In Progess`) e por falta de `Start Date` em itens cancelados com histórico.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador trata `Cancelled/Cancelado` como status terminal para fallback de `Start Date`/`End Date`.
+  - Validação local (`--help`, import, sintaxe) permanece OK.
+  - Resposta inclui `status map` de Features atualizado para colunas `BACKLOG`, `READY FOR DEVELOPMENT`, `IN PROGRESS`, `BUSINESS REVIEW`, `DONE`.
+
+## Review (Portfólio Features NS: status Cancelled/In Progess e histórico)
+- What was validated:
+  - O fallback de datas históricas agora trata `Cancelled/Cancelado` como status terminal (assim como `Done/Concluído`), preenchendo `End Date` e `Start Date` fallback quando necessário.
+  - O erro de `Coluna (nome) inválida` observado em `Cancelled` e `In Progess` depende de ajuste no `status-to-column-map` informado no comando (documentado na resposta).
+  - CLI/help/import/sintaxe seguem válidos após a alteração.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): treat cancelled status as terminal for businessmap history export`
+
+## Current Task (BusinessMap: tags alinhadas ao tipo/fluxo de destino)
+- [x] Ajustar exportador para suportar tags derivadas de `Type name` e `Workflow name` do BusinessMap
+- [x] Manter compatibilidade com `tag-sources` existentes
+- [x] Validar help/import/sintaxe e orientar comandos para BF (histórias + épicos/iniciativas)
+
+## Specification (BusinessMap: tags alinhadas ao tipo/fluxo de destino)
+- Objetivo: permitir que as etiquetas no BusinessMap reflitam o tipo/fluxo de destino (ex.: `História`, `Histórias workflow`) em vez de apenas o `issuetype` bruto do Jira.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `--tag-sources` passa a aceitar fontes derivadas como `type_name`, `workflow_name` e `column_name`.
+  - Exportador continua aceitando fontes já existentes (`labels`, `components`, `project`, `issuetype`, etc.).
+  - Script continua validando `--help`, import e sintaxe.
+
+## Review (BusinessMap: tags alinhadas ao tipo/fluxo de destino)
+- What was validated:
+  - `--tag-sources` agora aceita `type_name`, `workflow_name` e `column_name`, permitindo que as etiquetas reflitam o destino no BusinessMap em vez de somente o `issuetype` do Jira.
+  - O `Type name` mapeado (ex.: `História`) é reutilizado internamente para compor tags quando `type_name` é solicitado.
+  - Compatibilidade mantida com fontes de tag anteriores (`labels`, `components`, `project`, `issuetype`, `priority`, etc.).
+  - CLI/help/import/sintaxe continuam válidos.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(integration): support tags derived from businessmap type and workflow`
+
+## Current Task (BusinessMap: mapear tipo Jira Task -> História)
+- [x] Adicionar mapeamento configurável de `issuetype` Jira para `Type name` no BusinessMap
+- [x] Incluir preset padrão para `Task/Tarefa -> História` (compatível com BF/SYNC)
+- [x] Validar help/import/sintaxe e registrar review/evidências
+
+## Specification (BusinessMap: mapear tipo Jira Task -> História)
+- Objetivo: permitir ajustar a classificação exportada em `Type name` para refletir a nomenclatura do BusinessMap (ex.: Jira `Task/Tarefa` -> BusinessMap `História`).
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador aceita mapeamento de tipo via CLI/env (JSON) para sobrescrever `Type name`.
+  - Preset padrão aplicado ao fluxo BF/SYNC já converte `Task`/`Tarefa` para `História`.
+  - Script continua validando `--help`, import e sintaxe.
+
+## Review (BusinessMap: mapear tipo Jira Task -> História)
+- What was validated:
+  - O exportador agora suporta `--type-name-map` (JSON) para mapear `issuetype` do Jira no campo `Type name` do BusinessMap.
+  - Foi adicionado suporte por env `BUSINESSMAP_TYPE_NAME_MAP`.
+  - O preset `bf` (e o `auto` quando projeto = `BF`) agora inclui mapeamento padrão `Task/Tarefa -> História`, útil também para S1NC/SYNC ao usar `--mapping-preset bf`.
+  - CLI/help/import/sintaxe continuam válidos.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Notes:
+  - Se quiser outro vocabulário (ex.: `Bug -> Defeito`, `Épico -> Iniciativa`), basta passar `--type-name-map` com JSON.
+- Suggested commit message:
+  - `feat(integration): add businessmap type-name mapping with task to historia preset`
+
+## Current Task (BusinessMap BF: preencher Start Date para históricos DONE)
+- [x] Ajustar exportador para preencher `Start Date` quando houver `End Date` em itens de status final
+- [x] Manter regra semântica (evitar usar data de conclusão como início)
+- [x] Validar sintaxe/import/help e registrar review/evidências
+
+## Specification (BusinessMap BF: preencher Start Date para históricos DONE)
+- Objetivo: eliminar o erro de validação do BusinessMap `"Data de Início" não definida` em itens `DONE` quando o export envia histórico (`Criado em` + `Data de Término`).
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Itens em status final com `End Date` e `Created at` preenchidos passam a receber `Start Date` fallback (preferencialmente `Created at`) quando não houver data de início melhor.
+  - Exportador continua sem usar data de entrada em `DONE` como `Start Date`.
+  - Script continua validando `--help`, import e sintaxe.
+
+## Review (BusinessMap BF: preencher Start Date para históricos DONE)
+- What was validated:
+  - O exportador agora preenche `Start Date` com fallback em `Created at` para itens em status final (`DONE`/`Concluído`) quando existe `End Date` e o início está vazio.
+  - A regra anterior (não usar `statuscategorychangedate` de entrada em `DONE` como início) foi mantida.
+  - Essa mudança atende exatamente ao erro do validador do BusinessMap (`"Data de Início" não definida`) observado nas linhas concluídas.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): fill start date for done historical cards in businessmap export`
+
+## Current Task (BusinessMap import BF: corrigir lane inválida + datas históricas DONE)
+- [x] Ajustar preset BF para não preencher `Lane name` por padrão (áreas do board não reconhecidas como raias válidas)
+- [x] Ampliar mapeamento BF para status de discovery/design/portfolio que ficaram sem `Column name` válido
+- [x] Corrigir fallback de `Start Date`/`End Date` para itens em `DONE` no `jira_to_businessmap_xlsx.py`
+- [x] Validar CLI/import/sintaxe e registrar review/evidências
+
+## Specification (BusinessMap import BF: corrigir lane inválida + datas históricas DONE)
+- Objetivo: eliminar erros de validação do BusinessMap observados no teste BF, evitando `Lane name` inválido e inconsistência de histórico para cartões em `DONE`.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Preset BF automático deixa `Lane name` em branco por padrão (sem erro de raia inválida).
+  - Status BF não previstos (ex.: discovery/design/wishlist) passam a mapear para colunas válidas do board BF.
+  - Para itens em status final, o exportador não usa data de entrada em `DONE` como `Start Date`; quando aplicável usa como `End Date` fallback.
+  - Script continua validando `--help`, import e sintaxe.
+
+## Review (BusinessMap import BF: corrigir lane inválida + datas históricas DONE)
+- What was validated:
+  - O preset BF de `Lane name` foi desativado (mapa vazio), evitando preencher raias inválidas para o board `TIME BEFINANCE - DELIVERY`.
+  - O preset BF de colunas foi ampliado para status observados no teste (`QA / Staging`, `Discovery & Definition`, `Ideação`, `Wishlist`, `Doing Design`, etc.), reduzindo ocorrências de `Coluna (nome) inválida`.
+  - A lógica de datas históricas foi corrigida: `statuscategorychangedate` não é mais usado como `Start Date` para status `DONE`; agora ele é usado como fallback de `End Date` quando `resolutiondate` estiver ausente.
+  - CLI/help/import/sintaxe continuam válidos após a correção.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Notes:
+  - Ainda pode haver casos pontuais de status BF não mapeados; nesses casos o BusinessMap continuará sinalizando `Coluna (nome) inválida` e o preset deve ser incrementado com os nomes reais exibidos.
+  - Se o board realmente usar raias válidas, elas devem ser configuradas depois com os nomes exatos do BusinessMap (não os rótulos visuais de área).
+- Suggested commit message:
+  - `fix(integration): correct BF businessmap preset lanes and done history dates`
+
+## Current Task (BusinessMap: split automático em lotes + preset BF)
+- [x] Definir comportamento de split automático (`--split-size`) e convenção de nomes `lote-1`, `lote-2`, ...
+- [x] Implementar preset padrão BF/BusinessMap (mapeamento status -> `Column name`/`Lane name`) no `jira_to_businessmap_xlsx.py`
+- [x] Validar CLI/sintaxe/import e revisar diff
+- [x] Registrar review/evidências e sugestão de commit
+
+## Specification (BusinessMap: split automático em lotes + preset BF)
+- Objetivo: facilitar a importação no BusinessMap quando há limite de 100 cartões por upload, permitindo que o exportador gere múltiplos arquivos automaticamente e usando preset padrão do quadro BF sem JSON manual.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Script aceita `--split-size N` e, quando `N > 0`, grava múltiplos arquivos `.xlsx` com sufixos `-lote-1`, `-lote-2`, ... sem exceder `N` linhas por arquivo.
+  - Script passa a usar preset BF de `status -> Column name` e `status -> Lane name` por padrão (ainda permitindo override por CLI/env).
+  - Execução local valida `--help` e import/sintaxe do módulo.
+
+## Review (BusinessMap: split automático em lotes + preset BF)
+- What was validated:
+  - `jira_to_businessmap_xlsx.py` agora suporta `--split-size` para quebrar automaticamente a saída em múltiplos arquivos `.xlsx`, usando sufixo `-lote-N` no nome do arquivo.
+  - Foi adicionado preset embutido `bf` com mapeamento de status Jira para `Column name` e `Lane name` do quadro BusinessMap informado.
+  - O preset é aplicado automaticamente em `--mapping-preset auto` quando o export é apenas do projeto `BF` e não há mapeamentos JSON passados por CLI/env; também pode ser forçado com `--mapping-preset bf`.
+  - Overrides por CLI/env continuam funcionando (não quebra o fluxo anterior com JSONs customizados).
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Notes:
+  - Exemplo de uso simplificado para BF com limite BusinessMap de 100 cartões: `python jira_to_businessmap_xlsx.py --projects BF --board-name "TIME BEFINANCE - DELIVERY" --split-size 100`
+  - Se quiser desabilitar o preset automático e voltar ao comportamento puro, use `--mapping-preset none`.
+- Suggested commit message:
+  - `feat(integration): add BF businessmap preset and split xlsx batches`
+
+## Current Task (Exportador Jira -> BusinessMap em XLSX)
+- [x] Definir mapeamento mínimo Jira -> colunas suportadas do import do BusinessMap (título, descrição, prioridade, owner, tags, datas, localização)
+- [x] Implementar script dedicado `jira_to_businessmap_xlsx.py` com CLI, leitura de credenciais/env e exportação `.xlsx`
+- [x] Suportar mapeamentos configuráveis (status->Column/Lane, prioridade, owner format, Board/Workflow fixos)
+- [x] Validar sintaxe/`--help`, revisar diff e registrar review/evidências
+
+## Specification (Exportador Jira -> BusinessMap em XLSX)
+- Objetivo: criar um exportador de dados do Jira para planilha `.xlsx` no padrão de importação do BusinessMap, com headers válidos e transformação básica/configurável dos campos.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Script consulta issues do Jira via API usando variáveis `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`.
+  - Gera arquivo `.xlsx` com coluna `Title` (obrigatória) e demais colunas BusinessMap relevantes (ex.: `Description`, `Custom Card ID`, `Priority`, `Owner`, `Tags`, `Deadline`, `Type name`, `Column name`, `Lane name`, `Board name`, `Workflow name`, `Created at`, `Start Date`, `End Date`).
+  - Possui parâmetros/configuração para mapear status Jira em `Column name`/`Lane name` e preencher board/workflow padrão.
+  - Execução local valida ao menos `--help` e sintaxe/import do módulo (sem depender de acesso real ao Jira).
+
+## Review (Exportador Jira -> BusinessMap em XLSX)
+- What was validated:
+  - Foi criado o script `jira_to_businessmap_xlsx.py` com CLI para exportar issues do Jira em `.xlsx` com headers válidos do BusinessMap (`Title`, `Description`, `Custom Card ID`, `Priority`, `Owner`, `Tags`, `Deadline`, `Type name`, `Column name`, `Lane name`, `Board name`, `Board ID`, `Workflow name`, `Created at`, `Start Date`, `End Date`, entre outros).
+  - O script suporta mapeamentos configuráveis por CLI/env para `status -> Column name`, `status -> Lane name`, prioridade Jira -> prioridade BusinessMap, além de escolha da origem/formato do `Owner`.
+  - Há transformação de descrição Jira (ADF -> texto), datas para `YYYY-MM-DD`, tags compostas por fontes configuráveis e suporte opcional à coluna `Size` via custom fields (`JIRA_FIELD_MAP`) para story points/t-shirt.
+  - A saída é gerada como `.xlsx` via `pandas + openpyxl`, pronta para importação no BusinessMap.
+- Evidence (tests/logs/diff):
+  - `python jira_to_businessmap_xlsx.py --help`
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `git diff -- jira_to_businessmap_xlsx.py tasks/todo.md`
+- Notes:
+  - Não foi executado teste fim-a-fim contra Jira/BusinessMap nesta etapa (sem credenciais/ambiente de importação no contexto atual).
+  - O campo `Owner` no BusinessMap depende do username válido do board; pode exigir ajuste de `--owner-format` (ex.: `email_local`) conforme a configuração da sua conta.
+- Suggested commit message:
+  - `feat(integration): add jira to businessmap xlsx exporter`
+
 ## Current Task (Refatorar layout dos indicadores no Process Mining para alinhamento em até 3 linhas)
 - [x] Localizar bloco de KPIs no `dashboard_process_mining.py` e confirmar causa do desalinhamento (grid fixo em 12 colunas)
 - [x] Definir ajuste mínimo de layout para distribuir os cards de forma alinhada sem alterar cálculos/callbacks
