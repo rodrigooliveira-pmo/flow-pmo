@@ -453,6 +453,73 @@ def _load_bitbucket_prefix_map():
     return out
 
 
+def _load_person_alias_index():
+    raw = os.getenv('FLOW_PMO_PERSON_ALIAS_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    alias_index = {}
+
+    def _iter_aliases(value):
+        if isinstance(value, list):
+            for item in value:
+                yield item
+            return
+        if isinstance(value, str):
+            for part in re.split(r'[|,;]', value):
+                yield part
+
+    for canonical_name, aliases in parsed.items():
+        canonical = _normalize_person_name(canonical_name)
+        if not canonical:
+            continue
+        for candidate in [canonical_name, canonical, *_iter_aliases(aliases)]:
+            person_key = _person_match_key(candidate)
+            if person_key:
+                alias_index[person_key] = canonical
+            email_key = _person_email_key(candidate)
+            if email_key:
+                alias_index[email_key] = canonical
+    return alias_index
+
+
+def _person_email_key(raw_name):
+    if raw_name is None or (isinstance(raw_name, float) and pd.isna(raw_name)):
+        return ''
+    text = str(raw_name).strip().lower()
+    if not text:
+        return ''
+    match = re.search(r'([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})', text)
+    if match:
+        return match.group(1).strip()
+    return ''
+
+
+def _person_match_key(raw_name):
+    normalized = normalize_text(_normalize_person_name(raw_name))
+    if not normalized:
+        return ''
+    normalized = re.sub(r'[^a-z0-9]+', ' ', normalized).strip()
+    return re.sub(r'\s+', ' ', normalized)
+
+
+def _canonical_person_name(raw_name, alias_index=None):
+    fallback = _normalize_person_name(raw_name)
+    if not fallback:
+        return ''
+    alias_index = alias_index if isinstance(alias_index, dict) else _load_person_alias_index()
+    for key in (_person_match_key(raw_name), _person_email_key(raw_name)):
+        if key and key in alias_index:
+            return alias_index[key]
+    return fallback
+
+
 def _load_project_bitbucket_csv(project_prefix, suffix):
     if not project_prefix:
         return pd.DataFrame()
@@ -540,13 +607,13 @@ def _split_people_field(raw_value):
     return out
 
 
-def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts):
+def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alias_index=None):
     commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     pullrequests = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     stats = {}
 
     def _ensure_person(raw_name):
-        person = _normalize_person_name(raw_name)
+        person = _canonical_person_name(raw_name, alias_index=alias_index)
         if not person:
             return None
         key = person.lower()
@@ -631,7 +698,271 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts):
     }
 
 
-def build_bitbucket_contributor_section(projeto, start_ts, end_ts):
+def compute_jira_person_capacity_metrics(jira_df, start_ts, end_ts, alias_index=None):
+    if jira_df is None or jira_df.empty:
+        return pd.DataFrame(), {}
+    required = {'Responsavel', 'DataInProgress', 'DataDone'}
+    if not required.issubset(jira_df.columns):
+        return pd.DataFrame(), {}
+
+    df = jira_df.copy()
+    df['Responsavel'] = df['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    df = df[df['Responsavel'].astype(str).str.strip().ne('')]
+    if df.empty:
+        return pd.DataFrame(), {}
+
+    done_window = df[
+        (df['DataDone'] >= start_ts) &
+        (df['DataDone'] < end_ts)
+    ].copy()
+    started_window = df[
+        (df['DataInProgress'] >= start_ts) &
+        (df['DataInProgress'] < end_ts)
+    ].copy()
+    wip_end = df[
+        (df['DataInProgress'] < end_ts) &
+        ((df['DataDone'] >= end_ts) | pd.isna(df['DataDone']))
+    ].copy()
+
+    by_person = pd.DataFrame({'Pessoa': sorted(df['Responsavel'].unique())})
+    if by_person.empty:
+        return pd.DataFrame(), {}
+
+    by_person['Itens Concluidos'] = by_person['Pessoa'].map(done_window['Responsavel'].value_counts()).fillna(0).astype(int)
+    by_person['Itens Iniciados'] = by_person['Pessoa'].map(started_window['Responsavel'].value_counts()).fillna(0).astype(int)
+    by_person['WIP no Fim'] = by_person['Pessoa'].map(wip_end['Responsavel'].value_counts()).fillna(0).astype(int)
+
+    lt_done = done_window.copy()
+    if 'LeadTime_Selected_Dias' in lt_done.columns:
+        lt_done['LeadTime_Selected_Dias'] = pd.to_numeric(lt_done['LeadTime_Selected_Dias'], errors='coerce')
+        lt_done = lt_done[lt_done['LeadTime_Selected_Dias'] >= 0]
+        by_person['Lead Time Mediano (dias)'] = by_person['Pessoa'].map(
+            lt_done.groupby('Responsavel')['LeadTime_Selected_Dias'].median()
+        ).fillna(0.0).round(1)
+    else:
+        by_person['Lead Time Mediano (dias)'] = 0.0
+
+    by_person['Itens com Evidencia Tecnica'] = 0
+    by_person['Cobertura Tecnica (%)'] = 0.0
+
+    by_person = by_person.sort_values(
+        ['Itens Concluidos', 'Itens Iniciados', 'WIP no Fim', 'Pessoa'],
+        ascending=[False, False, False, True]
+    ).reset_index(drop=True)
+    totals = {
+        'Itens Concluidos': int(by_person['Itens Concluidos'].sum()),
+        'Itens Iniciados': int(by_person['Itens Iniciados'].sum()),
+        'WIP no Fim': int(by_person['WIP no Fim'].sum()),
+    }
+    return by_person, totals
+
+
+def compute_cross_source_capacity_metrics(jira_df, bitbucket_logs, start_ts, end_ts):
+    alias_index = _load_person_alias_index()
+    jira_people_df, jira_totals = compute_jira_person_capacity_metrics(
+        jira_df, start_ts, end_ts, alias_index=alias_index
+    )
+    bb_people_df, bb_totals = compute_bitbucket_contributor_metrics(
+        bitbucket_logs, start_ts, end_ts, alias_index=alias_index
+    )
+
+    if 'Pessoa' not in jira_people_df.columns:
+        jira_people_df = pd.DataFrame(columns=['Pessoa'])
+    if 'Pessoa' not in bb_people_df.columns:
+        bb_people_df = pd.DataFrame(columns=['Pessoa'])
+
+    if jira_people_df.empty and bb_people_df.empty:
+        return pd.DataFrame(), {}, {}
+
+    merged = pd.merge(jira_people_df, bb_people_df, how='outer', on='Pessoa')
+    numeric_fill_zero = [
+        'Itens Concluidos',
+        'Itens Iniciados',
+        'WIP no Fim',
+        'PRs Abertos',
+        'Aprovacoes',
+        'Reprovacoes',
+        'PRs Declinados (Autor)',
+        'Commits',
+    ]
+    for col in numeric_fill_zero:
+        if col not in merged.columns:
+            merged[col] = 0
+        merged[col] = pd.to_numeric(merged[col], errors='coerce').fillna(0).astype(int)
+
+    if 'Lead Time Mediano (dias)' not in merged.columns:
+        merged['Lead Time Mediano (dias)'] = 0.0
+    merged['Lead Time Mediano (dias)'] = pd.to_numeric(merged['Lead Time Mediano (dias)'], errors='coerce').fillna(0.0).round(1)
+
+    commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    pullrequests = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    tech_keys = set()
+    for df_src in (commits, pullrequests):
+        if df_src is None or df_src.empty:
+            continue
+        date_col = 'date' if 'date' in df_src.columns else 'created_on'
+        if date_col in df_src.columns:
+            df_src = df_src[(df_src[date_col] >= start_ts) & (df_src[date_col] < end_ts)]
+        if 'work_item_keys' in df_src.columns:
+            for raw in df_src['work_item_keys'].fillna(''):
+                for key in str(raw).split('|'):
+                    key = key.strip().upper()
+                    if key:
+                        tech_keys.add(key)
+        if 'primary_work_item_key' in df_src.columns:
+            for key in df_src['primary_work_item_key'].fillna('').astype(str):
+                key = key.strip().upper()
+                if key:
+                    tech_keys.add(key)
+
+    merged['Itens com Evidencia Tecnica'] = 0
+    merged['Cobertura Tecnica (%)'] = 0.0
+    if jira_df is not None and not jira_df.empty:
+        id_col = 'ItemID' if 'ItemID' in jira_df.columns else ('ID' if 'ID' in jira_df.columns else None)
+        if id_col:
+            done_window = jira_df[
+                (jira_df['DataDone'] >= start_ts) &
+                (jira_df['DataDone'] < end_ts)
+            ].copy()
+            done_window['Pessoa'] = done_window['Responsavel'].apply(
+                lambda x: _canonical_person_name(x, alias_index=alias_index)
+            )
+            done_window = done_window[done_window['Pessoa'].astype(str).str.strip().ne('')]
+            done_window['ItemKey'] = done_window[id_col].astype(str).str.strip().str.upper()
+            done_window = done_window[done_window['ItemKey'].ne('')]
+            if not done_window.empty:
+                done_window['TemEvidenciaTecnica'] = done_window['ItemKey'].isin(tech_keys)
+                by_person_tech = done_window.groupby('Pessoa')['TemEvidenciaTecnica'].sum()
+                merged['Itens com Evidencia Tecnica'] = merged['Pessoa'].map(by_person_tech).fillna(0).astype(int)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    merged['Cobertura Tecnica (%)'] = np.where(
+                        merged['Itens Concluidos'] > 0,
+                        (merged['Itens com Evidencia Tecnica'] / merged['Itens Concluidos']) * 100.0,
+                        0.0,
+                    )
+                merged['Cobertura Tecnica (%)'] = merged['Cobertura Tecnica (%)'].round(1)
+
+    merged['Score Capacidade (proxy)'] = (
+        merged['Itens Concluidos'] +
+        merged['PRs Abertos'] +
+        merged['Aprovacoes'] +
+        merged['Reprovacoes'] +
+        (merged['Commits'] / 5.0)
+    ).round(1)
+    merged['Total Contribuicoes'] = (
+        merged['PRs Abertos'] +
+        merged['Aprovacoes'] +
+        merged['Reprovacoes'] +
+        merged['PRs Declinados (Autor)'] +
+        merged['Commits']
+    )
+    merged = merged.sort_values(
+        ['Score Capacidade (proxy)', 'Itens Concluidos', 'Total Contribuicoes', 'Pessoa'],
+        ascending=[False, False, False, True]
+    ).reset_index(drop=True)
+
+    totals = {
+        'Itens Concluidos': int(merged['Itens Concluidos'].sum()),
+        'PRs Abertos': int(merged['PRs Abertos'].sum()),
+        'Aprovacoes': int(merged['Aprovacoes'].sum()),
+        'Reprovacoes': int(merged['Reprovacoes'].sum()),
+        'Commits': int(merged['Commits'].sum()),
+        'Itens com Evidencia Tecnica': int(merged['Itens com Evidencia Tecnica'].sum()),
+    }
+    return merged, totals, {'jira': jira_totals, 'bitbucket': bb_totals}
+
+
+def compute_cross_source_capacity_weekly_metrics(jira_df, bitbucket_logs, start_ts, end_ts):
+    alias_index = _load_person_alias_index()
+    metric_frames = []
+
+    if jira_df is not None and not jira_df.empty and {'Responsavel', 'DataDone'}.issubset(jira_df.columns):
+        jira_done = jira_df.copy()
+        jira_done = jira_done[
+            (jira_done['DataDone'] >= start_ts) &
+            (jira_done['DataDone'] < end_ts)
+        ].copy()
+        jira_done['Pessoa'] = jira_done['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+        jira_done = jira_done[jira_done['Pessoa'].astype(str).str.strip().ne('')]
+        jira_done['DataDone'] = pd.to_datetime(jira_done['DataDone'], errors='coerce')
+        jira_done = jira_done.dropna(subset=['DataDone'])
+        if not jira_done.empty:
+            jira_done['Semana'] = weekly_bucket_start(jira_done['DataDone'])
+            metric_frames.append(
+                jira_done.groupby(['Semana', 'Pessoa'], as_index=False).size().rename(columns={'size': 'Itens Concluidos'})
+            )
+
+    commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    if commits is not None and not commits.empty and {'author', 'date'}.issubset(commits.columns):
+        c = commits[(commits['date'] >= start_ts) & (commits['date'] < end_ts)].copy()
+        c['Pessoa'] = c['author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+        c = c[c['Pessoa'].astype(str).str.strip().ne('')]
+        c['date'] = pd.to_datetime(c['date'], errors='coerce')
+        c = c.dropna(subset=['date'])
+        if not c.empty:
+            c['Semana'] = weekly_bucket_start(c['date'])
+            metric_frames.append(c.groupby(['Semana', 'Pessoa'], as_index=False).size().rename(columns={'size': 'Commits'}))
+
+    pullrequests = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    if pullrequests is not None and not pullrequests.empty:
+        if {'author', 'created_on'}.issubset(pullrequests.columns):
+            prs_opened = pullrequests[(pullrequests['created_on'] >= start_ts) & (pullrequests['created_on'] < end_ts)].copy()
+            prs_opened['Pessoa'] = prs_opened['author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+            prs_opened = prs_opened[prs_opened['Pessoa'].astype(str).str.strip().ne('')]
+            prs_opened['created_on'] = pd.to_datetime(prs_opened['created_on'], errors='coerce')
+            prs_opened = prs_opened.dropna(subset=['created_on'])
+            if not prs_opened.empty:
+                prs_opened['Semana'] = weekly_bucket_start(prs_opened['created_on'])
+                metric_frames.append(
+                    prs_opened.groupby(['Semana', 'Pessoa'], as_index=False).size().rename(columns={'size': 'PRs Abertos'})
+                )
+
+        if 'updated_on' in pullrequests.columns:
+            prs_review = pullrequests[(pullrequests['updated_on'] >= start_ts) & (pullrequests['updated_on'] < end_ts)].copy()
+            prs_review['updated_on'] = pd.to_datetime(prs_review['updated_on'], errors='coerce')
+            prs_review = prs_review.dropna(subset=['updated_on'])
+            if not prs_review.empty:
+                for col_name, metric_name in [('approved_by', 'Aprovacoes'), ('changes_requested_by', 'Reprovacoes')]:
+                    if col_name not in prs_review.columns:
+                        continue
+                    exploded = prs_review[['updated_on', col_name]].copy()
+                    exploded['Pessoa'] = exploded[col_name].apply(_split_people_field)
+                    exploded = exploded.explode('Pessoa')
+                    exploded['Pessoa'] = exploded['Pessoa'].apply(
+                        lambda x: _canonical_person_name(x, alias_index=alias_index)
+                    )
+                    exploded = exploded[exploded['Pessoa'].astype(str).str.strip().ne('')]
+                    if exploded.empty:
+                        continue
+                    exploded['Semana'] = weekly_bucket_start(exploded['updated_on'])
+                    metric_frames.append(
+                        exploded.groupby(['Semana', 'Pessoa'], as_index=False).size().rename(columns={'size': metric_name})
+                    )
+
+    if not metric_frames:
+        return pd.DataFrame()
+
+    merged = metric_frames[0].copy()
+    for frame in metric_frames[1:]:
+        merged = pd.merge(merged, frame, how='outer', on=['Semana', 'Pessoa'])
+
+    for col in ['Itens Concluidos', 'PRs Abertos', 'Aprovacoes', 'Reprovacoes', 'Commits']:
+        if col not in merged.columns:
+            merged[col] = 0
+        merged[col] = pd.to_numeric(merged[col], errors='coerce').fillna(0).astype(int)
+
+    merged['Score Capacidade (proxy)'] = (
+        merged['Itens Concluidos'] +
+        merged['PRs Abertos'] +
+        merged['Aprovacoes'] +
+        merged['Reprovacoes'] +
+        (merged['Commits'] / 5.0)
+    ).round(1)
+    merged = merged.sort_values(['Semana', 'Score Capacidade (proxy)', 'Pessoa'], ascending=[True, False, True]).reset_index(drop=True)
+    return merged
+
+
+def build_bitbucket_contributor_section(projeto, start_ts, end_ts, jira_df=None):
     if not projeto:
         return html.Div(
             'Selecione um projeto para visualizar ranking de contribuições no Bitbucket.',
@@ -640,9 +971,10 @@ def build_bitbucket_contributor_section(projeto, start_ts, end_ts):
 
     logs = load_project_bitbucket_logs(projeto)
     metrics_df, totals = compute_bitbucket_contributor_metrics(logs, start_ts, end_ts)
-    if metrics_df.empty:
+    cross_df, cross_totals, _ = compute_cross_source_capacity_metrics(jira_df, logs, start_ts, end_ts)
+    if metrics_df.empty and (cross_df is None or cross_df.empty):
         return html.Div(
-            f'Sem dados suficientes de contribuições Bitbucket para {projeto} no período selecionado.',
+            f'Sem dados suficientes de contribuições/capacidade para {projeto} no período selecionado.',
             style={'textAlign': 'center', 'padding': '12px', 'color': '#666'}
         )
 
@@ -654,72 +986,165 @@ def build_bitbucket_contributor_section(projeto, start_ts, end_ts):
         leader_text = ', '.join(leaders)
         return f'{leader_text} ({max_value})'
 
-    kpi_specs = [
-        ('Top PRs', _top_label('PRs Abertos')),
-        ('Top Aprovações', _top_label('Aprovacoes')),
-        ('Top Reprovações', _top_label('Reprovacoes')),
-        ('Top PRs Declinados', _top_label('PRs Declinados (Autor)')),
-        ('Top Commits', _top_label('Commits')),
-    ]
-    kpi_cards = [
-        html.Div([
-            html.Div(label, style={'fontSize': '12px', 'color': '#555', 'marginBottom': '4px'}),
-            html.Div(value, style={'fontSize': '14px', 'fontWeight': 'bold'})
-        ], style={
-            'border': '1px solid #e5e7eb',
-            'borderRadius': '8px',
-            'padding': '8px 10px',
-            'backgroundColor': '#fafafa',
-            'minWidth': '180px'
-        })
-        for label, value in kpi_specs
-    ]
-
-    top_rank = metrics_df.head(15).copy()
-    table_cols = ['Pessoa', 'PRs Abertos', 'Aprovacoes', 'Reprovacoes', 'PRs Declinados (Autor)', 'Commits']
-    fig_rank = px.bar(
-        top_rank.sort_values('Total Contribuicoes', ascending=True),
-        x='Total Contribuicoes',
-        y='Pessoa',
-        orientation='h',
-        title='Ranking de contribuições (soma das métricas no período)',
-        color='Total Contribuicoes',
-        color_continuous_scale='Blues'
+    bitbucket_panel = html.Div(
+        f'Sem dados suficientes de contribuições Bitbucket para {projeto} no período selecionado.',
+        style={'textAlign': 'center', 'padding': '12px', 'color': '#666'}
     )
-    fig_rank.update_layout(height=max(320, 38 * len(top_rank) + 120), template='plotly_white', margin=dict(t=60, b=40))
-    fig_rank.update_coloraxes(showscale=False)
+    if not metrics_df.empty:
+        kpi_specs = [
+            ('Top PRs', _top_label('PRs Abertos')),
+            ('Top Aprovações', _top_label('Aprovacoes')),
+            ('Top Reprovações', _top_label('Reprovacoes')),
+            ('Top PRs Declinados', _top_label('PRs Declinados (Autor)')),
+            ('Top Commits', _top_label('Commits')),
+        ]
+        kpi_cards = [
+            html.Div([
+                html.Div(label, style={'fontSize': '12px', 'color': '#555', 'marginBottom': '4px'}),
+                html.Div(value, style={'fontSize': '14px', 'fontWeight': 'bold'})
+            ], style={
+                'border': '1px solid #e5e7eb',
+                'borderRadius': '8px',
+                'padding': '8px 10px',
+                'backgroundColor': '#fafafa',
+                'minWidth': '180px'
+            })
+            for label, value in kpi_specs
+        ]
+
+        top_rank = metrics_df.head(15).copy()
+        table_cols = ['Pessoa', 'PRs Abertos', 'Aprovacoes', 'Reprovacoes', 'PRs Declinados (Autor)', 'Commits']
+        fig_rank = px.bar(
+            top_rank.sort_values('Total Contribuicoes', ascending=True),
+            x='Total Contribuicoes',
+            y='Pessoa',
+            orientation='h',
+            title='Ranking de contribuições (soma das métricas no período)',
+            color='Total Contribuicoes',
+            color_continuous_scale='Blues'
+        )
+        fig_rank.update_layout(height=max(320, 38 * len(top_rank) + 120), template='plotly_white', margin=dict(t=60, b=40))
+        fig_rank.update_coloraxes(showscale=False)
+
+        bitbucket_panel = html.Div([
+            html.Div(
+                'Métricas de revisão dependem de colunas de revisores no CSV de PR (approved_by/changes_requested_by).',
+                style={'color': '#666', 'fontSize': '12px', 'marginBottom': '8px'}
+            ),
+            html.Div(kpi_cards, style={'display': 'flex', 'gap': '8px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
+            html.Div([
+                html.Span(f"PRs: {totals.get('PRs Abertos', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Aprovações: {totals.get('Aprovacoes', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Reprovações: {totals.get('Reprovacoes', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"PRs Declinados: {totals.get('PRs Declinados (Autor)', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Commits: {totals.get('Commits', 0)}"),
+            ], style={'fontSize': '12px', 'color': '#555', 'marginBottom': '10px'}),
+            dash_table.DataTable(
+                columns=[
+                    {'name': 'Pessoa', 'id': 'Pessoa'},
+                    {'name': 'PRs Abertos', 'id': 'PRs Abertos'},
+                    {'name': 'Aprovações', 'id': 'Aprovacoes'},
+                    {'name': 'Reprovações', 'id': 'Reprovacoes'},
+                    {'name': 'PRs Declinados (Autor)', 'id': 'PRs Declinados (Autor)'},
+                    {'name': 'Commits', 'id': 'Commits'},
+                ],
+                data=top_rank[table_cols].to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '7px'},
+                style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+                style_table={'overflowX': 'auto'},
+            ),
+            dcc.Graph(figure=fig_rank),
+        ])
+
+    cross_section = html.Div()
+    if cross_df is not None and not cross_df.empty:
+        cross_top = cross_df.head(20).copy()
+        cross_cols = [
+            'Pessoa',
+            'Itens Concluidos',
+            'Itens com Evidencia Tecnica',
+            'Cobertura Tecnica (%)',
+            'PRs Abertos',
+            'Aprovacoes',
+            'Reprovacoes',
+            'Commits',
+            'Score Capacidade (proxy)',
+        ]
+        fig_cross = px.bar(
+            cross_top.sort_values('Score Capacidade (proxy)', ascending=True),
+            x='Score Capacidade (proxy)',
+            y='Pessoa',
+            orientation='h',
+            title='Capacidade por pessoa (Jira + Bitbucket, proxy)',
+            color='Itens Concluidos',
+            color_continuous_scale='Tealgrn'
+        )
+        fig_cross.update_layout(height=max(340, 38 * len(cross_top) + 120), template='plotly_white', margin=dict(t=60, b=40))
+        fig_cross.update_coloraxes(showscale=False)
+
+        weekly_df = compute_cross_source_capacity_weekly_metrics(jira_df, logs, start_ts, end_ts)
+        weekly_section = html.Div()
+        if weekly_df is not None and not weekly_df.empty:
+            top_people = cross_top['Pessoa'].head(5).tolist()
+            weekly_top = weekly_df[weekly_df['Pessoa'].isin(top_people)].copy()
+            weekly_top = weekly_top.sort_values(['Semana', 'Score Capacidade (proxy)', 'Pessoa'])
+            if not weekly_top.empty:
+                fig_weekly = px.line(
+                    weekly_top,
+                    x='Semana',
+                    y='Score Capacidade (proxy)',
+                    color='Pessoa',
+                    markers=True,
+                    title='Tendência semanal de capacidade (Top 5 pessoas no período)'
+                )
+                fig_weekly.update_layout(template='plotly_white', margin=dict(t=60, b=40), legend_title_text='Pessoa')
+                weekly_section = html.Div([
+                    dcc.Graph(figure=fig_weekly),
+                ])
+
+        cross_section = html.Div([
+            html.H4('Capacidade Cruzada (Jira + Bitbucket)', style={'marginTop': '28px', 'marginBottom': '10px'}),
+            html.Div(
+                'Score proxy = itens concluídos + PRs + aprovações + reprovações + commits/5. Use como tendência, não como produtividade individual.',
+                style={'color': '#666', 'fontSize': '12px', 'marginBottom': '8px'}
+            ),
+            html.Div([
+                html.Span(f"Itens concluídos: {cross_totals.get('Itens Concluidos', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Itens com evidência técnica: {cross_totals.get('Itens com Evidencia Tecnica', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"PRs: {cross_totals.get('PRs Abertos', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Aprovações: {cross_totals.get('Aprovacoes', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Reprovações: {cross_totals.get('Reprovacoes', 0)}", style={'marginRight': '14px'}),
+                html.Span(f"Commits: {cross_totals.get('Commits', 0)}"),
+            ], style={'fontSize': '12px', 'color': '#555', 'marginBottom': '10px'}),
+            dash_table.DataTable(
+                columns=[
+                    {'name': 'Pessoa', 'id': 'Pessoa'},
+                    {'name': 'Itens Concluídos', 'id': 'Itens Concluidos'},
+                    {'name': 'Itens c/ Evidência Técnica', 'id': 'Itens com Evidencia Tecnica'},
+                    {'name': 'Cobertura Técnica (%)', 'id': 'Cobertura Tecnica (%)'},
+                    {'name': 'PRs Abertos', 'id': 'PRs Abertos'},
+                    {'name': 'Aprovações', 'id': 'Aprovacoes'},
+                    {'name': 'Reprovações', 'id': 'Reprovacoes'},
+                    {'name': 'Commits', 'id': 'Commits'},
+                    {'name': 'Score Capacidade (proxy)', 'id': 'Score Capacidade (proxy)'},
+                ],
+                data=cross_top[cross_cols].to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '7px'},
+                style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+                style_table={'overflowX': 'auto'},
+            ),
+            dcc.Graph(figure=fig_cross),
+            weekly_section,
+        ], style={'marginTop': '16px'})
 
     return html.Div([
         html.H4('Contribuições Bitbucket (CSV)', style={'marginTop': '28px', 'marginBottom': '10px'}),
-        html.Div(
-            'Métricas de revisão dependem de colunas de revisores no CSV de PR (approved_by/changes_requested_by).',
-            style={'color': '#666', 'fontSize': '12px', 'marginBottom': '8px'}
-        ),
-        html.Div(kpi_cards, style={'display': 'flex', 'gap': '8px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
-        html.Div([
-            html.Span(f"PRs: {totals.get('PRs Abertos', 0)}", style={'marginRight': '14px'}),
-            html.Span(f"Aprovações: {totals.get('Aprovacoes', 0)}", style={'marginRight': '14px'}),
-            html.Span(f"Reprovações: {totals.get('Reprovacoes', 0)}", style={'marginRight': '14px'}),
-            html.Span(f"PRs Declinados: {totals.get('PRs Declinados (Autor)', 0)}", style={'marginRight': '14px'}),
-            html.Span(f"Commits: {totals.get('Commits', 0)}"),
-        ], style={'fontSize': '12px', 'color': '#555', 'marginBottom': '10px'}),
-        dash_table.DataTable(
-            columns=[
-                {'name': 'Pessoa', 'id': 'Pessoa'},
-                {'name': 'PRs Abertos', 'id': 'PRs Abertos'},
-                {'name': 'Aprovações', 'id': 'Aprovacoes'},
-                {'name': 'Reprovações', 'id': 'Reprovacoes'},
-                {'name': 'PRs Declinados (Autor)', 'id': 'PRs Declinados (Autor)'},
-                {'name': 'Commits', 'id': 'Commits'},
-            ],
-            data=top_rank[table_cols].to_dict('records'),
-            style_cell={'textAlign': 'center', 'padding': '7px'},
-            style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
-            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
-            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
-            style_table={'overflowX': 'auto'},
-        ),
-        dcc.Graph(figure=fig_rank),
+        bitbucket_panel,
+        cross_section,
     ], style={'marginTop': '16px'})
 
 
@@ -3807,7 +4232,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             })
 
         titulo = f"Performance da Entrega do Serviço: {projeto}" if projeto else "Performance da Entrega do Serviço"
-        contributor_section = build_bitbucket_contributor_section(projeto, start_ts, end_ts)
+        contributor_section = build_bitbucket_contributor_section(projeto, start_ts, end_ts, jira_df=df_proj)
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),

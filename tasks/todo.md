@@ -2317,3 +2317,93 @@
   - `python3 - <<'PY' ... profile de cobertura e joins dos 3 CSVs Bitbucket ... PY`
 - Suggested commit message:
   - `docs(assessment): map feasible jira-bitbucket capacity metrics and data gaps`
+
+## Current Task (MVP: capacidade por pessoa cruzando Jira + Bitbucket)
+- [x] Implementar padronização de identidade por pessoa com mapa de aliases configurável
+- [x] Calcular métricas Jira por pessoa no período filtrado da aba Performance
+- [x] Consolidar métricas Jira + Bitbucket em ranking único com score proxy
+- [x] Exibir seção de capacidade cruzada na aba `Performance do Serviço`
+- [x] Validar sintaxe e smoke tests de cálculo/renderização
+
+## Specification (MVP: capacidade por pessoa cruzando Jira + Bitbucket)
+- Objetivo: disponibilizar no dashboard um ranking de capacidade por pessoa combinando throughput Jira e atividade técnica no Bitbucket.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Suporte a alias de pessoa via `FLOW_PMO_PERSON_ALIAS_MAP` para reduzir divergência de nomes Jira/Bitbucket.
+  - Nova tabela de capacidade cruzada com pelo menos: `Itens Concluídos`, `Itens c/ Evidência Técnica`, `Cobertura Técnica`, `PRs`, `Aprovações`, `Commits`.
+  - Seção renderiza dentro da aba `Performance do Serviço` respeitando filtros ativos.
+
+## Review (MVP: capacidade por pessoa cruzando Jira + Bitbucket)
+- What was validated:
+  - `dashboard_full.py` agora suporta alias de pessoas por variável de ambiente `FLOW_PMO_PERSON_ALIAS_MAP` (json) para canonizar nomes entre Jira e Bitbucket.
+  - Foi adicionado cálculo Jira por pessoa no período (`Itens Concluídos`, `Itens Iniciados`, `WIP no Fim`, `Lead Time Mediano`).
+  - Foi adicionado consolidado cruzado Jira + Bitbucket com:
+    - `Itens com Evidência Técnica` (issue key presente em commits/PRs no período)
+    - `Cobertura Técnica (%)`
+    - `Score Capacidade (proxy)` para ordenação do ranking.
+  - A seção `Contribuições Bitbucket (CSV)` passou a incluir bloco adicional `Capacidade Cruzada (Jira + Bitbucket)` na aba `Performance do Serviço`.
+  - A integração foi conectada ao fluxo existente, passando `df_proj` (filtros ativos) para o consolidado cruzado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_bitbucket_contributor_metrics / compute_jira_person_capacity_metrics / compute_cross_source_capacity_metrics ... PY`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section('W1NNER', start, end, jira_df=df) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add cross-source capacity ranking per person (jira + bitbucket)`
+
+## Current Task (Hotfix: KeyError 'Pessoa' no consolidado Jira+Bitbucket)
+- [x] Reproduzir cenário de dataframe vazio no consolidado cruzado
+- [x] Corrigir merge para preservar schema mínimo com coluna `Pessoa`
+- [x] Validar cálculo/renderização com Jira vazio, Bitbucket vazio e cenário normal
+
+## Review (Hotfix: KeyError 'Pessoa' no consolidado Jira+Bitbucket)
+- What was validated:
+  - `compute_cross_source_capacity_metrics` agora garante coluna `Pessoa` nos dataframes de Jira/Bitbucket antes do `pd.merge`.
+  - O erro `KeyError: 'Pessoa'` deixa de ocorrer quando uma das fontes está vazia.
+  - O render da seção de contribuições/capacidade continua funcional no cenário normal.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_cross_source_capacity_metrics(... logs vazios ...) ... PY`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section('W1NNER', ...) ... PY`
+- Suggested commit message:
+  - `fix(dashboard): handle empty jira/bitbucket person datasets in cross-source merge`
+
+## Current Task (Fase 2: capacidade semanal por pessoa no cruzamento Jira+Bitbucket)
+- [x] Implementar dataframe semanal consolidado por pessoa (`Semana`, `Pessoa`, métricas Jira/Bitbucket)
+- [x] Adicionar gráfico de tendência semanal de `Score Capacidade (proxy)` no bloco de capacidade cruzada
+- [x] Ajustar seção para funcionar com ausência parcial de dados (somente Jira ou somente Bitbucket)
+- [x] Validar sintaxe e smoke tests para cenários normal/parcial
+
+## Specification (Fase 2: capacidade semanal por pessoa no cruzamento Jira+Bitbucket)
+- Objetivo: evoluir o MVP para permitir leitura temporal (semanal) da capacidade por pessoa, não apenas acumulado do período.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Função de agregação semanal cruzada disponível no backend da dashboard.
+  - Bloco `Capacidade Cruzada (Jira + Bitbucket)` passa a exibir tendência semanal dos top contribuidores.
+  - A aba `Performance do Serviço` permanece estável quando uma fonte está vazia.
+
+## Review (Fase 2: capacidade semanal por pessoa no cruzamento Jira+Bitbucket)
+- What was validated:
+  - `dashboard_full.py` agora possui `compute_cross_source_capacity_weekly_metrics(...)`, consolidando por semana e pessoa:
+    - `Itens Concluidos` (Jira por `DataDone`)
+    - `PRs Abertos` (PR `created_on`)
+    - `Aprovacoes` / `Reprovacoes` (PR `updated_on` + reviewers)
+    - `Commits`
+    - `Score Capacidade (proxy)`
+  - O bloco `Capacidade Cruzada (Jira + Bitbucket)` ganhou gráfico de tendência semanal para as top 5 pessoas do período.
+  - `build_bitbucket_contributor_section(...)` foi robustecido para:
+    - mostrar painel de Bitbucket quando houver dados;
+    - manter o bloco cruzado quando Bitbucket estiver vazio mas Jira existir;
+    - retornar mensagem única somente quando ambas as fontes estiverem sem dados.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_cross_source_capacity_weekly_metrics(jira, logs, ...) ... PY`
+  - `python3 - <<'PY' ... weekly jira-only / weekly bb-only ... PY`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section(...) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add weekly cross-source capacity trends per person`

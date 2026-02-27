@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-02-27
+- Context: Implementação de ranking cruzado Jira + Bitbucket na aba Performance.
+- User correction: Reportou exceção `KeyError: 'Pessoa'` no merge do consolidado (`compute_cross_source_capacity_metrics`).
+- Root cause: O merge assumia que o dataframe de métricas Bitbucket sempre teria a coluna `Pessoa`; quando a fonte vinha vazia, a função retornava `DataFrame()` sem schema e o merge quebrava.
+- Prevention rule: Em merges de fontes opcionais (Jira/Bitbucket), garantir schema mínimo explícito antes do `pd.merge` (colunas-chave devem existir mesmo com dataframe vazio).
+- Action added to workflow: Antes de concluir features de agregação multi-fonte, executar smoke test com cada fonte vazia isoladamente e ambas vazias.
+
 - Date: 2026-02-25
 - Context: Divergência do componente de calendário entre localhost e Vercel, com hacks JS quebrando interação em produção.
 - User correction: Mostrou que localhost estava com DatePicker novo (mês/ano nativos) enquanto produção continuava com UI antiga e comportamento quebrado.
