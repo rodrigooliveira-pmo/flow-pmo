@@ -1,5 +1,100 @@
 # Task Plan
 
+## Current Task (Bitbucket logs: rastreamento de work items)
+- [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de commits
+- [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de pull requests
+- [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de pipelines
+- [x] Validar sintaxe/help e registrar evidências
+
+## Specification (Bitbucket logs: rastreamento de work items)
+- Objetivo: permitir correlação entre logs do Bitbucket e tarefas/issues/bugs do dashboard via chaves de work item.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - CSVs de commits, PRs e pipelines passam a conter `work_item_keys` e `primary_work_item_key`.
+  - Extração usa regex robusta para padrões tipo `W1NNR-2154` em mensagem/título/branch.
+  - Script permanece válido em sintaxe e `--help`.
+
+## Review (Bitbucket logs: rastreamento de work items)
+- What was validated:
+  - `bitbucket_export.py` agora extrai chaves de work item via regex (`[A-Z][A-Z0-9]+-\\d+`) e adiciona `work_item_keys` + `primary_work_item_key` no CSV de commits.
+  - O CSV de PR passa a incluir as mesmas colunas de rastreamento usando `title`, `source_branch` e `destination_branch`.
+  - O CSV de pipelines passa a incluir as mesmas colunas usando `ref_name`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 - <<'PY' ... extract_work_item_keys(...) + export_* com payload mock ... PY`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(integration): add work-item key extraction to bitbucket commit/pr/pipeline exports`
+
+## Current Task (Dashboard Full: métricas de contribuições Bitbucket em CSV)
+- [x] Expandir export de PR para incluir revisores e contagens de aprovação/reprovação no CSV
+- [x] Calcular métricas por pessoa no `dashboard_full.py` (PRs abertos, aprovações, reprovações, PRs declinados, commits)
+- [x] Exibir painel e ranking dessas métricas na aba `Performance do Serviço`
+- [x] Validar sintaxe/execução local e registrar review com evidências
+
+## Specification (Dashboard Full: métricas de contribuições Bitbucket em CSV)
+- Objetivo: apresentar no `dashboard_full.py` as métricas de contribuição solicitadas usando arquivos CSV do Bitbucket.
+- Escopo:
+  - `bitbucket_export.py`
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - CSV de PR passa a incluir dados suficientes para contar aprovações/reprovações por revisor.
+  - Dashboard mostra ranking por pessoa com as colunas: `PRs abertos`, `Aprovações`, `Reprovações`, `PRs declinados (autor)`, `Commits`.
+  - O recorte respeita projeto e período filtrados na aba.
+  - Não quebra leitura de CSV legado sem as novas colunas.
+
+## Review (Dashboard Full: métricas de contribuições Bitbucket em CSV)
+- What was validated:
+  - `bitbucket_export.py` passou a exportar no CSV de PR os campos `approved_by` e `changes_requested_by`, além de contagens de revisores.
+  - `dashboard_full.py` agora calcula métricas por pessoa usando CSVs Bitbucket no período filtrado (`PRs Abertos`, `Aprovações`, `Reprovações`, `PRs Declinados (Autor)`, `Commits`).
+  - A aba `Performance do Serviço` passou a exibir bloco de contribuição com KPIs, tabela ranking e gráfico de contribuições.
+  - Compatibilidade mantida com CSV legado sem colunas novas de revisão (métricas de aprovação/reprovação ficam zeradas).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py dashboard_full.py`
+  - `python3 bitbucket_export.py --help`
+  - `python3 - <<'PY' ... load_project_bitbucket_logs('W1NNER') + compute_bitbucket_contributor_metrics(...) ... PY`
+  - `git diff -- bitbucket_export.py dashboard_full.py tasks/todo.md`
+- Operational note:
+  - Para preencher aprovações/reprovações por pessoa no dashboard, é necessário reexportar `*_pullrequests.csv` com esta versão do exportador.
+- Suggested commit message:
+  - `feat(dashboard): add csv-based bitbucket contribution ranking and reviewer metrics`
+
+## Current Task (Bitbucket export: otimização de performance)
+- [x] Paralelizar export por endpoint (commits/PRs/pipelines)
+- [x] Adicionar flags para pular endpoints não necessários
+- [x] Corrigir export de PR para incluir todos os estados (`state=ALL`)
+- [x] Reduzir payload da API usando `fields`
+- [x] Validar CLI/sintaxe e documentar comandos recomendados
+
+## Specification (Bitbucket export: otimização de performance)
+- Objetivo: reduzir tempo do `bitbucket_export.py` em execuções operacionais recorrentes.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador suporta execução paralela configurável (`--workers`).
+  - Exportador permite pular endpoints (`--skip-commits`, `--skip-pullrequests`, `--skip-pipelines`).
+  - Pull requests passam a exportar todos os estados do endpoint (`state=ALL`).
+  - Requisições usam `fields` para reduzir payload transferido.
+
+## Review (Bitbucket export: otimização de performance)
+- What was validated:
+  - `bitbucket_export.py` agora executa endpoints em paralelo com `ThreadPoolExecutor` (`--workers`, default `3`).
+  - Foram adicionadas flags de skip por endpoint para reduzir tempo quando só parte dos dados é necessária.
+  - Pull requests agora usam `state=ALL`, evitando CSV com apenas PRs abertos.
+  - Endpoints usam `fields` com seleção mínima de colunas para reduzir transferência e parsing.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 bitbucket_export.py --help`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Notes:
+  - Neste ambiente, o teste online do endpoint falhou por DNS/rede (`api.bitbucket.org` indisponível), então a validação foi estrutural/local.
+- Suggested commit message:
+  - `perf(integration): parallelize and slim bitbucket export with endpoint skip flags`
+
 ## Current Task (Validação DORA Bitbucket: MTTR e taxa de falha)
 - [x] Auditar consistência entre tabela do dashboard e CSVs extraídos do Bitbucket
 - [x] Corrigir export de pipelines para incluir resultado real (sucesso/falha) além do estado de execução

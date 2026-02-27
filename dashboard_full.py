@@ -515,6 +515,214 @@ def load_project_bitbucket_logs(projeto):
     return {'commits': commits, 'pullrequests': pullrequests, 'pipelines': pipelines}
 
 
+def _normalize_person_name(raw_name):
+    if raw_name is None or (isinstance(raw_name, float) and pd.isna(raw_name)):
+        return ''
+    name = str(raw_name).strip()
+    if not name or name.lower() in {'nan', 'none'}:
+        return ''
+    if '<' in name:
+        name = name.split('<', 1)[0].strip()
+    return re.sub(r'\s+', ' ', name).strip()
+
+
+def _split_people_field(raw_value):
+    if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+        return []
+    text = str(raw_value).strip()
+    if not text or text.lower() in {'nan', 'none'}:
+        return []
+    out = []
+    for part in text.split('|'):
+        person = _normalize_person_name(part)
+        if person:
+            out.append(person)
+    return out
+
+
+def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts):
+    commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    pullrequests = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    stats = {}
+
+    def _ensure_person(raw_name):
+        person = _normalize_person_name(raw_name)
+        if not person:
+            return None
+        key = person.lower()
+        if key not in stats:
+            stats[key] = {
+                'Pessoa': person,
+                'PRs Abertos': 0,
+                'Aprovacoes': 0,
+                'Reprovacoes': 0,
+                'PRs Declinados (Autor)': 0,
+                'Commits': 0,
+            }
+        return key
+
+    if not commits.empty and {'author', 'date'}.issubset(commits.columns):
+        commit_window = commits[
+            (commits['date'] >= start_ts) &
+            (commits['date'] < end_ts)
+        ]
+        for author_name, count in commit_window['author'].value_counts(dropna=True).items():
+            person_key = _ensure_person(author_name)
+            if person_key:
+                stats[person_key]['Commits'] += int(count)
+
+    if not pullrequests.empty:
+        prs = pullrequests.copy()
+        if 'created_on' in prs.columns:
+            prs_opened_window = prs[(prs['created_on'] >= start_ts) & (prs['created_on'] < end_ts)]
+        else:
+            prs_opened_window = prs
+
+        for author_name, count in prs_opened_window['author'].value_counts(dropna=True).items():
+            person_key = _ensure_person(author_name)
+            if person_key:
+                stats[person_key]['PRs Abertos'] += int(count)
+
+        if 'state_norm' in prs.columns:
+            if 'updated_on' in prs.columns:
+                decline_window = prs[(prs['updated_on'] >= start_ts) & (prs['updated_on'] < end_ts)]
+            else:
+                decline_window = prs_opened_window
+            decline_window = decline_window[decline_window['state_norm'] == 'declined']
+            for author_name, count in decline_window['author'].value_counts(dropna=True).items():
+                person_key = _ensure_person(author_name)
+                if person_key:
+                    stats[person_key]['PRs Declinados (Autor)'] += int(count)
+
+        review_window = prs_opened_window
+        if 'updated_on' in prs.columns:
+            review_window = prs[(prs['updated_on'] >= start_ts) & (prs['updated_on'] < end_ts)]
+        for _, row in review_window.iterrows():
+            for approver in _split_people_field(row.get('approved_by')):
+                person_key = _ensure_person(approver)
+                if person_key:
+                    stats[person_key]['Aprovacoes'] += 1
+            for rejector in _split_people_field(row.get('changes_requested_by')):
+                person_key = _ensure_person(rejector)
+                if person_key:
+                    stats[person_key]['Reprovacoes'] += 1
+
+    if not stats:
+        return pd.DataFrame(), {}
+
+    df_metrics = pd.DataFrame(stats.values())
+    df_metrics['Total Contribuicoes'] = (
+        df_metrics['PRs Abertos'] +
+        df_metrics['Aprovacoes'] +
+        df_metrics['Reprovacoes'] +
+        df_metrics['PRs Declinados (Autor)'] +
+        df_metrics['Commits']
+    )
+    df_metrics = df_metrics.sort_values(
+        ['PRs Abertos', 'Aprovacoes', 'Commits', 'Reprovacoes', 'PRs Declinados (Autor)', 'Pessoa'],
+        ascending=[False, False, False, False, False, True]
+    ).reset_index(drop=True)
+    return df_metrics, {
+        'PRs Abertos': int(df_metrics['PRs Abertos'].sum()),
+        'Aprovacoes': int(df_metrics['Aprovacoes'].sum()),
+        'Reprovacoes': int(df_metrics['Reprovacoes'].sum()),
+        'PRs Declinados (Autor)': int(df_metrics['PRs Declinados (Autor)'].sum()),
+        'Commits': int(df_metrics['Commits'].sum()),
+    }
+
+
+def build_bitbucket_contributor_section(projeto, start_ts, end_ts):
+    if not projeto:
+        return html.Div(
+            'Selecione um projeto para visualizar ranking de contribuições no Bitbucket.',
+            style={'textAlign': 'center', 'padding': '12px', 'color': '#666'}
+        )
+
+    logs = load_project_bitbucket_logs(projeto)
+    metrics_df, totals = compute_bitbucket_contributor_metrics(logs, start_ts, end_ts)
+    if metrics_df.empty:
+        return html.Div(
+            f'Sem dados suficientes de contribuições Bitbucket para {projeto} no período selecionado.',
+            style={'textAlign': 'center', 'padding': '12px', 'color': '#666'}
+        )
+
+    def _top_label(col_name):
+        max_value = int(metrics_df[col_name].max()) if col_name in metrics_df.columns else 0
+        if max_value <= 0:
+            return '—'
+        leaders = metrics_df[metrics_df[col_name] == max_value]['Pessoa'].head(2).tolist()
+        leader_text = ', '.join(leaders)
+        return f'{leader_text} ({max_value})'
+
+    kpi_specs = [
+        ('Top PRs', _top_label('PRs Abertos')),
+        ('Top Aprovações', _top_label('Aprovacoes')),
+        ('Top Reprovações', _top_label('Reprovacoes')),
+        ('Top PRs Declinados', _top_label('PRs Declinados (Autor)')),
+        ('Top Commits', _top_label('Commits')),
+    ]
+    kpi_cards = [
+        html.Div([
+            html.Div(label, style={'fontSize': '12px', 'color': '#555', 'marginBottom': '4px'}),
+            html.Div(value, style={'fontSize': '14px', 'fontWeight': 'bold'})
+        ], style={
+            'border': '1px solid #e5e7eb',
+            'borderRadius': '8px',
+            'padding': '8px 10px',
+            'backgroundColor': '#fafafa',
+            'minWidth': '180px'
+        })
+        for label, value in kpi_specs
+    ]
+
+    top_rank = metrics_df.head(15).copy()
+    table_cols = ['Pessoa', 'PRs Abertos', 'Aprovacoes', 'Reprovacoes', 'PRs Declinados (Autor)', 'Commits']
+    fig_rank = px.bar(
+        top_rank.sort_values('Total Contribuicoes', ascending=True),
+        x='Total Contribuicoes',
+        y='Pessoa',
+        orientation='h',
+        title='Ranking de contribuições (soma das métricas no período)',
+        color='Total Contribuicoes',
+        color_continuous_scale='Blues'
+    )
+    fig_rank.update_layout(height=max(320, 38 * len(top_rank) + 120), template='plotly_white', margin=dict(t=60, b=40))
+    fig_rank.update_coloraxes(showscale=False)
+
+    return html.Div([
+        html.H4('Contribuições Bitbucket (CSV)', style={'marginTop': '28px', 'marginBottom': '10px'}),
+        html.Div(
+            'Métricas de revisão dependem de colunas de revisores no CSV de PR (approved_by/changes_requested_by).',
+            style={'color': '#666', 'fontSize': '12px', 'marginBottom': '8px'}
+        ),
+        html.Div(kpi_cards, style={'display': 'flex', 'gap': '8px', 'flexWrap': 'wrap', 'marginBottom': '12px'}),
+        html.Div([
+            html.Span(f"PRs: {totals.get('PRs Abertos', 0)}", style={'marginRight': '14px'}),
+            html.Span(f"Aprovações: {totals.get('Aprovacoes', 0)}", style={'marginRight': '14px'}),
+            html.Span(f"Reprovações: {totals.get('Reprovacoes', 0)}", style={'marginRight': '14px'}),
+            html.Span(f"PRs Declinados: {totals.get('PRs Declinados (Autor)', 0)}", style={'marginRight': '14px'}),
+            html.Span(f"Commits: {totals.get('Commits', 0)}"),
+        ], style={'fontSize': '12px', 'color': '#555', 'marginBottom': '10px'}),
+        dash_table.DataTable(
+            columns=[
+                {'name': 'Pessoa', 'id': 'Pessoa'},
+                {'name': 'PRs Abertos', 'id': 'PRs Abertos'},
+                {'name': 'Aprovações', 'id': 'Aprovacoes'},
+                {'name': 'Reprovações', 'id': 'Reprovacoes'},
+                {'name': 'PRs Declinados (Autor)', 'id': 'PRs Declinados (Autor)'},
+                {'name': 'Commits', 'id': 'Commits'},
+            ],
+            data=top_rank[table_cols].to_dict('records'),
+            style_cell={'textAlign': 'center', 'padding': '7px'},
+            style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            style_table={'overflowX': 'auto'},
+        ),
+        dcc.Graph(figure=fig_rank),
+    ], style={'marginTop': '16px'})
+
+
 def load_env_file(env_file):
     p = os.path.join(os.path.dirname(__file__), env_file)
     if not os.path.exists(p):
@@ -2994,11 +3202,23 @@ def _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end):
             (pipelines['completed_on'] < week_end)
         ].copy()
 
+    if not pipelines.empty and {'ref_name', 'state_norm'}.issubset(pipelines.columns):
+        refs_raw = os.getenv('FLOW_PMO_DORA_DEPLOY_REFS', 'main,master,production,prod')
+        deploy_refs = {str(r).strip().lower() for r in str(refs_raw).split(',') if str(r).strip()}
+        if deploy_refs:
+            pipelines = pipelines[
+                pipelines['ref_name'].astype(str).str.strip().str.lower().isin(deploy_refs)
+            ].copy()
+            week_pipes = pipelines[
+                (pipelines['completed_on'] >= week_start) &
+                (pipelines['completed_on'] < week_end)
+            ].copy()
+
     if not week_pipes.empty and 'state_norm' in week_pipes.columns:
-        success_mask = week_pipes['state_norm'].isin({'successful', 'success', 'completed'})
+        success_mask = week_pipes['state_norm'].isin({'successful', 'success'})
         failure_mask = week_pipes['state_norm'].isin({'failed', 'error'})
         deploy_success = int(success_mask.sum())
-        total_deploys = int(len(week_pipes))
+        total_deploys = int((success_mask | failure_mask).sum())
         failed_deploys = int(failure_mask.sum())
         out['deploy_frequency'] = float(deploy_success)
         if total_deploys > 0:
@@ -3020,14 +3240,23 @@ def _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end):
                 out['lead_time_changes'] = float(lead_days.mean())
 
         if failed_deploys > 0:
-            ordered = week_pipes.sort_values('completed_on')
-            success_times = ordered[ordered['state_norm'].isin({'successful', 'success', 'completed'})]['completed_on'].dropna().tolist()
-            failure_times = ordered[ordered['state_norm'].isin({'failed', 'error'})]['completed_on'].dropna().tolist()
+            ordered_week = week_pipes.sort_values('completed_on')
+            history = pipelines.sort_values('completed_on')
             recovery_days = []
-            for fail_ts in failure_times:
-                next_success = next((ts for ts in success_times if ts > fail_ts), None)
-                if next_success is None:
+            week_fail_rows = ordered_week[ordered_week['state_norm'].isin({'failed', 'error'})]
+            for _, fail_row in week_fail_rows.iterrows():
+                fail_ts = fail_row.get('completed_on')
+                fail_ref = str(fail_row.get('ref_name') or '').strip().lower()
+                if pd.isna(fail_ts):
                     continue
+                ref_success = history[
+                    history['state_norm'].isin({'successful', 'success'}) &
+                    (history['ref_name'].astype(str).str.strip().str.lower() == fail_ref) &
+                    (history['completed_on'] > fail_ts)
+                ]
+                if ref_success.empty:
+                    continue
+                next_success = ref_success.iloc[0]['completed_on']
                 delta = (next_success - fail_ts).total_seconds() / 86400.0
                 if delta >= 0:
                     recovery_days.append(delta)
@@ -3077,8 +3306,6 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         'DDP',
         'Frequência de Deploy',
         'Lead time para mudanças',
-        'Taxa de demanda de falha',
-        'MTTR',
     ]
     rows = {m: {} for m in metric_names}
     bitbucket_logs = load_project_bitbucket_logs(projeto)
@@ -3113,17 +3340,9 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
             avg_eff = 0
         median_lt = exact_empirical_percentile(lt_finished, 0.50) if tp_total > 0 and not lt_finished.empty else np.nan
         p85_lt = exact_empirical_percentile(lt_finished, 0.85) if tp_total > 0 and not lt_finished.empty else np.nan
-        mttr_series = time_metric_series(
-            finished_eligible[finished_eligible['TipoDemanda'] == TYPE_ISSUES] if tp_def > 0 else finished_eligible.iloc[0:0],
-            lead_time_col,
-            non_negative=True
-        )
-        mttr = mttr_series.mean() if not mttr_series.empty else np.nan
         dora = _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end)
         dora_deploy_frequency = dora.get('deploy_frequency')
         dora_lead_time = dora.get('lead_time_changes')
-        dora_change_failure_rate = dora.get('change_failure_rate')
-        dora_mttr = dora.get('mttr')
 
         rows['Taxa de chegada / semana'][week_label] = str(len(arrived))
         rows['Throughput / semana'][week_label] = str(tp_total)
@@ -3138,8 +3357,6 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if pd.notna(p85_lt) and pd.notna(median_lt) else '—'
         rows['Frequência de Deploy'][week_label] = f"{dora_deploy_frequency:.0f}" if pd.notna(dora_deploy_frequency) else str(tp_dev)
         rows['Lead time para mudanças'][week_label] = _format_change_lead_time(dora_lead_time) if pd.notna(dora_lead_time) else _format_change_lead_time(avg_lt)
-        rows['Taxa de demanda de falha'][week_label] = f"{dora_change_failure_rate:.1f}%" if pd.notna(dora_change_failure_rate) else (f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—')
-        rows['MTTR'][week_label] = f"{dora_mttr:.1f}" if pd.notna(dora_mttr) else (f"{mttr:.0f}" if pd.notna(mttr) else '—')
 
     return metric_names, rows
 
@@ -3590,6 +3807,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             })
 
         titulo = f"Performance da Entrega do Serviço: {projeto}" if projeto else "Performance da Entrega do Serviço"
+        contributor_section = build_bitbucket_contributor_section(projeto, start_ts, end_ts)
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
@@ -3611,7 +3829,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ],
                 style_table={'overflowX': 'auto'},
             ),
-            html.Div(id='performance-metric-chart')
+            html.Div(id='performance-metric-chart'),
+            contributor_section,
         ])
 
     if tab == 'tab-lead-time':
