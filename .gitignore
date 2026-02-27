@@ -7,3 +7,4 @@ output.log
 jira_env.txt
 .vercel
 .env*.local
+.env

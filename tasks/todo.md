@@ -1,5 +1,41 @@
 # Task Plan
 
+## Current Task (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
+- [x] Mapear e carregar automaticamente CSVs do Bitbucket por projeto (`*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv`)
+- [x] Calcular métricas DORA semanais no `dashboard_full.py` com prioridade para dados Bitbucket e fallback para cálculo atual
+- [x] Integrar os valores DORA na tabela de performance sem marcar como placeholder cinza
+- [x] Validar sintaxe/import e registrar review/evidências
+
+## Specification (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
+- Objetivo: usar os logs exportados do Bitbucket para popular os indicadores DORA no dashboard de serviços.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O dashboard identifica automaticamente os CSVs mais recentes do Bitbucket no padrão por projeto.
+  - A tabela de `Performance do Serviço` exibe `Frequência de Deploy`, `Lead time para mudanças`, `Taxa de demanda de falha` e `MTTR` com dados de Bitbucket quando disponíveis.
+  - Quando faltarem dados no Bitbucket, o dashboard mantém fallback com a lógica atual baseada em itens do fluxo.
+  - As linhas DORA deixam de ser tratadas como placeholders (não acinzentadas à força).
+
+## Review (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
+- What was validated:
+  - `dashboard_full.py` agora detecta CSVs do Bitbucket por projeto (`*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv`) e também permite override via `FLOW_PMO_BITBUCKET_PREFIX_MAP`.
+  - Os indicadores DORA semanais da aba `Performance do Serviço` passaram a usar prioridade de dados Bitbucket:
+    - `Frequência de Deploy`: quantidade de pipelines bem-sucedidos na semana.
+    - `Lead time para mudanças`: média `commit -> deploy` (fallback para `PR created -> merged`).
+    - `Taxa de demanda de falha`: `% pipelines com falha na semana`.
+    - `MTTR`: tempo médio de recuperação (`falha -> próximo deploy bem-sucedido`).
+  - Quando não há logs suficientes do Bitbucket, os quatro indicadores continuam com fallback para o cálculo já existente no modelo de fluxo.
+  - As linhas DORA deixaram de ser estilizadas como placeholder cinza na tabela.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 -c "import dashboard_full as d; logs=d.load_project_bitbucket_logs('W1NNER'); print({k: getattr(v,'shape',None) for k,v in logs.items()}); print('ok')"`
+  - `python3 - <<'PY' ... d.compute_weekly_service_metrics(..., projeto='W1NNER') ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): compute weekly DORA metrics from bitbucket logs with flow fallback`
+
 ## Current Task (Portfólio Features NS: raias automáticas por prefixo do título)
 - [x] Implementar mapeamento automático de `Lane name` por prefixo do título (S1NC/BeFinance/W1NNR/D&A/CROSS)
 - [x] Expor configuração via CLI/env e manter fallback
@@ -2077,3 +2113,36 @@
   - `feat(process-mining-ui): add normalized person-day capacity heuristic and bottleneck analytics`
 
 
+
+## Current Task (Bitbucket API: ler acesso via .env)
+- [x] Definir variáveis de acesso Bitbucket em arquivo `.env` e exemplo versionado
+- [x] Criar script Python para extrair commits, pull requests e pipelines lendo credenciais do `.env`
+- [x] Validar `--help` e execução de smoke test sem rede (`--dry-run`)
+- [x] Registrar review/evidências e sugestão de commit
+
+## Specification (Bitbucket API: ler acesso via .env)
+- Objetivo: permitir extração de logs de commits, PRs e pipelines do Bitbucket sem hardcode de credenciais, usando variáveis em arquivo `.env`.
+- Escopo:
+  - `bitbucket_export.py`
+  - `.env.example`
+  - `.gitignore`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Script lê `BB_EMAIL`, `BB_TOKEN`, `BB_WORKSPACE`, `BB_REPO` do `.env` por padrão.
+  - Suporta override por CLI (`--env-file`, `--workspace`, `--repo`, etc.).
+  - Exporta CSV de `commits`, `pullrequests` e `pipelines` com paginação da API Bitbucket (`next`).
+  - Possui modo `--dry-run` para validar configuração local sem chamar API.
+
+## Review (Bitbucket API: ler acesso via .env)
+- What was validated:
+  - Script `bitbucket_export.py` criado com leitura automática de `.env` (ou arquivo via `--env-file`) usando variáveis `BB_EMAIL`, `BB_TOKEN`, `BB_WORKSPACE`, `BB_REPO`.
+  - Exportação CSV implementada para `commits`, `pullrequests` e `pipelines` com paginação baseada no campo `next` da API Bitbucket.
+  - Arquivo `.env.example` adicionado com as chaves necessárias e `.env` incluído no `.gitignore` para evitar commit de credenciais reais.
+  - Script inclui `--dry-run` para validar carregamento de configuração sem chamada de rede.
+- Evidence (tests/logs/diff):
+  - `python3 bitbucket_export.py --help`
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 bitbucket_export.py --env-file .env.example --dry-run`
+  - `git diff -- bitbucket_export.py .env.example .gitignore tasks/todo.md`
+- Suggested commit message:
+  - `feat(integration): add bitbucket csv exporter with .env-based auth`

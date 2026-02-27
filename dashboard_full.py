@@ -308,6 +308,15 @@ PROJECT_BOTTLENECK_PREFIX = {
     'DATA&ANALYTICS': 'dataanalytics-downstream',
 }
 
+PROJECT_BITBUCKET_PREFIX = {
+    'W1NNER': 'w1nner',
+    'S1NC': 's1nc',
+    'BF': 'befinance',
+    'BEFINANCE': 'befinance',
+    'DT': 'dataanalytics',
+    'DATA&ANALYTICS': 'dataanalytics',
+}
+
 DOWNSTREAM_METADATA_COLUMNS = {
     'ID', 'Link', 'Title', 'Tipo de Problema', 'Prioridade', 'Versões de correção',
     'Versões afetadas', 'Componentes', 'Responsável', 'Criador', 'Space', 'Resolução',
@@ -423,6 +432,85 @@ def parse_json_env(name, default):
         return val if isinstance(val, dict) else default
     except json.JSONDecodeError:
         return default
+
+
+def _load_bitbucket_prefix_map():
+    raw = os.getenv('FLOW_PMO_BITBUCKET_PREFIX_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key, value in parsed.items():
+        project_key = str(key).strip().upper()
+        prefix = str(value).strip().lower()
+        if project_key and prefix:
+            out[project_key] = prefix
+    return out
+
+
+def _load_project_bitbucket_csv(project_prefix, suffix):
+    if not project_prefix:
+        return pd.DataFrame()
+    candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if low.startswith(project_prefix.lower()) and low.endswith(suffix):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    candidates.append(path)
+    if not candidates:
+        return pd.DataFrame()
+    latest = max(candidates, key=os.path.getctime)
+    try:
+        return pd.read_csv(latest)
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_project_bitbucket_logs(projeto):
+    project_key = str(projeto or '').strip().upper()
+    if not project_key:
+        return {'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()}
+
+    env_map = _load_bitbucket_prefix_map()
+    prefix = env_map.get(project_key) or PROJECT_BITBUCKET_PREFIX.get(project_key)
+    if not prefix:
+        return {'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()}
+
+    commits = _load_project_bitbucket_csv(prefix, '_commits.csv')
+    pullrequests = _load_project_bitbucket_csv(prefix, '_pullrequests.csv')
+    pipelines = _load_project_bitbucket_csv(prefix, '_pipelines.csv')
+
+    if not commits.empty and 'date' in commits.columns:
+        commits['date'] = pd.to_datetime(commits['date'], errors='coerce')
+    if not pullrequests.empty:
+        if 'created_on' in pullrequests.columns:
+            pullrequests['created_on'] = pd.to_datetime(pullrequests['created_on'], errors='coerce')
+        if 'updated_on' in pullrequests.columns:
+            pullrequests['updated_on'] = pd.to_datetime(pullrequests['updated_on'], errors='coerce')
+        if 'state' in pullrequests.columns:
+            pullrequests['state_norm'] = pullrequests['state'].astype(str).str.strip().str.lower()
+    if not pipelines.empty:
+        if 'created_on' in pipelines.columns:
+            pipelines['created_on'] = pd.to_datetime(pipelines['created_on'], errors='coerce')
+        if 'completed_on' in pipelines.columns:
+            pipelines['completed_on'] = pd.to_datetime(pipelines['completed_on'], errors='coerce')
+        if 'state' in pipelines.columns:
+            pipelines['state_norm'] = pipelines['state'].astype(str).str.strip().str.lower()
+        if 'commit_hash' in pipelines.columns:
+            pipelines['commit_hash'] = pipelines['commit_hash'].astype(str).str.strip()
+
+    return {'commits': commits, 'pullrequests': pullrequests, 'pipelines': pipelines}
 
 
 def load_env_file(env_file):
@@ -2886,7 +2974,84 @@ def build_leadtime_stage_selection_summary(projeto, selected_start_stages):
         'backgroundColor': '#f8fafc',
     })
 
-def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias'):
+def _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end):
+    commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    pipelines = bitbucket_logs.get('pipelines', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    pullrequests = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    out = {
+        'deploy_frequency': np.nan,
+        'lead_time_changes': np.nan,
+        'change_failure_rate': np.nan,
+        'mttr': np.nan,
+    }
+
+    week_pipes = pd.DataFrame()
+    if not pipelines.empty and 'completed_on' in pipelines.columns:
+        week_pipes = pipelines[
+            (pipelines['completed_on'] >= week_start) &
+            (pipelines['completed_on'] < week_end)
+        ].copy()
+
+    if not week_pipes.empty and 'state_norm' in week_pipes.columns:
+        success_mask = week_pipes['state_norm'].isin({'successful', 'success', 'completed'})
+        failure_mask = week_pipes['state_norm'].isin({'failed', 'error'})
+        deploy_success = int(success_mask.sum())
+        total_deploys = int(len(week_pipes))
+        failed_deploys = int(failure_mask.sum())
+        out['deploy_frequency'] = float(deploy_success)
+        if total_deploys > 0:
+            out['change_failure_rate'] = (failed_deploys / total_deploys) * 100.0
+
+        if deploy_success > 0 and not commits.empty and {'commit_hash', 'completed_on'}.issubset(week_pipes.columns) and {'hash', 'date'}.issubset(commits.columns):
+            commit_lookup = commits[['hash', 'date']].copy()
+            commit_lookup['hash'] = commit_lookup['hash'].astype(str).str.strip()
+            deploy_success_df = week_pipes[success_mask].copy()
+            deploy_success_df['commit_hash'] = deploy_success_df['commit_hash'].astype(str).str.strip()
+            deploy_join = deploy_success_df.merge(commit_lookup, how='left', left_on='commit_hash', right_on='hash')
+            lead_days = (
+                pd.to_datetime(deploy_join['completed_on'], errors='coerce') -
+                pd.to_datetime(deploy_join['date'], errors='coerce')
+            ).dt.total_seconds() / 86400.0
+            lead_days = pd.to_numeric(lead_days, errors='coerce')
+            lead_days = lead_days[(lead_days >= 0) & lead_days.notna()]
+            if not lead_days.empty:
+                out['lead_time_changes'] = float(lead_days.mean())
+
+        if failed_deploys > 0:
+            ordered = week_pipes.sort_values('completed_on')
+            success_times = ordered[ordered['state_norm'].isin({'successful', 'success', 'completed'})]['completed_on'].dropna().tolist()
+            failure_times = ordered[ordered['state_norm'].isin({'failed', 'error'})]['completed_on'].dropna().tolist()
+            recovery_days = []
+            for fail_ts in failure_times:
+                next_success = next((ts for ts in success_times if ts > fail_ts), None)
+                if next_success is None:
+                    continue
+                delta = (next_success - fail_ts).total_seconds() / 86400.0
+                if delta >= 0:
+                    recovery_days.append(delta)
+            if recovery_days:
+                out['mttr'] = float(np.mean(recovery_days))
+
+    if pd.isna(out['lead_time_changes']) and not pullrequests.empty and {'created_on', 'updated_on', 'state_norm'}.issubset(pullrequests.columns):
+        merged_prs = pullrequests[
+            (pullrequests['state_norm'] == 'merged') &
+            (pullrequests['updated_on'] >= week_start) &
+            (pullrequests['updated_on'] < week_end)
+        ]
+        if not merged_prs.empty:
+            pr_days = (
+                pd.to_datetime(merged_prs['updated_on'], errors='coerce') -
+                pd.to_datetime(merged_prs['created_on'], errors='coerce')
+            ).dt.total_seconds() / 86400.0
+            pr_days = pd.to_numeric(pr_days, errors='coerce')
+            pr_days = pr_days[(pr_days >= 0) & pr_days.notna()]
+            if not pr_days.empty:
+                out['lead_time_changes'] = float(pr_days.mean())
+
+    return out
+
+
+def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias', projeto=None):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
     metric_names = [
         'Taxa de chegada / semana',
@@ -2906,6 +3071,7 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         'MTTR',
     ]
     rows = {m: {} for m in metric_names}
+    bitbucket_logs = load_project_bitbucket_logs(projeto)
 
     for i in range(len(weeks) - 1):
         week_start = weeks[i]
@@ -2945,6 +3111,11 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         mttr = mttr_series.mean() if not mttr_series.empty else np.nan
         if pd.isna(mttr):
             mttr = 0
+        dora = _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end)
+        dora_deploy_frequency = dora.get('deploy_frequency')
+        dora_lead_time = dora.get('lead_time_changes')
+        dora_change_failure_rate = dora.get('change_failure_rate')
+        dora_mttr = dora.get('mttr')
 
         rows['Taxa de chegada / semana'][week_label] = str(len(arrived))
         rows['Throughput / semana'][week_label] = str(tp_total)
@@ -2957,10 +3128,10 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         rows['Qtd. Itens Descartados'][week_label] = str(tp_discard)
         rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if pd.notna(p85_lt) else '—'
         rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if pd.notna(p85_lt) and pd.notna(median_lt) else '—'
-        rows['Frequência de Deploy'][week_label] = str(tp_dev)
-        rows['Lead time para mudanças'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
-        rows['Taxa de demanda de falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
-        rows['MTTR'][week_label] = f"{mttr:.0f}" if pd.notna(mttr) else '—'
+        rows['Frequência de Deploy'][week_label] = f"{dora_deploy_frequency:.0f}" if pd.notna(dora_deploy_frequency) else str(tp_dev)
+        rows['Lead time para mudanças'][week_label] = f"{dora_lead_time:.1f}" if pd.notna(dora_lead_time) else (f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—')
+        rows['Taxa de demanda de falha'][week_label] = f"{dora_change_failure_rate:.1f}%" if pd.notna(dora_change_failure_rate) else (f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—')
+        rows['MTTR'][week_label] = f"{dora_mttr:.1f}" if pd.notna(dora_mttr) else (f"{mttr:.0f}" if pd.notna(mttr) else '—')
 
     return metric_names, rows
 
@@ -3386,7 +3557,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if len(weeks) < 2:
             return html.Div('Período muito curto para análise semanal.')
 
-        metric_names, rows = compute_weekly_service_metrics(df_proj, weeks, lead_time_col='LeadTime_Selected_Dias')
+        metric_names, rows = compute_weekly_service_metrics(df_proj, weeks, lead_time_col='LeadTime_Selected_Dias', projeto=projeto)
         week_labels = [str(weeks[i].date()) for i in range(len(weeks) - 1)]
 
         table_data = []
@@ -3404,7 +3575,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             {'if': {'filter_query': '{Métrica} = "% Demanda de Falha"'}, 'color': 'red', 'fontWeight': 'bold'},
             {'if': {'filter_query': '{Métrica} contains "—"'}, 'color': '#aaa'},
         ]
-        for m in ['Qtd. Itens Descartados', 'DDP', 'Frequência de Deploy', 'Lead time para mudanças', 'Taxa de demanda de falha', 'MTTR']:
+        for m in ['Qtd. Itens Descartados', 'DDP']:
             style_data_conditional.append({
                 'if': {'filter_query': f'{{Métrica}} = "{m}"'},
                 'backgroundColor': 'rgb(245, 245, 245)', 'color': '#bbb', 'fontStyle': 'italic'

@@ -143,3 +143,10 @@ Use this file after any user correction.
 - Root cause: Mantive `WIP` e `WIP Age` ancorados em `DataInProgress`, enquanto o painel já estava adotando `LeadStart_Selected` para outras métricas de compromisso.
 - Prevention rule: Se o filtro redefine "quando o trabalho entra no fluxo medido", aplicar isso também às métricas de WIP/WIP Age da mesma tela (salvo regra de negócio explícita em contrário).
 - Action added to workflow: Em auditorias de filtros semânticos, testar separadamente impacto em `Lead Time`, `Chegadas`, `WIP` e `WIP Age`.
+
+- Date: 2026-02-27
+- Context: Primeiro teste real do exportador Bitbucket retornou `400 Invalid pagelen` no endpoint de pull requests.
+- User correction: Mostrou execução com erro em `.../pullrequests?pagelen=100`.
+- Root cause: Assumi limite uniforme de `pagelen=100` para todos os endpoints, mas o endpoint de PR rejeitou esse valor.
+- Prevention rule: Em integrações Bitbucket, usar `pagelen` conservador (`<=50`) por padrão para compatibilidade entre endpoints.
+- Action added to workflow: Ao implementar paginação Bitbucket, validar limites por endpoint ou começar com `pagelen=50` antes de otimizações.

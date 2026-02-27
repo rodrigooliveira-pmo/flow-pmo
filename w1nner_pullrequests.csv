@@ -1,0 +1,11 @@
+id,state,title,author,created_on,updated_on,source_branch,destination_branch
+875,OPEN,W1NNR-2154 Fixes suspend independent logic,Lucas Pizol,2026-02-27T11:50:58.798045+00:00,2026-02-27T13:16:06.885831+00:00,W1NNR-2154-fixes-suspend-logic,main
+864,OPEN,W1NNR-2040 Authorize for area: Melhoria Continua (seq 2),Peterson Bem,2026-02-22T17:42:37.660540+00:00,2026-02-27T13:09:05.613269+00:00,W1NNR-2040-authorize-area-melhoria-continua-seq-02,W1NADM-9-admin-profiles-foundation
+873,OPEN,W1NNR-2166 Fix commercial proposal payment screen,Igor Rezende,2026-02-25T22:55:37.691177+00:00,2026-02-26T18:33:01.046557+00:00,W1NNR-2166-fix-commercial-proposal-payment-screen,main
+870,OPEN,W1NNR-2027 Remove client_id from Analysis and CommercialProposal using ignored_columns,Igor Rezende,2026-02-25T13:17:21.533499+00:00,2026-02-26T14:28:00.768864+00:00,W1NNR-2027-remove-client-id-from-analysis-and-commercial-proposal,cleanup-legacy-analysis-code
+865,OPEN,W1NNR-2040 Authorize for area: Especialistas (seq 3),Peterson Bem,2026-02-22T20:15:32.566177+00:00,2026-02-25T21:50:35.929492+00:00,W1NNR-2040-authorize-area-especialistas-seq-03,W1NNR-2040-authorize-area-melhoria-continua-seq-02
+866,OPEN,W1NNR-2124 create new sales flow status,Gabriel de Oliveira Koehler,2026-02-23T12:51:57.711500+00:00,2026-02-25T13:48:25.795594+00:00,W1NNR-2124-create-new-sales-flow-status,contact-funnel-new-status-sprint
+822,OPEN,S1NC-1881 fixes annotations and readme,Lucas Pizol,2026-02-04T12:48:44.334201+00:00,2026-02-05T01:02:14.092808+00:00,S1NC-1881-fixes-annotations-and-readme,main
+804,OPEN,W1NNR-2077 Refactor on commission_import_processor service,Gabriel de Oliveira Koehler,2026-01-27T12:21:17.490592+00:00,2026-01-27T15:16:45.729046+00:00,W1NNR-2077-back-pdi-refactor-on-commission-importe-processor,main
+785,OPEN,S1NC-1667 objectives push notification,Lucas Pizol,2026-01-22T18:13:03.893350+00:00,2026-01-22T18:54:01.313631+00:00,S1NC-1667-objectives-push-notification,S1NC-1132-automatic-push-notifications
+461,OPEN,W1SFT-1007 authentication improvement on s1nc,Lucas Pizol,2025-09-05T18:35:38.100854+00:00,2025-12-09T17:32:02.637884+00:00,W1SFT-1007-authentication-improvement-on-s1nc,main
