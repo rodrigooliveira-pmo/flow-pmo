@@ -1,4 +1,6 @@
 hash,date,author,message,work_item_keys,primary_work_item_key
+c2b0c3b1d0324e37047c3a047dd95c9edb2ba1dd,2026-02-27T19:21:00+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,S1NC-1958 Extract credit card calculation by concept to a service,S1NC-1958,S1NC-1958
+6cbb449a62a08cb4b3fe27a9884d22341638331c,2026-02-27T18:58:34+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,S1NC-1958 Fixes credit card summary calculation,S1NC-1958,S1NC-1958
 37ee94e2eb3d8a548d403534bd667ac4e480938d,2026-02-27T18:24:46+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,Merge branch 'S1NC-1117-credit-cards-crud' into homolog,S1NC-1117,S1NC-1117
 b26fc4d569cea1bbe7954f71bc5d14d1710f9bad,2026-02-27T17:41:40+00:00,Gabriel de Oliveira Koehler <gabriel.koehler@w1technology.com.br>,W1NNR-2124 Crate new endpoint for contact transition through sales_funnel,W1NNR-2124,W1NNR-2124
 d20943fcfbd1be8957c83e0b6dc09f5880c9883b,2026-02-27T15:10:55+00:00,Peterson Bem <peterson.daronch@w1technology.com.br>,W1NNR-2173 Authorize area: Melhoria Continua,W1NNR-2173,W1NNR-2173

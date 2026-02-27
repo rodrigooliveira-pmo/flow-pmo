@@ -6,6 +6,7 @@ import csv
 import os
 import re
 import sys
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -247,20 +248,66 @@ def fetch_pullrequest_volume(
     deletions = 0
     files_changed = 0
     try:
-        rows = iter_paginated(
-            session,
-            diffstat_url,
-            auth=auth,
-            pagelen=pagelen,
-            max_pages=max_pages,
-            extra_params={
-                "fields": "values.lines_added,values.lines_removed,next",
-            },
+        page_count = 0
+        next_url = normalize_diffstat_url(diffstat_url)
+        params: Optional[Dict[str, Any]] = {
+            "pagelen": pagelen,
+            "fields": "values.lines_added,values.lines_removed,next",
+        }
+
+        while next_url:
+            page_count += 1
+            if max_pages and page_count > max_pages:
+                break
+
+            response = session.get(
+                next_url,
+                auth=auth,
+                params=params,
+                timeout=60,
+                allow_redirects=False,
+            )
+
+            if 300 <= response.status_code < 400:
+                redirect_to = response.headers.get("Location", "")
+                if not redirect_to:
+                    response.raise_for_status()
+                next_url = normalize_diffstat_url(urllib.parse.urljoin(response.url, redirect_to))
+                params = None
+                continue
+
+            response.raise_for_status()
+            payload = response.json()
+            for row in payload.get("values", []):
+                if not isinstance(row, dict):
+                    continue
+                files_changed += 1
+                additions += _to_non_negative_int(row.get("lines_added"))
+                deletions += _to_non_negative_int(row.get("lines_removed"))
+
+            next_url = normalize_diffstat_url(payload.get("next") or "")
+            params = None
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        # Alguns PRs retornam diffstat indisponível (404) mesmo via endpoint canônico.
+        # Nesse caso seguimos sem volume para não poluir o log operacional.
+        if status_code == 404:
+            return {
+                "additions": "",
+                "deletions": "",
+                "files_changed": "",
+                "lines_changed_total": "",
+            }
+        print(
+            f"Aviso: falha ao coletar diffstat do PR ({diffstat_url}): {exc}",
+            file=sys.stderr,
         )
-        for row in rows:
-            files_changed += 1
-            additions += _to_non_negative_int(row.get("lines_added"))
-            deletions += _to_non_negative_int(row.get("lines_removed"))
+        return {
+            "additions": "",
+            "deletions": "",
+            "files_changed": "",
+            "lines_changed_total": "",
+        }
     except requests.RequestException as exc:
         print(
             f"Aviso: falha ao coletar diffstat do PR ({diffstat_url}): {exc}",
@@ -279,6 +326,21 @@ def fetch_pullrequest_volume(
         "files_changed": files_changed,
         "lines_changed_total": additions + deletions,
     }
+
+
+def normalize_diffstat_url(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    # Defensive cleanup: some Bitbucket links may include encoded/newline noise in the revspec.
+    cleaned = raw.replace("\r", "").replace("\n", "")
+    cleaned = cleaned.replace("%0D", "").replace("%0A", "").replace("%0d", "").replace("%0a", "")
+    parsed = urllib.parse.urlsplit(cleaned)
+    if not parsed.scheme or not parsed.netloc:
+        return cleaned
+    path = parsed.path.replace("\r", "").replace("\n", "")
+    query = parsed.query.replace("\r", "").replace("\n", "")
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, query, ""))
 
 
 def export_pipelines(rows: Iterable[Dict[str, Any]], output_path: Path) -> int:
@@ -464,15 +526,16 @@ def main() -> int:
                 for row in rows:
                     if not isinstance(row, dict):
                         continue
-                    diffstat_url = (
-                        ((row.get("links") or {}).get("diffstat") or {}).get("href")
-                        if isinstance(row.get("links"), dict)
-                        else ""
-                    )
+                    pr_id = row.get("id")
+                    # Prefer canonical endpoint by PR id (stable and avoids malformed revspec hrefs).
+                    diffstat_url = f"{base_url}/pullrequests/{pr_id}/diffstat" if pr_id else ""
                     if not diffstat_url:
-                        pr_id = row.get("id")
-                        if pr_id:
-                            diffstat_url = f"{base_url}/pullrequests/{pr_id}/diffstat"
+                        diffstat_url = (
+                            ((row.get("links") or {}).get("diffstat") or {}).get("href")
+                            if isinstance(row.get("links"), dict)
+                            else ""
+                        )
+                    diffstat_url = normalize_diffstat_url(diffstat_url)
                     if diffstat_url:
                         row.update(
                             fetch_pullrequest_volume(

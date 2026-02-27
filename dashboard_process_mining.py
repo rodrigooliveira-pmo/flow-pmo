@@ -226,6 +226,62 @@ def _person_key(raw_name):
     return _normalize_text(_normalize_person_name(raw_name))
 
 
+def _person_email_key(raw_name):
+    if raw_name is None or (isinstance(raw_name, float) and pd.isna(raw_name)):
+        return ""
+    text = str(raw_name).strip().lower()
+    if not text:
+        return ""
+    m = re.search(r"([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})", text)
+    return m.group(1).strip() if m else ""
+
+
+def _load_person_alias_index():
+    raw = os.getenv("FLOW_PMO_PERSON_ALIAS_MAP", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+
+    def iter_aliases(value):
+        if isinstance(value, list):
+            for item in value:
+                yield item
+            return
+        if isinstance(value, str):
+            for part in re.split(r"[|,;]", value):
+                yield part
+
+    for canonical_name, aliases in parsed.items():
+        canonical = _normalize_person_name(canonical_name)
+        if not canonical:
+            continue
+        for candidate in [canonical_name, canonical, *iter_aliases(aliases)]:
+            pkey = _person_key(candidate)
+            if pkey:
+                out[pkey] = canonical
+            ekey = _person_email_key(candidate)
+            if ekey:
+                out[ekey] = canonical
+    return out
+
+
+def _canonical_person_name(raw_name, alias_index=None):
+    fallback = _normalize_person_name(raw_name)
+    if not fallback:
+        return ""
+    alias_index = alias_index if isinstance(alias_index, dict) else _load_person_alias_index()
+    for key in (_person_key(raw_name), _person_email_key(raw_name)):
+        if key and key in alias_index:
+            return alias_index[key]
+    return fallback
+
+
 def _split_people_field(raw_value):
     if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
         return []
@@ -317,6 +373,7 @@ def compute_bitbucket_person_metrics(bitbucket_logs, start_ts, end_ts):
     commits = bitbucket_logs.get("commits", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     pullrequests = bitbucket_logs.get("pullrequests", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     stats = {}
+    alias_index = _load_person_alias_index()
 
     def apply_time_window(df, col):
         if df is None or df.empty or col not in df.columns:
@@ -329,7 +386,7 @@ def compute_bitbucket_person_metrics(bitbucket_logs, start_ts, end_ts):
         return out
 
     def ensure_person(raw_name):
-        person = _normalize_person_name(raw_name)
+        person = _canonical_person_name(raw_name, alias_index=alias_index)
         if not person:
             return None
         key = _person_key(person) or person.lower()
@@ -410,12 +467,13 @@ def compute_bitbucket_person_metrics(bitbucket_logs, start_ts, end_ts):
 
 def compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, bitbucket_logs, start_ts, end_ts):
     bb_df, bb_totals = compute_bitbucket_person_metrics(bitbucket_logs, start_ts, end_ts)
+    alias_index = _load_person_alias_index()
 
     if pm_people is None or pm_people.empty or "Responsavel" not in pm_people.columns:
         jira_df = pd.DataFrame(columns=["Pessoa"])
     else:
         jira_df = pm_people.copy()
-        jira_df["Pessoa"] = jira_df["Responsavel"].map(_normalize_person_name)
+        jira_df["Pessoa"] = jira_df["Responsavel"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
         jira_df = jira_df[jira_df["Pessoa"].astype(str).str.strip().ne("")]
         rename_map = {}
         if "Itens Concluidos" in jira_df.columns:
@@ -477,7 +535,7 @@ def compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, bitbucket_logs, star
     merged["Itens c/ Evidencia Tecnica"] = 0
     if pm_cases is not None and not pm_cases.empty and "Issue Key" in pm_cases.columns and "Done Final Author" in pm_cases.columns:
         c = pm_cases.copy()
-        c["Pessoa"] = c["Done Final Author"].map(_normalize_person_name)
+        c["Pessoa"] = c["Done Final Author"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
         c["Issue Key"] = c["Issue Key"].astype(str).str.strip().str.upper()
         c = c[c["Pessoa"].astype(str).str.strip().ne("") & c["Issue Key"].ne("")]
         if not c.empty:
@@ -505,6 +563,7 @@ def compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, bitbucket_logs, star
         "Cobertura Tecnica (%)": float((_safe_num(merged["Itens c/ Evidencia Tecnica"]).sum() / max(_safe_num(merged["Itens Concluidos"]).sum(), 1)) * 100.0),
         "Commits": int(_safe_num(merged["Commits"]).fillna(0).sum()),
         "PRs Merged": int(_safe_num(merged["PRs Merged"]).fillna(0).sum()),
+        "PRs Declinados": int(_safe_num(merged["PRs Declinados"]).fillna(0).sum()),
         "Aprovacoes": int(_safe_num(merged["Aprovacoes"]).fillna(0).sum()),
         "Reprovacoes": int(_safe_num(merged["Reprovacoes"]).fillna(0).sum()),
     }
@@ -513,6 +572,7 @@ def compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, bitbucket_logs, star
 
 def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts):
     frames = []
+    alias_index = _load_person_alias_index()
 
     def apply_time(df, col):
         if df is None or df.empty or col not in df.columns:
@@ -524,26 +584,59 @@ def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts
             x = x[x[col] < pd.to_datetime(end_ts)]
         return x
 
+    tech_keys = set()
+    for src_df in [bitbucket_logs.get("commits", pd.DataFrame()), bitbucket_logs.get("pullrequests", pd.DataFrame())]:
+        if src_df is None or src_df.empty:
+            continue
+        date_col = "date" if "date" in src_df.columns else "created_on"
+        if date_col in src_df.columns:
+            src_df = apply_time(src_df, date_col)
+        if "work_item_keys" in src_df.columns:
+            for raw in src_df["work_item_keys"].fillna(""):
+                for key in str(raw).split("|"):
+                    key = str(key).strip().upper()
+                    if key:
+                        tech_keys.add(key)
+        if "primary_work_item_key" in src_df.columns:
+            for key in src_df["primary_work_item_key"].fillna("").astype(str):
+                key = key.strip().upper()
+                if key:
+                    tech_keys.add(key)
+
     if pm_cases is not None and not pm_cases.empty and {"Done Final Author", "Done Final Date"}.issubset(pm_cases.columns):
         jira = pm_cases.copy()
         jira["Done Final Date"] = pd.to_datetime(jira["Done Final Date"], errors="coerce")
         jira = jira.dropna(subset=["Done Final Date"])
         jira = apply_time(jira, "Done Final Date")
-        jira["Pessoa"] = jira["Done Final Author"].map(_normalize_person_name)
+        jira["Pessoa"] = jira["Done Final Author"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
         jira = jira[jira["Pessoa"].astype(str).str.strip().ne("")]
         if not jira.empty:
             jira["Semana"] = jira["Done Final Date"].dt.to_period("W-SUN").dt.start_time
-            done_weekly = (
-                jira.groupby(["Semana", "Pessoa"], dropna=False)
-                .size()
-                .reset_index(name="Itens Concluidos")
+            if "Issue Key" in jira.columns:
+                jira["Issue Key"] = jira["Issue Key"].astype(str).str.strip().str.upper()
+                jira["TemEvidenciaTecnica"] = jira["Issue Key"].isin(tech_keys)
+            else:
+                jira["TemEvidenciaTecnica"] = False
+            done_weekly = jira.groupby(["Semana", "Pessoa"], dropna=False).agg(
+                Itens_Concluidos=("Pessoa", "size"),
+                Itens_Evidencia_Tecnica=("TemEvidenciaTecnica", "sum"),
+            ).reset_index().rename(
+                columns={
+                    "Itens_Concluidos": "Itens Concluidos",
+                    "Itens_Evidencia_Tecnica": "Itens c/ Evidencia Tecnica",
+                }
+            )
+            done_weekly["Cobertura Tecnica (%)"] = np.where(
+                _safe_num(done_weekly["Itens Concluidos"]).fillna(0) > 0,
+                (_safe_num(done_weekly["Itens c/ Evidencia Tecnica"]).fillna(0) / _safe_num(done_weekly["Itens Concluidos"]).fillna(1)) * 100.0,
+                0.0,
             )
             frames.append(done_weekly)
 
     commits = bitbucket_logs.get("commits", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     if commits is not None and not commits.empty and {"author", "date"}.issubset(commits.columns):
         c = apply_time(commits, "date")
-        c["Pessoa"] = c["author"].map(_normalize_person_name)
+        c["Pessoa"] = c["author"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
         c = c[c["Pessoa"].astype(str).str.strip().ne("")]
         if not c.empty:
             c["Semana"] = c["date"].dt.to_period("W-SUN").dt.start_time
@@ -553,7 +646,7 @@ def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts
     if pullrequests is not None and not pullrequests.empty:
         if {"author", "created_on"}.issubset(pullrequests.columns):
             prs_open = apply_time(pullrequests, "created_on")
-            prs_open["Pessoa"] = prs_open["author"].map(_normalize_person_name)
+            prs_open["Pessoa"] = prs_open["author"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
             prs_open = prs_open[prs_open["Pessoa"].astype(str).str.strip().ne("")]
             if not prs_open.empty:
                 prs_open["Semana"] = prs_open["created_on"].dt.to_period("W-SUN").dt.start_time
@@ -561,11 +654,17 @@ def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts
         if {"author", "updated_on", "state_norm"}.issubset(pullrequests.columns):
             prs_upd = apply_time(pullrequests, "updated_on")
             prs_merged = prs_upd[prs_upd["state_norm"] == "merged"].copy()
-            prs_merged["Pessoa"] = prs_merged["author"].map(_normalize_person_name)
+            prs_merged["Pessoa"] = prs_merged["author"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
             prs_merged = prs_merged[prs_merged["Pessoa"].astype(str).str.strip().ne("")]
             if not prs_merged.empty:
                 prs_merged["Semana"] = prs_merged["updated_on"].dt.to_period("W-SUN").dt.start_time
                 frames.append(prs_merged.groupby(["Semana", "Pessoa"], dropna=False).size().reset_index(name="PRs Merged"))
+            prs_declined = prs_upd[prs_upd["state_norm"] == "declined"].copy()
+            prs_declined["Pessoa"] = prs_declined["author"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
+            prs_declined = prs_declined[prs_declined["Pessoa"].astype(str).str.strip().ne("")]
+            if not prs_declined.empty:
+                prs_declined["Semana"] = prs_declined["updated_on"].dt.to_period("W-SUN").dt.start_time
+                frames.append(prs_declined.groupby(["Semana", "Pessoa"], dropna=False).size().reset_index(name="PRs Declinados"))
             prs_review = prs_upd.copy()
             for src_col, metric_col in [("approved_by", "Aprovacoes"), ("changes_requested_by", "Reprovacoes")]:
                 if src_col not in prs_review.columns:
@@ -573,7 +672,7 @@ def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts
                 rv = prs_review[["updated_on", src_col]].copy()
                 rv["Pessoa"] = rv[src_col].apply(_split_people_field)
                 rv = rv.explode("Pessoa")
-                rv["Pessoa"] = rv["Pessoa"].map(_normalize_person_name)
+                rv["Pessoa"] = rv["Pessoa"].map(lambda v: _canonical_person_name(v, alias_index=alias_index))
                 rv = rv[rv["Pessoa"].astype(str).str.strip().ne("")]
                 if rv.empty:
                     continue
@@ -587,7 +686,7 @@ def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts
     for f in frames[1:]:
         out = out.merge(f, on=["Semana", "Pessoa"], how="outer")
 
-    for col in ["Itens Concluidos", "Commits", "PRs Abertos", "PRs Merged", "Aprovacoes", "Reprovacoes"]:
+    for col in ["Itens Concluidos", "Itens c/ Evidencia Tecnica", "Cobertura Tecnica (%)", "Commits", "PRs Abertos", "PRs Merged", "PRs Declinados", "Aprovacoes", "Reprovacoes"]:
         if col not in out.columns:
             out[col] = 0
         out[col] = _safe_num(out[col]).fillna(0)
@@ -1435,9 +1534,11 @@ app.layout = html.Div(
                     options=[
                         {"label": "Score Integrado", "value": "score"},
                         {"label": "Itens Concluídos", "value": "itens_concluidos"},
+                        {"label": "Cobertura Técnica (%)", "value": "cobertura_tecnica"},
                         {"label": "Commits", "value": "commits"},
                         {"label": "PRs Merged", "value": "prs_merged"},
                         {"label": "PRs Abertos", "value": "prs_abertos"},
+                        {"label": "PRs Declinados", "value": "prs_declinados"},
                     ],
                     value="score",
                     clearable=False,
@@ -1739,7 +1840,8 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
         pm_people, pm_cases, bitbucket_logs, start_ts, end_ts
     )
     if person and not cross_people.empty and "Pessoa" in cross_people.columns:
-        cross_people = cross_people[cross_people["Pessoa"] == person].copy()
+        target_person = _canonical_person_name(person)
+        cross_people = cross_people[cross_people["Pessoa"] == target_person].copy()
     if not cross_people.empty:
         bb_totals = {
             "Commits": int(_safe_num(cross_people.get("Commits", pd.Series(dtype=float))).fillna(0).sum()),
@@ -1759,6 +1861,7 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
             ),
             "Commits": bb_totals["Commits"],
             "PRs Merged": bb_totals["PRs Merged"],
+            "PRs Declinados": bb_totals["PRs Declinados"],
             "Aprovacoes": bb_totals["Aprovacoes"],
             "Reprovacoes": bb_totals["Reprovacoes"],
         }
@@ -1785,6 +1888,7 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
             create_kpi_card("Horas Est. Espera (norm)", f"{exec_wait_norm_h:,.1f}"),
             create_kpi_card("Commits (Bitbucket)", int(bb_totals.get("Commits", 0))),
             create_kpi_card("PRs Merged (Bitbucket)", int(bb_totals.get("PRs Merged", 0))),
+            create_kpi_card("PRs Declinados (Bitbucket)", int(bb_totals.get("PRs Declinados", 0))),
             create_kpi_card("Aprovações PR (Bitbucket)", int(bb_totals.get("Aprovacoes", 0))),
             create_kpi_card("Reprovações PR (Bitbucket)", int(bb_totals.get("Reprovacoes", 0))),
             create_kpi_card("Itens c/ Evidência Técnica", int(cross_totals.get("Itens c/ Evidencia Tecnica", 0))),
@@ -1820,9 +1924,11 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
     weekly_metric_map = {
         "score": ("Score Integrado", "Score Integrado"),
         "itens_concluidos": ("Itens Concluidos", "Itens Concluídos"),
+        "cobertura_tecnica": ("Cobertura Tecnica (%)", "Cobertura Técnica (%)"),
         "commits": ("Commits", "Commits"),
         "prs_merged": ("PRs Merged", "PRs Merged"),
         "prs_abertos": ("PRs Abertos", "PRs Abertos"),
+        "prs_declinados": ("PRs Declinados", "PRs Declinados"),
     }
     weekly_metric_col, weekly_metric_label = weekly_metric_map.get(str(cross_weekly_metric), weekly_metric_map["score"])
     cross_weekly = compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts)
@@ -2237,7 +2343,7 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
     exec_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasExecucaoUteisPonderadasPeriodo", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
     exec_norm_people_cols = [c for c in ["Responsavel", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "MediaHrsEstimadasPorDiaAtivo", "DiasAtivos", "CardsUnicos", "Slices"] if c in exec_norm_by_person.columns]
     exec_norm_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "DiasComAtividade", "CardsUnicos", "Slices"] if c in exec_norm_by_status.columns]
-    cross_people_cols = [c for c in ["Pessoa", "Itens Concluidos", "Itens c/ Evidencia Tecnica", "Cobertura Tecnica (%)", "Commits", "PRs Abertos", "PRs Merged", "Aprovacoes", "Reprovacoes", "Score Integrado"] if c in cross_people.columns]
+    cross_people_cols = [c for c in ["Pessoa", "Itens Concluidos", "Itens c/ Evidencia Tecnica", "Cobertura Tecnica (%)", "Commits", "PRs Abertos", "PRs Merged", "PRs Declinados", "Aprovacoes", "Reprovacoes", "Score Integrado"] if c in cross_people.columns]
     bottleneck_cols = [c for c in ["Status", "HorasUteisMedianaEvento", "HorasUteisP85Evento", "HorasUteisP95Evento", "HorasUteisTotalPeriodo", "HorasUteisMediaEvento", "Eventos", "CardsUnicos"] if c in bottlenecks.columns]
 
     model_cards = []

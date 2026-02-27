@@ -2514,3 +2514,97 @@
   - `git diff -- dashboard_process_mining.py tasks/todo.md`
 - Suggested commit message:
   - `feat(process-mining): add weekly cross-source trend controls and chart`
+
+## Current Task (Process Mining v2: alias robusto + cobertura semanal + PRs declinados semanais)
+- [x] Implementar canonicalização de pessoas com `FLOW_PMO_PERSON_ALIAS_MAP`
+- [x] Adicionar `PRs Declinados` no agregado semanal integrado
+- [x] Adicionar `Itens c/ Evidência Técnica` e `Cobertura Técnica (%)` no agregado semanal
+- [x] Expor novas métricas no filtro semanal da UI (`Cobertura Técnica` e `PRs Declinados`)
+- [x] Validar callback/renderização com as novas métricas
+
+## Specification (Process Mining v2: alias robusto + cobertura semanal + PRs declinados semanais)
+- Objetivo: aumentar robustez do cruzamento Jira+Bitbucket e completar a leitura semanal com qualidade de rastreabilidade e sinal de rejeição de PR.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Pessoas podem ser unificadas por aliases configuráveis entre Jira e Bitbucket.
+  - Série semanal inclui `PRs Declinados` por pessoa.
+  - Série semanal inclui `Itens c/ Evidência Técnica` e `Cobertura Técnica (%)` por pessoa.
+  - Filtro de métrica semanal permite escolher essas novas métricas.
+
+## Review (Process Mining v2: alias robusto + cobertura semanal + PRs declinados semanais)
+- What was validated:
+  - `dashboard_process_mining.py` agora suporta canonicalização de pessoas via `FLOW_PMO_PERSON_ALIAS_MAP` (com matching por nome normalizado e email).
+  - `compute_pm_bitbucket_cross_weekly(...)` passou a calcular:
+    - `PRs Declinados`
+    - `Itens c/ Evidencia Tecnica`
+    - `Cobertura Tecnica (%)`
+    - mantendo `Score Integrado` e demais métricas já existentes.
+  - Filtro `pm-cross-weekly-metric` ganhou opções:
+    - `Cobertura Técnica (%)`
+    - `PRs Declinados`
+  - Consolidado integrado por pessoa também passou a exibir `PRs Declinados` na tabela e nos totais.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_weekly(...): cols incl. PRs Declinados + Cobertura Técnica ... PY`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_metrics(...): PRs Declinados nos totais ... PY`
+  - `python3 - <<'PY' ... render_pm(..., 'cobertura_tecnica') + render_pm(..., 'prs_declinados') ... PY`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add alias-based identity and weekly declined-pr/technical-coverage metrics`
+
+## Current Task (Hotfix Bitbucket export: diffstat 404 por `%0D` no href)
+- [x] Diagnosticar 404 no diffstat com URL de `links.diffstat.href` contaminada por CR/LF
+- [x] Ajustar exportador para priorizar endpoint canônico por PR id (`/pullrequests/{id}/diffstat`)
+- [x] Adicionar sanitização defensiva de URL de diffstat como fallback
+- [x] Validar sintaxe e normalização local
+
+## Review (Hotfix Bitbucket export: diffstat 404 por `%0D` no href)
+- What was validated:
+  - O erro observado (`...diffstat/...:hash%0Dhash?... -> 404`) vem de `href` com revspec malformado.
+  - `bitbucket_export.py` agora usa preferencialmente `.../pullrequests/{id}/diffstat`, reduzindo dependência de `href` instável.
+  - Foi adicionada função `normalize_diffstat_url(...)` para remover CR/LF e `%0D/%0A` quando houver fallback para URL vinda da API.
+  - Exportador segue válido em sintaxe após ajuste.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 - <<'PY' ... normalize_diffstat_url('...%0D...') ... PY`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): stabilize bitbucket diffstat lookup using pr endpoint and url sanitization`
+
+## Current Task (Hotfix complementar diffstat: redirect 3xx para URL malformada)
+- [x] Diagnosticar que endpoint canônico `/pullrequests/{id}/diffstat` pode redirecionar para URL com `%0D`
+- [x] Implementar tratamento manual de redirect em `fetch_pullrequest_volume` com sanitização de `Location`
+- [x] Validar com teste local mockado de redirect -> payload diffstat
+
+## Review (Hotfix complementar diffstat: redirect 3xx para URL malformada)
+- What was validated:
+  - Em alguns PRs, o endpoint canônico responde com redirect para `diffstat/revspec` contendo `%0D`, causando 404 quando seguido cegamente.
+  - `fetch_pullrequest_volume` foi alterado para:
+    - fazer request com `allow_redirects=False`;
+    - ler `Location`, sanitizar URL (removendo `%0D/%0A` e CR/LF), e seguir manualmente;
+    - manter paginação de `next` com sanitização.
+  - Teste mockado confirmou que o redirect sanitizado remove `%0D` e preserva contagem de `additions/deletions/files_changed`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 - <<'PY' ... MockSession redirect 302 -> diffstat payload ... PY`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): follow and sanitize diffstat redirects to avoid malformed %0D urls`
+
+## Current Task (Hotfix ruído operacional: diffstat 404 conhecido)
+- [x] Tratar `HTTP 404` em diffstat como ausência de volume (sem warning por PR)
+- [x] Manter warning apenas para erros não esperados de rede/API
+- [x] Validar sintaxe do exportador
+
+## Review (Hotfix ruído operacional: diffstat 404 conhecido)
+- What was validated:
+  - `bitbucket_export.py` passou a tratar `requests.HTTPError` com `status_code == 404` no diffstat como caso esperado, retornando colunas de volume vazias sem log de aviso.
+  - Erros HTTP diferentes de 404 e falhas de rede continuam gerando warning.
+  - Sintaxe do script permanece válida.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): silence expected 404 diffstat misses while keeping other warnings`
