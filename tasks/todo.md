@@ -2277,3 +2277,43 @@
   - `git diff -- bitbucket_export.py .env.example .gitignore tasks/todo.md`
 - Suggested commit message:
   - `feat(integration): add bitbucket csv exporter with .env-based auth`
+
+## Current Task (Avaliação: cruzamento Jira + Bitbucket para capacidade por pessoa)
+- [x] Levantar campos disponíveis nos exportadores de Jira e Bitbucket
+- [x] Medir cobertura real dos CSVs Bitbucket disponíveis no workspace
+- [x] Classificar métricas em: imediatas, possíveis com aproximação e dependentes de evolução de coleta
+- [x] Registrar recomendações de implementação faseada e riscos de qualidade de dados
+
+## Specification (Avaliação: cruzamento Jira + Bitbucket para capacidade por pessoa)
+- Objetivo: avaliar viabilidade técnica e confiabilidade de métricas por pessoa (work items + commits/PRs) antes de implementar.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `bitbucket_export.py`
+  - `dashboard_full.py`
+  - `w1nner_commits.csv`
+  - `w1nner_pullrequests.csv`
+  - `w1nner_pipelines.csv`
+- Critério de aceite:
+  - Diagnóstico explicita o que é medível já com os dados atuais.
+  - Diagnóstico explicita limitações de join pessoa-a-pessoa e item-a-item.
+  - Diagnóstico sugere sequência de implementação com menor risco de viés.
+
+## Review (Avaliação: cruzamento Jira + Bitbucket para capacidade por pessoa)
+- What was validated:
+  - Exportador Jira (`jira_to_pipeline_csv.py`) já gera base de itens com `ID`, `Responsável`, datas por etapa e opcional de changelog detalhado com `Author` de transição.
+  - Exportador Bitbucket (`bitbucket_export.py`) já gera work item key em commits/PRs/pipelines e dados de revisão (`approved_by`, `changes_requested_by`).
+  - Cobertura observada nos CSVs locais (`W1NNER`):
+    - `commits`: 22.188 linhas; `primary_work_item_key` em 40,7%.
+    - `pullrequests`: 875 linhas; `primary_work_item_key` em 97,5%.
+    - `pipelines`: 4.360 linhas; `primary_work_item_key` em 7,7%.
+    - Join `pipelines.commit_hash -> commits.hash`: 87,2% de match.
+  - Principais riscos para capacidade por pessoa:
+    - identidade de pessoa não unificada entre Jira e Bitbucket (display name/email/variações);
+    - parte relevante dos commits sem chave Jira;
+    - baixa cobertura de chave em pipelines para rastreio item-a-item direto.
+- Evidence (tests/logs/diff):
+  - `sed -n '1,330p' bitbucket_export.py`
+  - `sed -n '1,220p' jira_to_pipeline_csv.py`
+  - `python3 - <<'PY' ... profile de cobertura e joins dos 3 CSVs Bitbucket ... PY`
+- Suggested commit message:
+  - `docs(assessment): map feasible jira-bitbucket capacity metrics and data gaps`
