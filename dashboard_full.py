@@ -492,20 +492,22 @@ def load_project_bitbucket_logs(projeto):
     pipelines = _load_project_bitbucket_csv(prefix, '_pipelines.csv')
 
     if not commits.empty and 'date' in commits.columns:
-        commits['date'] = pd.to_datetime(commits['date'], errors='coerce')
+        commits['date'] = pd.to_datetime(commits['date'], errors='coerce', utc=True).dt.tz_localize(None)
     if not pullrequests.empty:
         if 'created_on' in pullrequests.columns:
-            pullrequests['created_on'] = pd.to_datetime(pullrequests['created_on'], errors='coerce')
+            pullrequests['created_on'] = pd.to_datetime(pullrequests['created_on'], errors='coerce', utc=True).dt.tz_localize(None)
         if 'updated_on' in pullrequests.columns:
-            pullrequests['updated_on'] = pd.to_datetime(pullrequests['updated_on'], errors='coerce')
+            pullrequests['updated_on'] = pd.to_datetime(pullrequests['updated_on'], errors='coerce', utc=True).dt.tz_localize(None)
         if 'state' in pullrequests.columns:
             pullrequests['state_norm'] = pullrequests['state'].astype(str).str.strip().str.lower()
     if not pipelines.empty:
         if 'created_on' in pipelines.columns:
-            pipelines['created_on'] = pd.to_datetime(pipelines['created_on'], errors='coerce')
+            pipelines['created_on'] = pd.to_datetime(pipelines['created_on'], errors='coerce', utc=True).dt.tz_localize(None)
         if 'completed_on' in pipelines.columns:
-            pipelines['completed_on'] = pd.to_datetime(pipelines['completed_on'], errors='coerce')
-        if 'state' in pipelines.columns:
+            pipelines['completed_on'] = pd.to_datetime(pipelines['completed_on'], errors='coerce', utc=True).dt.tz_localize(None)
+        if 'state_result' in pipelines.columns and pipelines['state_result'].astype(str).str.strip().ne('').any():
+            pipelines['state_norm'] = pipelines['state_result'].astype(str).str.strip().str.lower()
+        elif 'state' in pipelines.columns:
             pipelines['state_norm'] = pipelines['state'].astype(str).str.strip().str.lower()
         if 'commit_hash' in pipelines.columns:
             pipelines['commit_hash'] = pipelines['commit_hash'].astype(str).str.strip()
@@ -3051,6 +3053,14 @@ def _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end):
     return out
 
 
+def _format_change_lead_time(days_value):
+    if pd.isna(days_value):
+        return '—'
+    if float(days_value) < 1.0:
+        return f"{float(days_value) * 24.0:.1f}h"
+    return f"{float(days_value):.1f}d"
+
+
 def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias', projeto=None):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
     metric_names = [
@@ -3109,8 +3119,6 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
             non_negative=True
         )
         mttr = mttr_series.mean() if not mttr_series.empty else np.nan
-        if pd.isna(mttr):
-            mttr = 0
         dora = _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end)
         dora_deploy_frequency = dora.get('deploy_frequency')
         dora_lead_time = dora.get('lead_time_changes')
@@ -3129,7 +3137,7 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if pd.notna(p85_lt) else '—'
         rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if pd.notna(p85_lt) and pd.notna(median_lt) else '—'
         rows['Frequência de Deploy'][week_label] = f"{dora_deploy_frequency:.0f}" if pd.notna(dora_deploy_frequency) else str(tp_dev)
-        rows['Lead time para mudanças'][week_label] = f"{dora_lead_time:.1f}" if pd.notna(dora_lead_time) else (f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—')
+        rows['Lead time para mudanças'][week_label] = _format_change_lead_time(dora_lead_time) if pd.notna(dora_lead_time) else _format_change_lead_time(avg_lt)
         rows['Taxa de demanda de falha'][week_label] = f"{dora_change_failure_rate:.1f}%" if pd.notna(dora_change_failure_rate) else (f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—')
         rows['MTTR'][week_label] = f"{dora_mttr:.1f}" if pd.notna(dora_mttr) else (f"{mttr:.0f}" if pd.notna(mttr) else '—')
 
@@ -7396,13 +7404,30 @@ def render_metric_chart(active_cell, table_data):
                     dcc.Graph(figure=fig_cmp)
                 ], style={'marginTop': '20px'})
 
+    def _parse_metric_numeric_value(raw_value, metric):
+        txt = str(raw_value or '').strip().lower().replace(',', '.')
+        if not txt or txt in {'—', '-', 'nan', 'none'}:
+            return None
+        if metric == 'Lead time para mudanças':
+            if txt.endswith('h'):
+                try:
+                    return float(txt[:-1].strip()) / 24.0
+                except (ValueError, TypeError):
+                    return None
+            if txt.endswith('d'):
+                try:
+                    return float(txt[:-1].strip())
+                except (ValueError, TypeError):
+                    return None
+        txt = txt.replace('%', '').strip()
+        try:
+            return float(txt)
+        except (ValueError, TypeError):
+            return None
+
     values = []
     for wl in week_labels:
-        val_str = str(row[wl]).replace('%', '').replace(',', '.').strip()
-        try:
-            values.append(float(val_str))
-        except (ValueError, TypeError):
-            values.append(None)
+        values.append(_parse_metric_numeric_value(row.get(wl), metric_name))
 
     # Filtrar semanas com valores válidos
     valid = [(w, v) for w, v in zip(week_labels, values) if v is not None]
@@ -7430,10 +7455,14 @@ def render_metric_chart(active_cell, table_data):
     if len(s) >= 2:
         add_statistical_lines(fig, weeks_valid, s)
 
+    yaxis_title = metric_name
+    if metric_name == 'Lead time para mudanças':
+        yaxis_title = 'Lead time para mudanças (dias)'
+
     fig.update_layout(
         title=f'{metric_name} — Tendência Semanal',
         xaxis_title='Semana',
-        yaxis_title=metric_name,
+        yaxis_title=yaxis_title,
         template='plotly_white',
         height=550,
         margin=dict(t=60, b=130),

@@ -1,5 +1,41 @@
 # Task Plan
 
+## Current Task (Validação DORA Bitbucket: MTTR e taxa de falha)
+- [x] Auditar consistência entre tabela do dashboard e CSVs extraídos do Bitbucket
+- [x] Corrigir export de pipelines para incluir resultado real (sucesso/falha) além do estado de execução
+- [x] Ajustar leitura/cálculo no dashboard para priorizar resultado real do pipeline
+- [x] Validar sintaxe e registrar evidências + comando de reexport
+
+## Specification (Validação DORA Bitbucket: MTTR e taxa de falha)
+- Objetivo: garantir que MTTR e taxa de falha DORA usem o resultado real dos pipelines do Bitbucket.
+- Escopo:
+  - `bitbucket_export.py`
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador grava coluna explícita com resultado do pipeline (`SUCCESSFUL`, `FAILED`, etc.).
+  - Dashboard usa essa coluna para classificar sucesso/falha, mantendo fallback compatível para arquivos legados.
+  - Validação local comprova que os números do print atual eram efeito de estado `COMPLETED` e documenta necessidade de reexport.
+
+## Review (Validação DORA Bitbucket: MTTR e taxa de falha)
+- Findings (ordered by severity):
+  - `bitbucket_export.py` exportava `state` usando `state.name` (ex.: `COMPLETED`), que representa estado de execução e não resultado (`SUCCESSFUL`/`FAILED`). Isso força `Taxa de demanda de falha = 0.0%` e `MTTR = —` por ausência de falhas detectáveis.
+  - `w1nner_pullrequests.csv` estava com apenas 10 linhas e todas em `OPEN`, indicando que o endpoint de PR está trazendo somente abertos no export atual; para fallback de lead time por PR merge, isso reduz cobertura histórica.
+- What was changed:
+  - `bitbucket_export.py` agora exporta também `state_type` e `state_result` em pipelines.
+  - `dashboard_full.py` passa a usar `state_result` como fonte primária para `state_norm` (fallback para `state` em CSV legado).
+- Evidence (tests/logs/diff):
+  - `wc -l w1nner_commits.csv w1nner_pullrequests.csv w1nner_pipelines.csv`
+  - `python3 - <<'PY' ... value_counts de state em w1nner_pipelines.csv ... PY`
+  - `python3 - <<'PY' ... value_counts de state em w1nner_pullrequests.csv ... PY`
+  - `python3 -m py_compile bitbucket_export.py dashboard_full.py`
+  - `python3 - <<'PY' ... d._compute_bitbucket_weekly_dora(...) ... PY`
+  - `git diff -- bitbucket_export.py dashboard_full.py tasks/todo.md`
+- Operational note:
+  - É necessário reexecutar `bitbucket_export.py` para gerar `w1nner_pipelines.csv` com a nova coluna `state_result`; sem isso o dashboard continuará em fallback legado.
+- Suggested commit message:
+  - `fix(dora): export and consume bitbucket pipeline result status for failure rate and mttr`
+
 ## Current Task (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
 - [x] Mapear e carregar automaticamente CSVs do Bitbucket por projeto (`*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv`)
 - [x] Calcular métricas DORA semanais no `dashboard_full.py` com prioridade para dados Bitbucket e fallback para cálculo atual

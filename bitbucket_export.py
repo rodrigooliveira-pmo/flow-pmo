@@ -120,19 +120,33 @@ def export_pullrequests(rows: Iterable[Dict[str, Any]], output_path: Path) -> in
 
 
 def export_pipelines(rows: Iterable[Dict[str, Any]], output_path: Path) -> int:
-    fields = ["uuid", "build_number", "state", "created_on", "completed_on", "ref_name", "commit_hash"]
+    fields = [
+        "uuid",
+        "build_number",
+        "state",
+        "state_type",
+        "state_result",
+        "created_on",
+        "completed_on",
+        "ref_name",
+        "commit_hash",
+    ]
     count = 0
     with output_path.open("w", newline="", encoding="utf-8") as fp:
         writer = csv.DictWriter(fp, fieldnames=fields)
         writer.writeheader()
         for row in rows:
             target = row.get("target") if isinstance(row.get("target"), dict) else {}
+            state = row.get("state") if isinstance(row.get("state"), dict) else {}
+            result = state.get("result") if isinstance(state.get("result"), dict) else {}
             commit_hash = ((target.get("commit") or {}).get("hash")) if isinstance(target, dict) else ""
             writer.writerow(
                 {
                     "uuid": row.get("uuid") or "",
                     "build_number": row.get("build_number") or "",
-                    "state": ((row.get("state") or {}).get("name")) if isinstance(row.get("state"), dict) else "",
+                    "state": state.get("name") or "",
+                    "state_type": state.get("type") or "",
+                    "state_result": result.get("name") or "",
                     "created_on": row.get("created_on") or "",
                     "completed_on": row.get("completed_on") or "",
                     "ref_name": target.get("ref_name") if isinstance(target, dict) else "",
