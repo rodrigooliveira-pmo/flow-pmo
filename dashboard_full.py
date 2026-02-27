@@ -962,7 +962,14 @@ def compute_cross_source_capacity_weekly_metrics(jira_df, bitbucket_logs, start_
     return merged
 
 
-def build_bitbucket_contributor_section(projeto, start_ts, end_ts, jira_df=None):
+def build_bitbucket_contributor_section(
+    projeto,
+    start_ts,
+    end_ts,
+    jira_df=None,
+    top_n_people=5,
+    weekly_metric='score',
+):
     if not projeto:
         return html.Div(
             'Selecione um projeto para visualizar ranking de contribuições no Bitbucket.',
@@ -1058,9 +1065,23 @@ def build_bitbucket_contributor_section(projeto, start_ts, end_ts, jira_df=None)
             dcc.Graph(figure=fig_rank),
         ])
 
+    try:
+        top_n_people = int(top_n_people)
+    except Exception:
+        top_n_people = 5
+    top_n_people = min(max(top_n_people, 1), 30)
+
+    weekly_metric_map = {
+        'score': ('Score Capacidade (proxy)', 'Score Capacidade (proxy)'),
+        'itens_concluidos': ('Itens Concluidos', 'Itens Concluídos'),
+        'commits': ('Commits', 'Commits'),
+        'prs_abertos': ('PRs Abertos', 'PRs Abertos'),
+    }
+    weekly_metric_col, weekly_metric_label = weekly_metric_map.get(str(weekly_metric), weekly_metric_map['score'])
+
     cross_section = html.Div()
     if cross_df is not None and not cross_df.empty:
-        cross_top = cross_df.head(20).copy()
+        cross_top = cross_df.head(top_n_people).copy()
         cross_cols = [
             'Pessoa',
             'Itens Concluidos',
@@ -1087,17 +1108,17 @@ def build_bitbucket_contributor_section(projeto, start_ts, end_ts, jira_df=None)
         weekly_df = compute_cross_source_capacity_weekly_metrics(jira_df, logs, start_ts, end_ts)
         weekly_section = html.Div()
         if weekly_df is not None and not weekly_df.empty:
-            top_people = cross_top['Pessoa'].head(5).tolist()
+            top_people = cross_top['Pessoa'].head(top_n_people).tolist()
             weekly_top = weekly_df[weekly_df['Pessoa'].isin(top_people)].copy()
-            weekly_top = weekly_top.sort_values(['Semana', 'Score Capacidade (proxy)', 'Pessoa'])
+            weekly_top = weekly_top.sort_values(['Semana', weekly_metric_col, 'Pessoa'])
             if not weekly_top.empty:
                 fig_weekly = px.line(
                     weekly_top,
                     x='Semana',
-                    y='Score Capacidade (proxy)',
+                    y=weekly_metric_col,
                     color='Pessoa',
                     markers=True,
-                    title='Tendência semanal de capacidade (Top 5 pessoas no período)'
+                    title=f'Tendência semanal de capacidade ({weekly_metric_label}, Top {top_n_people})'
                 )
                 fig_weekly.update_layout(template='plotly_white', margin=dict(t=60, b=40), legend_title_text='Pessoa')
                 weekly_section = html.Div([
@@ -3946,6 +3967,29 @@ app.layout = html.Div([
             )
         ], style={'width':'30%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'340px'}),
         html.Div([
+            html.Label('Top N Capacidade:'),
+            dcc.Dropdown(
+                id='filter-capacity-top-n',
+                options=[{'label': str(n), 'value': n} for n in [3, 5, 8, 10, 15, 20]],
+                value=5,
+                clearable=False
+            )
+        ], style={'width':'12%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'140px'}),
+        html.Div([
+            html.Label('Métrica semanal (capacidade):'),
+            dcc.Dropdown(
+                id='filter-capacity-weekly-metric',
+                options=[
+                    {'label': 'Score Capacidade (proxy)', 'value': 'score'},
+                    {'label': 'Itens Concluídos', 'value': 'itens_concluidos'},
+                    {'label': 'Commits', 'value': 'commits'},
+                    {'label': 'PRs Abertos', 'value': 'prs_abertos'},
+                ],
+                value='score',
+                clearable=False
+            )
+        ], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'220px'}),
+        html.Div([
             html.Label('Team (Portfólio):'),
             dcc.Dropdown(
                 id='filter-portfolio-team',
@@ -4134,6 +4178,8 @@ def update_main_navigation_layout(main_view):
     Input('filter-classe-servico', 'value'),
     Input('filter-responsavel', 'value'),
     Input('filter-leadtime-stages', 'value'),
+    Input('filter-capacity-top-n', 'value'),
+    Input('filter-capacity-weekly-metric', 'value'),
     Input('filter-portfolio-team', 'value'),
     Input('filter-portfolio-threshold-backlog-15', 'value'),
     Input('filter-portfolio-threshold-backlog-30', 'value'),
@@ -4144,7 +4190,7 @@ def update_main_navigation_layout(main_view):
     Input('filter-portfolio-sla-aging-json', 'value'),
     Input('filter-portfolio-target-mix-json', 'value')
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team='__ALL__',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None):
     if main_view in (None, 'home'):
@@ -4232,7 +4278,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             })
 
         titulo = f"Performance da Entrega do Serviço: {projeto}" if projeto else "Performance da Entrega do Serviço"
-        contributor_section = build_bitbucket_contributor_section(projeto, start_ts, end_ts, jira_df=df_proj)
+        contributor_section = build_bitbucket_contributor_section(
+            projeto,
+            start_ts,
+            end_ts,
+            jira_df=df_proj,
+            top_n_people=capacity_top_n,
+            weekly_metric=capacity_weekly_metric,
+        )
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
@@ -6665,10 +6718,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_flow),
             dcc.Graph(figure=fig_wip_trend),
             html.Hr(style={'margin': '30px 0'}),
-            render_tab(main_view, 'tab-estabilidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+            render_tab(main_view, 'tab-estabilidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
             html.Hr(style={'margin': '30px 0'}),
-            render_tab(main_view, 'tab-qualidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+            render_tab(main_view, 'tab-qualidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
         ])
 
@@ -6756,13 +6809,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style={'textAlign': 'center', 'color': '#666', 'marginTop': '-8px'}
             ),
             html.Hr(),
-            render_tab(main_view, 'tab-dim', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+            render_tab(main_view, 'tab-dim', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
             html.Hr(),
-            render_tab(main_view, 'tab-tipos', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+            render_tab(main_view, 'tab-tipos', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
             html.Hr(),
-            render_tab(main_view, 'tab-eficiencia', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, portfolio_team,
+            render_tab(main_view, 'tab-eficiencia', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
         ])
 

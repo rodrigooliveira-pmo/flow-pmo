@@ -2407,3 +2407,110 @@
   - `git diff -- dashboard_full.py tasks/todo.md`
 - Suggested commit message:
   - `feat(dashboard): add weekly cross-source capacity trends per person`
+
+## Current Task (Fase 3: filtros de Top N e métrica semanal na capacidade cruzada)
+- [x] Adicionar filtros na UI para `Top N` e `Métrica semanal` da capacidade cruzada
+- [x] Propagar filtros no callback principal e na função da seção de contribuições/capacidade
+- [x] Aplicar filtros no gráfico semanal (`score`, `itens concluídos`, `commits`, `PRs`)
+- [x] Validar renderização com múltiplas combinações de filtros
+
+## Specification (Fase 3: filtros de Top N e métrica semanal na capacidade cruzada)
+- Objetivo: tornar a análise de capacidade cruzada mais exploratória, permitindo escolher quantas pessoas comparar e qual métrica semanal observar.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Novos filtros aparecem no painel principal de filtros.
+  - Aba `Performance do Serviço` aplica os filtros ao bloco `Capacidade Cruzada (Jira + Bitbucket)`.
+  - Gráfico semanal passa a alternar entre métricas: score, itens concluídos, commits e PRs abertos.
+
+## Review (Fase 3: filtros de Top N e métrica semanal na capacidade cruzada)
+- What was validated:
+  - Filtros adicionados na UI:
+    - `filter-capacity-top-n` (3, 5, 8, 10, 15, 20)
+    - `filter-capacity-weekly-metric` (`score`, `itens_concluidos`, `commits`, `prs_abertos`)
+  - Callback principal `render_tab` atualizado para receber e propagar os dois filtros para `build_bitbucket_contributor_section(...)`.
+  - A seção de capacidade cruzada agora usa:
+    - `Top N` para limitar ranking e pessoas da série temporal.
+    - métrica selecionada para eixo Y do gráfico semanal.
+  - Assinatura de `render_tab` preserva defaults para compatibilidade com chamadas internas.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section(... top_n=3/10, weekly_metric='score/commits/prs_abertos') ... PY`
+  - `python3 - <<'PY' ... render_tab('services','tab-performance',..., 8, 'itens_concluidos', '__ALL__') ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add top-n and weekly metric filters for cross-source capacity chart`
+
+## Current Task (Process Mining W1NNER: cruzamento Jira + Bitbucket pelos indicadores do anexo)
+- [x] Ler indicadores do anexo PDF e mapear para a página `dashboard_process_mining.py`
+- [x] Implementar carga dos logs Bitbucket (`commits`, `pullrequests`, `pipelines`) no dashboard de Process Mining
+- [x] Calcular métricas cruzadas por pessoa (itens Jira + atividade técnica Bitbucket + evidência técnica)
+- [x] Exibir novos KPIs e visualizações de capacidade integrada na aba `Operacional`
+- [x] Validar sintaxe e smoke test com dados reais disponíveis
+
+## Specification (Process Mining W1NNER: cruzamento Jira + Bitbucket pelos indicadores do anexo)
+- Objetivo: cruzar os dados Jira/Process Mining com logs do Bitbucket para complementar os indicadores operacionais por pessoa.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Dashboard carrega CSVs Bitbucket do projeto W1NNER com o mesmo padrão usado no dashboard principal.
+  - Métricas cruzadas incluem pelo menos: `Commits`, `PRs Merged`, `Aprovações`, `Reprovações`, `Itens c/ Evidência Técnica`, `Cobertura Técnica (%)`, `Score Integrado`.
+  - Aba `Operacional` exibe gráfico e tabela por pessoa combinando Jira + Bitbucket.
+
+## Review (Process Mining W1NNER: cruzamento Jira + Bitbucket pelos indicadores do anexo)
+- What was validated:
+  - `dashboard_process_mining.py` passou a incluir helpers para:
+    - carregamento de logs Bitbucket por projeto/prefixo (`FLOW_PMO_BITBUCKET_PREFIX_MAP` + fallback `w1nner`)
+    - normalização de nomes de pessoas
+    - agregação de métricas Bitbucket por pessoa no período filtrado
+    - consolidação Jira + Bitbucket com `Itens c/ Evidência Técnica` e `Cobertura Técnica (%)`.
+  - O bloco de KPIs recebeu cartões adicionais de Bitbucket/cross:
+    - `Commits (Bitbucket)`, `PRs Merged (Bitbucket)`, `Aprovações PR (Bitbucket)`, `Reprovações PR (Bitbucket)`,
+    - `Itens c/ Evidência Técnica`, `Cobertura Técnica`.
+  - A aba `Operacional` ganhou:
+    - gráfico `Capacidade Integrada por Pessoa (Jira + Bitbucket)`
+    - tabela detalhada por pessoa com métricas cruzadas.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... load_project_bitbucket_logs('W1NNER') ... PY`
+  - `python3 - <<'PY' ... compute_bitbucket_person_metrics(...) ... PY`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, ...) ... PY`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add jira-bitbucket cross indicators per person in operational view`
+
+## Current Task (Process Mining: visão semanal dos indicadores cruzados Jira+Bitbucket)
+- [x] Implementar agregado semanal por pessoa no cruzamento Jira+Bitbucket
+- [x] Adicionar filtros de `Top N` e `Métrica semanal` na UI do Process Mining
+- [x] Conectar filtros ao callback principal e renderizar tendência semanal na aba `Operacional`
+- [x] Validar sintaxe e render callback com dados reais
+
+## Specification (Process Mining: visão semanal dos indicadores cruzados Jira+Bitbucket)
+- Objetivo: habilitar tendência semanal por pessoa dos indicadores cruzados no dashboard de Process Mining, em linha com a experiência do `dashboard_full.py`.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Cálculo semanal por pessoa disponível para métricas cruzadas.
+  - UI oferece filtros de `Top N` e `Métrica semanal`.
+  - Aba `Operacional` exibe gráfico semanal controlado pelos filtros.
+
+## Review (Process Mining: visão semanal dos indicadores cruzados Jira+Bitbucket)
+- What was validated:
+  - Função `compute_pm_bitbucket_cross_weekly(...)` adicionada para consolidar por `Semana + Pessoa`:
+    - `Itens Concluidos`, `Commits`, `PRs Abertos`, `PRs Merged`, `Aprovacoes`, `Reprovacoes`, `Score Integrado`.
+  - Novos controles na barra superior:
+    - `pm-cross-topn`
+    - `pm-cross-weekly-metric`
+  - Callback `render_pm(...)` atualizado para receber os novos inputs e usar no gráfico:
+    - título dinâmico com métrica e Top N selecionado.
+  - Aba `Operacional` passou a exibir gráfico `Tendência Semanal Integrada (...)` abaixo do gráfico de capacidade integrada.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_weekly(...) ... PY`
+  - `python3 - <<'PY' ... render_pm(..., 8, 'prs_merged') ... PY`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add weekly cross-source trend controls and chart`

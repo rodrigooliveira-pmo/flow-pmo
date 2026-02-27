@@ -1,6 +1,9 @@
 import base64
+import json
 import os
 import platform
+import re
+import unicodedata
 from datetime import datetime, time, timedelta
 
 import dash
@@ -111,6 +114,7 @@ STATUS_EXECUTION_WEIGHTS = {
 WORKDAY_START_HOUR = 9
 WORKDAY_END_HOUR = 18
 WORKDAY_DAILY_CAP_HOURS = 8.0
+PROJECT_BITBUCKET_PREFIX = {"W1NNER": "w1nner"}
 
 
 def find_latest_process_mining_report():
@@ -198,6 +202,405 @@ def _load_artifact_images_from_base(base_no_ext):
 
 def _safe_num(series):
     return pd.to_numeric(series, errors="coerce")
+
+
+def _normalize_person_name(raw_name):
+    if raw_name is None or (isinstance(raw_name, float) and pd.isna(raw_name)):
+        return ""
+    name = str(raw_name).strip()
+    if not name or name.lower() in {"nan", "none"}:
+        return ""
+    if "<" in name:
+        name = name.split("<", 1)[0].strip()
+    return re.sub(r"\s+", " ", name).strip()
+
+
+def _normalize_text(value):
+    txt = str(value or "").strip().lower()
+    nfkd = unicodedata.normalize("NFKD", txt)
+    no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", no_accents)).strip()
+
+
+def _person_key(raw_name):
+    return _normalize_text(_normalize_person_name(raw_name))
+
+
+def _split_people_field(raw_value):
+    if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+        return []
+    text = str(raw_value).strip()
+    if not text or text.lower() in {"nan", "none"}:
+        return []
+    out = []
+    for part in text.split("|"):
+        person = _normalize_person_name(part)
+        if person:
+            out.append(person)
+    return out
+
+
+def _load_bitbucket_prefix_map():
+    raw = os.getenv("FLOW_PMO_BITBUCKET_PREFIX_MAP", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key, value in parsed.items():
+        project_key = str(key).strip().upper()
+        prefix = str(value).strip().lower()
+        if project_key and prefix:
+            out[project_key] = prefix
+    return out
+
+
+def _load_project_bitbucket_csv(project_prefix, suffix):
+    if not project_prefix:
+        return pd.DataFrame()
+    candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if low.startswith(project_prefix.lower()) and low.endswith(suffix):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    candidates.append(path)
+    if not candidates:
+        return pd.DataFrame()
+    latest = max(candidates, key=os.path.getctime)
+    try:
+        return pd.read_csv(latest)
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_project_bitbucket_logs(projeto):
+    project_key = str(projeto or "").strip().upper()
+    if not project_key:
+        return {"commits": pd.DataFrame(), "pullrequests": pd.DataFrame(), "pipelines": pd.DataFrame()}
+    env_map = _load_bitbucket_prefix_map()
+    prefix = env_map.get(project_key) or PROJECT_BITBUCKET_PREFIX.get(project_key)
+    if not prefix:
+        return {"commits": pd.DataFrame(), "pullrequests": pd.DataFrame(), "pipelines": pd.DataFrame()}
+
+    commits = _load_project_bitbucket_csv(prefix, "_commits.csv")
+    pullrequests = _load_project_bitbucket_csv(prefix, "_pullrequests.csv")
+    pipelines = _load_project_bitbucket_csv(prefix, "_pipelines.csv")
+
+    if not commits.empty and "date" in commits.columns:
+        commits["date"] = pd.to_datetime(commits["date"], errors="coerce", utc=True).dt.tz_localize(None)
+    if not pullrequests.empty:
+        if "created_on" in pullrequests.columns:
+            pullrequests["created_on"] = pd.to_datetime(pullrequests["created_on"], errors="coerce", utc=True).dt.tz_localize(None)
+        if "updated_on" in pullrequests.columns:
+            pullrequests["updated_on"] = pd.to_datetime(pullrequests["updated_on"], errors="coerce", utc=True).dt.tz_localize(None)
+        if "state" in pullrequests.columns:
+            pullrequests["state_norm"] = pullrequests["state"].astype(str).str.strip().str.lower()
+    if not pipelines.empty:
+        if "created_on" in pipelines.columns:
+            pipelines["created_on"] = pd.to_datetime(pipelines["created_on"], errors="coerce", utc=True).dt.tz_localize(None)
+        if "completed_on" in pipelines.columns:
+            pipelines["completed_on"] = pd.to_datetime(pipelines["completed_on"], errors="coerce", utc=True).dt.tz_localize(None)
+    return {"commits": commits, "pullrequests": pullrequests, "pipelines": pipelines}
+
+
+def compute_bitbucket_person_metrics(bitbucket_logs, start_ts, end_ts):
+    commits = bitbucket_logs.get("commits", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    pullrequests = bitbucket_logs.get("pullrequests", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    stats = {}
+
+    def apply_time_window(df, col):
+        if df is None or df.empty or col not in df.columns:
+            return df
+        out = df.copy()
+        if start_ts is not None:
+            out = out[out[col] >= pd.to_datetime(start_ts)]
+        if end_ts is not None:
+            out = out[out[col] < pd.to_datetime(end_ts)]
+        return out
+
+    def ensure_person(raw_name):
+        person = _normalize_person_name(raw_name)
+        if not person:
+            return None
+        key = _person_key(person) or person.lower()
+        if key not in stats:
+            stats[key] = {
+                "Pessoa": person,
+                "Commits": 0,
+                "PRs Abertos": 0,
+                "PRs Merged": 0,
+                "PRs Declinados": 0,
+                "Aprovacoes": 0,
+                "Reprovacoes": 0,
+            }
+        return key
+
+    if not commits.empty and {"author", "date"}.issubset(commits.columns):
+        c = apply_time_window(commits, "date")
+        for author_name, count in c["author"].value_counts(dropna=True).items():
+            pkey = ensure_person(author_name)
+            if pkey:
+                stats[pkey]["Commits"] += int(count)
+
+    if not pullrequests.empty:
+        prs = pullrequests.copy()
+        opened = apply_time_window(prs, "created_on") if "created_on" in prs.columns else prs
+        for author_name, count in opened.get("author", pd.Series(dtype=str)).value_counts(dropna=True).items():
+            pkey = ensure_person(author_name)
+            if pkey:
+                stats[pkey]["PRs Abertos"] += int(count)
+
+        if {"updated_on", "state_norm"}.issubset(prs.columns):
+            updated = apply_time_window(prs, "updated_on")
+            merged = updated[updated["state_norm"] == "merged"]
+            declined = updated[updated["state_norm"] == "declined"]
+            for author_name, count in merged.get("author", pd.Series(dtype=str)).value_counts(dropna=True).items():
+                pkey = ensure_person(author_name)
+                if pkey:
+                    stats[pkey]["PRs Merged"] += int(count)
+            for author_name, count in declined.get("author", pd.Series(dtype=str)).value_counts(dropna=True).items():
+                pkey = ensure_person(author_name)
+                if pkey:
+                    stats[pkey]["PRs Declinados"] += int(count)
+            review = updated
+        else:
+            review = opened
+
+        for _, row in review.iterrows():
+            for approver in _split_people_field(row.get("approved_by")):
+                pkey = ensure_person(approver)
+                if pkey:
+                    stats[pkey]["Aprovacoes"] += 1
+            for rejector in _split_people_field(row.get("changes_requested_by")):
+                pkey = ensure_person(rejector)
+                if pkey:
+                    stats[pkey]["Reprovacoes"] += 1
+
+    if not stats:
+        return pd.DataFrame(columns=["Pessoa"]), {}
+    out = pd.DataFrame(stats.values())
+    out["Total Contribuicoes BB"] = (
+        out["Commits"]
+        + out["PRs Abertos"]
+        + out["PRs Merged"]
+        + out["Aprovacoes"]
+        + out["Reprovacoes"]
+    )
+    out = out.sort_values(["Total Contribuicoes BB", "Pessoa"], ascending=[False, True]).reset_index(drop=True)
+    totals = {
+        "Commits": int(out["Commits"].sum()),
+        "PRs Abertos": int(out["PRs Abertos"].sum()),
+        "PRs Merged": int(out["PRs Merged"].sum()),
+        "PRs Declinados": int(out["PRs Declinados"].sum()),
+        "Aprovacoes": int(out["Aprovacoes"].sum()),
+        "Reprovacoes": int(out["Reprovacoes"].sum()),
+    }
+    return out, totals
+
+
+def compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, bitbucket_logs, start_ts, end_ts):
+    bb_df, bb_totals = compute_bitbucket_person_metrics(bitbucket_logs, start_ts, end_ts)
+
+    if pm_people is None or pm_people.empty or "Responsavel" not in pm_people.columns:
+        jira_df = pd.DataFrame(columns=["Pessoa"])
+    else:
+        jira_df = pm_people.copy()
+        jira_df["Pessoa"] = jira_df["Responsavel"].map(_normalize_person_name)
+        jira_df = jira_df[jira_df["Pessoa"].astype(str).str.strip().ne("")]
+        rename_map = {}
+        if "Itens Concluidos" in jira_df.columns:
+            rename_map["Itens Concluidos"] = "Itens Concluidos"
+        if "Itens Com Retrabalho" in jira_df.columns:
+            rename_map["Itens Com Retrabalho"] = "Itens Com Retrabalho"
+        if "Taxa Retrabalho (%)" in jira_df.columns:
+            rename_map["Taxa Retrabalho (%)"] = "Taxa Retrabalho (%)"
+        keep_cols = ["Pessoa", *rename_map.keys()]
+        jira_df = jira_df[keep_cols].rename(columns=rename_map)
+
+    if "Pessoa" not in bb_df.columns:
+        bb_df = pd.DataFrame(columns=["Pessoa"])
+    if "Pessoa" not in jira_df.columns:
+        jira_df = pd.DataFrame(columns=["Pessoa"])
+    merged = pd.merge(jira_df, bb_df, on="Pessoa", how="outer")
+    if merged.empty:
+        return merged, {}, bb_totals
+
+    num_cols = [
+        "Itens Concluidos",
+        "Itens Com Retrabalho",
+        "Taxa Retrabalho (%)",
+        "Commits",
+        "PRs Abertos",
+        "PRs Merged",
+        "PRs Declinados",
+        "Aprovacoes",
+        "Reprovacoes",
+        "Total Contribuicoes BB",
+    ]
+    for col in num_cols:
+        if col not in merged.columns:
+            merged[col] = 0
+        merged[col] = _safe_num(merged[col]).fillna(0)
+
+    tech_keys = set()
+    for src_df in [bitbucket_logs.get("commits", pd.DataFrame()), bitbucket_logs.get("pullrequests", pd.DataFrame())]:
+        if src_df is None or src_df.empty:
+            continue
+        date_col = "date" if "date" in src_df.columns else "created_on"
+        if date_col in src_df.columns:
+            if start_ts is not None:
+                src_df = src_df[src_df[date_col] >= pd.to_datetime(start_ts)]
+            if end_ts is not None:
+                src_df = src_df[src_df[date_col] < pd.to_datetime(end_ts)]
+        if "work_item_keys" in src_df.columns:
+            for raw in src_df["work_item_keys"].fillna(""):
+                for k in str(raw).split("|"):
+                    key = str(k).strip().upper()
+                    if key:
+                        tech_keys.add(key)
+        if "primary_work_item_key" in src_df.columns:
+            for key in src_df["primary_work_item_key"].fillna("").astype(str):
+                key = key.strip().upper()
+                if key:
+                    tech_keys.add(key)
+
+    merged["Itens c/ Evidencia Tecnica"] = 0
+    if pm_cases is not None and not pm_cases.empty and "Issue Key" in pm_cases.columns and "Done Final Author" in pm_cases.columns:
+        c = pm_cases.copy()
+        c["Pessoa"] = c["Done Final Author"].map(_normalize_person_name)
+        c["Issue Key"] = c["Issue Key"].astype(str).str.strip().str.upper()
+        c = c[c["Pessoa"].astype(str).str.strip().ne("") & c["Issue Key"].ne("")]
+        if not c.empty:
+            c["TemEvidenciaTecnica"] = c["Issue Key"].isin(tech_keys)
+            by_person = c.groupby("Pessoa", dropna=False)["TemEvidenciaTecnica"].sum()
+            merged["Itens c/ Evidencia Tecnica"] = merged["Pessoa"].map(by_person).fillna(0)
+
+    merged["Cobertura Tecnica (%)"] = np.where(
+        merged["Itens Concluidos"] > 0,
+        merged["Itens c/ Evidencia Tecnica"] / merged["Itens Concluidos"] * 100.0,
+        0.0,
+    )
+    merged["Score Integrado"] = (
+        merged["Itens Concluidos"]
+        + merged["PRs Merged"]
+        + merged["Aprovacoes"]
+        + merged["Reprovacoes"]
+        + (merged["Commits"] / 5.0)
+    )
+    merged = merged.sort_values(["Score Integrado", "Itens Concluidos", "Total Contribuicoes BB", "Pessoa"], ascending=[False, False, False, True]).reset_index(drop=True)
+
+    cross_totals = {
+        "Itens Concluidos": int(_safe_num(merged["Itens Concluidos"]).fillna(0).sum()),
+        "Itens c/ Evidencia Tecnica": int(_safe_num(merged["Itens c/ Evidencia Tecnica"]).fillna(0).sum()),
+        "Cobertura Tecnica (%)": float((_safe_num(merged["Itens c/ Evidencia Tecnica"]).sum() / max(_safe_num(merged["Itens Concluidos"]).sum(), 1)) * 100.0),
+        "Commits": int(_safe_num(merged["Commits"]).fillna(0).sum()),
+        "PRs Merged": int(_safe_num(merged["PRs Merged"]).fillna(0).sum()),
+        "Aprovacoes": int(_safe_num(merged["Aprovacoes"]).fillna(0).sum()),
+        "Reprovacoes": int(_safe_num(merged["Reprovacoes"]).fillna(0).sum()),
+    }
+    return merged, cross_totals, bb_totals
+
+
+def compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts):
+    frames = []
+
+    def apply_time(df, col):
+        if df is None or df.empty or col not in df.columns:
+            return pd.DataFrame()
+        x = df.copy()
+        if start_ts is not None:
+            x = x[x[col] >= pd.to_datetime(start_ts)]
+        if end_ts is not None:
+            x = x[x[col] < pd.to_datetime(end_ts)]
+        return x
+
+    if pm_cases is not None and not pm_cases.empty and {"Done Final Author", "Done Final Date"}.issubset(pm_cases.columns):
+        jira = pm_cases.copy()
+        jira["Done Final Date"] = pd.to_datetime(jira["Done Final Date"], errors="coerce")
+        jira = jira.dropna(subset=["Done Final Date"])
+        jira = apply_time(jira, "Done Final Date")
+        jira["Pessoa"] = jira["Done Final Author"].map(_normalize_person_name)
+        jira = jira[jira["Pessoa"].astype(str).str.strip().ne("")]
+        if not jira.empty:
+            jira["Semana"] = jira["Done Final Date"].dt.to_period("W-SUN").dt.start_time
+            done_weekly = (
+                jira.groupby(["Semana", "Pessoa"], dropna=False)
+                .size()
+                .reset_index(name="Itens Concluidos")
+            )
+            frames.append(done_weekly)
+
+    commits = bitbucket_logs.get("commits", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    if commits is not None and not commits.empty and {"author", "date"}.issubset(commits.columns):
+        c = apply_time(commits, "date")
+        c["Pessoa"] = c["author"].map(_normalize_person_name)
+        c = c[c["Pessoa"].astype(str).str.strip().ne("")]
+        if not c.empty:
+            c["Semana"] = c["date"].dt.to_period("W-SUN").dt.start_time
+            frames.append(c.groupby(["Semana", "Pessoa"], dropna=False).size().reset_index(name="Commits"))
+
+    pullrequests = bitbucket_logs.get("pullrequests", pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    if pullrequests is not None and not pullrequests.empty:
+        if {"author", "created_on"}.issubset(pullrequests.columns):
+            prs_open = apply_time(pullrequests, "created_on")
+            prs_open["Pessoa"] = prs_open["author"].map(_normalize_person_name)
+            prs_open = prs_open[prs_open["Pessoa"].astype(str).str.strip().ne("")]
+            if not prs_open.empty:
+                prs_open["Semana"] = prs_open["created_on"].dt.to_period("W-SUN").dt.start_time
+                frames.append(prs_open.groupby(["Semana", "Pessoa"], dropna=False).size().reset_index(name="PRs Abertos"))
+        if {"author", "updated_on", "state_norm"}.issubset(pullrequests.columns):
+            prs_upd = apply_time(pullrequests, "updated_on")
+            prs_merged = prs_upd[prs_upd["state_norm"] == "merged"].copy()
+            prs_merged["Pessoa"] = prs_merged["author"].map(_normalize_person_name)
+            prs_merged = prs_merged[prs_merged["Pessoa"].astype(str).str.strip().ne("")]
+            if not prs_merged.empty:
+                prs_merged["Semana"] = prs_merged["updated_on"].dt.to_period("W-SUN").dt.start_time
+                frames.append(prs_merged.groupby(["Semana", "Pessoa"], dropna=False).size().reset_index(name="PRs Merged"))
+            prs_review = prs_upd.copy()
+            for src_col, metric_col in [("approved_by", "Aprovacoes"), ("changes_requested_by", "Reprovacoes")]:
+                if src_col not in prs_review.columns:
+                    continue
+                rv = prs_review[["updated_on", src_col]].copy()
+                rv["Pessoa"] = rv[src_col].apply(_split_people_field)
+                rv = rv.explode("Pessoa")
+                rv["Pessoa"] = rv["Pessoa"].map(_normalize_person_name)
+                rv = rv[rv["Pessoa"].astype(str).str.strip().ne("")]
+                if rv.empty:
+                    continue
+                rv["Semana"] = rv["updated_on"].dt.to_period("W-SUN").dt.start_time
+                frames.append(rv.groupby(["Semana", "Pessoa"], dropna=False).size().reset_index(name=metric_col))
+
+    if not frames:
+        return pd.DataFrame()
+
+    out = frames[0].copy()
+    for f in frames[1:]:
+        out = out.merge(f, on=["Semana", "Pessoa"], how="outer")
+
+    for col in ["Itens Concluidos", "Commits", "PRs Abertos", "PRs Merged", "Aprovacoes", "Reprovacoes"]:
+        if col not in out.columns:
+            out[col] = 0
+        out[col] = _safe_num(out[col]).fillna(0)
+
+    out["Score Integrado"] = (
+        out["Itens Concluidos"]
+        + out["PRs Merged"]
+        + out["Aprovacoes"]
+        + out["Reprovacoes"]
+        + (out["Commits"] / 5.0)
+    )
+    out = out.sort_values(["Semana", "Score Integrado", "Pessoa"], ascending=[True, False, True]).reset_index(drop=True)
+    return out
 
 
 def is_execution_status(status_name: str) -> bool:
@@ -1020,10 +1423,30 @@ app.layout = html.Div(
                 html.Button("Recarregar Relatório", id="btn-reload", n_clicks=0),
                 dcc.DatePickerRange(id="pm-date-range"),
                 dcc.Dropdown(id="pm-person-filter", multi=False, placeholder="Filtrar por pessoa"),
+                dcc.Dropdown(
+                    id="pm-cross-topn",
+                    options=[{"label": str(v), "value": v} for v in [3, 5, 8, 10, 15, 20]],
+                    value=5,
+                    clearable=False,
+                    placeholder="Top N",
+                ),
+                dcc.Dropdown(
+                    id="pm-cross-weekly-metric",
+                    options=[
+                        {"label": "Score Integrado", "value": "score"},
+                        {"label": "Itens Concluídos", "value": "itens_concluidos"},
+                        {"label": "Commits", "value": "commits"},
+                        {"label": "PRs Merged", "value": "prs_merged"},
+                        {"label": "PRs Abertos", "value": "prs_abertos"},
+                    ],
+                    value="score",
+                    clearable=False,
+                    placeholder="Métrica semanal",
+                ),
             ],
             style={
                 "display": "grid",
-                "gridTemplateColumns": "220px 1fr 1fr",
+                "gridTemplateColumns": "220px 1fr 1fr 140px 260px",
                 "gap": "10px",
                 "alignItems": "center",
                 "marginBottom": "16px",
@@ -1098,8 +1521,10 @@ def reload_report(_):
     Input("pm-date-range", "start_date"),
     Input("pm-date-range", "end_date"),
     Input("pm-person-filter", "value"),
+    Input("pm-cross-topn", "value"),
+    Input("pm-cross-weekly-metric", "value"),
 )
-def render_pm(data, start_date, end_date, person):
+def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metric):
     if not data:
         return html.Div("Sem dados carregados.")
 
@@ -1309,6 +1734,34 @@ def render_pm(data, start_date, end_date, person):
     taxa_retrabalho = (itens_retrabalho / total_concluidos * 100.0) if total_concluidos > 0 else 0.0
     conf_media = pd.to_numeric(pm_cases.get("Conformance Score", pd.Series(dtype=float)), errors="coerce").dropna()
     conf_media_val = float(conf_media.mean()) if not conf_media.empty else np.nan
+    bitbucket_logs = load_project_bitbucket_logs("W1NNER")
+    cross_people, cross_totals, bb_totals = compute_pm_bitbucket_cross_metrics(
+        pm_people, pm_cases, bitbucket_logs, start_ts, end_ts
+    )
+    if person and not cross_people.empty and "Pessoa" in cross_people.columns:
+        cross_people = cross_people[cross_people["Pessoa"] == person].copy()
+    if not cross_people.empty:
+        bb_totals = {
+            "Commits": int(_safe_num(cross_people.get("Commits", pd.Series(dtype=float))).fillna(0).sum()),
+            "PRs Abertos": int(_safe_num(cross_people.get("PRs Abertos", pd.Series(dtype=float))).fillna(0).sum()),
+            "PRs Merged": int(_safe_num(cross_people.get("PRs Merged", pd.Series(dtype=float))).fillna(0).sum()),
+            "PRs Declinados": int(_safe_num(cross_people.get("PRs Declinados", pd.Series(dtype=float))).fillna(0).sum()),
+            "Aprovacoes": int(_safe_num(cross_people.get("Aprovacoes", pd.Series(dtype=float))).fillna(0).sum()),
+            "Reprovacoes": int(_safe_num(cross_people.get("Reprovacoes", pd.Series(dtype=float))).fillna(0).sum()),
+        }
+        cross_totals = {
+            "Itens Concluidos": int(_safe_num(cross_people.get("Itens Concluidos", pd.Series(dtype=float))).fillna(0).sum()),
+            "Itens c/ Evidencia Tecnica": int(_safe_num(cross_people.get("Itens c/ Evidencia Tecnica", pd.Series(dtype=float))).fillna(0).sum()),
+            "Cobertura Tecnica (%)": float(
+                _safe_num(cross_people.get("Itens c/ Evidencia Tecnica", pd.Series(dtype=float))).fillna(0).sum()
+                / max(_safe_num(cross_people.get("Itens Concluidos", pd.Series(dtype=float))).fillna(0).sum(), 1)
+                * 100.0
+            ),
+            "Commits": bb_totals["Commits"],
+            "PRs Merged": bb_totals["PRs Merged"],
+            "Aprovacoes": bb_totals["Aprovacoes"],
+            "Reprovacoes": bb_totals["Reprovacoes"],
+        }
 
     kpi_grid = html.Div(
         [
@@ -1330,9 +1783,73 @@ def render_pm(data, start_date, end_date, person):
             create_kpi_card("Horas Est. Ativa (norm)", f"{exec_active_norm_h:,.1f}"),
             create_kpi_card("Horas Est. Validação/QA (norm)", f"{exec_validation_norm_h:,.1f}"),
             create_kpi_card("Horas Est. Espera (norm)", f"{exec_wait_norm_h:,.1f}"),
+            create_kpi_card("Commits (Bitbucket)", int(bb_totals.get("Commits", 0))),
+            create_kpi_card("PRs Merged (Bitbucket)", int(bb_totals.get("PRs Merged", 0))),
+            create_kpi_card("Aprovações PR (Bitbucket)", int(bb_totals.get("Aprovacoes", 0))),
+            create_kpi_card("Reprovações PR (Bitbucket)", int(bb_totals.get("Reprovacoes", 0))),
+            create_kpi_card("Itens c/ Evidência Técnica", int(cross_totals.get("Itens c/ Evidencia Tecnica", 0))),
+            create_kpi_card("Cobertura Técnica", f"{float(cross_totals.get('Cobertura Tecnica (%)', 0.0)):.1f}%"),
         ],
         style={"display": "grid", "gridTemplateColumns": "repeat(6, minmax(165px, 1fr))", "gap": "10px", "marginBottom": "16px"},
     )
+
+    fig_cross_integrado = go.Figure()
+    if not cross_people.empty:
+        x = cross_people.copy()
+        for col in ["Score Integrado", "Cobertura Tecnica (%)"]:
+            if col in x.columns:
+                x[col] = _safe_num(x[col]).fillna(0)
+        x = x.sort_values("Score Integrado", ascending=False).head(20)
+        fig_cross_integrado = px.bar(
+            x,
+            x="Score Integrado",
+            y="Pessoa",
+            orientation="h",
+            color="Cobertura Tecnica (%)" if "Cobertura Tecnica (%)" in x.columns else None,
+            color_continuous_scale="Tealgrn",
+            title="Capacidade Integrada por Pessoa (Jira + Bitbucket)",
+            hover_data=[c for c in ["Itens Concluidos", "Commits", "PRs Merged", "Aprovacoes", "Reprovacoes", "Itens c/ Evidencia Tecnica"] if c in x.columns],
+        )
+        fig_cross_integrado.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+    try:
+        cross_topn = int(cross_topn)
+    except Exception:
+        cross_topn = 5
+    cross_topn = min(max(cross_topn, 1), 30)
+    weekly_metric_map = {
+        "score": ("Score Integrado", "Score Integrado"),
+        "itens_concluidos": ("Itens Concluidos", "Itens Concluídos"),
+        "commits": ("Commits", "Commits"),
+        "prs_merged": ("PRs Merged", "PRs Merged"),
+        "prs_abertos": ("PRs Abertos", "PRs Abertos"),
+    }
+    weekly_metric_col, weekly_metric_label = weekly_metric_map.get(str(cross_weekly_metric), weekly_metric_map["score"])
+    cross_weekly = compute_pm_bitbucket_cross_weekly(pm_cases, bitbucket_logs, start_ts, end_ts)
+    if person and not cross_weekly.empty and "Pessoa" in cross_weekly.columns:
+        cross_weekly = cross_weekly[cross_weekly["Pessoa"] == person].copy()
+
+    fig_cross_weekly = go.Figure()
+    if not cross_weekly.empty:
+        top_people = (
+            cross_people.sort_values("Score Integrado", ascending=False)["Pessoa"].head(cross_topn).tolist()
+            if not cross_people.empty and "Pessoa" in cross_people.columns
+            else []
+        )
+        xw = cross_weekly.copy()
+        if top_people:
+            xw = xw[xw["Pessoa"].isin(top_people)]
+        if not xw.empty and weekly_metric_col in xw.columns:
+            xw = xw.sort_values(["Semana", weekly_metric_col, "Pessoa"])
+            fig_cross_weekly = px.line(
+                xw,
+                x="Semana",
+                y=weekly_metric_col,
+                color="Pessoa",
+                markers=True,
+                title=f"Tendência Semanal Integrada ({weekly_metric_label}, Top {cross_topn})",
+            )
+            fig_cross_weekly.update_layout(height=500, xaxis_tickangle=-40, margin=dict(b=90))
 
     fig_vazao = go.Figure()
     if not pm_people.empty and {"Responsavel", "Itens Concluidos"}.issubset(pm_people.columns):
@@ -1720,6 +2237,7 @@ def render_pm(data, start_date, end_date, person):
     exec_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasExecucaoUteisPonderadasPeriodo", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
     exec_norm_people_cols = [c for c in ["Responsavel", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "MediaHrsEstimadasPorDiaAtivo", "DiasAtivos", "CardsUnicos", "Slices"] if c in exec_norm_by_person.columns]
     exec_norm_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "DiasComAtividade", "CardsUnicos", "Slices"] if c in exec_norm_by_status.columns]
+    cross_people_cols = [c for c in ["Pessoa", "Itens Concluidos", "Itens c/ Evidencia Tecnica", "Cobertura Tecnica (%)", "Commits", "PRs Abertos", "PRs Merged", "Aprovacoes", "Reprovacoes", "Score Integrado"] if c in cross_people.columns]
     bottleneck_cols = [c for c in ["Status", "HorasUteisMedianaEvento", "HorasUteisP85Evento", "HorasUteisP95Evento", "HorasUteisTotalPeriodo", "HorasUteisMediaEvento", "Eventos", "CardsUnicos"] if c in bottlenecks.columns]
 
     model_cards = []
@@ -1944,6 +2462,24 @@ def render_pm(data, start_date, end_date, person):
         dcc.Graph(figure=fig_vazao),
         dcc.Graph(figure=fig_vazao_sem),
         dcc.Graph(figure=fig_retrabalho),
+        html.H4("Capacidade Integrada por Pessoa (Jira + Bitbucket)"),
+        html.Div(
+            "Cruzamento por pessoa usando itens concluídos do Jira, atividade técnica no Bitbucket "
+            "(commits/PRs/revisões) e evidência técnica por item (`Issue Key` presente em commit/PR).",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        dcc.Graph(figure=fig_cross_integrado),
+        dcc.Graph(figure=fig_cross_weekly),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in cross_people_cols],
+            data=cross_people[cross_people_cols].head(50).to_dict("records") if cross_people_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
         html.H4("Resumo por Pessoa"),
         dash_table.DataTable(
             columns=[{"name": c, "id": c} for c in people_cols],
