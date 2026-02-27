@@ -148,6 +148,10 @@ def export_pullrequests(rows: Iterable[Dict[str, Any]], output_path: Path) -> in
         "reviewers_changes_requested_count",
         "approved_by",
         "changes_requested_by",
+        "additions",
+        "deletions",
+        "files_changed",
+        "lines_changed_total",
         "work_item_keys",
         "primary_work_item_key",
     ]
@@ -211,12 +215,70 @@ def export_pullrequests(rows: Iterable[Dict[str, Any]], output_path: Path) -> in
                     "reviewers_changes_requested_count": len(changes_requested_by),
                     "approved_by": "|".join(sorted(set(approved_by))),
                     "changes_requested_by": "|".join(sorted(set(changes_requested_by))),
+                    "additions": row.get("additions", ""),
+                    "deletions": row.get("deletions", ""),
+                    "files_changed": row.get("files_changed", ""),
+                    "lines_changed_total": row.get("lines_changed_total", ""),
                     "work_item_keys": "|".join(work_item_keys),
                     "primary_work_item_key": work_item_keys[0] if work_item_keys else "",
                 }
             )
             count += 1
     return count
+
+
+def _to_non_negative_int(value: Any) -> int:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return out if out >= 0 else 0
+
+
+def fetch_pullrequest_volume(
+    session: requests.Session,
+    diffstat_url: str,
+    *,
+    auth: tuple[str, str],
+    pagelen: int,
+    max_pages: Optional[int],
+) -> Dict[str, Any]:
+    additions = 0
+    deletions = 0
+    files_changed = 0
+    try:
+        rows = iter_paginated(
+            session,
+            diffstat_url,
+            auth=auth,
+            pagelen=pagelen,
+            max_pages=max_pages,
+            extra_params={
+                "fields": "values.lines_added,values.lines_removed,next",
+            },
+        )
+        for row in rows:
+            files_changed += 1
+            additions += _to_non_negative_int(row.get("lines_added"))
+            deletions += _to_non_negative_int(row.get("lines_removed"))
+    except requests.RequestException as exc:
+        print(
+            f"Aviso: falha ao coletar diffstat do PR ({diffstat_url}): {exc}",
+            file=sys.stderr,
+        )
+        return {
+            "additions": "",
+            "deletions": "",
+            "files_changed": "",
+            "lines_changed_total": "",
+        }
+
+    return {
+        "additions": additions,
+        "deletions": deletions,
+        "files_changed": files_changed,
+        "lines_changed_total": additions + deletions,
+    }
 
 
 def export_pipelines(rows: Iterable[Dict[str, Any]], output_path: Path) -> int:
@@ -278,6 +340,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-pages", type=int, default=0, help="Limite de páginas por endpoint (0 = sem limite).")
     parser.add_argument("--workers", type=int, default=3, help="Workers paralelos por endpoint (1 = sequencial).")
     parser.add_argument("--since-days", type=int, default=0, help="Exporta apenas itens dos últimos N dias (0 = histórico completo).")
+    parser.add_argument(
+        "--skip-pr-volume",
+        action="store_true",
+        help="Não consulta diffstat por PR (mais rápido, porém sem colunas de volume).",
+    )
     parser.add_argument("--skip-commits", action="store_true", help="Não exporta commits.")
     parser.add_argument("--skip-pullrequests", action="store_true", help="Não exporta pull requests.")
     parser.add_argument("--skip-pipelines", action="store_true", help="Não exporta pipelines.")
@@ -384,12 +451,50 @@ def main() -> int:
                         "values.created_on,values.updated_on,values.source.branch.name,"
                         "values.destination.branch.name,values.participants.role,"
                         "values.participants.approved,values.participants.state,"
-                        "values.participants.display_name,values.participants.user.display_name,next"
+                        "values.participants.display_name,values.participants.user.display_name,"
+                        "values.links.diffstat.href,next"
                     ),
                 },
                 stop_on_row=lambda row: row_older_than_cutoff(row, ("updated_on", "created_on")),
             )
-            return _safe_export(prs_csv, export_pullrequests, rows)
+            if args.skip_pr_volume:
+                return _safe_export(prs_csv, export_pullrequests, rows)
+
+            def iter_enriched_pullrequests() -> Iterable[Dict[str, Any]]:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    diffstat_url = (
+                        ((row.get("links") or {}).get("diffstat") or {}).get("href")
+                        if isinstance(row.get("links"), dict)
+                        else ""
+                    )
+                    if not diffstat_url:
+                        pr_id = row.get("id")
+                        if pr_id:
+                            diffstat_url = f"{base_url}/pullrequests/{pr_id}/diffstat"
+                    if diffstat_url:
+                        row.update(
+                            fetch_pullrequest_volume(
+                                session,
+                                str(diffstat_url),
+                                auth=auth,
+                                pagelen=pagelen,
+                                max_pages=max_pages,
+                            )
+                        )
+                    else:
+                        row.update(
+                            {
+                                "additions": "",
+                                "deletions": "",
+                                "files_changed": "",
+                                "lines_changed_total": "",
+                            }
+                        )
+                    yield row
+
+            return _safe_export(prs_csv, export_pullrequests, iter_enriched_pullrequests())
 
     def run_pipelines() -> int:
         if args.skip_pipelines:
