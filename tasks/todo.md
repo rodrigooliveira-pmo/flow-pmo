@@ -1,5 +1,70 @@
 # Task Plan
 
+## Current Task (Dashboard Full: One Page dinâmico por filtros)
+- [x] Substituir renderização estática do One Page por geração dinâmica no `tab-one-page`
+- [x] Calcular KPIs, gargalos, dimensões, achados, equipe e recomendações com base nos filtros ativos
+- [x] Validar sintaxe/import e smoke test de renderização do componente
+
+## Specification (Dashboard Full: One Page dinâmico por filtros)
+- Objetivo: fazer o One Page Report refletir dinamicamente os dados coletados e os filtros aplicados no dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Aba `One Page Report` continua disponível na navegação de serviços.
+  - Conteúdo deixa de depender de HTML estático e passa a ser calculado em tempo real pelo callback.
+  - Métricas e blocos reagem a `projeto`, `período`, `tipo`, `classe de serviço` e `responsável`.
+  - Quando Process Mining não estiver disponível no projeto filtrado, o relatório permanece funcional com fallback para dados Jira/Bitbucket.
+
+## Review (Dashboard Full: One Page dinâmico por filtros)
+- What was validated:
+  - `tab-one-page` agora usa `build_dynamic_one_page_report(...)` no callback, eliminando leitura de arquivo HTML estático.
+  - Foi implementado design system e regras de semáforo para KPIs e dimensões (`ONE_PAGE_THEME`, `_one_page_status_by_threshold`, cards/barras dinâmicos).
+  - O relatório monta dinamicamente:
+    - Health strip (throughput, pressão, lead time, conformidade, cobertura técnica, retrabalho);
+    - Ranking de gargalos (com fallback model/csv quando necessário);
+    - Indicadores por dimensão;
+    - Achados priorizados;
+    - Composição da equipe e atividade técnica;
+    - Recomendações por horizonte.
+  - Fallback de dados foi mantido para contextos sem Process Mining (projetos além de W1NNER) sem quebrar a renderização.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... import dashboard_full as d; d.build_dynamic_one_page_report('W1NNER', ...); print(type(...).__name__) ... PY`
+  - `rg -n "build_dynamic_one_page_report|tab-one-page|ONE_PAGE_THEME" dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): make one-page report dynamic based on active filters and collected data`
+
+## Current Task (Dashboard Full: incluir aba One Page Report)
+- [x] Adicionar aba `One Page Report` na navegação de serviços
+- [x] Implementar renderização do HTML do one-page report dentro do dashboard
+- [x] Aplicar fallback quando arquivo não existir e validar sintaxe
+
+## Specification (Dashboard Full: incluir aba One Page Report)
+- Objetivo: incorporar o one-page report no `dashboard_full.py` como uma aba nativa do dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Nova aba aparece no menu de serviços com label `One Page Report`.
+  - Ao abrir a aba, o dashboard carrega um HTML de report em `artifacts/` (priorizando arquivo do projeto selecionado).
+  - Se o arquivo não existir, o usuário vê mensagem clara de indisponibilidade em vez de erro de execução.
+  - Código permanece válido em sintaxe.
+
+## Review (Dashboard Full: incluir aba One Page Report)
+- What was validated:
+  - A aba `One Page Report` foi adicionada em `SERVICE_TABS` e passa a aparecer no menu principal de serviços.
+  - Foi criada a função `resolve_one_page_report_file(project_key)` para resolver arquivo por projeto com fallback (`one-page-report-<projeto>.html`, `one-page-report-w1nner.html`, `one-page-report.html`), com suporte a `FLOW_PMO_ONE_PAGE_REPORT_FILE` e `FLOW_PMO_ONE_PAGE_REPORT_DIR`.
+  - O `render_tab` ganhou o branch `tab-one-page` que carrega o HTML via `html.Iframe(srcDoc=...)` e trata cenários de arquivo ausente/erro de leitura com mensagens claras.
+  - A sintaxe do arquivo permaneceu válida.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `rg -n "tab-one-page|One Page Report|resolve_one_page_report_file|One Page carregado" dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): add one-page report tab to dashboard_full with project-based html fallback`
+
 ## Current Task (One Page Report W1NNER: aderência ao guia executivo)
 - [x] Registrar plano e especificação do one-page report
 - [x] Ajustar `one-page-report-w1nner.html` para aderência aos blocos e regras visuais do guia
