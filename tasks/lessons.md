@@ -157,3 +157,17 @@ Use this file after any user correction.
 - Root cause: Assumi limite uniforme de `pagelen=100` para todos os endpoints, mas o endpoint de PR rejeitou esse valor.
 - Prevention rule: Em integrações Bitbucket, usar `pagelen` conservador (`<=50`) por padrão para compatibilidade entre endpoints.
 - Action added to workflow: Ao implementar paginação Bitbucket, validar limites por endpoint ou começar com `pagelen=50` antes de otimizações.
+
+- Date: 2026-02-27
+- Context: Execução real do exportador Bitbucket com histórico completo interrompida em página alta de commits.
+- User correction: Reportou erro `429 Too Many Requests` no endpoint de commits (`page=440`) e pediu continuidade prática da implementação.
+- Root cause: O fluxo de paginação fazia `raise_for_status()` direto, sem retry/backoff para limite de taxa temporário.
+- Prevention rule: Em integrações paginadas com APIs externas, tratar `429` e `5xx` com retry exponencial e suporte a `Retry-After` antes de considerar falha fatal.
+- Action added to workflow: Para novos conectores HTTP, criar helper central de request resiliente e reutilizar em todos os pontos de chamada.
+
+- Date: 2026-02-27
+- Context: Exportador ainda sofria 429 contínuo mesmo com retry/backoff curto.
+- User correction: Compartilhou log longo mostrando 429 recorrente por página durante commits históricos.
+- Root cause: Retry sem pacing global permitia retomar cedo demais, mantendo o cliente preso no limite de taxa da janela da API.
+- Prevention rule: Para APIs com rate limit por janela, combinar retry com throttling contínuo (intervalo mínimo entre requests) e cooldown global após 429.
+- Action added to workflow: Em conectores HTTP de alto volume, expor parâmetro de pacing (`min-request-interval`) e definir default conservador.

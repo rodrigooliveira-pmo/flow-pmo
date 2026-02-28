@@ -4286,6 +4286,82 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             top_n_people=capacity_top_n,
             weekly_metric=capacity_weekly_metric,
         )
+        consolidated_inputs = {
+            'periodo': '01/01 a 25/02',
+            'itens_planejados': 253,
+            'itens_entregues': 169,
+            'itens_em_andamento': 84,
+            'horas_executadas': 6263,
+            'horas_estimadas_quarter': 14947,
+            'media_horas_dev_dia': 8.11,
+            'bloqueios': 28,
+        }
+        planned_items = int(consolidated_inputs['itens_planejados'])
+        delivered_items = int(consolidated_inputs['itens_entregues'])
+        in_progress_items = int(consolidated_inputs['itens_em_andamento'])
+        executed_hours = float(consolidated_inputs['horas_executadas'])
+        quarter_estimated_hours = float(consolidated_inputs['horas_estimadas_quarter'])
+        delivery_rate_pct = (delivered_items / planned_items * 100.0) if planned_items > 0 else 0.0
+        quarter_consumed_pct = (executed_hours / quarter_estimated_hours * 100.0) if quarter_estimated_hours > 0 else 0.0
+        delivery_gap = max(planned_items - delivered_items, 0)
+        avg_hours_dev_day_label = f"{float(consolidated_inputs['media_horas_dev_dia']):.2f}".replace('.', ',')
+        consolidated_cards = [
+            ('Itens planejados', f"{planned_items}"),
+            ('Entregues', f"{delivered_items} ({delivery_rate_pct:.0f}%)"),
+            ('Em andamento', f"{in_progress_items}"),
+            ('Horas executadas', f"{executed_hours:,.0f}".replace(',', '.')),
+            ('Estimado do quarter', f"{quarter_estimated_hours:,.0f}".replace(',', '.')),
+            ('Consumo do estimado', f"{quarter_consumed_pct:.0f}%"),
+        ]
+        consolidated_cards_section = html.Div([
+            html.Div([
+                html.Div(label, style={'fontSize': '13px', 'fontWeight': 'bold', 'color': '#334155', 'marginBottom': '4px'}),
+                html.Div(value, style={'fontSize': '30px', 'fontWeight': 'bold', 'lineHeight': '1.1', 'color': '#0f172a'}),
+            ], style={
+                'backgroundColor': '#f8fafc',
+                'border': '1px solid #dbeafe',
+                'borderRadius': '10px',
+                'padding': '12px',
+                'minHeight': '106px',
+            }) for label, value in consolidated_cards
+        ], style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(200px, 1fr))',
+            'gap': '10px',
+            'marginTop': '12px',
+            'marginBottom': '10px',
+        })
+        consolidated_section = html.Div([
+            html.H4('Visão consolidada: planejamento do quarter x execução real', style={'marginBottom': '4px'}),
+            html.P(
+                f"Período analisado: {consolidated_inputs['periodo']} | "
+                "Referência de horas = volume estimado no planejamento do quarter (não capacidade do time).",
+                style={'color': '#475569', 'marginTop': '0', 'marginBottom': '8px'}
+            ),
+            consolidated_cards_section,
+            html.Ul([
+                html.Li(f"Aderência de entrega no período: {delivered_items}/{planned_items} ({delivery_rate_pct:.0f}%)."),
+                html.Li(
+                    f"Backlog imediato para decisão: {delivery_gap} itens ainda não entregues "
+                    f"(dos quais {in_progress_items} em andamento)."
+                ),
+                html.Li(
+                    f"Consumo de esforço do quarter: {executed_hours:,.0f}h de {quarter_estimated_hours:,.0f}h "
+                    f"({quarter_consumed_pct:.0f}% do estimado).".replace(',', '.')
+                ),
+                html.Li(f"Média de {avg_hours_dev_day_label}h por dev/dia: sinal de possível sobrecarga pontual."),
+                html.Li(f"{int(consolidated_inputs['bloqueios'])} bloqueios registrados: tratar causa raiz e SLA de remoção."),
+                html.Li("Corte de escopo e priorização precisam acontecer mais cedo na sprint."),
+            ], style={'marginTop': '6px', 'marginBottom': '10px', 'paddingLeft': '20px'}),
+            html.Div([
+                html.Strong('Perguntas críticas para decisão imediata'),
+                html.Ul([
+                    html.Li('Estamos dentro do previsto?'),
+                    html.Li('Onde está o risco?'),
+                    html.Li('O que precisa ser ajustado agora?'),
+                ], style={'marginTop': '6px', 'marginBottom': '0', 'paddingLeft': '20px'})
+            ], style={'backgroundColor': '#fff7ed', 'border': '1px solid #fed7aa', 'borderRadius': '10px', 'padding': '10px'})
+        ], style={'marginTop': '14px', 'marginBottom': '14px'})
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
@@ -4295,6 +4371,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 f"Amostra no período filtrado: {int(time_metric_series(df, 'LeadTime_Selected_Dias', non_negative=True).shape[0])}",
                 style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px', 'fontSize': '13px'}
             ),
+            consolidated_section,
             dash_table.DataTable(
                 id='performance-table',
                 columns=columns,

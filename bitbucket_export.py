@@ -4,8 +4,10 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import random
 import re
 import sys
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -15,6 +17,11 @@ from typing import Any, Callable, Dict, Iterable, Optional
 import requests
 
 WORK_ITEM_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
+GLOBAL_RATE_LIMIT_UNTIL = 0.0
+LAST_REQUEST_AT = 0.0
+MIN_REQUEST_INTERVAL_SECONDS = 0.35
+MAX_REQUEST_INTERVAL_SECONDS = 3.0
+CURRENT_REQUEST_INTERVAL_SECONDS = 0.35
 
 
 def _line_count(path: Path) -> int:
@@ -96,7 +103,13 @@ def iter_paginated(
         if max_pages and page_count > max_pages:
             break
 
-        response = session.get(next_url, auth=auth, params=params if page_count == 1 else None, timeout=60)
+        response = request_with_retry(
+            session,
+            next_url,
+            auth=auth,
+            params=params if page_count == 1 else None,
+            timeout=60,
+        )
         response.raise_for_status()
         payload = response.json()
 
@@ -108,6 +121,97 @@ def iter_paginated(
                 yield row
 
         next_url = payload.get("next")
+
+
+def _parse_retry_after_seconds(response: Optional[requests.Response]) -> float:
+    if response is None:
+        return 0.0
+    retry_after = str(response.headers.get("Retry-After") or "").strip()
+    if not retry_after:
+        return 0.0
+    try:
+        seconds = float(retry_after)
+    except ValueError:
+        return 0.0
+    return seconds if seconds > 0 else 0.0
+
+
+def request_with_retry(
+    session: requests.Session,
+    url: str,
+    *,
+    auth: tuple[str, str],
+    params: Optional[Dict[str, Any]] = None,
+    timeout: int = 60,
+    allow_redirects: bool = True,
+    max_attempts: int = 8,
+) -> requests.Response:
+    global GLOBAL_RATE_LIMIT_UNTIL, LAST_REQUEST_AT, CURRENT_REQUEST_INTERVAL_SECONDS
+    last_error: Optional[requests.RequestException] = None
+    for attempt in range(1, max_attempts + 1):
+        now = time.monotonic()
+        if GLOBAL_RATE_LIMIT_UNTIL > now:
+            time.sleep(GLOBAL_RATE_LIMIT_UNTIL - now)
+            now = time.monotonic()
+        if CURRENT_REQUEST_INTERVAL_SECONDS > 0:
+            elapsed = now - LAST_REQUEST_AT
+            if elapsed < CURRENT_REQUEST_INTERVAL_SECONDS:
+                time.sleep(CURRENT_REQUEST_INTERVAL_SECONDS - elapsed)
+        try:
+            response = session.get(
+                url,
+                auth=auth,
+                params=params,
+                timeout=timeout,
+                allow_redirects=allow_redirects,
+            )
+            LAST_REQUEST_AT = time.monotonic()
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt >= max_attempts:
+                raise
+            sleep_seconds = min(30.0, 1.5 ** attempt)
+            print(
+                f"Aviso: falha de rede ao consultar Bitbucket (tentativa {attempt}/{max_attempts}). "
+                f"Nova tentativa em {sleep_seconds:.1f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(sleep_seconds)
+            continue
+
+        if response.status_code == 429 or 500 <= response.status_code < 600:
+            if attempt >= max_attempts:
+                response.raise_for_status()
+            header_wait = _parse_retry_after_seconds(response)
+            backoff_wait = min(60.0, 1.5 ** attempt)
+            floor_wait = 8.0 if response.status_code == 429 else 3.0
+            sleep_seconds = max(header_wait, backoff_wait, floor_wait)
+            sleep_seconds += random.uniform(0.2, 1.0)
+            GLOBAL_RATE_LIMIT_UNTIL = max(GLOBAL_RATE_LIMIT_UNTIL, time.monotonic() + sleep_seconds)
+            if response.status_code == 429:
+                CURRENT_REQUEST_INTERVAL_SECONDS = min(
+                    MAX_REQUEST_INTERVAL_SECONDS,
+                    max(MIN_REQUEST_INTERVAL_SECONDS, CURRENT_REQUEST_INTERVAL_SECONDS * 1.25),
+                )
+            reason = "rate limit (429)" if response.status_code == 429 else f"erro HTTP {response.status_code}"
+            print(
+                f"Aviso: Bitbucket retornou {reason} em {url} (tentativa {attempt}/{max_attempts}). "
+                f"Nova tentativa em {sleep_seconds:.1f}s... interval={CURRENT_REQUEST_INTERVAL_SECONDS:.2f}s",
+                file=sys.stderr,
+            )
+            time.sleep(sleep_seconds)
+            continue
+
+        if CURRENT_REQUEST_INTERVAL_SECONDS > MIN_REQUEST_INTERVAL_SECONDS:
+            CURRENT_REQUEST_INTERVAL_SECONDS = max(
+                MIN_REQUEST_INTERVAL_SECONDS,
+                CURRENT_REQUEST_INTERVAL_SECONDS * 0.98,
+            )
+        return response
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Falha inesperada na rotina de retry HTTP.")
 
 
 def export_commits(rows: Iterable[Dict[str, Any]], output_path: Path) -> int:
@@ -260,7 +364,8 @@ def fetch_pullrequest_volume(
             if max_pages and page_count > max_pages:
                 break
 
-            response = session.get(
+            response = request_with_retry(
+                session,
                 next_url,
                 auth=auth,
                 params=params,
@@ -401,6 +506,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pagelen", type=int, default=50, help="Pagelen da API Bitbucket (recomendado até 50).")
     parser.add_argument("--max-pages", type=int, default=0, help="Limite de páginas por endpoint (0 = sem limite).")
     parser.add_argument("--workers", type=int, default=3, help="Workers paralelos por endpoint (1 = sequencial).")
+    parser.add_argument(
+        "--min-request-interval-ms",
+        type=int,
+        default=350,
+        help="Intervalo mínimo entre requisições HTTP em milissegundos (padrão: 350).",
+    )
+    parser.add_argument(
+        "--max-request-interval-ms",
+        type=int,
+        default=3000,
+        help="Teto do intervalo adaptativo entre requisições em milissegundos (padrão: 3000).",
+    )
     parser.add_argument("--since-days", type=int, default=0, help="Exporta apenas itens dos últimos N dias (0 = histórico completo).")
     parser.add_argument(
         "--skip-pr-volume",
@@ -415,6 +532,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    global MIN_REQUEST_INTERVAL_SECONDS, MAX_REQUEST_INTERVAL_SECONDS, CURRENT_REQUEST_INTERVAL_SECONDS
     args = parse_args()
     load_env_file(args.env_file, overwrite=False)
 
@@ -445,6 +563,9 @@ def main() -> int:
 
     pagelen = min(max(args.pagelen, 1), 50)
     max_pages = args.max_pages if args.max_pages > 0 else None
+    MIN_REQUEST_INTERVAL_SECONDS = max(args.min_request_interval_ms, 0) / 1000.0
+    MAX_REQUEST_INTERVAL_SECONDS = max(args.max_request_interval_ms, args.min_request_interval_ms, 0) / 1000.0
+    CURRENT_REQUEST_INTERVAL_SECONDS = MIN_REQUEST_INTERVAL_SECONDS
     since_cutoff = None
     if args.since_days and args.since_days > 0:
         since_cutoff = datetime.now(timezone.utc) - timedelta(days=args.since_days)

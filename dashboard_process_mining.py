@@ -1507,7 +1507,11 @@ def build_petri_bottleneck_status_fig(events_df: pd.DataFrame):
     return fig
 
 
-app = dash.Dash(__name__)
+app = dash.Dash(
+    __name__,
+    serve_locally=True,
+    eager_loading=True,
+)
 app.title = "Process Mining Jira - W1NNER"
 
 app.layout = html.Div(
@@ -2693,4 +2697,4 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8051)
+    app.run(debug=True, dev_tools_hot_reload=False, port=8051)

@@ -1,5 +1,6 @@
 hash,date,author,message,work_item_keys,primary_work_item_key
-c2b0c3b1d0324e37047c3a047dd95c9edb2ba1dd,2026-02-27T19:21:00+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,S1NC-1958 Extract credit card calculation by concept to a service,S1NC-1958,S1NC-1958
+7dbb51ad0405ecc880fc1d892db3a68d5fecf679,2026-02-27T20:02:41+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,S1NC-1958 Removes color update,S1NC-1958,S1NC-1958
+2d5597257870f5c559aee2e563c832ad4f4fd1ee,2026-02-27T19:59:18+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,S1NC-1958 Extract credit card calculation by concept to a service,S1NC-1958,S1NC-1958
 6cbb449a62a08cb4b3fe27a9884d22341638331c,2026-02-27T18:58:34+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,S1NC-1958 Fixes credit card summary calculation,S1NC-1958,S1NC-1958
 37ee94e2eb3d8a548d403534bd667ac4e480938d,2026-02-27T18:24:46+00:00,Lucas Pizol <lucas.pizol@webgoal.com.br>,Merge branch 'S1NC-1117-credit-cards-crud' into homolog,S1NC-1117,S1NC-1117
 b26fc4d569cea1bbe7954f71bc5d14d1710f9bad,2026-02-27T17:41:40+00:00,Gabriel de Oliveira Koehler <gabriel.koehler@w1technology.com.br>,W1NNR-2124 Crate new endpoint for contact transition through sales_funnel,W1NNR-2124,W1NNR-2124

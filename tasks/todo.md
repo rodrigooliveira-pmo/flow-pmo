@@ -1,5 +1,62 @@
 # Task Plan
 
+## Current Task (One Page Report W1NNER: aderência ao guia executivo)
+- [x] Registrar plano e especificação do one-page report
+- [x] Ajustar `one-page-report-w1nner.html` para aderência aos blocos e regras visuais do guia
+- [x] Validar estrutura final do HTML e registrar evidências
+
+## Specification (One Page Report W1NNER: aderência ao guia executivo)
+- Objetivo: produzir um one-page report executivo do projeto W1NNER seguindo as orientações do documento anexo.
+- Escopo:
+  - `tasks/todo.md`
+  - `artifacts/one-page-report-w1nner.html`
+- Critério de aceite:
+  - Estrutura final contém os 6 blocos definidos (header, health strip, painéis duplos, recomendações e footer).
+  - Health strip possui 6 KPIs com semaforização visual consistente.
+  - Painéis de gargalos, dimensões, achados, equipe e recomendações refletem o padrão de conteúdo orientado no guia.
+  - Arquivo HTML final válido para abertura local e exportação/impressão.
+
+## Review (One Page Report W1NNER: aderência ao guia executivo)
+- What was validated:
+  - O relatório foi criado em `artifacts/one-page-report-w1nner.html` com os 6 blocos do guia (header, health strip, dois painéis duplos, recomendações e footer).
+  - O health strip contém 6 KPIs com semaforização visual por barra superior e valor em destaque.
+  - Foram adicionados ajustes de responsividade para manter legibilidade em desktop e mobile.
+  - Conteúdo de gargalos, dimensões, achados, equipe e recomendações ficou alinhado ao formato executivo do documento de orientação.
+- Evidence (tests/logs/diff):
+  - `rg -n "HEADER|HEALTH STRIP|Ranking de Gargalos|Indicadores por Dimensão|Achados Principais|Composição e Carga da Equipe|Recomendações Priorizadas|FOOTER" artifacts/one-page-report-w1nner.html`
+  - `python3 - <<'PY' ... HTMLParser ... print('html_parse_ok') ... print('health_items', text.count('class=\"health-item')) ... PY`
+  - `git diff -- tasks/todo.md artifacts/one-page-report-w1nner.html`
+- Suggested commit message:
+  - `feat(report): create w1nner one-page executive report following flow-pmo guidelines`
+
+## Current Task (Dashboard Process Mining: erro de chunk async-graph)
+- [x] Diagnosticar erro `Loading chunk 746 failed` no `dcc.Graph` do dashboard process mining
+- [x] Ajustar inicialização do app para evitar falha de carregamento assíncrono do `async-graph.js`
+- [x] Validar sintaxe/import e registrar evidências
+
+## Specification (Dashboard Process Mining: erro de chunk async-graph)
+- Objetivo: eliminar falhas recorrentes de carregamento do chunk JS do `dcc.Graph` no dashboard de process mining (`http://127.0.0.1:8051`).
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - App inicia com carregamento local de componentes e sem dependência de lazy chunk para `dcc.Graph`.
+  - Execução local reduz risco de mismatch de assets em hot reload.
+  - Script permanece válido em sintaxe/import.
+
+## Review (Dashboard Process Mining: erro de chunk async-graph)
+- What was validated:
+  - `dashboard_process_mining.py` passou a iniciar o Dash com `serve_locally=True` e `eager_loading=True`, eliminando dependência de chunk assíncrono (`dash/dcc/async-graph.js`) durante renderização inicial.
+  - Execução local foi ajustada para `dev_tools_hot_reload=False`, reduzindo risco de inconsistência de assets JS durante recarregamento em desenvolvimento.
+  - Import/sintaxe mantidos válidos.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... import dashboard_process_mining as d; print(d.app.config.get('eager_loading')); print(d.app.config.get('serve_locally')) ... PY`
+  - `git diff -- dashboard_process_mining.py`
+- Suggested commit message:
+  - `fix(process-mining): prevent dcc graph async chunk load failures in local dash app`
+
+
 ## Current Task (Bitbucket logs: rastreamento de work items)
 - [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de commits
 - [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de pull requests
@@ -2608,3 +2665,106 @@
   - `git diff -- bitbucket_export.py tasks/todo.md`
 - Suggested commit message:
   - `fix(integration): silence expected 404 diffstat misses while keeping other warnings`
+
+## Current Task (Bitbucket export: tolerância a rate limit 429)
+- [x] Implementar retry automático para chamadas HTTP do Bitbucket (429/5xx)
+- [x] Respeitar cabeçalho `Retry-After` quando presente
+- [x] Aplicar retry em paginação principal e coleta de diffstat de PR
+- [x] Validar sintaxe e help da CLI
+
+## Specification (Bitbucket export: tolerância a rate limit 429)
+- Objetivo: evitar interrupção do export completo quando o Bitbucket retornar `429 Too Many Requests`.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Requisições fazem retry com backoff para `429` e `5xx`.
+  - Se `Retry-After` vier na resposta, o tempo é respeitado.
+  - Fluxo de commits/PRs/pipelines e diffstat de PR usam o mesmo mecanismo de retry.
+  - Script permanece válido em sintaxe/help.
+
+## Review (Bitbucket export: tolerância a rate limit 429)
+- What was validated:
+  - Foi adicionado helper de request com retry (`request_with_retry`) com backoff e suporte a `Retry-After`.
+  - `iter_paginated` agora usa esse helper para commits/PRs/pipelines.
+  - `fetch_pullrequest_volume` também usa o helper para reduzir falhas em `diffstat` sob limitação de taxa.
+  - CLI e sintaxe seguem válidas.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 bitbucket_export.py --help`
+- Suggested commit message:
+  - `fix(integration): add retry/backoff for bitbucket 429 and transient 5xx responses`
+
+## Review Addendum (Bitbucket export: tolerância a rate limit 429)
+- Additional findings from real run:
+  - Mesmo com retry inicial, o export continuou sofrendo 429 em quase todas as páginas de commits de histórico longo.
+- Additional changes:
+  - Adicionado `cooldown` global entre tentativas quando ocorre `429`.
+  - Adicionado pacing contínuo de requests com `--min-request-interval-ms` (default `350ms`).
+  - Em `429` sem `Retry-After`, aplica espera mínima conservadora (>=8s) com jitter.
+- Suggested commit message (updated):
+  - `fix(integration): add global cooldown and request pacing for persistent bitbucket 429 limits`
+
+## Current Task (Gráfico: commits x cartões concluídos por pessoa)
+- [x] Definir dataset do gráfico com foco em desconexão Jira-Bitbucket
+- [x] Gerar gráfico scatter com destaque dos casos críticos e exportar em HTML
+- [x] Validar geração do arquivo e registrar evidências/review
+
+## Specification (Gráfico: commits x cartões concluídos por pessoa)
+- Objetivo: criar visual que evidencie a assimetria entre atividade técnica (commits) e vazão de cartões concluídos no Jira.
+- Escopo:
+  - `scripts/generate_commits_vs_jira_chart.py` (novo)
+  - `artifacts/commits_vs_jira_done.html` (novo)
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Scatter com eixo X = commits e eixo Y = cartões concluídos por pessoa.
+  - Destaque visual de outliers: alta vazão sem código e alta atividade técnica sem conclusão no Jira.
+  - Inclusão de anotações para pessoas-chave citadas no diagnóstico.
+  - Artefato HTML gerado localmente e abrível no navegador.
+
+## Review (Gráfico: commits x cartões concluídos por pessoa)
+- What was validated:
+  - Script novo `scripts/generate_commits_vs_jira_chart.py` criado para cruzar dados de `VazaoPessoaResumo/ConformidadeCasos` com logs Bitbucket e gerar scatter `Commits x Itens Concluidos`.
+  - O gráfico classifica automaticamente os quadrantes de desconexão (`Alta vazão sem evidência técnica` e `Atividade técnica sem fechamento Jira`) e anota as pessoas-chave do diagnóstico.
+  - Artefato final gerado em `artifacts/commits_vs_jira_done.html` com período do recorte e indicador de cobertura técnica no subtítulo.
+- Evidence (tests/logs/diff):
+  - `python3 scripts/generate_commits_vs_jira_chart.py --days 30`
+  - Saída: `Arquivo gerado: .../artifacts/commits_vs_jira_done.html`
+  - Saída (amostra): `Lucas Pizol / Peterson Bem / Gabriel de Oliveira Koehler` em `Atividade técnica sem fechamento Jira`; `Lorraine Caribe` e `Thaís Cabral` em `Alta vazão sem evidência técnica`.
+- Suggested commit message:
+  - `feat(analytics): add jira-vs-bitbucket commits x done scatter chart with disconnect highlights`
+
+## Current Task (Dashboard Full: visão consolidada planejamento do quarter x execução)
+- [x] Definir bloco consolidado com os números-chave do período (01/01 a 25/02)
+- [x] Aplicar fórmulas de aderência (entregues/planejados e horas executadas/estimadas no quarter)
+- [x] Exibir direcionadores de risco e ação imediata no contexto da aba `Performance do Serviço`
+- [x] Validar sintaxe e registrar evidências no review
+
+## Specification (Dashboard Full: visão consolidada planejamento do quarter x execução)
+- Objetivo: incluir no `dashboard_full.py` uma visão consolidada que traduza métricas do período em direcionamento operacional, explicitando que a referência de horas é o planejamento do quarter (não capacidade do time).
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Nova seção na aba `Performance do Serviço` com:
+    - período analisado (01/01 a 25/02),
+    - itens planejados, entregues, em andamento,
+    - horas executadas, horas estimadas para o quarter e percentual consumido.
+  - Percentuais são calculados por fórmula no código (não texto estático).
+  - O texto destaca leitura de aderência entre planejamento macro e execução real.
+  - Inclui alertas operacionais: média de 8,11h/dev/dia, 28 bloqueios e necessidade de corte/priorização mais cedo na sprint.
+  - Inclui as três perguntas críticas de gestão: previsto, risco e ajuste imediato.
+
+## Review (Dashboard Full: visão consolidada planejamento do quarter x execução)
+- What was validated:
+  - A aba `Performance do Serviço` ganhou um bloco `Visão consolidada: planejamento do quarter x execução real`.
+  - Os percentuais centrais são calculados por fórmula no código:
+    - `Entregues (%) = itens_entregues / itens_planejados`
+    - `Consumo do estimado (%) = horas_executadas / horas_estimadas_quarter`
+  - O texto da seção explicita que a referência de horas é o volume estimado do quarter (não capacidade do time).
+  - Foram incluídos direcionadores operacionais e as três perguntas críticas de decisão.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add consolidated quarter-plan-vs-execution view in service performance tab`
