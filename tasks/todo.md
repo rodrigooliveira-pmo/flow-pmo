@@ -1,5 +1,35 @@
 # Task Plan
 
+## Current Task (Performance do Serviço: visão consolidada dinâmica por filtros)
+- [x] Registrar plano e escopo da visão consolidada dinâmica
+- [x] Remover valores hardcoded e calcular KPIs com base no período e filtros ativos
+- [x] Validar sintaxe e smoke test da aba `Performance do Serviço`
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Performance do Serviço: visão consolidada dinâmica por filtros)
+- Objetivo: tornar dinâmico o bloco "Visão consolidada: planejamento do quarter x execução real" da aba `Performance do Serviço`, refletindo os filtros ativos e o período selecionado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O bloco não utiliza mais números estáticos.
+  - Cards e bullets mudam conforme filtros (`projeto`, `tipo`, `classe_servico`, `responsavel`) e período (`start_date`, `end_date`).
+  - O período exibido no texto do bloco reflete o intervalo selecionado no dashboard.
+  - Código permanece válido em sintaxe/import.
+
+## Review (Performance do Serviço: visão consolidada dinâmica por filtros)
+- What was validated:
+  - O bloco "Visão consolidada: planejamento do quarter x execução real" deixou de usar `consolidated_inputs` fixo e passou a calcular valores do recorte filtrado.
+  - Foram calculados dinamicamente: itens planejados no período, entregues no período, em andamento, horas executadas (via `TempoExecucao_Dias`), estimado do quarter (por Story Points/histórico com fallback), consumo do estimado, média h/dev/dia e bloqueios.
+  - O texto de período agora usa o intervalo selecionado (`dd/mm a dd/mm`) em vez de string fixa.
+  - As bullets de risco foram ajustadas para refletir os valores calculados no recorte.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.render_tab(main_view='services', tab='tab-performance', ... ) ... print(type(node).__name__) ... PY`
+  - `rg -n "consolidated_inputs|01/01 a 25/02|14947|6263|253|169|84|bloqueios" dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): make performance consolidated section dynamic by active filters and period`
+
 ## Current Task (Dashboard Full: One Page dinâmico por filtros)
 - [x] Substituir renderização estática do One Page por geração dinâmica no `tab-one-page`
 - [x] Calcular KPIs, gargalos, dimensões, achados, equipe e recomendações com base nos filtros ativos
@@ -2833,3 +2863,30 @@
   - `git diff -- dashboard_full.py tasks/todo.md`
 - Suggested commit message:
   - `feat(dashboard): add consolidated quarter-plan-vs-execution view in service performance tab`
+
+## Current Task (Dashboard Full: KeyError no bucket 8-15 no Aging)
+- [x] Diagnosticar causa do `KeyError: '8-15'` no `render_aging_buckets`
+- [x] Ajustar ordenação/categorização de buckets para recortes com categorias ausentes
+- [x] Validar sintaxe e smoke test da função de renderização
+
+## Specification (Dashboard Full: KeyError no bucket 8-15 no Aging)
+- Objetivo: eliminar falha de renderização do gráfico de aging por TEAM quando um ou mais buckets não aparecem no dataset filtrado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `render_aging_buckets` não lança `KeyError` com buckets ausentes (ex.: sem `8-15`).
+  - Ordem visual dos buckets permanece estável para os buckets presentes.
+  - Código válido em sintaxe.
+
+## Review (Dashboard Full: KeyError no bucket 8-15 no Aging)
+- What was validated:
+  - A função `render_aging_buckets` foi ajustada para normalizar `AgingBucket`, tratar valores vazios/`NaN` como `Sem data` e calcular `present_buckets` apenas com categorias existentes no recorte atual.
+  - A ordenação visual foi preservada pela ordem canônica (`0-7`, `8-15`, `16-30`, `31-60`, `60+`, `Sem data`), mas limitada aos buckets presentes para evitar o `KeyError` no agrupamento interno do Plotly.
+  - O gráfico passou a receber `category_orders={'AgingBucket': present_buckets}` para não forçar grupos inexistentes.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... smoke test com dataframe sem bucket 8-15 ... px.bar(...) ... print('smoke_ok', ...) ... PY`
+  - `rg -n "present_buckets|category_orders=\\{'AgingBucket'" dashboard_full.py`
+- Suggested commit message:
+  - `fix(dashboard): avoid plotly keyerror when aging bucket categories are missing after filters`

@@ -4822,25 +4822,72 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             top_n_people=capacity_top_n,
             weekly_metric=capacity_weekly_metric,
         )
-        consolidated_inputs = {
-            'periodo': '01/01 a 25/02',
-            'itens_planejados': 253,
-            'itens_entregues': 169,
-            'itens_em_andamento': 84,
-            'horas_executadas': 6263,
-            'horas_estimadas_quarter': 14947,
-            'media_horas_dev_dia': 8.11,
-            'bloqueios': 28,
-        }
-        planned_items = int(consolidated_inputs['itens_planejados'])
-        delivered_items = int(consolidated_inputs['itens_entregues'])
-        in_progress_items = int(consolidated_inputs['itens_em_andamento'])
-        executed_hours = float(consolidated_inputs['horas_executadas'])
-        quarter_estimated_hours = float(consolidated_inputs['horas_estimadas_quarter'])
+        df_scope = fato.copy()
+        if projeto:
+            df_scope = df_scope[df_scope['Projeto'] == projeto]
+        if responsavel:
+            df_scope = df_scope[df_scope['Responsavel'] == responsavel]
+        if tipo:
+            df_scope = df_scope[df_scope['TipoDemanda'] == tipo]
+        if classe_servico:
+            df_scope = df_scope[df_scope['ClasseServico'] == classe_servico]
+        df_scope, _ = apply_selected_lead_time_metric(df_scope, projeto, leadtime_stages)
+
+        period_label = f"{start_ts.strftime('%d/%m')} a {end_ts.strftime('%d/%m')}"
+
+        data_in_progress = pd.to_datetime(df_scope['DataInProgress'], errors='coerce') if 'DataInProgress' in df_scope.columns else pd.Series(pd.NaT, index=df_scope.index)
+        data_done = pd.to_datetime(df_scope['DataDone'], errors='coerce') if 'DataDone' in df_scope.columns else pd.Series(pd.NaT, index=df_scope.index)
+
+        mask_started_until_end = data_in_progress.isna() | (data_in_progress <= end_ts)
+        mask_not_finished_before_start = data_done.isna() | (data_done >= start_ts)
+        scope_mask = mask_started_until_end & mask_not_finished_before_start
+        df_scope_period = df_scope[scope_mask].copy()
+
+        done_period_mask = (data_done >= start_ts) & (data_done <= end_ts)
+        df_done_period = df_scope[done_period_mask].copy()
+        df_done_period_eligible = df_done_period[done_time_eligible_mask(df_done_period)].copy()
+
+        planned_items = int(len(df_scope_period))
+        delivered_items = int(len(df_done_period_eligible))
+
+        in_progress_mask = (
+            (pd.to_datetime(df_scope_period['DataInProgress'], errors='coerce') <= end_ts) &
+            (
+                pd.to_datetime(df_scope_period['DataDone'], errors='coerce').isna() |
+                (pd.to_datetime(df_scope_period['DataDone'], errors='coerce') > end_ts)
+            )
+        ) if not df_scope_period.empty else pd.Series(dtype=bool)
+        in_progress_items = int(in_progress_mask.sum()) if not df_scope_period.empty else 0
+
+        exec_days = time_metric_series(df_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
+        executed_hours = float(exec_days.sum() * 8.0) if not exec_days.empty else 0.0
+
+        sp_scope = pd.to_numeric(df_scope_period.get('StoryPoints', pd.Series(dtype=float)), errors='coerce')
+        sp_done = pd.to_numeric(df_done_period_eligible.get('StoryPoints', pd.Series(dtype=float)), errors='coerce')
+        sp_scope_sum = float(sp_scope.dropna().sum()) if not sp_scope.empty else 0.0
+        sp_done_sum = float(sp_done.dropna().sum()) if not sp_done.empty else 0.0
+        if sp_scope_sum > 0 and sp_done_sum > 0 and executed_hours > 0:
+            quarter_estimated_hours = sp_scope_sum * (executed_hours / sp_done_sum)
+        elif planned_items > 0 and delivered_items > 0 and executed_hours > 0:
+            quarter_estimated_hours = (executed_hours / delivered_items) * planned_items
+        else:
+            quarter_estimated_hours = executed_hours
+
+        tempo_bloqueio = pd.to_numeric(df_scope_period.get('TempoBloqueioDias', pd.Series(0, index=df_scope_period.index)), errors='coerce').fillna(0)
+        blocked_raw = df_scope_period.get('Bloqueado', pd.Series(0, index=df_scope_period.index))
+        blocked_num = pd.to_numeric(blocked_raw, errors='coerce').fillna(0)
+        blocked_str = blocked_raw.fillna('').astype(str).str.strip().str.lower()
+        blocked_flag = blocked_num.gt(0) | blocked_str.isin({'true', 'sim', 'yes', 'y', '1'})
+        blocked_items = int((tempo_bloqueio.gt(0) | blocked_flag).sum()) if not df_scope_period.empty else 0
+
+        dev_count = int(df_scope_period['Responsavel'].fillna('').astype(str).str.strip().replace('', np.nan).dropna().nunique()) if ('Responsavel' in df_scope_period.columns and not df_scope_period.empty) else 0
+        business_days = int(np.busday_count(start_ts.date(), (end_ts + pd.Timedelta(days=1)).date())) if end_ts >= start_ts else 0
+        avg_hours_dev_day = (executed_hours / (dev_count * business_days)) if dev_count > 0 and business_days > 0 else 0.0
+
         delivery_rate_pct = (delivered_items / planned_items * 100.0) if planned_items > 0 else 0.0
         quarter_consumed_pct = (executed_hours / quarter_estimated_hours * 100.0) if quarter_estimated_hours > 0 else 0.0
         delivery_gap = max(planned_items - delivered_items, 0)
-        avg_hours_dev_day_label = f"{float(consolidated_inputs['media_horas_dev_dia']):.2f}".replace('.', ',')
+        avg_hours_dev_day_label = f"{float(avg_hours_dev_day):.2f}".replace('.', ',')
         consolidated_cards = [
             ('Itens planejados', f"{planned_items}"),
             ('Entregues', f"{delivered_items} ({delivery_rate_pct:.0f}%)"),
@@ -4870,7 +4917,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         consolidated_section = html.Div([
             html.H4('Visão consolidada: planejamento do quarter x execução real', style={'marginBottom': '4px'}),
             html.P(
-                f"Período analisado: {consolidated_inputs['periodo']} | "
+                f"Período analisado: {period_label} | "
                 "Referência de horas = volume estimado no planejamento do quarter (não capacidade do time).",
                 style={'color': '#475569', 'marginTop': '0', 'marginBottom': '8px'}
             ),
@@ -4885,9 +4932,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     f"Consumo de esforço do quarter: {executed_hours:,.0f}h de {quarter_estimated_hours:,.0f}h "
                     f"({quarter_consumed_pct:.0f}% do estimado).".replace(',', '.')
                 ),
-                html.Li(f"Média de {avg_hours_dev_day_label}h por dev/dia: sinal de possível sobrecarga pontual."),
-                html.Li(f"{int(consolidated_inputs['bloqueios'])} bloqueios registrados: tratar causa raiz e SLA de remoção."),
-                html.Li("Corte de escopo e priorização precisam acontecer mais cedo na sprint."),
+                html.Li(
+                    f"Média de {avg_hours_dev_day_label}h por dev/dia: "
+                    + ("sinal de possível sobrecarga pontual." if avg_hours_dev_day > 8.0 else "faixa operacional compatível com o período.")
+                ),
+                html.Li(
+                    f"{blocked_items} bloqueios registrados: "
+                    + ("tratar causa raiz e SLA de remoção." if blocked_items > 0 else "nenhum bloqueio sinalizado no recorte filtrado.")
+                ),
+                html.Li(
+                    "Corte de escopo e priorização precisam acontecer mais cedo na sprint."
+                    if delivery_gap > 0 else
+                    "Manter priorização e cadência para sustentar o ritmo de entrega."
+                ),
             ], style={'marginTop': '6px', 'marginBottom': '10px', 'paddingLeft': '20px'}),
             html.Div([
                 html.Strong('Perguntas críticas para decisão imediata'),
@@ -5417,7 +5474,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Sem data': '#90a4ae', # neutro
             }
             df_plot = df_aging.copy()
-            df_plot['AgingBucket'] = pd.Categorical(df_plot['AgingBucket'], categories=bucket_order, ordered=True)
+            df_plot['AgingBucket'] = (
+                df_plot['AgingBucket']
+                .fillna('Sem data')
+                .astype(str)
+                .str.strip()
+                .replace({'': 'Sem data'})
+            )
+            present_buckets = [b for b in bucket_order if (df_plot['AgingBucket'] == b).any()]
+            if not present_buckets:
+                present_buckets = ['Sem data']
+            df_plot['AgingBucket'] = pd.Categorical(df_plot['AgingBucket'], categories=present_buckets, ordered=True)
             df_plot = df_plot.sort_values(['Team', 'AgingBucket'])
             fig_aging = px.bar(
                 df_plot,
@@ -5427,7 +5494,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 barmode='stack',
                 template='plotly_white',
                 title='Aging por buckets detalhados (itens abertos) por TEAM',
-                color_discrete_map=bucket_color_map
+                color_discrete_map=bucket_color_map,
+                category_orders={'AgingBucket': present_buckets}
             )
             fig_aging.update_layout(height=380, margin=dict(t=60, b=80), xaxis_tickangle=-25, legend_title_text='Bucket')
             return html.Div([
