@@ -3752,6 +3752,17 @@ def load_w1nner_process_mining_report():
         'TemposPorStatus',
         'VazaoPessoaSemanal',
         'VazaoPessoaResumo',
+        'HorasPessoaResumo',
+        'HorasPessoaStatus',
+        'VariantesTop',
+        'EventosFiltrados',
+        'PM4PyDFGEdges',
+        'PM4PyDFGPerfEdges',
+        'PM4PyTBRResumo',
+        'PM4PyTBRCasos',
+        'PM4PyAlignResumo',
+        'PM4PyAlignCasos',
+        'PM4PyAlignTopMoves',
         'Metadados',
     ]
     loaded = {}
@@ -8363,6 +8374,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         pm_status = pm_report.get('TemposPorStatus', pd.DataFrame()).copy()
         pm_weekly = pm_report.get('VazaoPessoaSemanal', pd.DataFrame()).copy()
         pm_people = pm_report.get('VazaoPessoaResumo', pd.DataFrame()).copy()
+        pm_hours_people = pm_report.get('HorasPessoaResumo', pd.DataFrame()).copy()
+        pm_hours_status = pm_report.get('HorasPessoaStatus', pd.DataFrame()).copy()
+        pm_variants = pm_report.get('VariantesTop', pd.DataFrame()).copy()
+        pm_events = pm_report.get('EventosFiltrados', pd.DataFrame()).copy()
+        pm_dfg_edges = pm_report.get('PM4PyDFGEdges', pd.DataFrame()).copy()
+        pm_dfg_perf_edges = pm_report.get('PM4PyDFGPerfEdges', pd.DataFrame()).copy()
+        pm_tbr_summary = pm_report.get('PM4PyTBRResumo', pd.DataFrame()).copy()
+        pm_tbr_cases = pm_report.get('PM4PyTBRCasos', pd.DataFrame()).copy()
+        pm_align_summary = pm_report.get('PM4PyAlignResumo', pd.DataFrame()).copy()
+        pm_align_cases = pm_report.get('PM4PyAlignCasos', pd.DataFrame()).copy()
+        pm_align_moves = pm_report.get('PM4PyAlignTopMoves', pd.DataFrame()).copy()
         pm_meta = pm_report.get('Metadados', pd.DataFrame()).copy()
 
         for dcol in ['Done Final Date']:
@@ -8370,8 +8392,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 pm_cases[dcol] = pd.to_datetime(pm_cases[dcol], errors='coerce')
             if dcol in pm_rework.columns:
                 pm_rework[dcol] = pd.to_datetime(pm_rework[dcol], errors='coerce')
+            if dcol in pm_tbr_cases.columns:
+                pm_tbr_cases[dcol] = pd.to_datetime(pm_tbr_cases[dcol], errors='coerce')
+            if dcol in pm_align_cases.columns:
+                pm_align_cases[dcol] = pd.to_datetime(pm_align_cases[dcol], errors='coerce')
         if 'Semana' in pm_weekly.columns:
             pm_weekly['Semana'] = pd.to_datetime(pm_weekly['Semana'], errors='coerce')
+        if 'History Created' in pm_events.columns:
+            pm_events['History Created'] = pd.to_datetime(pm_events['History Created'], errors='coerce')
 
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
@@ -8390,16 +8418,41 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 (pm_weekly['Semana'] >= start_ts) &
                 (pm_weekly['Semana'] <= end_ts + pd.Timedelta(days=7))
             ]
+        if 'History Created' in pm_events.columns:
+            pm_events = pm_events[
+                (pm_events['History Created'] >= start_ts) &
+                (pm_events['History Created'] <= end_ts + pd.Timedelta(days=1))
+            ]
+        if 'Done Final Date' in pm_tbr_cases.columns:
+            pm_tbr_cases = pm_tbr_cases[
+                pm_tbr_cases['Done Final Date'].isna() |
+                ((pm_tbr_cases['Done Final Date'] >= start_ts) & (pm_tbr_cases['Done Final Date'] <= end_ts))
+            ]
+        if 'Done Final Date' in pm_align_cases.columns:
+            pm_align_cases = pm_align_cases[
+                pm_align_cases['Done Final Date'].isna() |
+                ((pm_align_cases['Done Final Date'] >= start_ts) & (pm_align_cases['Done Final Date'] <= end_ts))
+            ]
 
         if responsavel:
             if 'Responsavel' in pm_people.columns:
                 pm_people = pm_people[pm_people['Responsavel'] == responsavel]
             if 'Responsavel' in pm_weekly.columns:
                 pm_weekly = pm_weekly[pm_weekly['Responsavel'] == responsavel]
+            if 'Responsavel' in pm_hours_people.columns:
+                pm_hours_people = pm_hours_people[pm_hours_people['Responsavel'] == responsavel]
+            if 'Responsavel' in pm_hours_status.columns:
+                pm_hours_status = pm_hours_status[pm_hours_status['Responsavel'] == responsavel]
             if 'Done Final Author' in pm_rework.columns:
                 pm_rework = pm_rework[pm_rework['Done Final Author'] == responsavel]
             if 'Done Final Author' in pm_cases.columns:
                 pm_cases = pm_cases[pm_cases['Done Final Author'] == responsavel]
+            if 'Author' in pm_events.columns:
+                pm_events = pm_events[pm_events['Author'] == responsavel]
+            if 'Done Final Author' in pm_tbr_cases.columns:
+                pm_tbr_cases = pm_tbr_cases[pm_tbr_cases['Done Final Author'] == responsavel]
+            if 'Done Final Author' in pm_align_cases.columns:
+                pm_align_cases = pm_align_cases[pm_align_cases['Done Final Author'] == responsavel]
 
         if pm_people.empty and pm_cases.empty:
             return html.Div('Sem dados de process mining para o período/filtros selecionados.')
@@ -8425,12 +8478,71 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if not conf_series.empty:
                 conf_media = float(conf_series.mean())
 
+        horas_fluxo_total = 0.0
+        horas_fluxo_media_evento = np.nan
+        if not pm_hours_people.empty and 'HorasNoFluxo' in pm_hours_people.columns:
+            horas_fluxo_total = float(pd.to_numeric(pm_hours_people['HorasNoFluxo'], errors='coerce').fillna(0).sum())
+        if not pm_hours_people.empty and {'HorasNoFluxo', 'Eventos'}.issubset(pm_hours_people.columns):
+            eventos_total = float(pd.to_numeric(pm_hours_people['Eventos'], errors='coerce').fillna(0).sum())
+            horas_fluxo_media_evento = (horas_fluxo_total / eventos_total) if eventos_total > 0 else np.nan
+
+        horas_execucao_periodo = 0.0
+        if not pm_events.empty and 'TempoStatusDias' in pm_events.columns:
+            horas_execucao_periodo = float(
+                pd.to_numeric(pm_events['TempoStatusDias'], errors='coerce').fillna(0).sum() * 24.0
+            )
+
+        bitbucket_logs = load_project_bitbucket_logs('W1NNER')
+        bitbucket_end_ts = end_ts + pd.Timedelta(days=1)
+        bb_people, bb_totals = compute_bitbucket_contributor_metrics(
+            bitbucket_logs, start_ts, bitbucket_end_ts, alias_index=_load_person_alias_index()
+        )
+        if responsavel and not bb_people.empty and 'Pessoa' in bb_people.columns:
+            target_person = _canonical_person_name(responsavel)
+            bb_people = bb_people[bb_people['Pessoa'] == target_person].copy()
+            bb_totals = {
+                'Commits': int(pd.to_numeric(bb_people.get('Commits', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
+                'PRs Abertos': int(pd.to_numeric(bb_people.get('PRs Abertos', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
+                'Aprovacoes': int(pd.to_numeric(bb_people.get('Aprovacoes', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
+                'Reprovacoes': int(pd.to_numeric(bb_people.get('Reprovacoes', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
+                'PRs Declinados (Autor)': int(pd.to_numeric(bb_people.get('PRs Declinados (Autor)', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
+            }
+        bb_totals = bb_totals if isinstance(bb_totals, dict) else {}
+
+        cobertura_tecnica_pct = np.nan
+        itens_com_evidencia = 0
+        if not pm_cases.empty and 'Issue Key' in pm_cases.columns:
+            keys_done = (
+                pm_cases['Issue Key']
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+            keys_done = set(keys_done[keys_done.ne('')].tolist())
+            if keys_done:
+                tech_keys = _extract_work_item_keys_from_bitbucket_logs(bitbucket_logs, start_ts, bitbucket_end_ts)
+                if responsavel and 'Done Final Author' in pm_cases.columns:
+                    keys_done = set(
+                        pm_cases[pm_cases['Done Final Author'].astype(str) == str(responsavel)]['Issue Key']
+                        .astype(str).str.strip().str.upper().tolist()
+                    )
+                itens_com_evidencia = len(keys_done.intersection(tech_keys))
+                cobertura_tecnica_pct = (itens_com_evidencia / len(keys_done) * 100.0) if len(keys_done) > 0 else np.nan
+
         kpis = html.Div([
             create_kpi_card('Itens Concluídos (período)', total_concluidos, class_name='three columns'),
             create_kpi_card('Itens com Retrabalho', itens_retrabalho, class_name='three columns'),
             create_kpi_card('Taxa de Retrabalho', f"{taxa_retrabalho:.1f}%", class_name='three columns'),
             create_kpi_card('Conformidade Média', f"{conf_media:.2f}" if pd.notna(conf_media) else '—', class_name='three columns'),
-        ], className='row')
+            create_kpi_card('Horas Execução (período)', f"{horas_execucao_periodo:,.1f}", class_name='three columns'),
+            create_kpi_card('Horas no Fluxo (proxy)', f"{horas_fluxo_total:,.1f}", class_name='three columns'),
+            create_kpi_card('Média h/Evento (proxy)', f"{horas_fluxo_media_evento:.2f}" if pd.notna(horas_fluxo_media_evento) else '—', class_name='three columns'),
+            create_kpi_card('Cobertura Técnica', f"{cobertura_tecnica_pct:.1f}%" if pd.notna(cobertura_tecnica_pct) else '—', class_name='three columns'),
+            create_kpi_card('Commits (Bitbucket)', int(bb_totals.get('Commits', 0)), class_name='three columns'),
+            create_kpi_card('PRs Abertos (Bitbucket)', int(bb_totals.get('PRs Abertos', 0)), class_name='three columns'),
+            create_kpi_card('PRs Declinados (Bitbucket)', int(bb_totals.get('PRs Declinados (Autor)', 0)), class_name='three columns'),
+            create_kpi_card('Itens c/ Evidência Técnica', int(itens_com_evidencia), class_name='three columns'),
+        ], className='row', style={'rowGap': '8px'})
 
         fig_vazao_pessoa = go.Figure()
         if not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
@@ -8504,6 +8616,68 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
             fig_tempo_status.update_layout(height=520, yaxis={'categoryorder': 'total ascending'})
 
+        fig_variantes = go.Figure()
+        if not pm_variants.empty and {'Variant', 'Qtde Casos'}.issubset(pm_variants.columns):
+            variants_plot = pm_variants.copy()
+            variants_plot['Qtde Casos'] = pd.to_numeric(variants_plot['Qtde Casos'], errors='coerce').fillna(0)
+            if 'Pct Casos' in variants_plot.columns:
+                variants_plot['Pct Casos'] = pd.to_numeric(variants_plot['Pct Casos'], errors='coerce')
+            variants_plot = variants_plot.sort_values('Qtde Casos', ascending=False).head(20)
+            fig_variantes = px.bar(
+                variants_plot,
+                x='Qtde Casos',
+                y='Variant',
+                orientation='h',
+                color='Pct Casos' if 'Pct Casos' in variants_plot.columns else None,
+                title='Variantes Mais Frequentes (Top 20)',
+                color_continuous_scale='Viridis'
+            )
+            fig_variantes.update_layout(height=620, yaxis={'categoryorder': 'total ascending'})
+
+        fig_dfg_edges = go.Figure()
+        if not pm_dfg_edges.empty and {'From', 'To', 'Count'}.issubset(pm_dfg_edges.columns):
+            dfg_plot = pm_dfg_edges.copy()
+            dfg_plot['Count'] = pd.to_numeric(dfg_plot['Count'], errors='coerce').fillna(0)
+            dfg_plot['Aresta'] = dfg_plot['From'].astype(str) + ' -> ' + dfg_plot['To'].astype(str)
+            dfg_plot = dfg_plot.sort_values('Count', ascending=False).head(25)
+            fig_dfg_edges = px.bar(
+                dfg_plot,
+                x='Count',
+                y='Aresta',
+                orientation='h',
+                title='DFG PM4Py - Top Arestas por Frequência'
+            )
+            fig_dfg_edges.update_layout(height=720, yaxis={'categoryorder': 'total ascending'})
+
+        fig_dfg_perf = go.Figure()
+        if not pm_dfg_perf_edges.empty and {'From', 'To', 'PerfHours'}.issubset(pm_dfg_perf_edges.columns):
+            dfg_perf_plot = pm_dfg_perf_edges.copy()
+            dfg_perf_plot['PerfHours'] = pd.to_numeric(dfg_perf_plot['PerfHours'], errors='coerce').fillna(0)
+            dfg_perf_plot['Aresta'] = dfg_perf_plot['From'].astype(str) + ' -> ' + dfg_perf_plot['To'].astype(str)
+            dfg_perf_plot = dfg_perf_plot.sort_values('PerfHours', ascending=False).head(25)
+            fig_dfg_perf = px.bar(
+                dfg_perf_plot,
+                x='PerfHours',
+                y='Aresta',
+                orientation='h',
+                title='DFG PM4Py Performance - Top Arestas por Tempo (horas)'
+            )
+            fig_dfg_perf.update_layout(height=720, yaxis={'categoryorder': 'total ascending'})
+
+        fig_tbr_fitness = go.Figure()
+        if not pm_tbr_cases.empty and 'TraceFitness' in pm_tbr_cases.columns:
+            tbr_hist = pm_tbr_cases.copy()
+            tbr_hist['TraceFitness'] = pd.to_numeric(tbr_hist['TraceFitness'], errors='coerce')
+            tbr_hist = tbr_hist.dropna(subset=['TraceFitness'])
+            if not tbr_hist.empty:
+                fig_tbr_fitness = px.histogram(
+                    tbr_hist,
+                    x='TraceFitness',
+                    nbins=20,
+                    title='Token-Based Replay (PM4Py) - Distribuição de Trace Fitness'
+                )
+                fig_tbr_fitness.update_layout(height=420)
+
         jira_bitbucket_traceability_section = build_pm_commits_vs_jira_report(
             pm_people=pm_people,
             pm_cases=pm_cases,
@@ -8524,6 +8698,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Responsavel', 'Itens Concluidos', 'Itens Com Retrabalho', 'Taxa Retrabalho (%)',
             'Rework Score Total', 'Lead Time Mediano (dias)', 'Media Itens/Semana Ativa'
         ] if c in pm_people.columns]
+        horas_people_cols = [c for c in ['Responsavel', 'HorasNoFluxo', 'HorasMediasPorEvento', 'Eventos', 'CardsUnicos'] if c in pm_hours_people.columns]
+        horas_status_cols = [c for c in ['Responsavel', 'Status', 'HorasNoFluxo', 'Eventos', 'CardsUnicos'] if c in pm_hours_status.columns]
+        tbr_summary_cols = [c for c in ['Metric', 'Value'] if c in pm_tbr_summary.columns]
+        tbr_case_cols = [c for c in ['Issue Key', 'TraceIsFit', 'TraceFitness', 'MissingTokens', 'RemainingTokens', 'ConsumedTokens', 'ProducedTokens'] if c in pm_tbr_cases.columns]
+        align_summary_cols = [c for c in ['Metric', 'Value'] if c in pm_align_summary.columns]
+        align_case_cols = [c for c in ['Issue Key', 'AlignmentFitness', 'AlignmentCost', 'SyncMoves', 'LogMoves', 'ModelMoves', 'DesviosTotal'] if c in pm_align_cases.columns]
+        align_move_cols = [c for c in ['Move', 'Count', 'CasesAffected'] if c in pm_align_moves.columns]
         conf_table_cols = [c for c in ['Metrica', 'Valor'] if c in pm_summary.columns]
         meta_table_cols = [c for c in ['Metrica', 'Valor'] if c in pm_meta.columns]
 
@@ -8538,6 +8719,56 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_vazao_semanal),
             dcc.Graph(figure=fig_retrabalho_pessoa),
             dcc.Graph(figure=fig_tempo_status),
+            html.H4('Descoberta e Estrutura do Fluxo (PM4Py)', style={'marginTop': '18px'}),
+            dcc.Graph(figure=fig_variantes),
+            dcc.Graph(figure=fig_dfg_edges),
+            dcc.Graph(figure=fig_dfg_perf),
+            html.H4('Conformidade PM4Py (Token-Based Replay / Alignments)', style={'marginTop': '16px'}),
+            dcc.Graph(figure=fig_tbr_fitness),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in tbr_summary_cols],
+                data=pm_tbr_summary[tbr_summary_cols].to_dict('records') if tbr_summary_cols else [],
+                style_cell={'textAlign': 'left', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                page_size=10,
+            ),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in tbr_case_cols],
+                data=pm_tbr_cases[tbr_case_cols].head(50).to_dict('records') if tbr_case_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '100px', 'maxWidth': '220px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                filter_action='native',
+                page_size=10,
+            ),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in align_summary_cols],
+                data=pm_align_summary[align_summary_cols].to_dict('records') if align_summary_cols else [],
+                style_cell={'textAlign': 'left', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                page_size=10,
+            ),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in align_move_cols],
+                data=pm_align_moves[align_move_cols].head(50).to_dict('records') if align_move_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '100px', 'maxWidth': '220px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                filter_action='native',
+                page_size=10,
+            ),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in align_case_cols],
+                data=pm_align_cases[align_case_cols].head(50).to_dict('records') if align_case_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '100px', 'maxWidth': '220px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                filter_action='native',
+                page_size=10,
+            ),
             jira_bitbucket_traceability_section,
             html.H4('Resumo por Pessoa', style={'marginTop': '10px'}),
             dash_table.DataTable(
@@ -8547,6 +8778,27 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style_cell={'textAlign': 'left', 'padding': '6px'},
                 style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
                 sort_action='native',
+                page_size=12,
+            ),
+            html.H4('Horas no Fluxo por Pessoa (proxy por transição/status)', style={'marginTop': '16px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in horas_people_cols],
+                data=pm_hours_people[horas_people_cols].head(50).to_dict('records') if horas_people_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                page_size=12,
+            ),
+            html.H4('Horas no Fluxo por Pessoa e Status', style={'marginTop': '16px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in horas_status_cols],
+                data=pm_hours_status[horas_status_cols].head(60).to_dict('records') if horas_status_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '100px', 'maxWidth': '240px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                filter_action='native',
                 page_size=12,
             ),
             html.H4('Top Itens com Retrabalho', style={'marginTop': '16px'}),

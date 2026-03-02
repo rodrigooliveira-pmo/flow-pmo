@@ -1,5 +1,35 @@
 # Task Plan
 
+## Current Task (Dashboard Full: relatórios Process Mining da extração)
+- [x] Registrar escopo e critérios de aceite para ampliar relatórios de Process Mining no `dashboard_full.py`
+- [x] Expandir leitura do workbook de Process Mining para abas adicionais produzidas pela extração
+- [x] Exibir, na aba `Process Mining Jira`, os relatórios operacionais principais vistos no PDF (KPIs de horas, variantes, DFG/top arestas e conformidade PM4Py)
+- [x] Validar sintaxe/smoke test e registrar review com evidências
+
+## Specification (Dashboard Full: relatórios Process Mining da extração)
+- Objetivo: exibir na aba `Process Mining Jira` do `dashboard_full.py` os relatórios já produzidos por `process_mining_jira.py`, aproximando a visão do dashboard dedicado (`dashboard_process_mining.py`/PDF) sem depender de arquivos estáticos.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `load_w1nner_process_mining_report()` passa a carregar abas extras do relatório (`HorasPessoaResumo`, `HorasPessoaStatus`, `VariantesTop`, `EventosFiltrados`, `PM4PyDFGEdges`, `PM4PyDFGPerfEdges`, `PM4PyTBRResumo`, `PM4PyTBRCasos`, `PM4PyAlignResumo`, `PM4PyAlignCasos`, `PM4PyAlignTopMoves`).
+  - A aba `tab-process-mining-jira` exibe KPIs de horas e cobertura técnica além dos KPIs atuais.
+  - A aba passa a exibir pelo menos gráficos/tabelas de variantes, DFG (top arestas) e conformidade PM4Py (TBR/Align quando disponível).
+  - Filtros de período e responsável continuam aplicados sem quebrar a renderização.
+
+## Review (Dashboard Full: relatórios Process Mining da extração)
+- What was validated:
+  - `load_w1nner_process_mining_report()` foi expandido para carregar todas as abas de relatório produzidas pelo `process_mining_jira.py`, incluindo blocos operacionais e PM4Py.
+  - A aba `tab-process-mining-jira` passou a incorporar KPIs adicionais alinhados ao relatório do PDF: horas de execução no período, horas no fluxo (proxy), média de horas por evento, cobertura técnica, commits e PRs Bitbucket.
+  - Foram adicionadas visualizações e tabelas para `VariantesTop`, `PM4PyDFGEdges`, `PM4PyDFGPerfEdges`, `PM4PyTBRResumo`/`PM4PyTBRCasos` e `PM4PyAlign*`, além de tabelas de horas por pessoa/status.
+  - O filtro de período/responsável foi estendido para os novos datasets (eventos, horas e casos PM4Py) mantendo comportamento consistente.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.render_tab('services','tab-process-mining-jira',...) ... print(token in str(node)) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): expand dashboard_full tab with extraction reports and pm4py views`
+
 ## Current Task (Documentação: Process Mining e Dashboards Criados)
 - [x] Registrar plano e escopo da atualização de documentação
 - [x] Atualizar `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` com seção de process mining e inventário de dashboards
