@@ -851,9 +851,9 @@ def compute_cross_source_capacity_metrics(jira_df, bitbucket_logs, start_ts, end
         merged['Reprovacoes'] +
         (merged['Commits'] / 5.0)
     ).round(1)
-    total_proxy = float(merged['Score Capacidade (proxy bruto)'].sum())
-    if total_proxy > 0:
-        merged['Score Capacidade (%)'] = ((merged['Score Capacidade (proxy bruto)'] / total_proxy) * 100.0).round(2)
+    max_proxy = float(merged['Score Capacidade (proxy bruto)'].max()) if not merged.empty else 0.0
+    if max_proxy > 0:
+        merged['Score Capacidade (%)'] = ((merged['Score Capacidade (proxy bruto)'] / max_proxy) * 100.0).round(2)
     else:
         merged['Score Capacidade (%)'] = 0.0
     merged['Total Contribuicoes'] = (
@@ -965,11 +965,11 @@ def compute_cross_source_capacity_weekly_metrics(jira_df, bitbucket_logs, start_
         merged['Reprovacoes'] +
         (merged['Commits'] / 5.0)
     ).round(1)
-    weekly_total_proxy = merged.groupby('Semana')['Score Capacidade (proxy bruto)'].transform('sum')
+    weekly_max_proxy = merged.groupby('Semana')['Score Capacidade (proxy bruto)'].transform('max')
     with np.errstate(divide='ignore', invalid='ignore'):
         merged['Score Capacidade (%)'] = np.where(
-            weekly_total_proxy > 0,
-            (merged['Score Capacidade (proxy bruto)'] / weekly_total_proxy) * 100.0,
+            weekly_max_proxy > 0,
+            (merged['Score Capacidade (proxy bruto)'] / weekly_max_proxy) * 100.0,
             0.0,
         )
     merged['Score Capacidade (%)'] = pd.to_numeric(merged['Score Capacidade (%)'], errors='coerce').fillna(0).round(2)
@@ -1113,7 +1113,7 @@ def build_bitbucket_contributor_section(
             x='Score Capacidade (%)',
             y='Pessoa',
             orientation='h',
-            title='Capacidade por pessoa (Jira + Bitbucket, % do score ponderado)',
+            title='Capacidade por pessoa (Jira + Bitbucket, índice relativo %)',
             color='Itens Concluidos',
             color_continuous_scale='Tealgrn'
         )
@@ -1150,7 +1150,7 @@ def build_bitbucket_contributor_section(
         cross_section = html.Div([
             html.H4('Capacidade Cruzada (Jira + Bitbucket)', style={'marginTop': '28px', 'marginBottom': '10px'}),
             html.Div(
-                'Score (%) = participação no score ponderado do período, onde score bruto = itens concluídos + PRs + aprovações + reprovações + commits/5.',
+                'Score (%) = índice relativo ao maior score bruto do período (100% = maior contribuição relativa no recorte), onde score bruto = itens concluídos + PRs + aprovações + reprovações + commits/5.',
                 style={'color': '#666', 'fontSize': '12px', 'marginBottom': '8px'}
             ),
             html.Div([

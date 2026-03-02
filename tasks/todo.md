@@ -2952,6 +2952,34 @@
 - Suggested commit message:
   - `fix(dashboard): expose process mining tab and convert cross-capacity score to percentage`
 
+## Current Task (Ajuste do score percentual de capacidade cruzada)
+- [x] Revisar definição de percentual do score de capacidade após feedback do usuário
+- [x] Trocar cálculo de participação no total por índice relativo ao maior score do período (0–100%)
+- [x] Aplicar a mesma regra no cálculo semanal
+- [x] Validar sintaxe e exemplo de saída
+
+## Specification (Ajuste do score percentual de capacidade cruzada)
+- Objetivo: tornar o `%` de capacidade mais interpretável no ranking por pessoa.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `Score Capacidade (%)` usa denominador de máximo score bruto do recorte, e não soma total.
+  - Maior score do recorte aparece como `100%`.
+  - Série semanal usa a mesma lógica (máximo por semana).
+
+## Review (Ajuste do score percentual de capacidade cruzada)
+- What was validated:
+  - `compute_cross_source_capacity_metrics` agora calcula `%` como `score_bruto_pessoa / maior_score_bruto_do_período * 100`.
+  - `compute_cross_source_capacity_weekly_metrics` passou a usar `maior_score_bruto_da_semana` como denominador.
+  - Texto explicativo da seção `Capacidade Cruzada` foi atualizado para refletir a nova regra.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_cross_source_capacity_metrics(...) ... print(max Score Capacidade (%)) ... PY`
+  - Evidência: `max 100.0` no recorte testado.
+- Suggested commit message:
+  - `fix(dashboard): normalize cross-capacity score percentage against period max`
+
 ## Current Task (Dashboard Full: visão consolidada planejamento do quarter x execução)
 - [x] Definir bloco consolidado com os números-chave do período (01/01 a 25/02)
 - [x] Aplicar fórmulas de aderência (entregues/planejados e horas executadas/estimadas no quarter)

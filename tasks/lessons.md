@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-02
+- Context: Ajuste de score percentual em `Capacidade Cruzada (Jira + Bitbucket)`.
+- User correction: Indicou que o cálculo percentual continuava inadequado após a primeira versão.
+- Root cause: Interpretei `%` como participação no total do time, mas a leitura esperada era índice relativo por pessoa.
+- Prevention rule: Em métricas “em percentual” de ranking individual, confirmar se o denominador esperado é total da equipe, teto/meta, ou máximo do recorte.
+- Action added to workflow: Antes de fechar KPI percentual novo, validar explicitamente a interpretação com 3 checks: `maior valor = 100%?`, `soma = 100%?`, `semântica esperada pelo usuário`.
+
+- Date: 2026-03-02
 - Context: Inclusão de relatório Jira x Bitbucket no `dashboard_full.py`.
 - User correction: Informou que a aba de Process Mining não estava visível e exigiu que o score de capacidade fosse percentual.
 - Root cause: Implementei o relatório e o bloco de capacidade sem garantir exposição explícita da aba em `SERVICE_TABS` e mantive score absoluto (`proxy`) em vez de percentual.
