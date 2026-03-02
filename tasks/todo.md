@@ -1,5 +1,69 @@
 # Task Plan
 
+## Current Task (Vercel: Process Mining por URL fixa única)
+- [x] Registrar escopo e critérios para consumo do relatório de process mining por env única
+- [x] Implementar suporte a `FLOW_PMO_PROCESS_MINING_REPORT_URL` no `dashboard_full.py`
+- [x] Implementar suporte a `FLOW_PMO_PROCESS_MINING_REPORT_URL` no `dashboard_process_mining.py`
+- [x] Atualizar documentação de deploy e validar sintaxe/import
+
+## Specification (Vercel: Process Mining por URL fixa única)
+- Objetivo: permitir que os dashboards consumam o relatório de Process Mining por uma única variável de ambiente (`FLOW_PMO_PROCESS_MINING_REPORT_URL`), evitando configuração por arquivo.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `DEPLOY_VERCEL.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Se `FLOW_PMO_PROCESS_MINING_REPORT_URL` estiver definida, os dashboards baixam e usam esse `.xlsx` como fonte de Process Mining.
+  - Se a env não estiver definida, o comportamento atual de busca local por arquivos `w1nner-process-mining-*.xlsx` permanece.
+  - Documentação de deploy lista explicitamente a nova variável com exemplo de uso.
+
+## Review (Vercel: Process Mining por URL fixa única)
+- What was validated:
+  - `dashboard_full.py` passou a priorizar `FLOW_PMO_PROCESS_MINING_REPORT_URL` para obter o `.xlsx` de Process Mining, com cache local em `/tmp/flow-pmo-models`.
+  - `dashboard_process_mining.py` recebeu o mesmo comportamento, mantendo consistência entre dashboard principal e sandbox de Process Mining.
+  - Na ausência da env, ambos preservam o fallback atual por varredura local (`w1nner-process-mining-*.xlsx`).
+  - `DEPLOY_VERCEL.md` foi atualizado com a nova variável e exemplo de valor para `w1nner-process-mining-latest.xlsx`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py dashboard_process_mining.py`
+  - `python3 - <<'PY' ... import dashboard_full/dashboard_process_mining ... PY`
+  - `rg -n "FLOW_PMO_PROCESS_MINING_REPORT_URL|_download_process_mining_report_from_url" dashboard_full.py dashboard_process_mining.py DEPLOY_VERCEL.md`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py DEPLOY_VERCEL.md tasks/todo.md`
+- Suggested commit message:
+  - `feat(vercel): support process mining report from single FLOW_PMO_PROCESS_MINING_REPORT_URL`
+
+## Current Task (Process Mining: gerar artefatos latest com nome fixo)
+- [x] Registrar escopo e critérios para geração `latest` no exportador de process mining
+- [x] Implementar no `process_mining_jira.py` a atualização automática dos arquivos `-latest` (xlsx/csv/pm4py imagens)
+- [x] Validar sintaxe/CLI e registrar review com evidências
+
+## Specification (Process Mining: gerar artefatos latest com nome fixo)
+- Objetivo: garantir que o exportador de process mining sempre gere aliases estáveis com nome fixo (`<prefix>-latest...`), facilitando publicação em storage/CDN e consumo pelo dashboard em produção.
+- Escopo:
+  - `process_mining_jira.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Após execução, além dos arquivos com timestamp, existe `w1nner-process-mining-latest.xlsx`.
+  - Para cada dataset CSV exportado, existe também a versão `w1nner-process-mining-latest-<dataset>.csv`.
+  - Para cada imagem PM4Py gerada, existe também o alias `w1nner-process-mining-latest-<sufixo>.png`.
+  - O comportamento atual (arquivos versionados por timestamp) permanece inalterado.
+
+## Review (Process Mining: gerar artefatos latest com nome fixo)
+- What was validated:
+  - O `write_outputs(...)` agora mantém arquivos com timestamp e também atualiza aliases fixos `-latest`.
+  - Foi adicionado `w1nner-process-mining-latest.xlsx` após a geração do Excel timestampado.
+  - Todos os CSVs exportados agora também possuem cópia `w1nner-process-mining-latest-<dataset>.csv`.
+  - Imagens PM4Py geradas (`-pm4py-*.png`) também recebem cópias com prefixo `w1nner-process-mining-latest`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile process_mining_jira.py`
+  - `python3 process_mining_jira.py --help`
+  - Execução funcional com CSV sintético:
+    - `python3 process_mining_jira.py --input <tmp>/in.csv --out-dir <tmp> --pm4py-align-max-cases 0`
+    - `ls <tmp> | rg "w1nner-process-mining-latest"` (confirmou `latest.xlsx`, CSVs e PNGs)
+  - `git diff -- process_mining_jira.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): generate stable latest aliases for excel/csv/pm4py artifacts`
+
 ## Current Task (Dashboard Full: relatórios Process Mining da extração)
 - [x] Registrar escopo e critérios de aceite para ampliar relatórios de Process Mining no `dashboard_full.py`
 - [x] Expandir leitura do workbook de Process Mining para abas adicionais produzidas pela extração

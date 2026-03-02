@@ -1,10 +1,12 @@
 import base64
+import hashlib
 import json
 import os
 import platform
 import re
 import unicodedata
 from datetime import datetime, time, timedelta
+import urllib.request
 
 import dash
 try:
@@ -117,7 +119,24 @@ WORKDAY_DAILY_CAP_HOURS = 8.0
 PROJECT_BITBUCKET_PREFIX = {"W1NNER": "w1nner"}
 
 
+def _download_process_mining_report_from_url(url):
+    cache_dir = "/tmp/flow-pmo-models"
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f"w1nner-process-mining-{file_key}.xlsx")
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
 def find_latest_process_mining_report():
+    report_url = os.getenv("FLOW_PMO_PROCESS_MINING_REPORT_URL", "").strip()
+    if report_url:
+        try:
+            return _download_process_mining_report_from_url(report_url)
+        except Exception:
+            pass
+
     candidates = []
     for folder in DATA_FOLDERS:
         try:

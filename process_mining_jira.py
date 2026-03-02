@@ -774,10 +774,20 @@ def _csv_ready(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _copy_latest_artifact(source: Path, target: Path) -> bool:
+    try:
+        shutil.copy2(source, target)
+        return True
+    except Exception as exc:
+        print(f"Aviso: falha ao atualizar latest ({target}): {exc}")
+        return False
+
+
 def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame], pm4py_align_max_cases: int = 500) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{prefix}-{stamp}"
+    latest_base = f"{prefix}-latest"
     excel = out_dir / f"{base}.xlsx"
 
     pm_extra_datasets, pm_extra_files, pm_meta_rows = build_pm4py_model_artifacts(
@@ -830,14 +840,28 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame],
     if excel_written:
         paths["excel"] = str(excel)
         paths["excel_engine"] = str(excel_engine_used)
+        excel_latest = out_dir / f"{latest_base}.xlsx"
+        if _copy_latest_artifact(excel, excel_latest):
+            paths["excel_latest"] = str(excel_latest)
     elif last_excel_error is not None:
         print(f"Aviso: Excel não gerado ({last_excel_error}). Seguindo com saída CSV.")
     for key, df in datasets.items():
         csv_path = out_dir / f"{base}-{key}.csv"
         _csv_ready(df).to_csv(csv_path, index=False, encoding="utf-8-sig")
         paths[key] = str(csv_path)
+        csv_latest = out_dir / f"{latest_base}-{key}.csv"
+        if _copy_latest_artifact(csv_path, csv_latest):
+            paths[f"{key}_latest"] = str(csv_latest)
     for key, value in pm_extra_files.items():
         paths[key] = value
+        src = Path(value)
+        if src.exists():
+            latest_name = src.name
+            if src.name.startswith(base):
+                latest_name = latest_base + src.name[len(base):]
+            latest_path = src.with_name(latest_name)
+            if _copy_latest_artifact(src, latest_path):
+                paths[f"{key}_latest"] = str(latest_path)
     return paths
 
 

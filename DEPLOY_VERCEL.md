@@ -22,6 +22,7 @@
 - Dados:
   - `FLOW_PMO_MODEL_FILE`: caminho do modelo `.xlsx` (absoluto ou relativo ao projeto).
   - `FLOW_PMO_MODEL_URL`: URL pública para baixar o modelo `.xlsx` em runtime.
+  - `FLOW_PMO_PROCESS_MINING_REPORT_URL`: URL pública fixa para o relatório de process mining (`w1nner-process-mining-latest.xlsx`) consumido em runtime.
   - `FLOW_PMO_BOTTLENECK_CSV_URL_MAP`: mapa JSON de URLs de gargalo por projeto (ex.: `{"W1NNER":"https://.../w1nner-downstream-latest-data_bottlenecks.csv","DATA&ANALYTICS":"https://.../dataanalytics-downstream-latest-data_bottlenecks.csv"}`).
   - `FLOW_PMO_BOTTLENECK_CSV_URL`: fallback legado com URL única; só é aplicado quando o nome do arquivo corresponde ao prefixo do projeto filtrado.
   - `FLOW_PMO_DASHBOARD_OUTPUT_FILE`: caminho do `dashboard_output_*.xlsx`.
@@ -37,6 +38,8 @@ Use essas variáveis no projeto da Vercel para trocar módulo/objeto Dash e font
 ## Valores que você já pode configurar agora
 - Modelo principal:
   - `FLOW_PMO_MODEL_URL=https://<SEU_BLOB_PUBLICO>/PowerBI_Model_latest.xlsx`
+- Process Mining (W1NNER):
+  - `FLOW_PMO_PROCESS_MINING_REPORT_URL=https://<SEU_BLOB_PUBLICO>/w1nner-process-mining-latest.xlsx`
 - Portfólio:
   - `FLOW_PMO_PORTFOLIO_CSV_URL=https://<SEU_BLOB_PUBLICO>/portfolio-bt-ns-latest-data.csv`
 - Se quiser subir a versão `dashboard_app.py`:

@@ -97,6 +97,16 @@ def _download_bottleneck_csv_from_url(url, project_key):
     return out_file
 
 
+def _download_process_mining_report_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'w1nner-process-mining-{file_key}.xlsx')
+    if not os.path.exists(out_file):
+        urllib.request.urlretrieve(url, out_file)
+    return out_file
+
+
 def _download_downstream_items_csv_from_url(url, project_key):
     cache_dir = '/tmp/flow-pmo-models'
     os.makedirs(cache_dir, exist_ok=True)
@@ -3722,6 +3732,13 @@ def get_downstream_done_stage_column(stage_cols):
 
 
 def _find_latest_w1nner_process_mining_excel():
+    report_url = os.getenv('FLOW_PMO_PROCESS_MINING_REPORT_URL', '').strip()
+    if report_url:
+        try:
+            return _download_process_mining_report_from_url(report_url)
+        except Exception:
+            pass
+
     candidates = []
     for folder in DATA_FOLDERS:
         try:
