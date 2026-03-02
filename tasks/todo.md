@@ -3236,3 +3236,33 @@
   - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 tasks/todo.md`
 - Suggested commit message:
   - `feat(pipeline): always publish downstream latest aliases to central dados/latest folder`
+
+## Current Task (Process Mining Jira não encontrado com latest existente)
+- [x] Reproduzir resolução de arquivo do Process Mining nos dashboards
+- [x] Corrigir descoberta de pastas candidatas para incluir `../dados/latest` e `artifacts/process_mining`
+- [x] Tornar seleção de arquivo robusta (priorizar `w1nner-process-mining-latest.xlsx` e validar workbook)
+- [x] Validar carregamento em runtime após ajuste
+
+## Specification (Process Mining Jira não encontrado com latest existente)
+- Objetivo: eliminar falso negativo de "Relatório de process mining não encontrado" quando o arquivo `w1nner-process-mining-latest.xlsx` já existe.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Ambos os dashboards consideram também `../dados/latest`, `../dados` e `artifacts/process_mining` na busca.
+  - A seleção do arquivo prioriza `w1nner-process-mining-latest.xlsx`.
+  - Apenas workbooks válidos (com abas esperadas de process mining) são aceitos.
+
+## Review (Process Mining Jira não encontrado com latest existente)
+- What was validated:
+  - `dashboard_process_mining.py` não incluía `../dados/latest` na busca padrão; agora inclui.
+  - `dashboard_full.py` e `dashboard_process_mining.py` passaram a validar workbook antes de aceitar candidato e priorizam o alias estável `w1nner-process-mining-latest.xlsx`.
+  - A busca pós-ajuste resolveu com sucesso para `.../dados/latest/w1nner-process-mining-latest.xlsx`.
+- Evidence (tests/logs/diff):
+  - `python3 - <<'PY' ... import dashboard_process_mining as d; print(d.DATA_FOLDERS); print(d.find_latest_process_mining_report()) ... PY`
+  - `python3 - <<'PY' ... import dashboard_full as d; print(d.DATA_FOLDERS); print(d._find_latest_w1nner_process_mining_excel()) ... PY`
+  - `python3 -m py_compile dashboard_full.py dashboard_process_mining.py`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(process-mining): prefer validated latest workbook across dashboards`

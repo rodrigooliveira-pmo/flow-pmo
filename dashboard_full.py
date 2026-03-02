@@ -61,6 +61,7 @@ def _candidate_data_folders():
         *split_env_dirs,
         os.path.join(project_root_dir, 'dados', 'latest'),
         os.path.join(project_root_dir, 'dados'),
+        os.path.join(base_dir, 'artifacts', 'process_mining'),
         os.path.join(home_dir, 'Documents', 'dados'),
         os.path.join(home_dir, 'Documents', 'Dados'),
         os.path.join(base_dir, 'data'),
@@ -3774,6 +3775,8 @@ def _find_latest_w1nner_process_mining_excel():
         except Exception:
             pass
 
+    preferred_name = 'w1nner-process-mining-latest.xlsx'
+    required_sheets = {'ResumoConformidade', 'ConformidadeCasos', 'EventosFiltrados'}
     candidates = []
     for folder in DATA_FOLDERS:
         try:
@@ -3789,7 +3792,22 @@ def _find_latest_w1nner_process_mining_excel():
                 candidates.append(path)
     if not candidates:
         return None
-    return max(candidates, key=os.path.getctime)
+    def _is_valid(path):
+        try:
+            xls = pd.ExcelFile(path)
+        except Exception:
+            return False
+        return bool(required_sheets.intersection(set(xls.sheet_names)))
+
+    def _sort_key(path):
+        name = os.path.basename(path).lower()
+        is_preferred = 1 if name == preferred_name else 0
+        return (is_preferred, os.path.getctime(path))
+
+    for candidate in sorted(candidates, key=_sort_key, reverse=True):
+        if _is_valid(candidate):
+            return candidate
+    return None
 
 
 def load_w1nner_process_mining_report():
