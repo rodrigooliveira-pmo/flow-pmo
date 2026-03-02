@@ -341,6 +341,7 @@ PORTFOLIO_TAB_VALUE = 'tab-portfolio'
 SERVICE_TABS = [
     ('Performance do Serviço', 'tab-performance'),
     ('One Page Report', 'tab-one-page'),
+    ('Process Mining Jira', 'tab-process-mining-jira'),
     ('Painel Fluxo', 'tab-painel-3x3'),
     ('Lead Time', 'tab-lead-time'),
     ('Fluxo', 'tab-fluxo'),
@@ -843,13 +844,18 @@ def compute_cross_source_capacity_metrics(jira_df, bitbucket_logs, start_ts, end
                     )
                 merged['Cobertura Tecnica (%)'] = merged['Cobertura Tecnica (%)'].round(1)
 
-    merged['Score Capacidade (proxy)'] = (
+    merged['Score Capacidade (proxy bruto)'] = (
         merged['Itens Concluidos'] +
         merged['PRs Abertos'] +
         merged['Aprovacoes'] +
         merged['Reprovacoes'] +
         (merged['Commits'] / 5.0)
     ).round(1)
+    total_proxy = float(merged['Score Capacidade (proxy bruto)'].sum())
+    if total_proxy > 0:
+        merged['Score Capacidade (%)'] = ((merged['Score Capacidade (proxy bruto)'] / total_proxy) * 100.0).round(2)
+    else:
+        merged['Score Capacidade (%)'] = 0.0
     merged['Total Contribuicoes'] = (
         merged['PRs Abertos'] +
         merged['Aprovacoes'] +
@@ -858,7 +864,7 @@ def compute_cross_source_capacity_metrics(jira_df, bitbucket_logs, start_ts, end
         merged['Commits']
     )
     merged = merged.sort_values(
-        ['Score Capacidade (proxy)', 'Itens Concluidos', 'Total Contribuicoes', 'Pessoa'],
+        ['Score Capacidade (%)', 'Itens Concluidos', 'Total Contribuicoes', 'Pessoa'],
         ascending=[False, False, False, True]
     ).reset_index(drop=True)
 
@@ -952,14 +958,22 @@ def compute_cross_source_capacity_weekly_metrics(jira_df, bitbucket_logs, start_
             merged[col] = 0
         merged[col] = pd.to_numeric(merged[col], errors='coerce').fillna(0).astype(int)
 
-    merged['Score Capacidade (proxy)'] = (
+    merged['Score Capacidade (proxy bruto)'] = (
         merged['Itens Concluidos'] +
         merged['PRs Abertos'] +
         merged['Aprovacoes'] +
         merged['Reprovacoes'] +
         (merged['Commits'] / 5.0)
     ).round(1)
-    merged = merged.sort_values(['Semana', 'Score Capacidade (proxy)', 'Pessoa'], ascending=[True, False, True]).reset_index(drop=True)
+    weekly_total_proxy = merged.groupby('Semana')['Score Capacidade (proxy bruto)'].transform('sum')
+    with np.errstate(divide='ignore', invalid='ignore'):
+        merged['Score Capacidade (%)'] = np.where(
+            weekly_total_proxy > 0,
+            (merged['Score Capacidade (proxy bruto)'] / weekly_total_proxy) * 100.0,
+            0.0,
+        )
+    merged['Score Capacidade (%)'] = pd.to_numeric(merged['Score Capacidade (%)'], errors='coerce').fillna(0).round(2)
+    merged = merged.sort_values(['Semana', 'Score Capacidade (%)', 'Pessoa'], ascending=[True, False, True]).reset_index(drop=True)
     return merged
 
 
@@ -1073,7 +1087,7 @@ def build_bitbucket_contributor_section(
     top_n_people = min(max(top_n_people, 1), 30)
 
     weekly_metric_map = {
-        'score': ('Score Capacidade (proxy)', 'Score Capacidade (proxy)'),
+        'score': ('Score Capacidade (%)', 'Score Capacidade (%)'),
         'itens_concluidos': ('Itens Concluidos', 'Itens Concluídos'),
         'commits': ('Commits', 'Commits'),
         'prs_abertos': ('PRs Abertos', 'PRs Abertos'),
@@ -1092,14 +1106,14 @@ def build_bitbucket_contributor_section(
             'Aprovacoes',
             'Reprovacoes',
             'Commits',
-            'Score Capacidade (proxy)',
+            'Score Capacidade (%)',
         ]
         fig_cross = px.bar(
-            cross_top.sort_values('Score Capacidade (proxy)', ascending=True),
-            x='Score Capacidade (proxy)',
+            cross_top.sort_values('Score Capacidade (%)', ascending=True),
+            x='Score Capacidade (%)',
             y='Pessoa',
             orientation='h',
-            title='Capacidade por pessoa (Jira + Bitbucket, proxy)',
+            title='Capacidade por pessoa (Jira + Bitbucket, % do score ponderado)',
             color='Itens Concluidos',
             color_continuous_scale='Tealgrn'
         )
@@ -1122,14 +1136,21 @@ def build_bitbucket_contributor_section(
                     title=f'Tendência semanal de capacidade ({weekly_metric_label}, Top {top_n_people})'
                 )
                 fig_weekly.update_layout(template='plotly_white', margin=dict(t=60, b=40), legend_title_text='Pessoa')
+                if weekly_metric_col == 'Score Capacidade (%)':
+                    fig_weekly.update_yaxes(ticksuffix='%')
                 weekly_section = html.Div([
                     dcc.Graph(figure=fig_weekly),
                 ])
 
+        cross_top_table = cross_top[cross_cols].copy()
+        cross_top_table['Score Capacidade (%)'] = pd.to_numeric(
+            cross_top_table['Score Capacidade (%)'], errors='coerce'
+        ).fillna(0).map(lambda v: f'{v:.2f}%')
+
         cross_section = html.Div([
             html.H4('Capacidade Cruzada (Jira + Bitbucket)', style={'marginTop': '28px', 'marginBottom': '10px'}),
             html.Div(
-                'Score proxy = itens concluídos + PRs + aprovações + reprovações + commits/5. Use como tendência, não como produtividade individual.',
+                'Score (%) = participação no score ponderado do período, onde score bruto = itens concluídos + PRs + aprovações + reprovações + commits/5.',
                 style={'color': '#666', 'fontSize': '12px', 'marginBottom': '8px'}
             ),
             html.Div([
@@ -1150,9 +1171,9 @@ def build_bitbucket_contributor_section(
                     {'name': 'Aprovações', 'id': 'Aprovacoes'},
                     {'name': 'Reprovações', 'id': 'Reprovacoes'},
                     {'name': 'Commits', 'id': 'Commits'},
-                    {'name': 'Score Capacidade (proxy)', 'id': 'Score Capacidade (proxy)'},
+                    {'name': 'Score Capacidade (%)', 'id': 'Score Capacidade (%)'},
                 ],
-                data=cross_top[cross_cols].to_dict('records'),
+                data=cross_top_table.to_dict('records'),
                 style_cell={'textAlign': 'center', 'padding': '7px'},
                 style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
                 style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
@@ -1168,6 +1189,220 @@ def build_bitbucket_contributor_section(
         bitbucket_panel,
         cross_section,
     ], style={'marginTop': '16px'})
+
+
+def _extract_work_item_keys_from_bitbucket_logs(bitbucket_logs, start_ts, end_ts):
+    tech_keys = set()
+    if not isinstance(bitbucket_logs, dict):
+        return tech_keys
+    for source_name, date_col in (('commits', 'date'), ('pullrequests', 'created_on')):
+        src = bitbucket_logs.get(source_name, pd.DataFrame())
+        if src is None or src.empty:
+            continue
+        x = src.copy()
+        if date_col in x.columns:
+            x = x[(x[date_col] >= start_ts) & (x[date_col] < end_ts)]
+        for col in ('work_item_keys', 'primary_work_item_key'):
+            if col not in x.columns:
+                continue
+            for raw in x[col].fillna('').astype(str):
+                for key in raw.split('|'):
+                    cleaned = key.strip().upper()
+                    if cleaned:
+                        tech_keys.add(cleaned)
+    return tech_keys
+
+
+def build_pm_commits_vs_jira_report(pm_people, pm_cases, start_ts, end_ts, responsavel=None):
+    alias_index = _load_person_alias_index()
+    jira_people = pd.DataFrame(columns=['Pessoa', 'Itens Concluidos'])
+    if pm_people is not None and not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
+        jira_people = pm_people[['Responsavel', 'Itens Concluidos']].copy()
+        jira_people['Pessoa'] = jira_people['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+        jira_people['Itens Concluidos'] = pd.to_numeric(jira_people['Itens Concluidos'], errors='coerce').fillna(0)
+        jira_people = (
+            jira_people[jira_people['Pessoa'].astype(str).str.strip().ne('')]
+            .groupby('Pessoa', as_index=False)['Itens Concluidos']
+            .sum()
+        )
+
+    logs = load_project_bitbucket_logs('W1NNER')
+    bb_people, _ = compute_bitbucket_contributor_metrics(logs, start_ts, end_ts, alias_index=alias_index)
+    if bb_people is None or bb_people.empty:
+        bb_people = pd.DataFrame(columns=['Pessoa', 'Commits', 'PRs Abertos'])
+    for col in ('Pessoa', 'Commits', 'PRs Abertos'):
+        if col not in bb_people.columns:
+            bb_people[col] = 0 if col != 'Pessoa' else ''
+    bb_people = bb_people[['Pessoa', 'Commits', 'PRs Abertos']].copy()
+    bb_people['Commits'] = pd.to_numeric(bb_people['Commits'], errors='coerce').fillna(0)
+    bb_people['PRs Abertos'] = pd.to_numeric(bb_people['PRs Abertos'], errors='coerce').fillna(0)
+
+    merged = pd.merge(jira_people, bb_people, how='outer', on='Pessoa')
+    if merged.empty:
+        return html.Div('Sem dados suficientes de Jira/Bitbucket para montar a correlação.', style={'color': '#666'})
+
+    merged['Itens Concluidos'] = pd.to_numeric(merged.get('Itens Concluidos', 0), errors='coerce').fillna(0)
+    merged['Commits'] = pd.to_numeric(merged.get('Commits', 0), errors='coerce').fillna(0)
+    merged['PRs Abertos'] = pd.to_numeric(merged.get('PRs Abertos', 0), errors='coerce').fillna(0)
+
+    def _classify(row):
+        done = float(row.get('Itens Concluidos', 0) or 0)
+        commits = float(row.get('Commits', 0) or 0)
+        if done > 0 and commits <= 0:
+            return 'Alta vazão sem commits'
+        if done <= 0 and commits > 0:
+            return 'Commits sem conclusão Jira'
+        if done > 0 and commits > 0:
+            return 'Fluxo conectado'
+        return 'Sem atividade'
+
+    merged['Classificacao'] = merged.apply(_classify, axis=1)
+    merged['PRs+Commits'] = merged['PRs Abertos'] + merged['Commits']
+    active = merged[(merged['Itens Concluidos'] > 0) | (merged['Commits'] > 0)].copy()
+    active = active.sort_values(['Itens Concluidos', 'Commits'], ascending=[False, False])
+    if active.empty:
+        return html.Div('Sem atividade no recorte para montar a correlação.', style={'color': '#666'})
+
+    color_map = {
+        'Alta vazão sem commits': '#f39c12',
+        'Commits sem conclusão Jira': '#d62728',
+        'Fluxo conectado': '#2ca02c',
+        'Sem atividade': '#7f8c8d',
+    }
+    fig = px.scatter(
+        active,
+        x='Commits',
+        y='Itens Concluidos',
+        color='Classificacao',
+        size='PRs+Commits',
+        hover_name='Pessoa',
+        hover_data={
+            'Commits': ':.0f',
+            'Itens Concluidos': ':.0f',
+            'PRs Abertos': ':.0f',
+            'Classificacao': True,
+            'PRs+Commits': False,
+        },
+        color_discrete_map=color_map,
+        size_max=38,
+        title='Correlação Jira x Bitbucket por Pessoa (Commits x Itens Concluídos)',
+    )
+    fig.update_traces(marker=dict(opacity=0.88, line=dict(width=1, color='white')))
+    fig.add_hline(y=0, line_dash='dash', line_color='#555', opacity=0.6)
+    fig.add_vline(x=0, line_dash='dot', line_color='#888', opacity=0.45)
+    fig.update_layout(
+        template='plotly_white',
+        height=760,
+        legend_title='Padrão',
+        xaxis_title='Commits (Bitbucket)',
+        yaxis_title='Itens Concluídos (Jira)',
+    )
+
+    focus_people = {
+        'Igor Rezende',
+        'Christopher Alves',
+        'Gabriel de Oliveira Koehler',
+        'Lorraine Caribe',
+        'Lara Junqueira Alvarenga',
+        'Thaís Cabral',
+        'Lucas Pizol',
+        'Peterson Bem',
+    }
+    if responsavel:
+        focus_people.add(str(responsavel))
+    for _, row in active[active['Pessoa'].isin(focus_people)].iterrows():
+        fig.add_annotation(
+            x=row['Commits'],
+            y=row['Itens Concluidos'],
+            text=row['Pessoa'],
+            showarrow=True,
+            arrowhead=1,
+            ax=14,
+            ay=-18,
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#d0d7de',
+            borderwidth=1,
+            font=dict(size=11),
+        )
+
+    coverage_pct = np.nan
+    done_with_evidence = 0
+    done_total = 0
+    if pm_cases is not None and not pm_cases.empty and 'Issue Key' in pm_cases.columns:
+        done_cases = pm_cases.copy()
+        if 'Done Final Date' in done_cases.columns:
+            done_cases['Done Final Date'] = pd.to_datetime(done_cases['Done Final Date'], errors='coerce')
+            done_cases = done_cases[
+                done_cases['Done Final Date'].isna() |
+                ((done_cases['Done Final Date'] >= start_ts) & (done_cases['Done Final Date'] <= end_ts))
+            ]
+        if responsavel and 'Done Final Author' in done_cases.columns:
+            done_cases = done_cases[done_cases['Done Final Author'].astype(str) == str(responsavel)]
+        done_cases['Issue Key'] = done_cases['Issue Key'].astype(str).str.strip().str.upper()
+        done_cases = done_cases[done_cases['Issue Key'].ne('')]
+        tech_keys = _extract_work_item_keys_from_bitbucket_logs(logs, start_ts, end_ts)
+        done_total = int(done_cases['Issue Key'].nunique())
+        if done_total > 0:
+            done_with_evidence = int(done_cases[done_cases['Issue Key'].isin(tech_keys)]['Issue Key'].nunique())
+            coverage_pct = (done_with_evidence / done_total) * 100.0
+
+    disconnect_jira = active[(active['Itens Concluidos'] > 0) & (active['Commits'] <= 0)].copy()
+    disconnect_jira = disconnect_jira.sort_values('Itens Concluidos', ascending=False).head(8)
+    disconnect_bb = active[(active['Commits'] > 0) & (active['Itens Concluidos'] <= 0)].copy()
+    disconnect_bb = disconnect_bb.sort_values('Commits', ascending=False).head(8)
+
+    coverage_text = (
+        f"Cobertura técnica no recorte: {coverage_pct:.1f}% ({done_with_evidence} de {done_total} itens concluídos com evidência técnica)"
+        if pd.notna(coverage_pct) else
+        'Cobertura técnica indisponível para o recorte selecionado.'
+    )
+
+    return html.Div([
+        html.H4('Rastreabilidade Jira x Bitbucket', style={'marginTop': '20px', 'marginBottom': '8px'}),
+        html.P(
+            'Dispersão por pessoa para evidenciar assimetrias: alta vazão sem commits e atividade técnica sem conclusão no Jira.',
+            style={'color': '#555', 'marginBottom': '6px'}
+        ),
+        html.Div(
+            f"Período: {start_ts.date()} a {end_ts.date()} | {coverage_text}",
+            style={'fontSize': '12px', 'color': '#444', 'marginBottom': '8px'}
+        ),
+        dcc.Graph(figure=fig),
+        html.Div([
+            html.Div([
+                html.H5('Alta vazão sem commits', style={'marginBottom': '6px'}),
+                dash_table.DataTable(
+                    columns=[
+                        {'name': 'Pessoa', 'id': 'Pessoa'},
+                        {'name': 'Itens Concluídos', 'id': 'Itens Concluidos'},
+                        {'name': 'Commits', 'id': 'Commits'},
+                        {'name': 'PRs Abertos', 'id': 'PRs Abertos'},
+                    ],
+                    data=disconnect_jira[['Pessoa', 'Itens Concluidos', 'Commits', 'PRs Abertos']].to_dict('records'),
+                    style_cell={'textAlign': 'center', 'padding': '6px'},
+                    style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
+                    style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                    page_size=8,
+                ),
+            ], className='six columns'),
+            html.Div([
+                html.H5('Commits sem conclusão Jira', style={'marginBottom': '6px'}),
+                dash_table.DataTable(
+                    columns=[
+                        {'name': 'Pessoa', 'id': 'Pessoa'},
+                        {'name': 'Commits', 'id': 'Commits'},
+                        {'name': 'PRs Abertos', 'id': 'PRs Abertos'},
+                        {'name': 'Itens Concluídos', 'id': 'Itens Concluidos'},
+                    ],
+                    data=disconnect_bb[['Pessoa', 'Commits', 'PRs Abertos', 'Itens Concluidos']].to_dict('records'),
+                    style_cell={'textAlign': 'center', 'padding': '6px'},
+                    style_cell_conditional=[{'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
+                    style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                    page_size=8,
+                ),
+            ], className='six columns'),
+        ], className='row', style={'marginTop': '8px'}),
+    ])
 
 
 def load_env_file(env_file):
@@ -4567,7 +4802,7 @@ app.layout = html.Div([
             dcc.Dropdown(
                 id='filter-capacity-weekly-metric',
                 options=[
-                    {'label': 'Score Capacidade (proxy)', 'value': 'score'},
+                    {'label': 'Score Capacidade (%)', 'value': 'score'},
                     {'label': 'Itens Concluídos', 'value': 'itens_concluidos'},
                     {'label': 'Commits', 'value': 'commits'},
                     {'label': 'PRs Abertos', 'value': 'prs_abertos'},
@@ -8269,6 +8504,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
             fig_tempo_status.update_layout(height=520, yaxis={'categoryorder': 'total ascending'})
 
+        jira_bitbucket_traceability_section = build_pm_commits_vs_jira_report(
+            pm_people=pm_people,
+            pm_cases=pm_cases,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            responsavel=responsavel,
+        )
+
         if not pm_rework.empty:
             sort_cols = [c for c in ['Rework Score', 'Reopen Count', 'Backward Moves'] if c in pm_rework.columns]
             if sort_cols:
@@ -8295,6 +8538,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_vazao_semanal),
             dcc.Graph(figure=fig_retrabalho_pessoa),
             dcc.Graph(figure=fig_tempo_status),
+            jira_bitbucket_traceability_section,
             html.H4('Resumo por Pessoa', style={'marginTop': '10px'}),
             dash_table.DataTable(
                 columns=[{'name': c, 'id': c} for c in people_table_cols],

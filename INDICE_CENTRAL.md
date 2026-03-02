@@ -18,6 +18,18 @@
 
 ---
 
+## 🖥️ DASHBOARDS DO PROJETO
+
+| Dashboard | Arquivo | Foco | Como executar |
+|-----------|---------|------|---------------|
+| Principal (Serviços + Portfólio) | `dashboard_full.py` | Visão executiva e operacional completa (KPIs, CFD, one-page, capacidade, portfólio) | `python dashboard_full.py` |
+| Process Mining (dedicado) | `dashboard_process_mining.py` | Conformidade, variantes, transições, gargalos e capacidade com base em changelog Jira | `python dashboard_process_mining.py` |
+| Secundário (simplificado) | `dashboard_app.py` | Leitura rápida do `dashboard_output_*.xlsx` para validação/smoke | `python dashboard_app.py` |
+
+Observação: o dashboard de Process Mining depende dos artefatos gerados por `process_mining_jira.py` (ex.: `w1nner-process-mining-<timestamp>.xlsx`).
+
+---
+
 ## 📚 DOCUMENTAÇÃO COMPLETA
 
 ### 📋 Tabela de Referência

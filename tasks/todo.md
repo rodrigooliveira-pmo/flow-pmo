@@ -1,5 +1,35 @@
 # Task Plan
 
+## Current Task (Documentação: Process Mining e Dashboards Criados)
+- [x] Registrar plano e escopo da atualização de documentação
+- [x] Atualizar `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` com seção de process mining e inventário de dashboards
+- [x] Atualizar `INDICE_CENTRAL.md` com navegação rápida dos dashboards criados
+- [x] Validar alterações por busca textual e diff
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Documentação: Process Mining e Dashboards Criados)
+- Objetivo: atualizar a documentação do projeto para refletir explicitamente os componentes de Process Mining e o conjunto atual de dashboards criados.
+- Escopo:
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`
+  - `INDICE_CENTRAL.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A documentação descreve `process_mining_jira.py` e `dashboard_process_mining.py`.
+  - A documentação lista os dashboards existentes e seu propósito.
+  - O índice central passa a incluir uma seção de navegação para dashboards do projeto.
+
+## Review (Documentação: Process Mining e Dashboards Criados)
+- What was validated:
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` passou a documentar explicitamente o pipeline de process mining (`process_mining_jira.py`) e o dashboard dedicado (`dashboard_process_mining.py`).
+  - A seção de dashboards foi reorganizada para refletir os dashboards criados atualmente (`dashboard_full.py`, `dashboard_process_mining.py`, `dashboard_app.py`), incluindo o `One Page Report` no dashboard principal.
+  - O inventário de funcionalidades foi atualizado para `02/03/2026` e ganhou seção específica de Process Mining.
+  - `INDICE_CENTRAL.md` recebeu seção “Dashboards do Projeto” com foco, arquivo e comando de execução para cada dashboard.
+- Evidence (tests/logs/diff):
+  - `rg -n "process_mining_jira|dashboard_process_mining|Dashboards Interativos|One Page Report|12.7 Process Mining" ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md INDICE_CENTRAL.md`
+  - `git diff -- ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md INDICE_CENTRAL.md tasks/todo.md`
+- Suggested commit message:
+  - `docs: update architecture and index with process mining flow and created dashboards`
+
 ## Current Task (Estatística Descritiva: Cpk e Nível Sigma)
 - [x] Registrar plano e escopo para incluir Cpk e Nível Sigma na aba de estatística descritiva
 - [x] Implementar entrada de limites de especificação (LSL/USL) e cálculo de Cpk/Six Sigma
@@ -2859,6 +2889,68 @@
   - Saída (amostra): `Lucas Pizol / Peterson Bem / Gabriel de Oliveira Koehler` em `Atividade técnica sem fechamento Jira`; `Lorraine Caribe` e `Thaís Cabral` em `Alta vazão sem evidência técnica`.
 - Suggested commit message:
   - `feat(analytics): add jira-vs-bitbucket commits x done scatter chart with disconnect highlights`
+
+## Current Task (Dashboard Full: incluir relatório commits x cartões Jira)
+- [x] Adicionar visual de correlação `Commits x Itens Concluídos` na aba de Process Mining do `dashboard_full.py`
+- [x] Destacar padrões de desconexão Jira-Bitbucket com classificação visual e tabelas de outliers
+- [x] Validar sintaxe/execução e registrar evidências
+
+## Specification (Dashboard Full: incluir relatório commits x cartões Jira)
+- Objetivo: disponibilizar no dashboard principal o relatório de desconexão Jira-Bitbucket já gerado em HTML.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba `tab-process-mining-jira` exibe scatter `Commits (Bitbucket)` no eixo X e `Itens Concluídos (Jira)` no eixo Y por pessoa.
+  - O visual diferencia os padrões: alta vazão sem commits e commits sem conclusão no Jira.
+  - O bloco apresenta resumo de cobertura técnica e tabelas com principais outliers.
+
+## Review (Dashboard Full: incluir relatório commits x cartões Jira)
+- What was validated:
+  - Foi adicionada a função `build_pm_commits_vs_jira_report(...)` em `dashboard_full.py`, responsável por cruzar `VazaoPessoaResumo` (Jira PM) com contribuições do Bitbucket no período filtrado.
+  - A aba `tab-process-mining-jira` agora renderiza o bloco novo de rastreabilidade com:
+    - scatter `Commits (Bitbucket) x Itens Concluídos (Jira)` por pessoa;
+    - classificação visual (`Alta vazão sem commits`, `Commits sem conclusão Jira`, `Fluxo conectado`);
+    - destaque/anotações para pessoas-chave;
+    - resumo de cobertura técnica por `Issue Key` com base em `work_item_keys`/`primary_work_item_key`;
+    - duas tabelas de outliers (vazão sem commits e commits sem conclusão Jira).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... build_pm_commits_vs_jira_report(...) ... print(type(comp).__name__) ... PY`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(process-mining): add jira-vs-bitbucket commits x done traceability report to dashboard_full`
+
+## Current Task (Dashboard Full: aba Process Mining + score percentual de capacidade)
+- [x] Tornar a aba `Process Mining Jira` visível na navegação de serviços
+- [x] Recalcular `Score Capacidade` como percentual no bloco `Capacidade Cruzada (Jira + Bitbucket)`
+- [x] Atualizar tabela/gráficos/filtro semanal para refletir score em `%`
+- [x] Validar sintaxe/import após ajuste
+
+## Specification (Dashboard Full: aba Process Mining + score percentual de capacidade)
+- Objetivo: corrigir visibilidade da aba de Process Mining e apresentar o score de capacidade em formato percentual.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `Process Mining Jira` aparece como aba em `SERVICE_TABS`.
+  - `Score Capacidade` deixa de ser valor absoluto e passa a ser participação percentual no score ponderado do período.
+  - Tabela e gráficos da seção `Capacidade Cruzada` exibem o score em `%`.
+
+## Review (Dashboard Full: aba Process Mining + score percentual de capacidade)
+- What was validated:
+  - A aba `Process Mining Jira` foi incluída explicitamente em `SERVICE_TABS`.
+  - O cálculo de `Score Capacidade` foi alterado para:
+    - score bruto = `itens concluídos + PRs abertos + aprovações + reprovações + commits/5`;
+    - score percentual = `(score bruto da pessoa / soma dos scores brutos no período) * 100`.
+  - A visualização semanal da capacidade também passou a calcular o percentual por semana.
+  - A tabela da capacidade cruzada agora mostra o valor formatado com sufixo `%`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; print('import ok')"`
+  - `rg -n \"tab-process-mining-jira|Score Capacidade \\(%\\)|proxy bruto\" dashboard_full.py`
+- Suggested commit message:
+  - `fix(dashboard): expose process mining tab and convert cross-capacity score to percentage`
 
 ## Current Task (Dashboard Full: visão consolidada planejamento do quarter x execução)
 - [x] Definir bloco consolidado com os números-chave do período (01/01 a 25/02)

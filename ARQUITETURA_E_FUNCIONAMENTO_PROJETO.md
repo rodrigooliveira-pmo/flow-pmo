@@ -8,7 +8,7 @@ Este projeto implementa um pipeline completo de métricas de fluxo e portfólio:
 2. Consolida e padroniza os dados de fluxo.
 3. Calcula métricas semanais, métricas avançadas e eficiência baseada em capacidade de fila.
 4. Gera artefatos para Excel e modelo dimensional para Power BI.
-5. Publica dashboard interativo em Dash (`dashboard_full.py`) com abas operacionais e executivas.
+5. Publica dashboards interativos em Dash (`dashboard_full.py`, `dashboard_process_mining.py` e `dashboard_app.py`).
 
 Objetivo: acompanhar desempenho de entrega, gargalos, previsibilidade, qualidade e saúde do fluxo por projeto, tipo e responsável.
 
@@ -56,7 +56,15 @@ Responsável por:
 - Consumir o CSV de portfólio mais recente (`portfolio-bt-ns-*-data.csv`) com cache.
 - Renderizar painéis de fluxo, gargalos, eficiência e portfólio.
 
-### 2.5 `run_all_projects.ps1` (Orquestração)
+### 2.5 `process_mining_jira.py` (Pipeline de Process Mining)
+
+Responsável por:
+
+- Gerar artefatos de process mining a partir de changelog downstream do Jira.
+- Produzir workbook de process mining (`w1nner-process-mining-<timestamp>.xlsx`) com conformidade, variantes, tempos e vazão.
+- Gerar artefatos visuais de apoio (`pm4py-dfg`, rede heurística, árvore indutiva, rede de Petri), quando disponíveis.
+
+### 2.6 `run_all_projects.ps1` (Orquestração)
 
 Responsável por:
 
@@ -119,7 +127,8 @@ Métricas por item na fato incluem:
 5. Calcular métricas semanais em padrão ISO (segunda a domingo).
 6. Gerar abas analíticas no Excel consolidado.
 7. Gerar modelo dimensional para Power BI.
-8. Consumir modelo + snapshot de portfólio no `dashboard_full.py`.
+8. Gerar artefatos de process mining (`process_mining_jira.py`) quando necessário.
+9. Consumir modelo + snapshot de portfólio no `dashboard_full.py`.
 
 ## 5) Métricas e Análises Entregues
 
@@ -145,32 +154,45 @@ Métricas por item na fato incluem:
 - Capacidade de fila.
 - Portfólio BT/NS com aging e pendências por quadrante.
 
-## 6) Dashboard Interativo (`dashboard_full.py`)
+## 6) Dashboards Interativos
 
-Abas principais:
+### 6.1 Dashboard Principal (`dashboard_full.py`)
+
+Abas de serviços atualmente expostas:
 
 1. Performance do Serviço
-2. Portfólio
+2. One Page Report
 3. Painel Fluxo
-4. Fluxo
-5. Estabilidade
-6. Saúde Fluxo
-7. Qualidade
-8. Análise Dimensional
-9. Análise Tipos
-10. Tendências
-11. Throughput por Tipo
-12. Análise Eficiência
-13. WIP por Pessoa
-14. Estatística Descritiva
-15. Capacidade de Fila
+4. Lead Time
+5. Fluxo
+6. CFD
+7. Saúde do Fluxo
+8. Análise Fluxo
+9. Tendências
+10. Throughput Breakdown
+11. Padrões Sistêmicos
+12. WIP por Pessoa
+13. Estatística Descritiva
+14. Capacidade de Fila
 
 Características:
 
-- Filtros globais por período/projeto/tipo/responsável.
+- Menu inicial com navegação entre visões de Portfólio e Serviços.
+- Filtros globais por período/projeto/tipo/classe de serviço/responsável.
 - KPIs, gráficos de tendência e tabelas interativas.
-- Ranking de gargalos por etapa e sinalização de criticidade.
-- Snapshot executivo de portfólio com agrupamento por time/projeto.
+- Ranking de gargalos por etapa, CFD macro/detalhado e visões executivas dinâmicas.
+- Integração com indicadores de process mining no One Page (conformidade e sinais de retrabalho), quando artefatos estiverem disponíveis.
+
+### 6.2 Dashboard Dedicado de Process Mining (`dashboard_process_mining.py`)
+
+- Aplicação Dash focada em process mining Jira (W1NNER), com exploração de conformidade e fluxo real.
+- Visões de mapa de transições, variantes, fitness/conformance, dotted chart, gargalos por transição e análises de capacidade por pessoa.
+- Consumo do workbook `w1nner-process-mining-*.xlsx` mais recente e artefatos derivados do `process_mining_jira.py`.
+
+### 6.3 Dashboard Secundário (`dashboard_app.py`)
+
+- Aplicação Dash simplificada para leitura direta do `dashboard_output_*.xlsx`.
+- Útil para validações rápidas, smoke tests e consumo leve das análises.
 
 ## 7) Operação e Execução
 
@@ -230,7 +252,7 @@ Principais bibliotecas:
 4. Incluir testes automáticos para regras de eficiência e gargalo.
 5. Versionar semanticamente as mudanças de documentação e scripts de coleta.
 
-## 12) Inventário Atual de Funcionalidades (Atualizado em 24/02/2026)
+## 12) Inventário Atual de Funcionalidades (Atualizado em 02/03/2026)
 
 ### 12.1 Extração Jira (Fluxo)
 
@@ -269,6 +291,7 @@ Principais bibliotecas:
 - App Dash principal com menu inicial (`Portfólio` vs `Serviços (Value Stream)`).
 - Filtros globais por período, projeto, tipo, classe de serviço, responsável e time de portfólio.
 - Abas de serviços atualmente expostas:
+  - `One Page Report`
   - `Performance do Serviço`
   - `Painel Fluxo`
   - `Lead Time`
@@ -294,7 +317,14 @@ Principais bibliotecas:
 - Abas analíticas e gráficos auxiliares (dimensional, throughput por tipo, WIP por pessoa, tendências e Lead Time).
 - Útil para validação/smoke de visualizações sem toda a complexidade do `dashboard_full.py`.
 
-### 12.7 Deploy Web (Vercel / `api/index.py`)
+### 12.7 Process Mining (Pipeline + Dashboard Dedicado)
+
+- Script `process_mining_jira.py` para geração de workbook `w1nner-process-mining-<timestamp>.xlsx`.
+- Planilhas com conformidade, variantes, tempos por status, vazão por pessoa, métricas PM4Py (DFG/Alignments/TBR) e metadados.
+- Dashboard dedicado `dashboard_process_mining.py` para exploração operacional/tática dos resultados de process mining.
+- Suporte a artefatos visuais (DFG, rede heurística, árvore indutiva, rede de Petri) quando presentes no diretório de dados.
+
+### 12.8 Deploy Web (Vercel / `api/index.py`)
 
 - Entrypoint Python para Vercel que carrega dinamicamente módulo/atributo do Dash (`FLOW_PMO_DASH_MODULE`, `FLOW_PMO_DASH_ATTR`).
 - Fallback de erro de inicialização com resposta HTTP 500 e mensagem explícita (facilita diagnóstico em produção).

@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-02
+- Context: Inclusão de relatório Jira x Bitbucket no `dashboard_full.py`.
+- User correction: Informou que a aba de Process Mining não estava visível e exigiu que o score de capacidade fosse percentual.
+- Root cause: Implementei o relatório e o bloco de capacidade sem garantir exposição explícita da aba em `SERVICE_TABS` e mantive score absoluto (`proxy`) em vez de percentual.
+- Prevention rule: Sempre validar navegação (tab visível no menu ativo) e unidade de medida pedida pelo usuário (absoluto vs percentual) antes de concluir visualizações.
+- Action added to workflow: Em alterações de dashboards, incluir checklist final: (1) aba visível em `SERVICE_TABS`, (2) unidade exibida coerente com pedido, (3) rótulo da métrica alinhado ao cálculo.
+
 - Date: 2026-02-27
 - Context: Implementação de ranking cruzado Jira + Bitbucket na aba Performance.
 - User correction: Reportou exceção `KeyError: 'Pessoa'` no merge do consolidado (`compute_cross_source_capacity_metrics`).
