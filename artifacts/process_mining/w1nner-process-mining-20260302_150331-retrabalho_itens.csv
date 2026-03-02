@@ -1,0 +1,988 @@
+﻿Issue Key,Tipo de Problema,Rework Score,Reopen Count,Backward Moves,QA Returns,Revisitas Status,Conformance Score,Conforme Basico,Lead Time Fluxo (dias),Done Final Author,Done Final Date,Variant
+W1NNR-228,Tarefa,4,1,1,0,2,0.4286,Nao,23.8007,Lorraine Caribe,2024-11-07 13:37:29,In Progress > Ready To Staging > In Staging > Ready for Production > Done > Ready for Production > Done
+W1NNR-506,Tarefa,4,0,1,0,3,0.4667,Nao,182.0325,Lara Junqueira Alvarenga,2025-07-21 14:50:24,Backlog > In Progress > Ready To Staging > Ready to Homologation > Ready to Analytics > Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-507,Tarefa,4,0,1,0,3,0.4667,Nao,190.5358,Thaís Cabral,2025-07-30 02:55:15,Backlog > In Progress > Ready To Staging > Ready to Homologation > Ready to Analytics > Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-508,Tarefa,4,0,1,0,3,0.4667,Nao,206.6313,Lorraine Caribe,2025-08-15 05:12:45,Backlog > In Progress > Ready To Staging > Ready to Homologation > Ready to Analytics > Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1308,Tarefa,4,0,0,1,3,0.5,Nao,4.9517,Lorraine Caribe,2025-08-18 20:16:02,In Progress > Ready to Homolog > Homolog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-664,Tarefa,4,0,0,0,4,0.5938,Nao,145.7299,Thaís Cabral,2025-08-14 12:57:38,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready to Analytics > Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-841,Tarefa,4,0,0,0,4,0.6923,Nao,40.8725,Thaís Cabral,2025-05-27 15:41:14,In Progress > Backlog > In Progress > Backlog > In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1073,Problema,3,1,1,0,1,0.0,Nao,2.045,Lorraine Caribe,2025-07-04 22:53:26,Done > QA Approved Staging > Done
+W1NNR-1479,Problema,3,1,1,0,1,0.1667,Nao,6.0064,Lara Junqueira Alvarenga,2025-09-24 14:41:48,in analytics > In Development > Done > QA Approved Staging > Ready for Production > Done
+W1NNR-803,Tarefa,3,0,1,0,2,0.375,Nao,50.7084,Thaís Cabral,2025-05-15 19:26:33,Backlog > Ready to Design > Ready to Analytics > Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-574,Tarefa,3,0,1,0,2,0.3889,Nao,37.5963,Lorraine Caribe,2025-04-02 13:00:05,Backlog > In Progress > Ready To Staging > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-599,Tarefa,3,0,1,0,2,0.4375,Nao,39.6902,Lorraine Caribe,2025-04-02 13:00:06,In Progress > Ready To Staging > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-855,Problema,3,0,1,0,2,0.4375,Nao,32.2457,Thaís Cabral,2025-06-06 18:58:24,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > QA Approved Staging > Ready for Production > Done
+W1NNR-885,Problema,3,0,1,0,2,0.4375,Nao,8.2063,Thaís Cabral,2025-05-15 19:23:48,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > QA Approved Staging > Ready for Production > Done
+W1NNR-2045,Tarefa,3,0,0,0,3,0.0,Nao,4.0055,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2,Tarefa,3,0,0,0,3,0.4444,Nao,104.2564,Lorraine Caribe,2024-07-24 20:13:35,In Progress > Ready for Staging > Staging > In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-917,Tarefa,3,0,0,0,3,0.4667,Nao,17.8646,Lorraine Caribe,2025-06-02 17:36:26,in analytics > In Development > In Progress > Ready to Analytics > in analytics > In Development > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-665,Tarefa,3,0,0,0,3,0.6538,Nao,113.2143,Lorraine Caribe,2025-07-11 23:53:19,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready to Analytics > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-723,Tarefa,3,0,0,0,3,0.6538,Nao,113.2138,Lorraine Caribe,2025-07-11 23:53:17,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready to Analytics > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-75,Problema,2,1,0,0,1,0.125,Nao,18.7656,Lara Junqueira Alvarenga,2024-08-12 14:36:03,Ready to Analytics > Done > In Validation > Done
+W1NNR-230,Tarefa,2,1,0,0,1,0.4167,Nao,119.4944,Lorraine Caribe,2025-02-26 00:53:15,In Progress > In Staging > Ready for Production > Done > Backlog > Done
+W1NNR-532,Tarefa,2,0,1,0,1,0.5,Nao,98.0717,Thaís Cabral,2025-05-15 19:26:43,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-533,Tarefa,2,0,1,0,1,0.5,Nao,98.0711,Thaís Cabral,2025-05-15 19:26:30,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-534,Tarefa,2,0,1,0,1,0.5,Nao,98.0707,Thaís Cabral,2025-05-15 19:26:31,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-763,Tarefa,2,0,1,0,1,0.5,Nao,44.126,Thaís Cabral,2025-05-15 19:26:32,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-824,Tarefa,2,0,1,0,1,0.5,Nao,31.2548,Thaís Cabral,2025-05-15 19:26:35,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-826,Tarefa,2,0,1,0,1,0.5,Nao,31.2527,Thaís Cabral,2025-05-15 19:26:36,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-860,Tarefa,2,0,1,0,1,0.5,Nao,28.9111,Thaís Cabral,2025-05-15 19:26:39,Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-859,Tarefa,2,0,1,0,1,0.5625,Nao,28.0894,Thaís Cabral,2025-05-15 19:26:41,In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-897,Tarefa,2,0,1,0,1,0.5625,Nao,8.208,Thaís Cabral,2025-05-15 19:26:40,In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-625,Tarefa,2,0,1,0,1,0.6,Nao,94.3764,Lorraine Caribe,2025-06-22 23:32:58,In Progress > Ready To Staging > Ready to Homologation > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-861,Tarefa,2,0,1,0,1,0.6,Nao,66.4869,Lorraine Caribe,2025-06-22 23:38:01,In Progress > Ready To Staging > Ready to Homologation > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-862,Tarefa,2,0,1,0,1,0.6,Nao,66.4454,Lorraine Caribe,2025-06-22 23:38:15,In Progress > Ready To Staging > Ready to Homologation > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2006,Tarefa,2,0,0,0,2,0.0,Nao,7.1189,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-786,Problema,2,0,0,0,2,0.25,Nao,16.7794,Thaís Cabral,2025-04-14 13:48:44,in analytics > In Development > Staging > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-21,História,2,0,0,0,1,0.2857,Nao,27.8351,Eder Afonso,2024-05-28 13:44:56,In Progress > Ready for Staging > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-35,Tarefa,2,0,0,0,1,0.2857,Nao,58.1016,Lorraine Caribe,2024-07-24 20:13:35,In Progress > Ready for Staging > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-4,Problema,2,0,0,0,2,0.4,Nao,95.4552,Gabriel Wiggert,2024-07-28 01:20:56,To Do > In Progress > Ready for Staging > In Progress > Ready for Staging > Staging > Ready for Production > Production > in analytics > Done
+W1NNR-620,Tarefa,2,0,0,0,2,0.4375,Nao,33.0253,Thaís Cabral,2025-04-14 13:28:17,In Progress > Ready To Staging > Staging > QA Approved > Staging > QA Approved > Ready for Production > Done
+W1NNR-715,Tarefa,2,0,0,0,1,0.4375,Nao,13.9775,Lorraine Caribe,2025-04-02 13:01:26,Backlog > In Progress > Ready To Staging > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-596,Tarefa,2,0,0,0,1,0.5,Nao,47.9223,Lorraine Caribe,2025-04-02 13:00:05,In Progress > Ready To Staging > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-605,Tarefa,2,0,0,0,1,0.5,Nao,39.67,Lorraine Caribe,2025-04-02 13:00:26,In Progress > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-830,Tarefa,2,0,0,0,2,0.5,Nao,31.252,Thaís Cabral,2025-05-15 19:26:37,Backlog > In Progress > Ready To Staging > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-835,Tarefa,2,0,0,0,2,0.5556,Nao,73.0563,Lorraine Caribe,2025-06-22 23:35:50,In Progress > Staging > QA Approved > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > Done
+W1NNR-567,Tarefa,2,0,0,0,2,0.5625,Nao,46.9763,Lorraine Caribe,2025-04-02 13:00:47,In Progress > Ready To Staging > Staging > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-833,Tarefa,2,0,0,0,2,0.6364,Nao,73.107,Lorraine Caribe,2025-06-22 23:33:08,In Progress > Staging > QA Approved > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-624,Tarefa,2,0,0,0,2,0.65,Nao,94.8657,Lorraine Caribe,2025-06-22 23:35:27,In Progress > Ready To Staging > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-627,Tarefa,2,0,0,0,2,0.65,Nao,61.661,Lorraine Caribe,2025-05-22 12:42:52,In Progress > Ready To Staging > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-628,Tarefa,2,0,0,0,2,0.65,Nao,61.6611,Lorraine Caribe,2025-05-22 12:42:54,In Progress > Ready To Staging > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-629,Tarefa,2,0,0,0,2,0.65,Nao,61.6611,Lorraine Caribe,2025-05-22 12:42:56,In Progress > Ready To Staging > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-748,Tarefa,2,0,0,0,2,0.65,Nao,89.3908,Lorraine Caribe,2025-06-22 23:33:03,In Progress > Ready To Staging > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-617,Tarefa,2,0,0,0,2,0.75,Nao,107.0891,Lorraine Caribe,2025-06-22 23:32:59,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-771,Tarefa,2,0,0,0,2,0.75,Nao,88.4555,Lorraine Caribe,2025-06-22 23:32:56,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-800,Tarefa,2,0,0,0,2,0.75,Nao,82.1225,Lorraine Caribe,2025-06-22 23:33:05,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-863,Tarefa,2,0,0,0,2,0.75,Nao,66.337,Lorraine Caribe,2025-06-22 23:38:22,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2050,Tarefa,1,0,0,0,1,0.0,Nao,0.0004,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess
+W1NNR-2116,Tarefa,1,0,0,0,1,0.2,Nao,13.7646,Sem Autor,,Approval > Staging > Homolog > Staging > Ready for Production
+W1NNR-2110,Tarefa,1,0,0,0,1,0.5,Nao,19.7332,Lara Junqueira Alvarenga,2026-02-24 12:51:33,Approval > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-575,Tarefa,1,0,0,0,1,0.5,Nao,39.6901,Lorraine Caribe,2025-04-02 13:00:07,In Progress > In Backlog > Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-65,Tarefa,1,0,0,0,1,0.5625,Nao,16.0429,Lorraine Caribe,2024-08-01 14:12:52,In Progress > To Do > In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-1956,Tarefa,1,0,0,0,1,0.6,Nao,45.0423,Lara Junqueira Alvarenga,2026-02-20 20:59:45,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1957,Tarefa,1,0,0,0,1,0.6,Nao,42.1021,Lara Junqueira Alvarenga,2026-02-20 20:59:46,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1958,Tarefa,1,0,0,0,1,0.6,Nao,36.3431,Lara Junqueira Alvarenga,2026-02-20 20:59:46,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1959,Tarefa,1,0,0,0,1,0.6,Nao,39.2454,Lara Junqueira Alvarenga,2026-02-20 20:59:46,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1960,Tarefa,1,0,0,0,1,0.6,Nao,30.0999,Lara Junqueira Alvarenga,2026-02-20 20:59:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1961,Tarefa,1,0,0,0,1,0.6,Nao,35.3426,Lara Junqueira Alvarenga,2026-02-20 20:59:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1962,Tarefa,1,0,0,0,1,0.6,Nao,29.0169,Lara Junqueira Alvarenga,2026-02-20 20:59:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1963,Tarefa,1,0,0,0,1,0.6,Nao,35.9963,Lara Junqueira Alvarenga,2026-02-20 20:59:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1964,Tarefa,1,0,0,0,1,0.6,Nao,37.0857,Lara Junqueira Alvarenga,2026-02-20 20:59:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1965,Tarefa,1,0,0,0,1,0.6,Nao,27.976,Lara Junqueira Alvarenga,2026-02-20 20:59:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1966,Tarefa,1,0,0,0,1,0.6,Nao,31.1862,Lara Junqueira Alvarenga,2026-02-20 20:59:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-655,Tarefa,1,0,0,0,1,0.6,Nao,39.5147,Thaís Cabral,2025-04-14 13:28:01,Ready for Production > Staging > QA Approved > Ready for Production > Done
+W1NNR-471,Tarefa,1,0,0,0,1,0.625,Nao,89.9592,Lorraine Caribe,2025-01-27 19:17:51,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-472,Tarefa,1,0,0,0,1,0.625,Nao,90.2472,Lorraine Caribe,2025-01-27 19:17:49,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-473,Tarefa,1,0,0,0,1,0.625,Nao,88.9255,Lorraine Caribe,2025-01-27 19:17:52,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-474,Tarefa,1,0,0,0,1,0.625,Nao,63.2601,Lorraine Caribe,2025-01-27 19:18:00,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-475,Tarefa,1,0,0,0,1,0.625,Nao,88.9252,Lorraine Caribe,2025-01-27 19:17:53,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-476,Tarefa,1,0,0,0,1,0.625,Nao,49.003,Lorraine Caribe,2025-01-27 19:17:58,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-477,Tarefa,1,0,0,0,1,0.625,Nao,66.9977,Lorraine Caribe,2025-01-27 19:17:54,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-478,Tarefa,1,0,0,0,1,0.625,Nao,87.0488,Lorraine Caribe,2025-01-27 19:17:59,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-479,Tarefa,1,0,0,0,1,0.625,Nao,87.1955,Lorraine Caribe,2025-01-27 19:18:01,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-480,Tarefa,1,0,0,0,1,0.625,Nao,82.9993,Lorraine Caribe,2025-01-27 19:18:02,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-482,Tarefa,1,0,0,0,1,0.625,Nao,53.2607,Lorraine Caribe,2025-01-27 19:18:03,In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done
+W1NNR-630,Tarefa,1,0,0,0,1,0.6667,Nao,89.4032,Lorraine Caribe,2025-06-22 23:33:01,In Progress > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-834,Tarefa,1,0,0,0,1,0.6667,Nao,73.0597,Lorraine Caribe,2025-06-22 23:33:09,In Progress > Staging > QA Approved > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-846,Tarefa,1,0,0,0,1,0.75,Nao,26.8779,Thaís Cabral,2025-05-27 15:41:22,Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-851,Tarefa,1,0,0,0,1,0.75,Nao,26.8765,Thaís Cabral,2025-05-27 15:41:25,Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-843,Tarefa,1,0,0,0,1,0.7778,Nao,39.8071,Thaís Cabral,2025-05-27 15:41:18,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-844,Tarefa,1,0,0,0,1,0.7778,Nao,33.0779,Thaís Cabral,2025-05-27 15:41:20,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-845,Tarefa,1,0,0,0,1,0.7778,Nao,28.8303,Thaís Cabral,2025-05-27 15:41:21,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-849,Tarefa,1,0,0,0,1,0.7778,Nao,27.0952,Thaís Cabral,2025-05-27 15:41:24,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-852,Tarefa,1,0,0,0,1,0.7778,Nao,26.8897,Thaís Cabral,2025-05-27 15:41:26,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1042,Tarefa,0,0,0,0,0,0.0,Nao,255.604,Sem Autor,,Backlog > Triagem
+W1NNR-109,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-110,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-1232,Tarefa,0,0,0,0,0,0.0,Nao,30.9932,Sem Autor,,Backlog > Triagem
+W1NNR-1278,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-13,Tarefa,0,0,0,0,0,0.0,Nao,666.9517,Sem Autor,,To Do > Backlog > Triagem
+W1NNR-14,Tarefa,0,0,0,0,0,0.0,Nao,666.9517,Sem Autor,,To Do > Backlog > Triagem
+W1NNR-15,Tarefa,0,0,0,0,0,0.0,Nao,666.9517,Sem Autor,,To Do > Backlog > Triagem
+W1NNR-19,Tarefa,0,0,0,0,0,0.0,Nao,574.7392,Sem Autor,,Backlog > Triagem
+W1NNR-1937,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2007,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2008,Tarefa,0,0,0,0,0,0.0,Nao,7.8251,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT
+W1NNR-2009,Tarefa,0,0,0,0,0,0.0,Nao,8.5354,Sem Autor,,READY FOR DEVELOPMENT > In Progess
+W1NNR-2010,Tarefa,0,0,0,0,0,0.0,Nao,5.1794,Sem Autor,,READY FOR DEVELOPMENT > In Progess
+W1NNR-2012,Tarefa,0,0,0,0,0,0.0,Nao,4.188,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW
+W1NNR-2016,Tarefa,0,0,0,0,0,0.0,Nao,8.0869,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2027,Tarefa,0,0,0,0,0,0.0,Nao,5.2607,Sem Autor,,READY FOR DEVELOPMENT > In Progess
+W1NNR-2028,Tarefa,0,0,0,0,0,0.0,Nao,6.0027,Sem Autor,,READY FOR DEVELOPMENT > In Progess
+W1NNR-2029,Tarefa,0,0,0,0,0,0.0,Nao,7.2134,Sem Autor,,READY FOR DEVELOPMENT > In Progess
+W1NNR-2038,Tarefa,0,0,0,0,0,0.0,Nao,23.0065,Sem Autor,,Approval > Ready to Homolog > READY FOR TESTING/QA > Testing / QA
+W1NNR-2041,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2042,Tarefa,0,0,0,0,0,0.0,Nao,17.9159,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA
+W1NNR-2043,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2044,Tarefa,0,0,0,0,0,0.0,Nao,20.9665,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA
+W1NNR-2046,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2047,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2048,Tarefa,0,0,0,0,0,0.0,Nao,0.0003,Sem Autor,,Triagem > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2049,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2051,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2052,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2099,Problema,0,0,0,0,0,0.0,Nao,0.9286,Sem Autor,,Triagem > Backlog > READY FOR DEVELOPMENT
+W1NNR-2124,Tarefa,0,0,0,0,0,0.0,Nao,13.0038,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess
+W1NNR-2136,Tarefa,0,0,0,0,0,0.0,Nao,15.215,Sem Autor,,Approval > Ready to Homolog > READY FOR TESTING/QA > Testing / QA
+W1NNR-2172,Tarefa,0,0,0,0,0,0.0,Nao,1.9984,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA
+W1NNR-2173,Tarefa,0,0,0,0,0,0.0,Nao,1.9786,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA
+W1NNR-2174,Tarefa,0,0,0,0,0,0.0,Nao,0.7452,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
+W1NNR-2181,Tarefa,0,0,0,0,0,0.0,Nao,0.1289,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
+W1NNR-2182,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Backlog > READY FOR DEVELOPMENT
+W1NNR-2183,Tarefa,0,0,0,0,0,0.0,Nao,0.0141,Sem Autor,,Backlog > READY FOR DEVELOPMENT
+W1NNR-22,História,0,0,0,0,0,0.0,Nao,585.7433,Sem Autor,,Backlog > Triagem
+W1NNR-246,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-247,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-406,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-407,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-408,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-409,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-410,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-411,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-412,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-413,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-414,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-415,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-416,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-417,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-418,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-419,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-420,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-421,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-422,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-423,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-424,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-425,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-426,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-427,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-428,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-429,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-430,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-431,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-432,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-437,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-438,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-439,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-440,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-441,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-442,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-56,Tarefa,0,0,0,0,0,0.0,Nao,574.7392,Sem Autor,,Backlog > Triagem
+W1NNR-759,Tarefa,0,0,0,0,0,0.0,Nao,323.9038,Sem Autor,,Backlog > Triagem
+W1NNR-766,Tarefa,0,0,0,0,0,0.0,Nao,323.8972,Sem Autor,,Backlog > Triagem
+W1NNR-8,Tarefa,0,0,0,0,0,0.0,Nao,666.9809,Sem Autor,,To Do > Ready to Analytics > Backlog > Triagem
+W1NNR-866,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-894,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Triagem
+W1NNR-2040,Tarefa,0,0,0,0,0,0.125,Nao,29.2534,Sem Autor,,In Progress > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA
+W1NNR-127,Problema,0,0,0,0,0,0.2,Nao,12.6832,Lara Junqueira Alvarenga,2024-08-26 17:39:43,in analytics > In Development > In Validation > Tech Review > Done
+W1NNR-1500,Tarefa,0,0,0,0,0,0.2,Nao,147.8915,Lara Junqueira Alvarenga,2026-02-18 15:42:53,in analytics > In Development > Backlog > Cancelled > Done
+W1NNR-2161,Problema,0,0,0,0,0,0.2,Nao,3.7614,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
+W1NNR-6,Problema,0,0,0,0,0,0.2,Nao,99.1848,Lorraine Caribe,2024-07-31 18:51:29,To Do > Ready to Analytics > Cancelled > in analytics > Done
+W1NNR-651,Problema,0,0,0,0,0,0.2,Nao,6.0963,Lorraine Caribe,2025-03-11 21:23:08,in analytics > In Development > Staging > QA Approved > Done
+W1NNR-853,Problema,0,0,0,0,0,0.2,Nao,9.0313,Thaís Cabral,2025-04-25 22:11:55,in analytics > In Development > Staging > QA Approved > Done
+W1NNR-884,Problema,0,0,0,0,0,0.2,Nao,3.0411,Thaís Cabral,2025-04-25 22:15:14,in analytics > In Development > Staging > QA Approved > Done
+W1NNR-2144,Problema,0,0,0,0,0,0.2308,Nao,10.0792,Lara Junqueira Alvarenga,2026-02-23 20:01:12,in analytics > Triagem > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-1168,Problema,0,0,0,0,0,0.25,Nao,2.1886,Lorraine Caribe,2025-07-10 17:23:41,in analytics > In Development > In Validation > Done
+W1NNR-12,Tarefa,0,0,0,0,0,0.25,Nao,666.026,Lara Junqueira Alvarenga,2026-02-18 15:42:53,To Do > Backlog > Cancelled > Done
+W1NNR-121,Problema,0,0,0,0,0,0.25,Nao,1.0402,Heitor Toledo,2024-08-08 19:55:29,in analytics > In Development > In Validation > Done
+W1NNR-124,Problema,0,0,0,0,0,0.25,Nao,3.2508,Lara Junqueira Alvarenga,2024-08-15 19:35:18,in analytics > In Development > In Validation > Done
+W1NNR-1408,Problema,0,0,0,0,0,0.25,Nao,7.7315,Lorraine Caribe,2025-09-09 13:11:50,in analytics > In Development > Ready for build > In Validation > QA Approved Staging > Done
+W1NNR-20,Tarefa,0,0,0,0,0,0.25,Nao,665.1033,Lara Junqueira Alvarenga,2026-02-18 15:42:53,To Do > Backlog > Cancelled > Done
+W1NNR-201,Problema,0,0,0,0,0,0.25,Nao,534.0925,Lara Junqueira Alvarenga,2026-02-18 15:42:58,In Validation > in analytics > Cancelled > Done
+W1NNR-2036,Tarefa,0,0,0,0,0,0.25,Nao,28.2803,Sem Autor,,In Progress > Ready to Homolog > READY FOR TESTING/QA > Testing / QA
+W1NNR-2037,Tarefa,0,0,0,0,0,0.25,Nao,31.8638,Sem Autor,,In Progress > Ready to Homolog > READY FOR TESTING/QA > Testing / QA
+W1NNR-2039,Tarefa,0,0,0,0,0,0.25,Nao,31.9363,Sem Autor,,In Progress > Ready to Homolog > READY FOR TESTING/QA > Testing / QA
+W1NNR-2147,Tarefa,0,0,0,0,0,0.25,Nao,2.14,Lara Junqueira Alvarenga,2026-02-20 20:59:48,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-262,Problema,0,0,0,0,0,0.25,Nao,12.7566,Lara Junqueira Alvarenga,2024-10-31 13:09:44,in analytics > In Development > In Validation > Done
+W1NNR-310,Problema,0,0,0,0,0,0.25,Nao,18.6938,Lara Junqueira Alvarenga,2024-11-06 12:46:07,in analytics > In Development > In Validation > Done
+W1NNR-353,Problema,0,0,0,0,0,0.25,Nao,0.0181,Lara Junqueira Alvarenga,2024-10-31 20:04:38,in analytics > In Development > In Validation > Done
+W1NNR-358,Problema,0,0,0,0,0,0.25,Nao,0.003,Danilo Monreal,2024-11-01 16:05:22,in analytics > In Development > In Validation > Done
+W1NNR-376,Problema,0,0,0,0,0,0.25,Nao,63.2544,Danilo Monreal,2025-01-21 20:20:43,in analytics > In Development > In Validation > Done
+W1NNR-400,Problema,0,0,0,0,0,0.25,Nao,13.7785,Lara Junqueira Alvarenga,2025-01-02 13:09:03,in analytics > In Development > In Validation > Done
+W1NNR-466,Problema,0,0,0,0,0,0.25,Nao,0.0061,Danilo Monreal,2025-01-03 22:54:56,in analytics > In Development > In Validation > Done
+W1NNR-481,Tarefa,0,0,0,0,0,0.25,Nao,400.9232,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Prioritized > Backlog > Cancelled > Done
+W1NNR-484,Problema,0,0,0,0,0,0.25,Nao,0.9073,Barbara Rossi,2025-01-14 17:48:59,in analytics > In Development > In Validation > Done
+W1NNR-485,Problema,0,0,0,0,0,0.25,Nao,0.8266,Barbara Rossi,2025-01-14 17:48:21,in analytics > In Development > In Validation > Done
+W1NNR-5,Problema,0,0,0,0,0,0.25,Nao,666.0538,Lara Junqueira Alvarenga,2026-02-18 15:42:58,To Do > Ready to Analytics > Cancelled > Done
+W1NNR-680,Tarefa,0,0,0,0,0,0.25,Nao,336.0763,Lara Junqueira Alvarenga,2026-02-18 15:42:53,in analytics > Backlog > Cancelled > Done
+W1NNR-2157,Problema,0,0,0,0,0,0.2727,Nao,0.8889,Lara Junqueira Alvarenga,2026-02-23 20:01:09,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-658,Problema,0,0,0,0,0,0.2857,Nao,4.846,Thaís Cabral,2025-03-11 16:14:03,Ready to Analytics > in analytics > In Development > In Validation > QA Approved > Ready for Production > Done
+W1NNR-7,Problema,0,0,0,0,0,0.2857,Nao,685.806,Lara Junqueira Alvarenga,2026-02-18 15:42:58,In Progress > Ready for Staging > Staging > in analytics > In Development > Cancelled > Done
+W1NNR-1697,Problema,0,0,0,0,0,0.3,Nao,4.139,Lara Junqueira Alvarenga,2025-10-27 17:28:52,in analytics > In Development > In Validation > QA Approved Staging > Done
+W1NNR-1698,Problema,0,0,0,0,0,0.3,Nao,4.1038,Lara Junqueira Alvarenga,2025-10-27 17:28:43,in analytics > In Development > In Validation > QA Approved Staging > Done
+W1NNR-2111,Tarefa,0,0,0,0,0,0.3,Nao,0.1896,Lara Junqueira Alvarenga,2026-02-19 18:33:06,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-2112,Tarefa,0,0,0,0,0,0.3,Nao,1.2915,Lara Junqueira Alvarenga,2026-02-20 20:59:48,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-217,Problema,0,0,0,0,0,0.3333,Nao,1.4906,Lara Junqueira Alvarenga,2024-09-06 10:32:48,In Development > In Validation > Done
+W1NNR-220,Problema,0,0,0,0,0,0.3333,Nao,4.0855,Lorraine Caribe,2024-09-24 15:24:17,in analytics > In Validation > Done
+W1NNR-24,História,0,0,0,0,0,0.3333,Nao,573.812,Lara Junqueira Alvarenga,2026-02-18 15:42:52,Backlog > Cancelled > Done
+W1NNR-258,Problema,0,0,0,0,0,0.3333,Nao,4.0364,Lorraine Caribe,2024-09-20 15:31:49,in analytics > In Validation > Done
+W1NNR-43,Tarefa,0,0,0,0,0,0.3333,Nao,0.7254,Barbara Rossi,2024-06-04 13:26:39,Staging > Production > Done
+W1NNR-524,Problema,0,0,0,0,0,0.3333,Nao,20.2364,Thaís Cabral,2025-02-19 19:58:39,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-57,Tarefa,0,0,0,0,0,0.3333,Nao,573.812,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Backlog > Cancelled > Done
+W1NNR-61,Tarefa,0,0,0,0,0,0.3333,Nao,573.812,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Backlog > Cancelled > Done
+W1NNR-641,Problema,0,0,0,0,0,0.3333,Nao,10.8676,Thaís Cabral,2025-03-11 16:15:24,in analytics > In Development > In Validation > QA Approved > Ready for Production > Done
+W1NNR-642,Problema,0,0,0,0,0,0.3333,Nao,10.8682,Thaís Cabral,2025-03-11 16:14:29,in analytics > In Development > In Validation > QA Approved > Ready for Production > Done
+W1NNR-694,Problema,0,0,0,0,0,0.3333,Nao,3.8887,Thaís Cabral,2025-03-17 15:08:54,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-695,Problema,0,0,0,0,0,0.3333,Nao,3.8807,Thaís Cabral,2025-03-17 15:08:44,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-696,Problema,0,0,0,0,0,0.3333,Nao,3.8806,Thaís Cabral,2025-03-17 15:08:42,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-698,Problema,0,0,0,0,0,0.3333,Nao,22.9629,Thaís Cabral,2025-04-10 12:43:40,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-725,Problema,0,0,0,0,0,0.3333,Nao,15.7068,Thaís Cabral,2025-04-10 12:47:32,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-760,Tarefa,0,0,0,0,0,0.3333,Nao,322.9712,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Backlog > Cancelled > Done
+W1NNR-762,Problema,0,0,0,0,0,0.3333,Nao,15.6919,Thaís Cabral,2025-04-10 12:48:44,in analytics > In Development > In Validation > QA Approved > Ready for Production > Done
+W1NNR-768,Tarefa,0,0,0,0,0,0.3333,Nao,322.9697,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Backlog > Cancelled > Done
+W1NNR-77,Problema,0,0,0,0,0,0.3333,Nao,1.6473,Lorraine Caribe,2024-08-01 13:20:43,In Development > In Validation > Done
+W1NNR-773,Problema,0,0,0,0,0,0.3333,Nao,6.6841,Lorraine Caribe,2025-04-02 13:01:33,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-778,Problema,0,0,0,0,0,0.3333,Nao,17.6432,Thaís Cabral,2025-04-14 13:47:15,in analytics > In Development > In Validation > QA Approved > Ready for Production > Done
+W1NNR-779,Problema,0,0,0,0,0,0.3333,Nao,5.7246,Lorraine Caribe,2025-04-02 13:01:48,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-783,Problema,0,0,0,0,0,0.3333,Nao,16.9881,Thaís Cabral,2025-04-14 13:48:06,in analytics > In Development > Staging > QA Approved > Ready for Production > Done
+W1NNR-821,Problema,0,0,0,0,0,0.3333,Nao,16.3159,Thaís Cabral,2025-04-25 22:12:27,in analytics > In Development > Staging > Ready for Production > QA Approved > Done
+W1NNR-829,Problema,0,0,0,0,0,0.3333,Nao,0.6815,Luciano Ilha Carbonell,2025-04-10 12:49:48,in analytics > In Development > Done
+W1NNR-858,Problema,0,0,0,0,0,0.3333,Nao,0.1219,Heitor Toledo,2025-04-16 21:26:12,in analytics > In Development > Done
+W1NNR-825,Problema,0,0,0,0,0,0.375,Nao,31.2516,Thaís Cabral,2025-05-15 19:23:49,Backlog > Ready to Analytics > in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1004,Problema,0,0,0,0,0,0.4,Nao,3.7706,Thaís Cabral,2025-06-06 15:00:48,in analytics > In Development > Staging > Ready for Production > Done
+W1NNR-1230,Tarefa,0,0,0,0,0,0.4,Nao,201.6762,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Ready to Homolog > Homolog > Cancelled > Done
+W1NNR-1689,Problema,0,0,0,0,0,0.4,Nao,8.3362,Lara Junqueira Alvarenga,2025-11-06 20:53:40,in analytics > In Development > Staging > Ready for Production > Done
+W1NNR-1729,Tarefa,0,0,0,0,0,0.4,Nao,111.8812,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Ready to Homolog > Homolog > Cancelled > Done
+W1NNR-1936,Tarefa,0,0,0,0,0,0.4,Nao,51.8773,Sem Autor,,In Progress > Ready to Homolog > Homolog > Staging > Ready for Production
+W1NNR-251,Problema,0,0,0,0,0,0.4,Nao,22.299,Thaís Cabral,2025-02-19 19:57:31,in analytics > In Development > QA Approved > Ready for Production > Done
+W1NNR-449,Problema,0,0,0,0,0,0.4,Nao,44.3,Thaís Cabral,2025-02-19 19:57:34,in analytics > In Development > In Validation > Ready for Production > Done
+W1NNR-510,Problema,0,0,0,0,0,0.4,Nao,37.2717,Thaís Cabral,2025-02-26 23:14:31,in analytics > In Development > In Validation > Ready for Production > Done
+W1NNR-886,Problema,0,0,0,0,0,0.4,Nao,8.204,Thaís Cabral,2025-05-15 19:23:49,in analytics > In Development > QA Approved > Ready for Production > Done
+W1NNR-265,Problema,0,0,0,0,0,0.4167,Nao,3.8418,Lara Junqueira Alvarenga,2024-09-24 11:37:48,in analytics > In Development > In Validation > In Staging > Ready for Production > Done
+W1NNR-25,Problema,0,0,0,0,0,0.4286,Nao,0.3685,Eder Afonso,2024-05-16 00:22:32,To Do > In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-918,Tarefa,0,0,0,0,0,0.4375,Nao,2.9882,Thaís Cabral,2025-05-15 19:26:44,in analytics > In Development > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1008,Problema,0,0,0,0,0,0.5,Nao,1.1947,Lorraine Caribe,2025-06-05 22:39:33,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1009,Problema,0,0,0,0,0,0.5,Nao,1.9798,Thaís Cabral,2025-06-06 18:58:29,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1017,Problema,0,0,0,0,0,0.5,Nao,1.0507,Thaís Cabral,2025-06-06 18:58:23,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1031,Tarefa,0,0,0,0,0,0.5,Nao,225.0539,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1043,Tarefa,0,0,0,0,0,0.5,Nao,254.6457,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1045,Problema,0,0,0,0,0,0.5,Nao,12.9428,Thaís Cabral,2025-06-22 17:37:01,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1046,Problema,0,0,0,0,0,0.5,Nao,10.4509,Lorraine Caribe,2025-06-22 23:44:25,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1051,Problema,0,0,0,0,0,0.5,Nao,6.6495,Thaís Cabral,2025-06-20 15:03:33,in analytics > In Development > Ready for Production > Done
+W1NNR-107,Tarefa,0,0,0,0,0,0.5,Nao,544.8517,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1081,Problema,0,0,0,0,0,0.5,Nao,232.7738,Lara Junqueira Alvarenga,2026-02-18 15:42:58,Cancelled > Done
+W1NNR-1083,Problema,0,0,0,0,0,0.5,Nao,8.2575,Thaís Cabral,2025-07-02 20:41:20,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1087,Problema,0,0,0,0,0,0.5,Nao,0.9828,Thaís Cabral,2025-06-24 14:01:27,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1090,Problema,0,0,0,0,0,0.5,Nao,0.7691,Thaís Cabral,2025-06-24 14:00:34,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1109,Problema,0,0,0,0,0,0.5,Nao,1.2439,Thaís Cabral,2025-07-02 20:47:53,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1155,Problema,0,0,0,0,0,0.5,Nao,11.2407,Thaís Cabral,2025-07-15 01:45:52,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1200,Problema,0,0,0,0,0,0.5,Nao,4.6403,Lara Junqueira Alvarenga,2025-07-21 14:50:52,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1201,Problema,0,0,0,0,0,0.5,Nao,3.9806,Lara Junqueira Alvarenga,2025-07-21 14:50:54,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1208,Problema,0,0,0,0,0,0.5,Nao,5.9079,Thaís Cabral,2025-07-25 19:26:04,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1226,Problema,0,0,0,0,0,0.5,Nao,8.7179,Thaís Cabral,2025-08-07 12:38:16,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1241,Tarefa,0,0,0,0,0,0.5,Nao,191.0537,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1247,Tarefa,0,0,0,0,0,0.5,Nao,190.9445,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1282,Tarefa,0,0,0,0,0,0.5,Nao,191.0653,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1285,Problema,0,0,0,0,0,0.5,Nao,4.6664,Thaís Cabral,2025-08-12 13:01:46,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1286,Problema,0,0,0,0,0,0.5,Nao,3.9427,Thaís Cabral,2025-08-12 12:53:54,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1294,Problema,0,0,0,0,0,0.5,Nao,6.2993,Lorraine Caribe,2025-08-18 21:39:01,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1295,Problema,0,0,0,0,0,0.5,Nao,6.0214,Lorraine Caribe,2025-08-18 21:38:57,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1296,Problema,0,0,0,0,0,0.5,Nao,6.0211,Lorraine Caribe,2025-08-18 21:38:59,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1297,Problema,0,0,0,0,0,0.5,Nao,6.0205,Lorraine Caribe,2025-08-18 21:38:21,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1299,Problema,0,0,0,0,0,0.5,Nao,6.0201,Lorraine Caribe,2025-08-18 21:38:08,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1303,Problema,0,0,0,0,0,0.5,Nao,1.8271,Thaís Cabral,2025-08-14 12:57:11,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1305,Problema,0,0,0,0,0,0.5,Nao,1.6813,Thaís Cabral,2025-08-14 12:57:31,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1307,Problema,0,0,0,0,0,0.5,Nao,5.3164,Lorraine Caribe,2025-08-18 21:37:46,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1335,Problema,0,0,0,0,0,0.5,Nao,10.0468,Thaís Cabral,2025-09-01 14:43:31,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1337,Problema,0,0,0,0,0,0.5,Nao,2.9868,Lara Junqueira Alvarenga,2025-08-25 13:56:20,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1353,Problema,0,0,0,0,0,0.5,Nao,9.7512,Thaís Cabral,2025-09-01 14:43:38,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1361,Problema,0,0,0,0,0,0.5,Nao,6.8272,Lara Junqueira Alvarenga,2025-09-01 14:44:07,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1363,Problema,0,0,0,0,0,0.5,Nao,9.5367,Thaís Cabral,2025-09-12 02:58:42,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1367,Problema,0,0,0,0,0,0.5,Nao,8.0655,Lara Junqueira Alvarenga,2025-09-03 14:51:08,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1368,Problema,0,0,0,0,0,0.5,Nao,6.707,Lara Junqueira Alvarenga,2025-09-01 14:44:10,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1369,Problema,0,0,0,0,0,0.5,Nao,6.6987,Lara Junqueira Alvarenga,2025-09-01 14:44:12,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1371,Problema,0,0,0,0,0,0.5,Nao,7.7727,Lara Junqueira Alvarenga,2025-09-03 14:58:59,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1373,Problema,0,0,0,0,0,0.5,Nao,5.7942,Lara Junqueira Alvarenga,2025-09-01 14:44:14,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1396,Problema,0,0,0,0,0,0.5,Nao,10.3039,Thaís Cabral,2025-09-12 02:58:47,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1418,Tarefa,0,0,0,0,0,0.5,Nao,148.0258,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1419,Tarefa,0,0,0,0,0,0.5,Nao,167.0967,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1431,Problema,0,0,0,0,0,0.5,Nao,10.8594,Lara Junqueira Alvarenga,2025-09-19 14:14:48,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1436,Tarefa,0,0,0,0,0,0.5,Nao,162.87,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1461,Tarefa,0,0,0,0,0,0.5,Nao,158.9211,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1465,Problema,0,0,0,0,0,0.5,Nao,3.7972,Lara Junqueira Alvarenga,2025-09-19 14:16:37,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1472,Problema,0,0,0,0,0,0.5,Nao,14.3101,Thaís Cabral,2025-10-03 21:14:44,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1473,Problema,0,0,0,0,0,0.5,Nao,7.0038,Lara Junqueira Alvarenga,2025-09-24 14:41:48,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1499,Tarefa,0,0,0,0,0,0.5,Nao,87.0531,Lorraine Caribe,2025-12-19 19:13:47,in analytics > In Development > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1508,Problema,0,0,0,0,0,0.5,Nao,8.2708,Thaís Cabral,2025-10-03 21:14:45,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1509,Problema,0,0,0,0,0,0.5,Nao,8.3119,Thaís Cabral,2025-10-03 21:14:45,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1511,Problema,0,0,0,0,0,0.5,Nao,8.1219,Thaís Cabral,2025-10-03 21:14:45,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1522,Problema,0,0,0,0,0,0.5,Nao,4.0308,Thaís Cabral,2025-10-03 21:14:46,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1546,Problema,0,0,0,0,0,0.5,Nao,99.1308,Lara Junqueira Alvarenga,2026-02-18 15:42:58,Cancelled > Done
+W1NNR-1552,Problema,0,0,0,0,0,0.5,Nao,4.6833,Lara Junqueira Alvarenga,2025-10-08 13:27:34,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1640,Tarefa,0,0,0,0,0,0.5,Nao,0.0006,Gabriel Wiggert,2025-10-21 20:37:08,Cancelled > Done
+W1NNR-168,Problema,0,0,0,0,0,0.5,Nao,1.3096,Lorraine Caribe,2024-08-22 01:16:41,In Validation > Done
+W1NNR-1693,Problema,0,0,0,0,0,0.5,Nao,11.0837,Lara Junqueira Alvarenga,2025-11-03 15:12:27,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1717,Tarefa,0,0,0,0,0,0.5,Nao,92.095,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1722,Tarefa,0,0,0,0,0,0.5,Nao,91.907,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1745,Problema,0,0,0,0,0,0.5,Nao,2.0514,Lara Junqueira Alvarenga,2025-11-05 18:16:19,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1764,Problema,0,0,0,0,0,0.5,Nao,0.7373,Luciano Ilha Carbonell,2025-11-06 13:02:05,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1768,Tarefa,0,0,0,0,0,0.5,Nao,104.8063,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1777,Problema,0,0,0,0,0,0.5,Nao,3.1722,Danilo Monreal,2025-11-13 21:20:08,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1787,Problema,0,0,0,0,0,0.5,Nao,20.0714,Thaís Cabral,2025-12-08 14:14:30,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1797,Tarefa,0,0,0,0,0,0.5,Nao,6.9096,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1803,Tarefa,0,0,0,0,0,0.5,Nao,6.9089,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1819,Problema,0,0,0,0,0,0.5,Nao,16.8148,Thaís Cabral,2025-12-08 14:14:31,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1855,Tarefa,0,0,0,0,0,0.5,Nao,61.1172,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-1880,Problema,0,0,0,0,0,0.5,Nao,2.0326,Thaís Cabral,2025-12-12 19:23:42,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1901,Tarefa,0,0,0,0,0,0.5,Nao,3.8844,Barbara Rossi,2026-01-09 18:52:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > Cancelled > Done
+W1NNR-1990,Tarefa,0,0,0,0,0,0.5,Nao,40.1096,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-2120,Tarefa,0,0,0,0,0,0.5,Nao,7.9022,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-23,Problema,0,0,0,0,0,0.5,Nao,4.6292,Eder Afonso,2024-05-08 13:15:02,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-252,Problema,0,0,0,0,0,0.5,Nao,12.546,Lara Junqueira Alvarenga,2024-09-24 11:37:28,In Development > In Validation > In Staging > Ready for Production > Done
+W1NNR-253,Problema,0,0,0,0,0,0.5,Nao,22.9967,Lara Junqueira Alvarenga,2024-10-10 12:40:59,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-26,Problema,0,0,0,0,0,0.5,Nao,11.9873,Eder Afonso,2024-05-28 13:44:58,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-27,Tarefa,0,0,0,0,0,0.5,Nao,11.667,Eder Afonso,2024-05-28 13:45:00,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-305,Problema,0,0,0,0,0,0.5,Nao,496.05,Lara Junqueira Alvarenga,2026-02-18 15:42:58,Cancelled > Done
+W1NNR-318,Problema,0,0,0,0,0,0.5,Nao,11.5055,Lara Junqueira Alvarenga,2024-10-22 03:01:20,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-331,Problema,0,0,0,0,0,0.5,Nao,8.6168,Lara Junqueira Alvarenga,2024-11-06 12:54:17,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-36,Tarefa,0,0,0,0,0,0.5,Nao,50.1241,Lorraine Caribe,2024-07-24 20:13:35,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-361,Problema,0,0,0,0,0,0.5,Nao,34.3859,Lorraine Caribe,2024-12-23 23:38:04,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-37,Tarefa,0,0,0,0,0,0.5,Nao,63.1505,Lorraine Caribe,2024-07-24 20:13:35,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-374,Problema,0,0,0,0,0,0.5,Nao,0.0001,Barbara Rossi,2024-11-18 14:04:19,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-378,Problema,0,0,0,0,0,0.5,Nao,8.0725,Lorraine Caribe,2024-11-27 22:13:05,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-379,Problema,0,0,0,0,0,0.5,Nao,8.1709,Lorraine Caribe,2024-11-27 22:15:44,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-389,Tarefa,0,0,0,0,0,0.5,Nao,445.8396,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-39,Tarefa,0,0,0,0,0,0.5,Nao,0.7827,Eder Afonso,2024-05-28 13:45:04,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-391,Tarefa,0,0,0,0,0,0.5,Nao,394.0728,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-392,Tarefa,0,0,0,0,0,0.5,Nao,394.0726,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-393,Tarefa,0,0,0,0,0,0.5,Nao,394.0726,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-40,Tarefa,0,0,0,0,0,0.5,Nao,0.8196,Barbara Rossi,2024-06-04 13:07:24,In Progress > Staging > Production > Done
+W1NNR-42,Tarefa,0,0,0,0,0,0.5,Nao,50.0685,Lorraine Caribe,2024-07-24 20:13:35,In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
+W1NNR-450,Problema,0,0,0,0,0,0.5,Nao,18.4239,Lorraine Caribe,2024-12-23 23:38:47,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-486,Tarefa,0,0,0,0,0,0.5,Nao,35.2106,Lorraine Caribe,2025-02-19 20:00:36,In Progress > Ready To Staging > Staging > QA Approved > Done
+W1NNR-487,Tarefa,0,0,0,0,0,0.5,Nao,35.0418,Lorraine Caribe,2025-02-19 20:00:34,In Progress > Ready To Staging > Staging > QA Approved > Done
+W1NNR-488,Tarefa,0,0,0,0,0,0.5,Nao,397.8415,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-489,Tarefa,0,0,0,0,0,0.5,Nao,387.1036,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-490,Tarefa,0,0,0,0,0,0.5,Nao,397.8413,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-491,Tarefa,0,0,0,0,0,0.5,Nao,397.8411,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-492,Tarefa,0,0,0,0,0,0.5,Nao,34.9802,Lorraine Caribe,2025-02-19 20:00:35,In Progress > Ready To Staging > Staging > QA Approved > Done
+W1NNR-493,Tarefa,0,0,0,0,0,0.5,Nao,29.9819,Lorraine Caribe,2025-02-19 20:00:35,In Progress > Ready To Staging > Staging > QA Approved > Done
+W1NNR-494,Tarefa,0,0,0,0,0,0.5,Nao,397.841,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-495,Tarefa,0,0,0,0,0,0.5,Nao,22.9667,Lorraine Caribe,2025-02-19 20:00:35,In Progress > Ready To Staging > Staging > QA Approved > Done
+W1NNR-496,Tarefa,0,0,0,0,0,0.5,Nao,2.0664,Lorraine Caribe,2025-02-19 20:00:35,In Progress > Staging > QA Approved > Done
+W1NNR-500,Problema,0,0,0,0,0,0.5,Nao,9.869,Lorraine Caribe,2025-01-27 19:49:46,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-502,Problema,0,0,0,0,0,0.5,Nao,10.1161,Lorraine Caribe,2025-01-27 21:45:10,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-503,Problema,0,0,0,0,0,0.5,Nao,10.2883,Lorraine Caribe,2025-01-27 21:45:13,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-505,Problema,0,0,0,0,0,0.5,Nao,8.9495,Lorraine Caribe,2025-01-27 21:44:49,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-51,Problema,0,0,0,0,0,0.5,Nao,5.9742,Igor Rezende,2024-06-25 13:38:02,In Progress > Ready for Staging > Production > Done
+W1NNR-511,Problema,0,0,0,0,0,0.5,Nao,7.2098,Lorraine Caribe,2025-01-27 21:45:21,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-513,Problema,0,0,0,0,0,0.5,Nao,6.9369,Lorraine Caribe,2025-01-27 21:45:30,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-515,Problema,0,0,0,0,0,0.5,Nao,6.1407,Lorraine Caribe,2025-01-27 21:45:32,in analytics > In Development > In Staging > Ready for Production > Done
+W1NNR-523,Problema,0,0,0,0,0,0.5,Nao,2.7204,Eder Afonso,2025-02-07 11:49:32,in analytics > Done
+W1NNR-525,Tarefa,0,0,0,0,0,0.5,Nao,20.2197,Lorraine Caribe,2025-02-19 20:00:35,In Progress > Ready To Staging > Staging > QA Approved > Done
+W1NNR-54,Tarefa,0,0,0,0,0,0.5,Nao,11.7628,Igor Rezende,2024-06-25 13:38:01,Staging > Ready for Production > Production > Done
+W1NNR-55,Tarefa,0,0,0,0,0,0.5,Nao,11.7379,Igor Rezende,2024-06-25 13:38:01,Staging > Ready for Production > Production > Done
+W1NNR-576,Tarefa,0,0,0,0,0,0.5,Nao,37.595,Lorraine Caribe,2025-04-02 13:00:07,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-577,Tarefa,0,0,0,0,0,0.5,Nao,37.5945,Lorraine Caribe,2025-04-02 13:00:27,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-578,Tarefa,0,0,0,0,0,0.5,Nao,37.5937,Lorraine Caribe,2025-04-02 13:00:27,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-579,Tarefa,0,0,0,0,0,0.5,Nao,37.5932,Lorraine Caribe,2025-04-02 13:00:27,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-580,Tarefa,0,0,0,0,0,0.5,Nao,37.5921,Lorraine Caribe,2025-04-02 13:00:28,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-581,Tarefa,0,0,0,0,0,0.5,Nao,37.5913,Lorraine Caribe,2025-04-02 13:00:28,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-582,Tarefa,0,0,0,0,0,0.5,Nao,37.5909,Lorraine Caribe,2025-04-02 13:00:28,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-583,Tarefa,0,0,0,0,0,0.5,Nao,37.5904,Lorraine Caribe,2025-04-02 13:00:28,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-584,Tarefa,0,0,0,0,0,0.5,Nao,37.5909,Lorraine Caribe,2025-04-02 13:01:44,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-585,Tarefa,0,0,0,0,0,0.5,Nao,37.5896,Lorraine Caribe,2025-04-02 13:01:19,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-586,Tarefa,0,0,0,0,0,0.5,Nao,37.5891,Lorraine Caribe,2025-04-02 13:01:13,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-587,Tarefa,0,0,0,0,0,0.5,Nao,37.589,Lorraine Caribe,2025-04-02 13:01:42,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-588,Tarefa,0,0,0,0,0,0.5,Nao,37.588,Lorraine Caribe,2025-04-02 13:01:09,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-589,Tarefa,0,0,0,0,0,0.5,Nao,37.5874,Lorraine Caribe,2025-04-02 13:00:45,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-590,Tarefa,0,0,0,0,0,0.5,Nao,37.5869,Lorraine Caribe,2025-04-02 13:00:45,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-591,Tarefa,0,0,0,0,0,0.5,Nao,37.5863,Lorraine Caribe,2025-04-02 13:00:46,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-592,Tarefa,0,0,0,0,0,0.5,Nao,37.586,Lorraine Caribe,2025-04-02 13:00:46,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-593,Tarefa,0,0,0,0,0,0.5,Nao,37.5856,Lorraine Caribe,2025-04-02 13:00:46,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-594,Tarefa,0,0,0,0,0,0.5,Nao,37.5704,Lorraine Caribe,2025-04-02 13:00:46,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-634,Tarefa,0,0,0,0,0,0.5,Nao,235.8363,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-636,Tarefa,0,0,0,0,0,0.5,Nao,235.8363,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-713,Tarefa,0,0,0,0,0,0.5,Nao,13.9784,Lorraine Caribe,2025-04-02 13:01:23,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-716,Tarefa,0,0,0,0,0,0.5,Nao,13.9768,Lorraine Caribe,2025-04-02 13:01:27,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-717,Tarefa,0,0,0,0,0,0.5,Nao,13.9731,Lorraine Caribe,2025-04-02 13:01:29,Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-720,Problema,0,0,0,0,0,0.5,Nao,6.0744,Thaís Cabral,2025-03-25 15:24:33,in analytics > In Development > Ready for Production > Done
+W1NNR-827,Problema,0,0,0,0,0,0.5,Nao,16.0768,Thaís Cabral,2025-04-25 22:10:05,in analytics > In Development > Ready for Production > Done
+W1NNR-842,Problema,0,0,0,0,0,0.5,Nao,47.2175,Thaís Cabral,2025-06-02 19:18:52,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-887,Problema,0,0,0,0,0,0.5,Nao,282.1139,Lara Junqueira Alvarenga,2026-02-18 15:42:58,Cancelled > Done
+W1NNR-895,Problema,0,0,0,0,0,0.5,Nao,9.2229,Thaís Cabral,2025-05-15 19:23:51,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-906,Tarefa,0,0,0,0,0,0.5,Nao,264.0538,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-922,Tarefa,0,0,0,0,0,0.5,Nao,273.2058,Lara Junqueira Alvarenga,2026-02-11 17:55:45,In Progress > Ready to Homolog > Homolog > Done
+W1NNR-956,Tarefa,0,0,0,0,0,0.5,Nao,181.1182,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Cancelled > Done
+W1NNR-991,Problema,0,0,0,0,0,0.5,Nao,6.2129,Lara Junqueira Alvarenga,2025-06-02 19:21:07,in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done
+W1NNR-1102,Tarefa,0,0,0,0,0,0.5455,Nao,16.2273,Lorraine Caribe,2025-07-11 03:09:07,in analytics > In Development > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-921,Tarefa,0,0,0,0,0,0.5455,Nao,38.2233,Lorraine Caribe,2025-06-22 23:33:04,in analytics > Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1516,Tarefa,0,0,0,0,0,0.5625,Nao,15.6578,Lorraine Caribe,2025-10-17 12:44:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1518,Tarefa,0,0,0,0,0,0.5625,Nao,17.0908,Lara Junqueira Alvarenga,2025-10-16 19:19:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1550,Tarefa,0,0,0,0,0,0.5625,Nao,13.0055,Lara Junqueira Alvarenga,2025-10-16 19:19:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1630,Tarefa,0,0,0,0,0,0.5625,Nao,7.0328,Lara Junqueira Alvarenga,2025-10-16 19:19:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1633,Tarefa,0,0,0,0,0,0.5625,Nao,2.281,Lara Junqueira Alvarenga,2025-10-16 19:19:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1634,Tarefa,0,0,0,0,0,0.5625,Nao,5.8731,Lara Junqueira Alvarenga,2025-10-16 19:19:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1639,Tarefa,0,0,0,0,0,0.5625,Nao,2.142,Lara Junqueira Alvarenga,2025-10-16 19:19:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1641,Tarefa,0,0,0,0,0,0.5625,Nao,14.9766,Lorraine Caribe,2025-11-05 18:26:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1653,Tarefa,0,0,0,0,0,0.5625,Nao,12.9705,Lorraine Caribe,2025-11-05 18:26:49,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1654,Tarefa,0,0,0,0,0,0.5625,Nao,12.8891,Lorraine Caribe,2025-11-05 18:26:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1655,Tarefa,0,0,0,0,0,0.5625,Nao,14.9762,Lorraine Caribe,2025-11-05 18:26:56,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1656,Tarefa,0,0,0,0,0,0.5625,Nao,12.8887,Lorraine Caribe,2025-11-05 18:26:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1657,Tarefa,0,0,0,0,0,0.5625,Nao,15.0114,Lorraine Caribe,2025-11-05 18:26:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1658,Tarefa,0,0,0,0,0,0.5625,Nao,13.0181,Lorraine Caribe,2025-11-05 18:26:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1659,Tarefa,0,0,0,0,0,0.5625,Nao,13.9245,Lorraine Caribe,2025-11-05 18:26:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1660,Tarefa,0,0,0,0,0,0.5625,Nao,12.0212,Lorraine Caribe,2025-11-05 18:26:51,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1661,Tarefa,0,0,0,0,0,0.5625,Nao,8.9934,Lorraine Caribe,2025-11-05 18:27:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1662,Tarefa,0,0,0,0,0,0.5625,Nao,13.0181,Lorraine Caribe,2025-11-05 18:27:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1663,Tarefa,0,0,0,0,0,0.5625,Nao,12.8889,Lorraine Caribe,2025-11-05 18:26:54,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1675,Tarefa,0,0,0,0,0,0.5625,Nao,1.9244,Lara Junqueira Alvarenga,2025-10-16 19:19:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1676,Tarefa,0,0,0,0,0,0.5625,Nao,1.9182,Lara Junqueira Alvarenga,2025-10-16 19:19:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1707,Tarefa,0,0,0,0,0,0.5625,Nao,8.9931,Lorraine Caribe,2025-11-05 18:27:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1738,Tarefa,0,0,0,0,0,0.5625,Nao,6.1632,Lorraine Caribe,2025-11-05 18:27:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1740,Tarefa,0,0,0,0,0,0.5625,Nao,5.9493,Lorraine Caribe,2025-11-05 18:27:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1743,Tarefa,0,0,0,0,0,0.5625,Nao,1.9754,Lorraine Caribe,2025-11-05 18:27:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1761,Tarefa,0,0,0,0,0,0.5625,Nao,0.1992,Lorraine Caribe,2025-11-05 18:27:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done
+W1NNR-1082,Tarefa,0,0,0,0,0,0.5714,Nao,1.9696,Lorraine Caribe,2025-06-22 23:35:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > Done
+W1NNR-1924,Tarefa,0,0,0,0,0,0.5833,Nao,17.7765,Lorraine Caribe,2026-01-06 12:56:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Done
+W1NNR-1925,Tarefa,0,0,0,0,0,0.5833,Nao,17.7401,Lorraine Caribe,2026-01-06 12:56:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Done
+W1NNR-1926,Tarefa,0,0,0,0,0,0.5833,Nao,14.9214,Lorraine Caribe,2026-01-06 12:56:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Done
+W1NNR-1927,Tarefa,0,0,0,0,0,0.5833,Nao,13.7372,Lorraine Caribe,2026-01-06 12:56:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Done
+W1NNR-242,Tarefa,0,0,0,0,0,0.5833,Nao,49.9429,Lorraine Caribe,2025-03-11 12:42:48,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-243,Tarefa,0,0,0,0,0,0.5833,Nao,41.6053,Lorraine Caribe,2025-03-11 12:42:47,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-244,Tarefa,0,0,0,0,0,0.5833,Nao,41.6053,Lorraine Caribe,2025-03-11 12:42:46,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-41,Tarefa,0,0,0,0,0,0.5833,Nao,27.7974,Lorraine Caribe,2024-08-01 14:12:53,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-443,Tarefa,0,0,0,0,0,0.5833,Nao,83.9739,Lorraine Caribe,2025-03-11 12:42:44,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-444,Tarefa,0,0,0,0,0,0.5833,Nao,87.969,Lorraine Caribe,2025-03-11 12:42:42,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-445,Tarefa,0,0,0,0,0,0.5833,Nao,83.9738,Lorraine Caribe,2025-03-11 12:42:40,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-446,Tarefa,0,0,0,0,0,0.5833,Nao,95.9816,Lorraine Caribe,2025-03-11 12:42:39,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-48,Tarefa,0,0,0,0,0,0.5833,Nao,37.0217,Lorraine Caribe,2024-08-01 14:12:53,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-49,Tarefa,0,0,0,0,0,0.5833,Nao,16.0429,Lorraine Caribe,2024-08-01 14:12:51,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-50,Tarefa,0,0,0,0,0,0.5833,Nao,37.0219,Lorraine Caribe,2024-08-01 14:12:52,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-568,Tarefa,0,0,0,0,0,0.5833,Nao,61.9613,Lorraine Caribe,2025-04-02 12:59:48,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-569,Tarefa,0,0,0,0,0,0.5833,Nao,57.6876,Lorraine Caribe,2025-04-02 12:59:42,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-570,Tarefa,0,0,0,0,0,0.5833,Nao,53.6622,Lorraine Caribe,2025-04-02 12:59:44,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-571,Tarefa,0,0,0,0,0,0.5833,Nao,64.8217,Lorraine Caribe,2025-04-02 12:59:46,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-572,Tarefa,0,0,0,0,0,0.5833,Nao,43.6716,Lorraine Caribe,2025-04-02 13:00:28,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-573,Tarefa,0,0,0,0,0,0.5833,Nao,54.624,Lorraine Caribe,2025-04-02 13:01:45,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-58,Tarefa,0,0,0,0,0,0.5833,Nao,13.0337,Lorraine Caribe,2024-08-01 14:12:25,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-59,Tarefa,0,0,0,0,0,0.5833,Nao,29.8464,Lorraine Caribe,2024-08-01 14:12:52,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-595,Tarefa,0,0,0,0,0,0.5833,Nao,47.7645,Lorraine Caribe,2025-04-02 12:59:50,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-597,Tarefa,0,0,0,0,0,0.5833,Nao,39.6904,Lorraine Caribe,2025-04-02 13:00:05,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-598,Tarefa,0,0,0,0,0,0.5833,Nao,39.6886,Lorraine Caribe,2025-04-02 13:00:06,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-600,Tarefa,0,0,0,0,0,0.5833,Nao,39.6891,Lorraine Caribe,2025-04-02 13:00:06,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-601,Tarefa,0,0,0,0,0,0.5833,Nao,39.6861,Lorraine Caribe,2025-04-02 13:01:38,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-602,Tarefa,0,0,0,0,0,0.5833,Nao,39.6803,Lorraine Caribe,2025-04-02 13:01:39,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-603,Tarefa,0,0,0,0,0,0.5833,Nao,39.6802,Lorraine Caribe,2025-04-02 13:01:41,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-604,Tarefa,0,0,0,0,0,0.5833,Nao,39.6793,Lorraine Caribe,2025-04-02 13:00:26,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-606,Tarefa,0,0,0,0,0,0.5833,Nao,47.7442,Lorraine Caribe,2025-04-02 13:01:46,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-611,Tarefa,0,0,0,0,0,0.5833,Nao,35.6787,Lorraine Caribe,2025-04-02 13:00:47,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-612,Tarefa,0,0,0,0,0,0.5833,Nao,12.9241,Lorraine Caribe,2025-03-11 12:42:34,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-621,Tarefa,0,0,0,0,0,0.5833,Nao,30.7731,Thaís Cabral,2025-04-14 13:30:03,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-622,Tarefa,0,0,0,0,0,0.5833,Nao,27.7513,Thaís Cabral,2025-04-14 13:33:52,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-623,Tarefa,0,0,0,0,0,0.5833,Nao,25.9925,Thaís Cabral,2025-04-14 13:34:14,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-626,Tarefa,0,0,0,0,0,0.5833,Nao,23.6998,Thaís Cabral,2025-04-14 13:38:35,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-63,Tarefa,0,0,0,0,0,0.5833,Nao,22.8655,Lorraine Caribe,2024-08-01 14:12:52,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-631,Tarefa,0,0,0,0,0,0.5833,Nao,23.6996,Thaís Cabral,2025-04-14 13:38:44,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-632,Tarefa,0,0,0,0,0,0.5833,Nao,19.6752,Thaís Cabral,2025-04-10 13:03:40,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-633,Tarefa,0,0,0,0,0,0.5833,Nao,23.7005,Thaís Cabral,2025-04-14 13:40:10,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-66,Tarefa,0,0,0,0,0,0.5833,Nao,16.0349,Lorraine Caribe,2024-08-01 14:12:30,In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done
+W1NNR-672,Tarefa,0,0,0,0,0,0.5833,Nao,21.754,Lorraine Caribe,2025-04-02 13:00:47,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-686,Tarefa,0,0,0,0,0,0.5833,Nao,19.9726,Lorraine Caribe,2025-04-02 13:00:47,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-687,Tarefa,0,0,0,0,0,0.5833,Nao,19.9715,Lorraine Caribe,2025-04-02 13:00:47,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-699,Tarefa,0,0,0,0,0,0.5833,Nao,18.9613,Lorraine Caribe,2025-04-02 13:01:07,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-702,Tarefa,0,0,0,0,0,0.5833,Nao,15.6756,Lorraine Caribe,2025-04-02 13:01:11,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-704,Tarefa,0,0,0,0,0,0.5833,Nao,15.662,Lorraine Caribe,2025-04-02 13:01:14,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-747,Tarefa,0,0,0,0,0,0.5833,Nao,15.9629,Thaís Cabral,2025-04-10 13:04:14,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-802,Tarefa,0,0,0,0,0,0.5833,Nao,11.9413,Thaís Cabral,2025-04-14 13:50:50,In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-1040,Tarefa,0,0,0,0,0,0.6,Nao,14.0067,Lorraine Caribe,2025-06-22 23:35:09,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1041,Tarefa,0,0,0,0,0,0.6,Nao,14.0061,Lorraine Caribe,2025-06-22 23:35:10,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1071,Tarefa,0,0,0,0,0,0.6,Nao,2.4472,Lorraine Caribe,2025-06-22 23:35:04,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1072,Tarefa,0,0,0,0,0,0.6,Nao,2.4467,Lorraine Caribe,2025-06-22 23:34:57,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1074,Tarefa,0,0,0,0,0,0.6,Nao,2.4462,Lorraine Caribe,2025-06-22 23:34:55,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1111,Tarefa,0,0,0,0,0,0.6,Nao,68.665,Lara Junqueira Alvarenga,2025-09-03 14:26:20,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1191,Tarefa,0,0,0,0,0,0.6,Nao,7.0379,Lara Junqueira Alvarenga,2025-07-21 14:50:49,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1406,Problema,0,0,0,0,0,0.6,Nao,0.8586,Lara Junqueira Alvarenga,2025-09-03 14:31:46,In Development > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-45,Tarefa,0,0,0,0,0,0.6,Nao,12.8591,Igor Rezende,2024-06-25 13:38:01,In Progress > Staging > Ready for Production > Production > Done
+W1NNR-649,Tarefa,0,0,0,0,0,0.6,Nao,5.011,Thaís Cabral,2025-03-10 18:23:43,In Progress > Staging > QA Approved > Ready for Production > Done
+W1NNR-711,Tarefa,0,0,0,0,0,0.6,Nao,13.9815,Lorraine Caribe,2025-04-02 13:01:17,Backlog > In Progress > Ready To Staging > Ready for Production > Done
+W1NNR-712,Tarefa,0,0,0,0,0,0.6,Nao,13.9789,Lorraine Caribe,2025-04-02 13:01:21,Backlog > In Progress > Ready To Staging > Ready for Production > Done
+W1NNR-714,Tarefa,0,0,0,0,0,0.6,Nao,13.9779,Lorraine Caribe,2025-04-02 13:01:24,Backlog > In Progress > Ready To Staging > Ready for Production > Done
+W1NNR-749,Tarefa,0,0,0,0,0,0.6,Nao,20.0096,Thaís Cabral,2025-04-14 14:51:04,Ready To Staging > Staging > QA Approved > Ready for Production > Done
+W1NNR-867,Tarefa,0,0,0,0,0,0.6,Nao,37.2222,Lorraine Caribe,2025-06-22 23:33:07,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-869,Tarefa,0,0,0,0,0,0.6,Nao,37.2247,Lorraine Caribe,2025-06-22 23:35:19,Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-255,Problema,0,0,0,0,0,0.625,Nao,7.5474,Lara Junqueira Alvarenga,2024-09-24 11:37:38,In Validation > In Staging > Ready for Production > Done
+W1NNR-1003,Tarefa,0,0,0,0,0,0.6667,Nao,0.1913,Lorraine Caribe,2025-06-04 00:58:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1007,Problema,0,0,0,0,0,0.6667,Nao,2.0516,Thaís Cabral,2025-06-06 15:00:45,in analytics > Ready for Production > Done
+W1NNR-1014,Tarefa,0,0,0,0,0,0.6667,Nao,18.0053,Lorraine Caribe,2025-06-22 23:35:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1015,Tarefa,0,0,0,0,0,0.6667,Nao,17.9968,Lorraine Caribe,2025-06-22 23:35:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1018,Tarefa,0,0,0,0,0,0.6667,Nao,31.387,Lorraine Caribe,2025-07-11 03:09:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1019,Tarefa,0,0,0,0,0,0.6667,Nao,29.6042,Lorraine Caribe,2025-07-11 03:09:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1020,Tarefa,0,0,0,0,0,0.6667,Nao,37.7132,Thaís Cabral,2025-08-07 12:38:27,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1021,Tarefa,0,0,0,0,0,0.6667,Nao,37.7114,Thaís Cabral,2025-08-07 12:38:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1022,Tarefa,0,0,0,0,0,0.6667,Nao,31.3723,Lorraine Caribe,2025-07-11 03:09:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1023,Tarefa,0,0,0,0,0,0.6667,Nao,36.6326,Thaís Cabral,2025-08-07 12:38:24,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1024,Tarefa,0,0,0,0,0,0.6667,Nao,30.7217,Thaís Cabral,2025-08-07 12:38:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1025,Tarefa,0,0,0,0,0,0.6667,Nao,41.7385,Thaís Cabral,2025-08-07 12:38:22,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1026,Tarefa,0,0,0,0,0,0.6667,Nao,27.5334,Lorraine Caribe,2025-07-11 03:09:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1027,Tarefa,0,0,0,0,0,0.6667,Nao,27.3226,Lorraine Caribe,2025-07-11 03:09:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1028,Tarefa,0,0,0,0,0,0.6667,Nao,35.6882,Thaís Cabral,2025-08-07 12:38:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1029,Tarefa,0,0,0,0,0,0.6667,Nao,41.6476,Thaís Cabral,2025-08-07 12:38:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1030,Tarefa,0,0,0,0,0,0.6667,Nao,17.2717,Lorraine Caribe,2025-07-11 03:09:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1032,Tarefa,0,0,0,0,0,0.6667,Nao,24.3012,Lorraine Caribe,2025-07-11 03:09:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1033,Tarefa,0,0,0,0,0,0.6667,Nao,20.3634,Lorraine Caribe,2025-07-11 03:09:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1036,Tarefa,0,0,0,0,0,0.6667,Nao,28.3836,Lorraine Caribe,2025-07-04 23:16:45,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1055,Tarefa,0,0,0,0,0,0.6667,Nao,14.3912,Lorraine Caribe,2025-07-04 23:16:46,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1058,Tarefa,0,0,0,0,0,0.6667,Nao,16.4485,Lorraine Caribe,2025-07-04 23:16:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-106,Tarefa,0,0,0,0,0,0.6667,Nao,558.1101,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Cancelled > Done
+W1NNR-1061,Tarefa,0,0,0,0,0,0.6667,Nao,4.3265,Lorraine Caribe,2025-06-22 23:35:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1062,Tarefa,0,0,0,0,0,0.6667,Nao,4.3264,Lorraine Caribe,2025-06-22 23:35:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1065,Tarefa,0,0,0,0,0,0.6667,Nao,49.7992,Thaís Cabral,2025-08-12 12:53:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1066,Tarefa,0,0,0,0,0,0.6667,Nao,47.7711,Thaís Cabral,2025-08-12 12:53:56,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1067,Tarefa,0,0,0,0,0,0.6667,Nao,47.7556,Thaís Cabral,2025-08-12 12:55:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1068,Tarefa,0,0,0,0,0,0.6667,Nao,237.8901,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Cancelled > Done
+W1NNR-1069,Tarefa,0,0,0,0,0,0.6667,Nao,45.7331,Thaís Cabral,2025-08-12 12:55:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1070,Tarefa,0,0,0,0,0,0.6667,Nao,45.7369,Thaís Cabral,2025-08-12 13:01:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1076,Tarefa,0,0,0,0,0,0.6667,Nao,2.2489,Lorraine Caribe,2025-06-22 23:34:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1077,Tarefa,0,0,0,0,0,0.6667,Nao,2.2433,Lorraine Caribe,2025-06-22 23:34:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1079,Tarefa,0,0,0,0,0,0.6667,Nao,2.2407,Lorraine Caribe,2025-06-22 23:34:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1080,Tarefa,0,0,0,0,0,0.6667,Nao,2.2241,Lorraine Caribe,2025-06-22 23:34:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1085,Tarefa,0,0,0,0,0,0.6667,Nao,63.8879,Lara Junqueira Alvarenga,2025-09-03 14:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1093,Tarefa,0,0,0,0,0,0.6667,Nao,70.8325,Lara Junqueira Alvarenga,2025-09-03 14:27:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1110,Tarefa,0,0,0,0,0,0.6667,Nao,68.715,Lara Junqueira Alvarenga,2025-09-03 14:26:23,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1117,Tarefa,0,0,0,0,0,0.6667,Nao,68.0029,Lara Junqueira Alvarenga,2025-09-03 14:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1118,Tarefa,0,0,0,0,0,0.6667,Nao,22.9662,Lara Junqueira Alvarenga,2025-08-25 13:56:54,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1119,Tarefa,0,0,0,0,0,0.6667,Nao,29.9662,Lara Junqueira Alvarenga,2025-09-01 14:43:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1120,Tarefa,0,0,0,0,0,0.6667,Nao,67.8256,Lara Junqueira Alvarenga,2025-09-03 14:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1121,Tarefa,0,0,0,0,0,0.6667,Nao,67.8256,Lara Junqueira Alvarenga,2025-09-03 14:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1122,Tarefa,0,0,0,0,0,0.6667,Nao,27.907,Lara Junqueira Alvarenga,2025-08-25 13:57:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1123,Tarefa,0,0,0,0,0,0.6667,Nao,27.8929,Lara Junqueira Alvarenga,2025-09-01 14:43:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1124,Tarefa,0,0,0,0,0,0.6667,Nao,27.9127,Lara Junqueira Alvarenga,2025-09-01 14:43:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1125,Tarefa,0,0,0,0,0,0.6667,Nao,21.5182,Lara Junqueira Alvarenga,2025-08-25 13:56:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1126,Tarefa,0,0,0,0,0,0.6667,Nao,21.5733,Lara Junqueira Alvarenga,2025-08-25 13:56:56,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1127,Tarefa,0,0,0,0,0,0.6667,Nao,34.6365,Thaís Cabral,2025-09-08 12:47:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1128,Tarefa,0,0,0,0,0,0.6667,Nao,26.6861,Lara Junqueira Alvarenga,2025-08-25 13:57:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1129,Tarefa,0,0,0,0,0,0.6667,Nao,27.6307,Lara Junqueira Alvarenga,2025-08-25 13:57:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1133,Tarefa,0,0,0,0,0,0.6667,Nao,64.7813,Lara Junqueira Alvarenga,2025-09-03 14:26:22,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1134,Tarefa,0,0,0,0,0,0.6667,Nao,62.0736,Lara Junqueira Alvarenga,2025-09-03 14:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1149,Tarefa,0,0,0,0,0,0.6667,Nao,61.8518,Lara Junqueira Alvarenga,2025-09-03 14:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1150,Tarefa,0,0,0,0,0,0.6667,Nao,55.8575,Lara Junqueira Alvarenga,2025-09-03 14:27:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1151,Tarefa,0,0,0,0,0,0.6667,Nao,50.8258,Lara Junqueira Alvarenga,2025-09-03 14:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1156,Tarefa,0,0,0,0,0,0.6667,Nao,8.1531,Lorraine Caribe,2025-07-11 23:53:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1157,Tarefa,0,0,0,0,0,0.6667,Nao,9.7907,Lara Junqueira Alvarenga,2025-07-21 14:50:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1162,Tarefa,0,0,0,0,0,0.6667,Nao,14.5932,Thaís Cabral,2025-07-30 02:55:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1163,Tarefa,0,0,0,0,0,0.6667,Nao,7.1372,Eder Afonso,2025-07-14 16:03:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1166,Tarefa,0,0,0,0,0,0.6667,Nao,53.7622,Lara Junqueira Alvarenga,2025-09-03 14:27:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1167,Tarefa,0,0,0,0,0,0.6667,Nao,35.7541,Thaís Cabral,2025-08-12 13:01:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1169,Tarefa,0,0,0,0,0,0.6667,Nao,35.7612,Thaís Cabral,2025-08-12 13:01:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1170,Tarefa,0,0,0,0,0,0.6667,Nao,35.7281,Thaís Cabral,2025-08-12 13:01:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1171,Tarefa,0,0,0,0,0,0.6667,Nao,34.6962,Thaís Cabral,2025-08-12 13:01:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1188,Tarefa,0,0,0,0,0,0.6667,Nao,53.8632,Lara Junqueira Alvarenga,2025-09-03 14:27:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1189,Tarefa,0,0,0,0,0,0.6667,Nao,53.7686,Lara Junqueira Alvarenga,2025-09-03 14:27:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1192,Tarefa,0,0,0,0,0,0.6667,Nao,50.8475,Lara Junqueira Alvarenga,2025-09-03 14:27:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1193,Tarefa,0,0,0,0,0,0.6667,Nao,22.7307,Thaís Cabral,2025-08-07 12:37:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1194,Tarefa,0,0,0,0,0,0.6667,Nao,49.8529,Lara Junqueira Alvarenga,2025-09-03 14:27:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1195,Tarefa,0,0,0,0,0,0.6667,Nao,49.8294,Lara Junqueira Alvarenga,2025-09-03 14:27:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1199,Tarefa,0,0,0,0,0,0.6667,Nao,48.7813,Lara Junqueira Alvarenga,2025-09-03 14:27:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1202,Tarefa,0,0,0,0,0,0.6667,Nao,47.7814,Lara Junqueira Alvarenga,2025-09-03 14:27:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1209,Tarefa,0,0,0,0,0,0.6667,Nao,15.9187,Thaís Cabral,2025-08-07 12:38:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1214,Tarefa,0,0,0,0,0,0.6667,Nao,41.3963,Lara Junqueira Alvarenga,2025-09-03 14:27:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1215,Tarefa,0,0,0,0,0,0.6667,Nao,41.3962,Lara Junqueira Alvarenga,2025-09-03 14:27:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1231,Tarefa,0,0,0,0,0,0.6667,Nao,32.6141,Lara Junqueira Alvarenga,2025-09-03 14:27:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1238,Tarefa,0,0,0,0,0,0.6667,Nao,33.8695,Lara Junqueira Alvarenga,2025-09-03 14:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1239,Tarefa,0,0,0,0,0,0.6667,Nao,32.8481,Lara Junqueira Alvarenga,2025-09-03 14:26:24,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1240,Tarefa,0,0,0,0,0,0.6667,Nao,33.8851,Lara Junqueira Alvarenga,2025-09-03 14:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1242,Tarefa,0,0,0,0,0,0.6667,Nao,25.7508,Lara Junqueira Alvarenga,2025-09-03 14:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1246,Tarefa,0,0,0,0,0,0.6667,Nao,32.8288,Lara Junqueira Alvarenga,2025-09-03 14:26:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1248,Tarefa,0,0,0,0,0,0.6667,Nao,32.7377,Lara Junqueira Alvarenga,2025-09-03 14:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1253,Tarefa,0,0,0,0,0,0.6667,Nao,32.7724,Lara Junqueira Alvarenga,2025-09-03 14:28:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1254,Tarefa,0,0,0,0,0,0.6667,Nao,28.0198,Lara Junqueira Alvarenga,2025-09-03 14:26:26,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1260,Tarefa,0,0,0,0,0,0.6667,Nao,29.7792,Lara Junqueira Alvarenga,2025-09-03 14:28:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1262,Tarefa,0,0,0,0,0,0.6667,Nao,28.7762,Lara Junqueira Alvarenga,2025-09-03 14:26:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1263,Tarefa,0,0,0,0,0,0.6667,Nao,24.0455,Lara Junqueira Alvarenga,2025-09-12 18:41:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1264,Tarefa,0,0,0,0,0,0.6667,Nao,24.0455,Lara Junqueira Alvarenga,2025-09-12 18:41:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1265,Tarefa,0,0,0,0,0,0.6667,Nao,16.2293,Lara Junqueira Alvarenga,2025-09-12 18:41:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1266,Tarefa,0,0,0,0,0,0.6667,Nao,13.8866,Lara Junqueira Alvarenga,2025-09-12 18:41:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1267,Tarefa,0,0,0,0,0,0.6667,Nao,11.1264,Lara Junqueira Alvarenga,2025-09-12 18:41:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1268,Tarefa,0,0,0,0,0,0.6667,Nao,14.2521,Lara Junqueira Alvarenga,2025-09-12 18:41:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1269,Tarefa,0,0,0,0,0,0.6667,Nao,13.0734,Lorraine Caribe,2025-08-18 20:16:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1270,Tarefa,0,0,0,0,0,0.6667,Nao,12.7405,Lorraine Caribe,2025-08-18 20:16:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1271,Tarefa,0,0,0,0,0,0.6667,Nao,12.0682,Lorraine Caribe,2025-08-18 20:16:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1272,Tarefa,0,0,0,0,0,0.6667,Nao,7.0557,Lorraine Caribe,2025-08-18 20:16:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1273,Tarefa,0,0,0,0,0,0.6667,Nao,7.0258,Lorraine Caribe,2025-08-18 20:16:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1274,Tarefa,0,0,0,0,0,0.6667,Nao,27.8619,Lara Junqueira Alvarenga,2025-09-03 14:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1277,Tarefa,0,0,0,0,0,0.6667,Nao,27.8102,Lara Junqueira Alvarenga,2025-09-03 14:26:27,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1279,Tarefa,0,0,0,0,0,0.6667,Nao,27.804,Lara Junqueira Alvarenga,2025-09-03 14:26:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1284,Tarefa,0,0,0,0,0,0.6667,Nao,22.8648,Lara Junqueira Alvarenga,2025-09-03 14:27:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1312,Tarefa,0,0,0,0,0,0.6667,Nao,18.858,Lara Junqueira Alvarenga,2025-09-03 14:28:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1313,Tarefa,0,0,0,0,0,0.6667,Nao,19.7303,Lara Junqueira Alvarenga,2025-09-03 14:28:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1314,Tarefa,0,0,0,0,0,0.6667,Nao,19.745,Lara Junqueira Alvarenga,2025-09-03 14:28:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1325,Tarefa,0,0,0,0,0,0.6667,Nao,12.7907,Lara Junqueira Alvarenga,2025-09-03 14:26:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1326,Tarefa,0,0,0,0,0,0.6667,Nao,14.8697,Lara Junqueira Alvarenga,2025-09-03 14:26:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1327,Tarefa,0,0,0,0,0,0.6667,Nao,6.1656,Eder Afonso,2025-08-25 17:15:21,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1328,Tarefa,0,0,0,0,0,0.6667,Nao,19.9796,Thaís Cabral,2025-09-08 12:47:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1329,Tarefa,0,0,0,0,0,0.6667,Nao,12.8863,Lara Junqueira Alvarenga,2025-09-03 14:28:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1333,Tarefa,0,0,0,0,0,0.6667,Nao,14.808,Lara Junqueira Alvarenga,2025-09-03 14:28:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1338,Tarefa,0,0,0,0,0,0.6667,Nao,13.5896,Lara Junqueira Alvarenga,2025-09-03 14:26:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1339,Tarefa,0,0,0,0,0,0.6667,Nao,13.6296,Lara Junqueira Alvarenga,2025-09-03 14:26:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1340,Tarefa,0,0,0,0,0,0.6667,Nao,13.8421,Lara Junqueira Alvarenga,2025-09-03 14:28:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1341,Tarefa,0,0,0,0,0,0.6667,Nao,13.6242,Lara Junqueira Alvarenga,2025-09-03 14:27:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1345,Tarefa,0,0,0,0,0,0.6667,Nao,13.6133,Lara Junqueira Alvarenga,2025-09-03 14:28:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1346,Tarefa,0,0,0,0,0,0.6667,Nao,13.5859,Lara Junqueira Alvarenga,2025-09-03 14:27:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1347,Tarefa,0,0,0,0,0,0.6667,Nao,13.0266,Lara Junqueira Alvarenga,2025-09-03 14:28:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1351,Tarefa,0,0,0,0,0,0.6667,Nao,12.6769,Lara Junqueira Alvarenga,2025-09-03 14:31:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1352,Tarefa,0,0,0,0,0,0.6667,Nao,12.0533,Lara Junqueira Alvarenga,2025-09-03 14:31:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1356,Tarefa,0,0,0,0,0,0.6667,Nao,11.6763,Lara Junqueira Alvarenga,2025-09-03 14:31:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1357,Tarefa,0,0,0,0,0,0.6667,Nao,9.075,Lara Junqueira Alvarenga,2025-09-03 14:31:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1359,Tarefa,0,0,0,0,0,0.6667,Nao,9.019,Lara Junqueira Alvarenga,2025-09-03 14:31:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1360,Tarefa,0,0,0,0,0,0.6667,Nao,9.0032,Lara Junqueira Alvarenga,2025-09-03 14:31:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1362,Tarefa,0,0,0,0,0,0.6667,Nao,7.8632,Lara Junqueira Alvarenga,2025-09-03 14:27:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1364,Tarefa,0,0,0,0,0,0.6667,Nao,6.0688,Lara Junqueira Alvarenga,2025-09-03 14:27:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1366,Tarefa,0,0,0,0,0,0.6667,Nao,7.9374,Lara Junqueira Alvarenga,2025-09-03 14:31:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1372,Tarefa,0,0,0,0,0,0.6667,Nao,7.7536,Lara Junqueira Alvarenga,2025-09-03 14:31:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1374,Tarefa,0,0,0,0,0,0.6667,Nao,7.7827,Lara Junqueira Alvarenga,2025-09-03 14:31:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1375,Tarefa,0,0,0,0,0,0.6667,Nao,7.7669,Lara Junqueira Alvarenga,2025-09-03 14:31:49,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1390,Tarefa,0,0,0,0,0,0.6667,Nao,8.8032,Thaís Cabral,2025-09-08 12:47:30,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1391,Tarefa,0,0,0,0,0,0.6667,Nao,23.1098,Lara Junqueira Alvarenga,2025-09-23 12:51:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1400,Tarefa,0,0,0,0,0,0.6667,Nao,0.928,Lara Junqueira Alvarenga,2025-09-03 14:27:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1401,Tarefa,0,0,0,0,0,0.6667,Nao,0.9269,Lara Junqueira Alvarenga,2025-09-03 14:27:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1402,Tarefa,0,0,0,0,0,0.6667,Nao,0.9256,Lara Junqueira Alvarenga,2025-09-03 14:27:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1403,Tarefa,0,0,0,0,0,0.6667,Nao,0.928,Lara Junqueira Alvarenga,2025-09-03 14:31:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1404,Tarefa,0,0,0,0,0,0.6667,Nao,0.8434,Lara Junqueira Alvarenga,2025-09-03 14:27:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1407,Tarefa,0,0,0,0,0,0.6667,Nao,5.738,Thaís Cabral,2025-09-08 12:47:30,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1410,Tarefa,0,0,0,0,0,0.6667,Nao,0.6883,Lara Junqueira Alvarenga,2025-09-03 14:31:43,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1412,Tarefa,0,0,0,0,0,0.6667,Nao,15.4871,Lara Junqueira Alvarenga,2025-09-18 20:36:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1414,Tarefa,0,0,0,0,0,0.6667,Nao,15.1152,Lara Junqueira Alvarenga,2025-09-18 20:36:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1415,Tarefa,0,0,0,0,0,0.6667,Nao,15.0815,Lara Junqueira Alvarenga,2025-09-18 20:36:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1417,Tarefa,0,0,0,0,0,0.6667,Nao,10.2414,Lara Junqueira Alvarenga,2025-09-18 20:36:45,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1424,Tarefa,0,0,0,0,0,0.6667,Nao,10.8713,Lara Junqueira Alvarenga,2025-09-19 14:14:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1433,Tarefa,0,0,0,0,0,0.6667,Nao,4.0243,Lara Junqueira Alvarenga,2025-09-12 18:41:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1434,Tarefa,0,0,0,0,0,0.6667,Nao,10.8274,Lara Junqueira Alvarenga,2025-09-19 14:14:49,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1437,Tarefa,0,0,0,0,0,0.6667,Nao,10.81,Lara Junqueira Alvarenga,2025-09-19 14:14:51,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1438,Tarefa,0,0,0,0,0,0.6667,Nao,3.9291,Lara Junqueira Alvarenga,2025-09-12 18:41:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1446,Tarefa,0,0,0,0,0,0.6667,Nao,2.8749,Lara Junqueira Alvarenga,2025-09-12 18:41:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1462,Tarefa,0,0,0,0,0,0.6667,Nao,3.7448,Lara Junqueira Alvarenga,2025-09-19 14:17:13,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1514,Tarefa,0,0,0,0,0,0.6667,Nao,17.3168,Lara Junqueira Alvarenga,2025-10-16 19:19:27,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1515,Tarefa,0,0,0,0,0,0.6667,Nao,14.0668,Lara Junqueira Alvarenga,2025-10-16 19:19:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1517,Tarefa,0,0,0,0,0,0.6667,Nao,15.8602,Lara Junqueira Alvarenga,2025-10-16 19:19:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1555,Tarefa,0,0,0,0,0,0.6667,Nao,24.9369,Thaís Cabral,2025-10-31 17:58:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1556,Tarefa,0,0,0,0,0,0.6667,Nao,13.018,Lorraine Caribe,2025-10-22 13:06:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1557,Tarefa,0,0,0,0,0,0.6667,Nao,20.9547,Thaís Cabral,2025-10-31 17:58:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1558,Tarefa,0,0,0,0,0,0.6667,Nao,8.0034,Lorraine Caribe,2025-10-22 13:07:31,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1559,Tarefa,0,0,0,0,0,0.6667,Nao,11.7501,Lorraine Caribe,2025-10-22 13:07:42,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1560,Tarefa,0,0,0,0,0,0.6667,Nao,8.9488,Lorraine Caribe,2025-10-22 13:08:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1561,Tarefa,0,0,0,0,0,0.6667,Nao,6.987,Lorraine Caribe,2025-10-22 13:07:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1562,Tarefa,0,0,0,0,0,0.6667,Nao,8.7225,Lorraine Caribe,2025-10-22 13:08:51,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1563,Tarefa,0,0,0,0,0,0.6667,Nao,8.1093,Lorraine Caribe,2025-10-22 13:08:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1564,Tarefa,0,0,0,0,0,0.6667,Nao,14.78,Lorraine Caribe,2025-10-22 13:15:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1565,Tarefa,0,0,0,0,0,0.6667,Nao,14.7671,Lorraine Caribe,2025-10-22 13:08:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1566,Tarefa,0,0,0,0,0,0.6667,Nao,12.7937,Lorraine Caribe,2025-10-22 13:09:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1567,Tarefa,0,0,0,0,0,0.6667,Nao,12.7552,Lorraine Caribe,2025-10-22 13:14:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1568,Tarefa,0,0,0,0,0,0.6667,Nao,11.6922,Lorraine Caribe,2025-10-22 13:08:40,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1569,Tarefa,0,0,0,0,0,0.6667,Nao,18.9892,Lorraine Caribe,2025-11-10 13:41:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1570,Tarefa,0,0,0,0,0,0.6667,Nao,18.979,Lorraine Caribe,2025-11-10 13:41:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1571,Tarefa,0,0,0,0,0,0.6667,Nao,18.7431,Lorraine Caribe,2025-11-10 13:41:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1572,Tarefa,0,0,0,0,0,0.6667,Nao,18.8468,Lorraine Caribe,2025-11-10 13:41:40,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1573,Tarefa,0,0,0,0,0,0.6667,Nao,18.8315,Lorraine Caribe,2025-11-10 13:41:41,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1574,Tarefa,0,0,0,0,0,0.6667,Nao,18.8453,Lorraine Caribe,2025-11-10 13:41:42,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1575,Tarefa,0,0,0,0,0,0.6667,Nao,12.9763,Lorraine Caribe,2025-11-10 13:41:43,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1576,Tarefa,0,0,0,0,0,0.6667,Nao,17.7443,Lorraine Caribe,2025-11-10 13:41:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1577,Tarefa,0,0,0,0,0,0.6667,Nao,13.733,Lorraine Caribe,2025-11-10 13:41:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1578,Tarefa,0,0,0,0,0,0.6667,Nao,18.9887,Lorraine Caribe,2025-11-10 13:42:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1579,Tarefa,0,0,0,0,0,0.6667,Nao,17.9692,Lorraine Caribe,2025-11-10 13:41:45,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1580,Tarefa,0,0,0,0,0,0.6667,Nao,18.7785,Lorraine Caribe,2025-11-10 13:41:46,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1581,Tarefa,0,0,0,0,0,0.6667,Nao,12.8051,Lorraine Caribe,2025-11-10 13:41:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1582,Tarefa,0,0,0,0,0,0.6667,Nao,10.9668,Lorraine Caribe,2025-11-10 13:41:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1583,Tarefa,0,0,0,0,0,0.6667,Nao,13.0952,Lorraine Caribe,2025-11-10 13:42:25,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1584,Tarefa,0,0,0,0,0,0.6667,Nao,11.743,Lorraine Caribe,2025-11-10 13:42:26,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1585,Tarefa,0,0,0,0,0,0.6667,Nao,17.7535,Lorraine Caribe,2025-11-10 13:42:27,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1586,Tarefa,0,0,0,0,0,0.6667,Nao,18.0488,Lorraine Caribe,2025-11-10 13:42:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1587,Tarefa,0,0,0,0,0,0.6667,Nao,11.9643,Lorraine Caribe,2025-11-24 18:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1588,Tarefa,0,0,0,0,0,0.6667,Nao,13.9261,Lorraine Caribe,2025-11-24 18:27:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1589,Tarefa,0,0,0,0,0,0.6667,Nao,11.9641,Lorraine Caribe,2025-11-24 18:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1590,Tarefa,0,0,0,0,0,0.6667,Nao,11.964,Lorraine Caribe,2025-11-24 18:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1591,Tarefa,0,0,0,0,0,0.6667,Nao,13.2347,Lorraine Caribe,2025-11-24 18:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1592,Tarefa,0,0,0,0,0,0.6667,Nao,13.9253,Lorraine Caribe,2025-11-24 18:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1593,Tarefa,0,0,0,0,0,0.6667,Nao,12.8868,Lorraine Caribe,2025-11-24 18:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1594,Tarefa,0,0,0,0,0,0.6667,Nao,7.2434,Lorraine Caribe,2025-11-24 18:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1595,Tarefa,0,0,0,0,0,0.6667,Nao,11.2422,Lorraine Caribe,2025-11-24 18:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1596,Tarefa,0,0,0,0,0,0.6667,Nao,11.5766,Lorraine Caribe,2025-11-24 18:27:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1597,Tarefa,0,0,0,0,0,0.6667,Nao,14.0401,Lorraine Caribe,2025-11-24 18:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1599,Tarefa,0,0,0,0,0,0.6667,Nao,18.2477,Thaís Cabral,2025-12-12 19:22:21,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1600,Tarefa,0,0,0,0,0,0.6667,Nao,18.2477,Thaís Cabral,2025-12-12 19:22:23,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1601,Tarefa,0,0,0,0,0,0.6667,Nao,13.9535,Thaís Cabral,2025-12-12 19:22:24,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1602,Tarefa,0,0,0,0,0,0.6667,Nao,17.9956,Thaís Cabral,2025-12-12 19:22:26,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1603,Tarefa,0,0,0,0,0,0.6667,Nao,16.2302,Thaís Cabral,2025-12-12 19:22:27,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1604,Tarefa,0,0,0,0,0,0.6667,Nao,15.9862,Thaís Cabral,2025-12-12 19:22:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1605,Tarefa,0,0,0,0,0,0.6667,Nao,16.0538,Thaís Cabral,2025-12-12 19:22:29,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1606,Tarefa,0,0,0,0,0,0.6667,Nao,16.097,Thaís Cabral,2025-12-12 19:22:31,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1607,Tarefa,0,0,0,0,0,0.6667,Nao,16.0965,Thaís Cabral,2025-12-12 19:22:32,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1608,Tarefa,0,0,0,0,0,0.6667,Nao,14.0385,Thaís Cabral,2025-12-12 19:22:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1609,Tarefa,0,0,0,0,0,0.6667,Nao,11.2311,Thaís Cabral,2025-12-12 19:22:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1610,Tarefa,0,0,0,0,0,0.6667,Nao,15.0908,Thaís Cabral,2025-12-12 19:23:46,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1611,Tarefa,0,0,0,0,0,0.6667,Nao,10.0344,Thaís Cabral,2025-12-12 19:22:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1612,Tarefa,0,0,0,0,0,0.6667,Nao,10.9413,Thaís Cabral,2025-12-12 19:22:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1613,Tarefa,0,0,0,0,0,0.6667,Nao,9.0872,Thaís Cabral,2025-12-12 19:22:40,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1614,Tarefa,0,0,0,0,0,0.6667,Nao,11.0052,Thaís Cabral,2025-12-12 19:23:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1617,Tarefa,0,0,0,0,0,0.6667,Nao,15.7195,Lorraine Caribe,2025-10-22 13:15:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1642,Tarefa,0,0,0,0,0,0.6667,Nao,7.2441,Thaís Cabral,2025-10-22 01:31:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1643,Tarefa,0,0,0,0,0,0.6667,Nao,7.2218,Thaís Cabral,2025-10-22 01:31:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1644,Tarefa,0,0,0,0,0,0.6667,Nao,6.2979,Thaís Cabral,2025-10-22 01:31:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1645,Tarefa,0,0,0,0,0,0.6667,Nao,6.3249,Thaís Cabral,2025-10-22 01:31:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1646,Tarefa,0,0,0,0,0,0.6667,Nao,6.1897,Thaís Cabral,2025-10-22 01:31:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1647,Tarefa,0,0,0,0,0,0.6667,Nao,6.2991,Thaís Cabral,2025-10-22 01:31:32,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1648,Tarefa,0,0,0,0,0,0.6667,Nao,6.2873,Thaís Cabral,2025-10-22 01:31:43,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1649,Tarefa,0,0,0,0,0,0.6667,Nao,7.3206,Thaís Cabral,2025-10-22 01:31:42,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1650,Tarefa,0,0,0,0,0,0.6667,Nao,6.2201,Thaís Cabral,2025-10-22 01:31:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1651,Tarefa,0,0,0,0,0,0.6667,Nao,5.1934,Thaís Cabral,2025-10-22 01:31:45,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1652,Tarefa,0,0,0,0,0,0.6667,Nao,13.0255,Lorraine Caribe,2025-11-05 18:27:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1664,Tarefa,0,0,0,0,0,0.6667,Nao,3.2841,Lorraine Caribe,2025-11-13 20:30:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1665,Tarefa,0,0,0,0,0,0.6667,Nao,3.1058,Lorraine Caribe,2025-11-13 20:31:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1666,Tarefa,0,0,0,0,0,0.6667,Nao,6.0874,Lorraine Caribe,2025-11-13 20:31:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1667,Tarefa,0,0,0,0,0,0.6667,Nao,3.0392,Lorraine Caribe,2025-11-13 20:30:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1668,Tarefa,0,0,0,0,0,0.6667,Nao,2.9773,Lorraine Caribe,2025-11-13 20:31:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1669,Tarefa,0,0,0,0,0,0.6667,Nao,3.0147,Lorraine Caribe,2025-11-13 20:30:54,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1670,Tarefa,0,0,0,0,0,0.6667,Nao,10.0081,Lorraine Caribe,2025-11-13 20:31:13,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1671,Tarefa,0,0,0,0,0,0.6667,Nao,7.0566,Lorraine Caribe,2025-11-13 20:31:09,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1672,Tarefa,0,0,0,0,0,0.6667,Nao,2.0986,Lorraine Caribe,2025-11-13 20:31:10,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1673,Tarefa,0,0,0,0,0,0.6667,Nao,2.0575,Lorraine Caribe,2025-11-13 20:31:11,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1674,Tarefa,0,0,0,0,0,0.6667,Nao,10.025,Lorraine Caribe,2025-11-13 20:31:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1684,Tarefa,0,0,0,0,0,0.6667,Nao,6.0964,Lorraine Caribe,2025-10-22 13:14:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1685,Tarefa,0,0,0,0,0,0.6667,Nao,11.0235,Thaís Cabral,2025-12-12 19:23:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1703,Tarefa,0,0,0,0,0,0.6667,Nao,18.0187,Lorraine Caribe,2025-11-10 13:42:30,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1714,Tarefa,0,0,0,0,0,0.6667,Nao,28.043,Lorraine Caribe,2025-12-19 19:14:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1715,Tarefa,0,0,0,0,0,0.6667,Nao,24.2869,Lorraine Caribe,2025-12-19 19:14:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1716,Tarefa,0,0,0,0,0,0.6667,Nao,91.9267,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Cancelled > Done
+W1NNR-1718,Tarefa,0,0,0,0,0,0.6667,Nao,23.9558,Lorraine Caribe,2025-12-19 19:14:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1719,Tarefa,0,0,0,0,0,0.6667,Nao,82.8782,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Cancelled > Done
+W1NNR-1720,Tarefa,0,0,0,0,0,0.6667,Nao,27.9353,Lorraine Caribe,2025-12-19 19:14:56,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1721,Tarefa,0,0,0,0,0,0.6667,Nao,31.1552,Lorraine Caribe,2025-12-19 19:14:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1723,Tarefa,0,0,0,0,0,0.6667,Nao,31.0513,Lorraine Caribe,2025-12-19 19:14:59,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1724,Tarefa,0,0,0,0,0,0.6667,Nao,32.0176,Lorraine Caribe,2025-12-19 19:15:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1725,Tarefa,0,0,0,0,0,0.6667,Nao,30.9386,Lorraine Caribe,2025-12-19 19:15:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1727,Tarefa,0,0,0,0,0,0.6667,Nao,30.933,Lorraine Caribe,2025-12-19 19:15:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1728,Tarefa,0,0,0,0,0,0.6667,Nao,16.2517,Lorraine Caribe,2025-12-19 19:15:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-173,Tarefa,0,0,0,0,0,0.6667,Sim,3.9283,Lara Junqueira Alvarenga,2024-08-26 18:04:48,In Progress > Ready To Staging > Done
+W1NNR-1730,Tarefa,0,0,0,0,0,0.6667,Nao,11.7795,Lorraine Caribe,2025-11-10 13:42:30,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-174,Tarefa,0,0,0,0,0,0.6667,Sim,3.9275,Lara Junqueira Alvarenga,2024-08-26 18:04:38,In Progress > Ready To Staging > Done
+W1NNR-1749,Tarefa,0,0,0,0,0,0.6667,Nao,6.739,Lorraine Caribe,2025-11-10 13:42:31,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-175,Tarefa,0,0,0,0,0,0.6667,Sim,3.9225,Lara Junqueira Alvarenga,2024-08-26 18:04:40,In Progress > Ready To Staging > Done
+W1NNR-1750,Tarefa,0,0,0,0,0,0.6667,Nao,6.739,Lorraine Caribe,2025-11-10 13:42:32,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1751,Tarefa,0,0,0,0,0,0.6667,Nao,6.5269,Lorraine Caribe,2025-11-10 13:42:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1753,Tarefa,0,0,0,0,0,0.6667,Nao,19.9806,Lorraine Caribe,2025-11-24 18:25:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1754,Tarefa,0,0,0,0,0,0.6667,Nao,14.241,Lorraine Caribe,2025-11-24 18:25:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1755,Tarefa,0,0,0,0,0,0.6667,Nao,13.2416,Lorraine Caribe,2025-11-24 18:25:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1756,Tarefa,0,0,0,0,0,0.6667,Nao,11.9469,Lorraine Caribe,2025-11-24 18:25:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1757,Tarefa,0,0,0,0,0,0.6667,Nao,13.2415,Lorraine Caribe,2025-11-24 18:25:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1759,Tarefa,0,0,0,0,0,0.6667,Nao,5.759,Lorraine Caribe,2025-11-10 13:42:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1760,Tarefa,0,0,0,0,0,0.6667,Nao,5.7596,Lorraine Caribe,2025-11-10 13:42:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1767,Tarefa,0,0,0,0,0,0.6667,Nao,4.0267,Lorraine Caribe,2025-11-10 13:42:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-177,Tarefa,0,0,0,0,0,0.6667,Sim,3.1917,Lara Junqueira Alvarenga,2024-08-26 18:04:44,In Progress > Ready To Staging > Done
+W1NNR-1771,Tarefa,0,0,0,0,0,0.6667,Nao,3.8662,Lorraine Caribe,2025-11-10 13:42:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1778,Tarefa,0,0,0,0,0,0.6667,Nao,18.0905,Thaís Cabral,2025-12-12 19:23:31,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1783,Tarefa,0,0,0,0,0,0.6667,Nao,1.1007,Lorraine Caribe,2025-11-13 20:31:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1784,Tarefa,0,0,0,0,0,0.6667,Nao,1.0769,Lorraine Caribe,2025-11-13 20:31:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1785,Tarefa,0,0,0,0,0,0.6667,Nao,10.163,Lorraine Caribe,2025-11-24 18:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1790,Tarefa,0,0,0,0,0,0.6667,Nao,7.1979,Lorraine Caribe,2025-11-24 18:27:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1791,Tarefa,0,0,0,0,0,0.6667,Nao,6.0137,Lorraine Caribe,2025-11-24 18:25:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1794,Tarefa,0,0,0,0,0,0.6667,Nao,6.9392,Lorraine Caribe,2025-11-24 18:27:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1796,Tarefa,0,0,0,0,0,0.6667,Nao,6.8934,Lorraine Caribe,2025-11-24 18:27:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1802,Tarefa,0,0,0,0,0,0.6667,Nao,20.9246,Lorraine Caribe,2026-01-12 19:42:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1804,Tarefa,0,0,0,0,0,0.6667,Nao,82.0745,Lara Junqueira Alvarenga,2026-02-18 15:42:53,In Progress > Cancelled > Done
+W1NNR-1805,Tarefa,0,0,0,0,0,0.6667,Nao,15.972,Lorraine Caribe,2025-12-19 19:13:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1806,Tarefa,0,0,0,0,0,0.6667,Nao,28.2566,Lorraine Caribe,2025-12-19 19:13:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1807,Tarefa,0,0,0,0,0,0.6667,Nao,10.2761,Lorraine Caribe,2025-12-19 19:13:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1808,Tarefa,0,0,0,0,0,0.6667,Nao,14.8536,Lorraine Caribe,2025-12-19 19:13:56,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1809,Tarefa,0,0,0,0,0,0.6667,Nao,10.9849,Lorraine Caribe,2025-12-19 19:13:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1814,Tarefa,0,0,0,0,0,0.6667,Nao,5.0455,Lorraine Caribe,2025-11-24 18:25:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1823,Tarefa,0,0,0,0,0,0.6667,Nao,16.94,Thaís Cabral,2025-12-12 19:23:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1824,Tarefa,0,0,0,0,0,0.6667,Nao,17.0486,Thaís Cabral,2025-12-12 19:23:41,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1826,Tarefa,0,0,0,0,0,0.6667,Nao,16.9547,Thaís Cabral,2025-12-12 19:23:11,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1834,Tarefa,0,0,0,0,0,0.6667,Nao,17.0177,Thaís Cabral,2025-12-12 19:23:32,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1836,Tarefa,0,0,0,0,0,0.6667,Nao,16.0638,Thaís Cabral,2025-12-12 19:23:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1839,Tarefa,0,0,0,0,0,0.6667,Nao,14.9892,Thaís Cabral,2025-12-12 19:23:48,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1840,Tarefa,0,0,0,0,0,0.6667,Nao,9.9793,Thaís Cabral,2025-12-12 19:23:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1844,Tarefa,0,0,0,0,0,0.6667,Nao,9.0003,Thaís Cabral,2025-12-12 19:23:51,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1850,Tarefa,0,0,0,0,0,0.6667,Nao,10.9925,Thaís Cabral,2025-12-12 19:23:49,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1851,Tarefa,0,0,0,0,0,0.6667,Nao,8.1888,Thaís Cabral,2025-12-12 19:23:50,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1857,Tarefa,0,0,0,0,0,0.6667,Nao,8.226,Thaís Cabral,2025-12-12 19:23:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1860,Tarefa,0,0,0,0,0,0.6667,Nao,10.2214,Lorraine Caribe,2025-12-19 19:13:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1861,Tarefa,0,0,0,0,0,0.6667,Nao,23.9571,Lorraine Caribe,2026-01-12 19:42:10,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1863,Tarefa,0,0,0,0,0,0.6667,Nao,11.2746,Lorraine Caribe,2025-12-19 19:13:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1864,Tarefa,0,0,0,0,0,0.6667,Nao,9.0584,Lorraine Caribe,2025-12-19 19:14:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1865,Tarefa,0,0,0,0,0,0.6667,Nao,11.1968,Lorraine Caribe,2025-12-19 19:14:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1867,Tarefa,0,0,0,0,0,0.6667,Nao,6.9872,Thaís Cabral,2025-12-12 19:23:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1869,Tarefa,0,0,0,0,0,0.6667,Nao,4.2831,Thaís Cabral,2025-12-12 19:24:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1870,Tarefa,0,0,0,0,0,0.6667,Nao,4.2605,Thaís Cabral,2025-12-12 19:24:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1871,Tarefa,0,0,0,0,0,0.6667,Nao,4.0563,Thaís Cabral,2025-12-12 19:24:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1872,Tarefa,0,0,0,0,0,0.6667,Nao,2.2334,Thaís Cabral,2025-12-12 19:24:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1873,Tarefa,0,0,0,0,0,0.6667,Nao,2.9307,Thaís Cabral,2025-12-12 19:24:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1874,Tarefa,0,0,0,0,0,0.6667,Nao,2.2303,Thaís Cabral,2025-12-12 19:24:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1875,Tarefa,0,0,0,0,0,0.6667,Nao,2.937,Thaís Cabral,2025-12-12 19:24:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1876,Tarefa,0,0,0,0,0,0.6667,Nao,3.0423,Thaís Cabral,2025-12-12 19:24:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1878,Tarefa,0,0,0,0,0,0.6667,Nao,2.9336,Thaís Cabral,2025-12-12 19:23:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1881,Tarefa,0,0,0,0,0,0.6667,Nao,8.2045,Lorraine Caribe,2025-12-19 19:15:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1882,Tarefa,0,0,0,0,0,0.6667,Nao,1.0893,Thaís Cabral,2025-12-12 19:23:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1885,Tarefa,0,0,0,0,0,0.6667,Nao,14.23,Lorraine Caribe,2026-01-12 19:42:13,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1886,Tarefa,0,0,0,0,0,0.6667,Nao,14.0116,Lorraine Caribe,2026-01-12 19:42:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1888,Tarefa,0,0,0,0,0,0.6667,Nao,7.1876,Lorraine Caribe,2026-01-12 19:42:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1889,Tarefa,0,0,0,0,0,0.6667,Nao,12.0676,Lorraine Caribe,2026-01-12 19:42:11,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1890,Tarefa,0,0,0,0,0,0.6667,Nao,14.1628,Lorraine Caribe,2026-01-12 19:42:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1891,Tarefa,0,0,0,0,0,0.6667,Nao,7.346,Lorraine Caribe,2026-01-12 19:42:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1892,Tarefa,0,0,0,0,0,0.6667,Nao,7.3464,Lorraine Caribe,2026-01-12 19:42:09,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1893,Tarefa,0,0,0,0,0,0.6667,Nao,19.8975,Lorraine Caribe,2026-01-12 19:42:04,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1894,Tarefa,0,0,0,0,0,0.6667,Nao,25.0481,Lorraine Caribe,2026-01-12 19:42:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1895,Tarefa,0,0,0,0,0,0.6667,Nao,21.0724,Lorraine Caribe,2026-01-12 19:42:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1896,Tarefa,0,0,0,0,0,0.6667,Nao,24.2843,Lorraine Caribe,2026-01-12 19:42:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1897,Tarefa,0,0,0,0,0,0.6667,Nao,21.1135,Lorraine Caribe,2026-01-12 19:42:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1898,Tarefa,0,0,0,0,0,0.6667,Nao,23.8556,Lorraine Caribe,2026-01-12 19:42:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1899,Tarefa,0,0,0,0,0,0.6667,Nao,19.8976,Lorraine Caribe,2026-01-12 19:42:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1900,Tarefa,0,0,0,0,0,0.6667,Nao,19.8976,Lorraine Caribe,2026-01-12 19:42:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1905,Tarefa,0,0,0,0,0,0.6667,Nao,4.0708,Lorraine Caribe,2025-12-19 19:14:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1907,Tarefa,0,0,0,0,0,0.6667,Nao,51.2673,Danilo Monreal,2026-02-06 19:42:52,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1922,Tarefa,0,0,0,0,0,0.6667,Nao,45.0848,Danilo Monreal,2026-02-06 19:42:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1933,Tarefa,0,0,0,0,0,0.6667,Nao,16.041,Danilo Monreal,2026-02-06 19:43:11,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1934,Tarefa,0,0,0,0,0,0.6667,Nao,45.0075,Danilo Monreal,2026-02-06 19:42:54,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1935,Tarefa,0,0,0,0,0,0.6667,Nao,39.0871,Danilo Monreal,2026-02-06 19:42:54,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1938,Tarefa,0,0,0,0,0,0.6667,Nao,24.9984,Danilo Monreal,2026-02-06 19:42:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1939,Tarefa,0,0,0,0,0,0.6667,Nao,45.9606,Danilo Monreal,2026-02-06 19:42:56,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1940,Tarefa,0,0,0,0,0,0.6667,Nao,31.9692,Danilo Monreal,2026-02-06 19:42:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1968,Tarefa,0,0,0,0,0,0.6667,Nao,35.1511,Danilo Monreal,2026-02-06 19:42:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1972,Tarefa,0,0,0,0,0,0.6667,Nao,20.3636,Danilo Monreal,2026-01-26 22:21:24,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1974,Tarefa,0,0,0,0,0,0.6667,Nao,30.2841,Danilo Monreal,2026-02-06 19:43:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1975,Tarefa,0,0,0,0,0,0.6667,Nao,21.0481,Danilo Monreal,2026-02-06 19:43:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1976,Tarefa,0,0,0,0,0,0.6667,Nao,11.7774,Danilo Monreal,2026-01-26 22:21:25,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1979,Tarefa,0,0,0,0,0,0.6667,Nao,5.1117,Lorraine Caribe,2026-01-12 19:42:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1980,Tarefa,0,0,0,0,0,0.6667,Nao,5.1008,Lorraine Caribe,2026-01-12 19:42:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1981,Tarefa,0,0,0,0,0,0.6667,Nao,25.2069,Danilo Monreal,2026-02-06 19:43:01,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1982,Tarefa,0,0,0,0,0,0.6667,Nao,25.048,Danilo Monreal,2026-02-06 19:43:02,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1986,Tarefa,0,0,0,0,0,0.6667,Nao,22.7199,Danilo Monreal,2026-02-06 19:43:03,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1991,Tarefa,0,0,0,0,0,0.6667,Nao,17.7366,Danilo Monreal,2026-02-06 19:43:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-1992,Tarefa,0,0,0,0,0,0.6667,Nao,12.429,Danilo Monreal,2026-01-26 22:21:25,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2003,Tarefa,0,0,0,0,0,0.6667,Nao,2.9766,Lorraine Caribe,2026-01-12 19:42:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2005,Tarefa,0,0,0,0,0,0.6667,Nao,10.4005,Danilo Monreal,2026-01-26 22:21:26,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2011,Tarefa,0,0,0,0,0,0.6667,Nao,19.969,Danilo Monreal,2026-02-06 19:43:06,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2030,Tarefa,0,0,0,0,0,0.6667,Nao,18.0719,Danilo Monreal,2026-02-06 19:43:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2033,Tarefa,0,0,0,0,0,0.6667,Nao,17.2208,Danilo Monreal,2026-02-06 19:43:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2079,Tarefa,0,0,0,0,0,0.6667,Nao,10.2493,Danilo Monreal,2026-02-06 19:43:12,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2082,Tarefa,0,0,0,0,0,0.6667,Nao,7.9992,Danilo Monreal,2026-02-06 19:43:13,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2083,Tarefa,0,0,0,0,0,0.6667,Nao,9.2087,Danilo Monreal,2026-02-06 19:43:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2084,Tarefa,0,0,0,0,0,0.6667,Nao,9.0227,Danilo Monreal,2026-02-06 19:43:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2085,Tarefa,0,0,0,0,0,0.6667,Nao,9.2045,Danilo Monreal,2026-02-06 19:43:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-2098,Tarefa,0,0,0,0,0,0.6667,Nao,4.0613,Danilo Monreal,2026-02-06 19:43:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-225,Tarefa,0,0,0,0,0,0.6667,Sim,11.6645,Lara Junqueira Alvarenga,2024-09-24 13:19:45,In Progress > Ready To Staging > Done
+W1NNR-226,Tarefa,0,0,0,0,0,0.6667,Sim,11.6644,Lara Junqueira Alvarenga,2024-09-24 13:19:48,In Progress > Ready To Staging > Done
+W1NNR-29,Tarefa,0,0,0,0,0,0.6667,Nao,33.9595,Igor Rezende,2024-06-25 13:38:02,In Progress > Production > Done
+W1NNR-30,Tarefa,0,0,0,0,0,0.6667,Nao,11.6999,Igor Rezende,2024-06-25 13:38:02,In Progress > Production > Done
+W1NNR-31,Tarefa,0,0,0,0,0,0.6667,Sim,71.0232,Lorraine Caribe,2024-08-01 14:13:17,In Progress > In Staging > Done
+W1NNR-33,Tarefa,0,0,0,0,0,0.6667,Nao,6.9764,Igor Rezende,2024-06-25 13:38:02,In Progress > Production > Done
+W1NNR-46,Tarefa,0,0,0,0,0,0.6667,Nao,11.6995,Igor Rezende,2024-06-25 13:38:01,In Progress > Production > Done
+W1NNR-47,Tarefa,0,0,0,0,0,0.6667,Nao,5.0163,Igor Rezende,2024-06-25 13:38:07,In Progress > Production > Done
+W1NNR-610,Problema,0,0,0,0,0,0.6667,Nao,10.8844,Thaís Cabral,2025-03-11 16:13:29,QA Approved > Ready for Production > Done
+W1NNR-635,Tarefa,0,0,0,0,0,0.6667,Nao,15.4659,Lorraine Caribe,2025-09-03 20:54:23,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-847,Tarefa,0,0,0,0,0,0.6667,Nao,35.5417,Lorraine Caribe,2025-06-02 17:36:05,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-848,Tarefa,0,0,0,0,0,0.6667,Nao,35.5416,Lorraine Caribe,2025-06-02 17:36:07,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-850,Tarefa,0,0,0,0,0,0.6667,Nao,17.904,Lorraine Caribe,2025-06-02 17:36:08,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-874,Tarefa,0,0,0,0,0,0.6667,Nao,26.9413,Lorraine Caribe,2025-06-02 17:36:35,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-877,Tarefa,0,0,0,0,0,0.6667,Nao,20.9078,Lorraine Caribe,2025-06-02 17:36:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-878,Tarefa,0,0,0,0,0,0.6667,Nao,13.9711,Lorraine Caribe,2025-06-02 17:36:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-879,Tarefa,0,0,0,0,0,0.6667,Nao,19.1,Lorraine Caribe,2025-06-02 17:36:36,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-881,Tarefa,0,0,0,0,0,0.6667,Nao,24.9879,Lorraine Caribe,2025-06-02 17:36:38,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-882,Tarefa,0,0,0,0,0,0.6667,Nao,18.995,Lorraine Caribe,2025-06-02 17:36:40,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-883,Tarefa,0,0,0,0,0,0.6667,Nao,26.2003,Lorraine Caribe,2025-06-02 17:36:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-902,Tarefa,0,0,0,0,0,0.6667,Nao,35.1371,Lorraine Caribe,2025-07-04 23:16:41,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-903,Tarefa,0,0,0,0,0,0.6667,Nao,35.3605,Lorraine Caribe,2025-07-04 23:16:40,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-904,Tarefa,0,0,0,0,0,0.6667,Nao,53.2191,Lorraine Caribe,2025-07-04 23:16:37,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-905,Tarefa,0,0,0,0,0,0.6667,Nao,50.3094,Lorraine Caribe,2025-07-04 23:16:39,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-907,Tarefa,0,0,0,0,0,0.6667,Nao,37.2066,Lorraine Caribe,2025-07-04 23:16:40,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-908,Tarefa,0,0,0,0,0,0.6667,Nao,46.3685,Lorraine Caribe,2025-07-04 23:16:42,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-909,Tarefa,0,0,0,0,0,0.6667,Nao,56.1373,Lorraine Caribe,2025-07-04 23:16:43,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-910,Tarefa,0,0,0,0,0,0.6667,Nao,44.1398,Lorraine Caribe,2025-07-04 23:16:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-911,Tarefa,0,0,0,0,0,0.6667,Nao,31.1934,Lorraine Caribe,2025-07-04 23:16:44,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-912,Tarefa,0,0,0,0,0,0.6667,Nao,44.0254,Lorraine Caribe,2025-06-22 23:35:21,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-913,Tarefa,0,0,0,0,0,0.6667,Nao,43.9864,Lorraine Caribe,2025-06-22 23:35:22,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-914,Tarefa,0,0,0,0,0,0.6667,Nao,43.9261,Lorraine Caribe,2025-06-22 23:35:24,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-928,Tarefa,0,0,0,0,0,0.6667,Nao,13.8729,Lorraine Caribe,2025-06-02 17:36:41,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-929,Tarefa,0,0,0,0,0,0.6667,Nao,11.979,Lorraine Caribe,2025-06-02 17:36:41,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-930,Tarefa,0,0,0,0,0,0.6667,Nao,104.5161,Lara Junqueira Alvarenga,2025-09-03 14:26:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-931,Tarefa,0,0,0,0,0,0.6667,Nao,103.7409,Lara Junqueira Alvarenga,2025-09-03 14:27:00,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-932,Tarefa,0,0,0,0,0,0.6667,Nao,102.758,Lara Junqueira Alvarenga,2025-09-03 14:25:53,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-933,Tarefa,0,0,0,0,0,0.6667,Nao,99.7447,Lara Junqueira Alvarenga,2025-09-03 14:25:51,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-934,Tarefa,0,0,0,0,0,0.6667,Nao,77.8816,Lara Junqueira Alvarenga,2025-09-03 14:27:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-935,Tarefa,0,0,0,0,0,0.6667,Nao,98.7632,Lara Junqueira Alvarenga,2025-09-03 14:25:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-936,Tarefa,0,0,0,0,0,0.6667,Nao,98.8433,Lara Junqueira Alvarenga,2025-09-03 14:26:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-937,Tarefa,0,0,0,0,0,0.6667,Nao,98.8368,Lara Junqueira Alvarenga,2025-09-03 14:26:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-938,Tarefa,0,0,0,0,0,0.6667,Nao,97.8294,Lara Junqueira Alvarenga,2025-09-03 14:26:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-939,Tarefa,0,0,0,0,0,0.6667,Nao,42.037,Lara Junqueira Alvarenga,2025-09-03 14:28:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-940,Tarefa,0,0,0,0,0,0.6667,Nao,42.0371,Lara Junqueira Alvarenga,2025-09-03 14:28:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-941,Tarefa,0,0,0,0,0,0.6667,Nao,42.0369,Lara Junqueira Alvarenga,2025-09-03 14:28:20,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-942,Tarefa,0,0,0,0,0,0.6667,Nao,96.7783,Lara Junqueira Alvarenga,2025-09-03 14:26:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-943,Tarefa,0,0,0,0,0,0.6667,Nao,83.0854,Lara Junqueira Alvarenga,2025-09-03 14:26:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-944,Tarefa,0,0,0,0,0,0.6667,Nao,76.7477,Lara Junqueira Alvarenga,2025-09-03 14:27:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-945,Tarefa,0,0,0,0,0,0.6667,Nao,57.7514,Lara Junqueira Alvarenga,2025-09-03 14:27:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-946,Tarefa,0,0,0,0,0,0.6667,Nao,69.5949,Lara Junqueira Alvarenga,2025-09-03 14:27:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-947,Tarefa,0,0,0,0,0,0.6667,Nao,57.7518,Lara Junqueira Alvarenga,2025-09-03 14:27:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-948,Tarefa,0,0,0,0,0,0.6667,Nao,77.8747,Lara Junqueira Alvarenga,2025-09-03 14:27:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-949,Tarefa,0,0,0,0,0,0.6667,Nao,103.8378,Lara Junqueira Alvarenga,2025-09-03 14:26:57,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-950,Tarefa,0,0,0,0,0,0.6667,Nao,76.9862,Lara Junqueira Alvarenga,2025-09-03 14:25:55,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-951,Tarefa,0,0,0,0,0,0.6667,Nao,77.7588,Lara Junqueira Alvarenga,2025-09-03 14:27:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-952,Tarefa,0,0,0,0,0,0.6667,Nao,57.7893,Lara Junqueira Alvarenga,2025-09-03 14:27:47,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-953,Tarefa,0,0,0,0,0,0.6667,Nao,69.5948,Lara Junqueira Alvarenga,2025-09-03 14:27:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-954,Tarefa,0,0,0,0,0,0.6667,Nao,21.8579,Lara Junqueira Alvarenga,2025-09-03 14:28:21,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-955,Tarefa,0,0,0,0,0,0.6667,Nao,35.7786,Lara Junqueira Alvarenga,2025-09-03 14:28:21,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-961,Tarefa,0,0,0,0,0,0.6667,Nao,103.811,Lara Junqueira Alvarenga,2025-09-03 14:26:09,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-962,Tarefa,0,0,0,0,0,0.6667,Nao,70.8266,Lara Junqueira Alvarenga,2025-09-03 14:27:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-963,Tarefa,0,0,0,0,0,0.6667,Nao,82.7961,Lara Junqueira Alvarenga,2025-09-03 14:27:13,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-964,Tarefa,0,0,0,0,0,0.6667,Nao,99.7265,Lara Junqueira Alvarenga,2025-09-03 14:26:11,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-965,Tarefa,0,0,0,0,0,0.6667,Nao,98.7793,Lara Junqueira Alvarenga,2025-09-03 14:26:13,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-966,Tarefa,0,0,0,0,0,0.6667,Nao,61.7132,Lara Junqueira Alvarenga,2025-09-03 14:27:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-967,Tarefa,0,0,0,0,0,0.6667,Nao,34.8519,Lara Junqueira Alvarenga,2025-09-03 14:28:21,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-968,Tarefa,0,0,0,0,0,0.6667,Nao,81.8429,Lara Junqueira Alvarenga,2025-09-03 14:27:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-969,Tarefa,0,0,0,0,0,0.6667,Nao,84.8405,Lara Junqueira Alvarenga,2025-09-03 14:26:15,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-970,Tarefa,0,0,0,0,0,0.6667,Nao,91.757,Lara Junqueira Alvarenga,2025-09-03 14:26:16,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-971,Tarefa,0,0,0,0,0,0.6667,Nao,63.8525,Lara Junqueira Alvarenga,2025-09-03 14:27:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-972,Tarefa,0,0,0,0,0,0.6667,Nao,60.8251,Lara Junqueira Alvarenga,2025-09-03 14:27:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-973,Tarefa,0,0,0,0,0,0.6667,Nao,47.8144,Lara Junqueira Alvarenga,2025-09-03 14:28:27,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-974,Tarefa,0,0,0,0,0,0.6667,Nao,90.5343,Lara Junqueira Alvarenga,2025-09-03 14:26:17,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-975,Tarefa,0,0,0,0,0,0.6667,Nao,41.7821,Lara Junqueira Alvarenga,2025-09-03 14:28:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-976,Tarefa,0,0,0,0,0,0.6667,Nao,90.8012,Lara Junqueira Alvarenga,2025-09-03 14:26:18,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-977,Tarefa,0,0,0,0,0,0.6667,Nao,78.0651,Lara Junqueira Alvarenga,2025-09-03 14:27:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-978,Tarefa,0,0,0,0,0,0.6667,Nao,57.8514,Lara Junqueira Alvarenga,2025-09-03 14:27:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-979,Tarefa,0,0,0,0,0,0.6667,Nao,78.4905,Lara Junqueira Alvarenga,2025-09-03 14:27:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-980,Tarefa,0,0,0,0,0,0.6667,Nao,56.6844,Lara Junqueira Alvarenga,2025-09-03 14:27:34,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-981,Tarefa,0,0,0,0,0,0.6667,Nao,29.8518,Lara Junqueira Alvarenga,2025-09-03 14:28:28,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-982,Tarefa,0,0,0,0,0,0.6667,Nao,104.8561,Lara Junqueira Alvarenga,2025-09-03 14:26:19,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-984,Tarefa,0,0,0,0,0,0.6667,Nao,104.8104,Lara Junqueira Alvarenga,2025-09-03 14:26:58,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-988,Tarefa,0,0,0,0,0,0.6667,Nao,10.956,Lorraine Caribe,2025-06-02 17:36:42,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-992,Tarefa,0,0,0,0,0,0.6667,Nao,26.0248,Lorraine Caribe,2025-06-22 23:35:14,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-993,Tarefa,0,0,0,0,0,0.6667,Nao,5.798,Lorraine Caribe,2025-06-02 17:36:09,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-996,Tarefa,0,0,0,0,0,0.6667,Nao,4.9696,Lorraine Caribe,2025-06-02 17:36:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-998,Tarefa,0,0,0,0,0,0.6667,Nao,3.9961,Lorraine Caribe,2025-06-02 17:36:33,In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-613,Tarefa,0,0,0,0,0,0.7,Nao,11.6842,Lorraine Caribe,2025-03-11 12:42:32,In Progress > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-614,Tarefa,0,0,0,0,0,0.7,Nao,11.6834,Lorraine Caribe,2025-03-11 12:42:30,In Progress > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-615,Tarefa,0,0,0,0,0,0.7,Nao,12.0013,Lorraine Caribe,2025-03-11 12:42:28,In Progress > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-616,Tarefa,0,0,0,0,0,0.7,Nao,3.9864,Lorraine Caribe,2025-03-11 12:42:25,In Progress > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-618,Tarefa,0,0,0,0,0,0.7,Nao,10.6681,Lorraine Caribe,2025-03-11 12:42:23,In Progress > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-619,Tarefa,0,0,0,0,0,0.7,Nao,10.6026,Lorraine Caribe,2025-03-11 12:42:17,In Progress > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-178,Tarefa,0,0,0,0,0,0.75,Sim,6.8321,Lorraine Caribe,2024-08-29 11:43:33,In Progress > Done
+W1NNR-231,Tarefa,0,0,0,0,0,0.75,Sim,27.3897,Lorraine Caribe,2024-11-27 22:22:31,In Progress > In Staging > Ready for Production > Done
+W1NNR-232,Tarefa,0,0,0,0,0,0.75,Sim,27.3899,Lorraine Caribe,2024-11-27 22:22:40,In Progress > In Staging > Ready for Production > Done
+W1NNR-233,Tarefa,0,0,0,0,0,0.75,Sim,23.0514,Lorraine Caribe,2024-11-27 22:22:37,In Progress > In Staging > Ready for Production > Done
+W1NNR-234,Tarefa,0,0,0,0,0,0.75,Sim,23.0517,Lorraine Caribe,2024-11-27 22:22:44,In Progress > In Staging > Ready for Production > Done
+W1NNR-483,Tarefa,0,0,0,0,0,0.75,Sim,0.8088,Lara Junqueira Alvarenga,2024-11-06 12:53:55,In Progress > Ready To Staging > In Staging > Done
+W1NNR-60,Tarefa,0,0,0,0,0,0.75,Nao,28.7632,Lorraine Caribe,2024-08-01 14:12:53,In Progress > Ready for Staging > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-872,Tarefa,0,0,0,0,0,0.75,Nao,39.9911,Lorraine Caribe,2025-06-02 17:36:30,In Progress > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-873,Tarefa,0,0,0,0,0,0.75,Nao,39.904,Lorraine Caribe,2025-06-02 17:36:28,In Progress > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-875,Tarefa,0,0,0,0,0,0.75,Nao,27.9863,Lorraine Caribe,2025-06-02 17:36:29,In Progress > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-876,Tarefa,0,0,0,0,0,0.75,Nao,39.9428,Lorraine Caribe,2025-06-02 17:36:31,In Progress > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-880,Tarefa,0,0,0,0,0,0.75,Nao,34.1365,Lorraine Caribe,2025-06-02 17:36:30,In Progress > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-923,Tarefa,0,0,0,0,0,0.75,Sim,272.8428,Lara Junqueira Alvarenga,2026-02-11 17:56:47,In Progress > Done
+W1NNR-105,Tarefa,0,0,0,0,0,0.8,Sim,17.9931,Eder Afonso,2024-08-27 12:53:35,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-108,Tarefa,0,0,0,0,0,0.8,Sim,17.993,Eder Afonso,2024-08-27 12:53:51,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-227,Tarefa,0,0,0,0,0,0.8,Sim,27.6644,Lara Junqueira Alvarenga,2024-11-06 13:02:22,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-236,Tarefa,0,0,0,0,0,0.8,Sim,41.4102,Lorraine Caribe,2024-12-23 23:12:03,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-237,Tarefa,0,0,0,0,0,0.8,Sim,41.4102,Lorraine Caribe,2024-12-23 23:12:04,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-238,Tarefa,0,0,0,0,0,0.8,Sim,41.4101,Lorraine Caribe,2024-12-23 23:12:04,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-239,Tarefa,0,0,0,0,0,0.8,Sim,41.41,Lorraine Caribe,2024-12-23 23:12:04,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-240,Tarefa,0,0,0,0,0,0.8,Sim,41.41,Lorraine Caribe,2024-12-23 23:12:04,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-385,Tarefa,0,0,0,0,0,0.8,Sim,68.2574,Lorraine Caribe,2025-01-27 19:19:41,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-386,Tarefa,0,0,0,0,0,0.8,Sim,63.2886,Lorraine Caribe,2025-01-27 19:19:42,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-73,Tarefa,0,0,0,0,0,0.8,Sim,9.0897,Lorraine Caribe,2024-08-01 14:12:53,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-76,Tarefa,0,0,0,0,0,0.8,Sim,6.8266,Lorraine Caribe,2024-08-01 14:12:53,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-80,Tarefa,0,0,0,0,0,0.8,Sim,1.6788,Lorraine Caribe,2024-08-01 14:12:51,In Progress > Ready To Staging > In Staging > Ready for Production > Done
+W1NNR-387,Tarefa,0,0,0,0,0,0.8333,Sim,63.2883,Lorraine Caribe,2025-01-27 19:19:43,In Progress > Ready for Production > Done
+W1NNR-396,Tarefa,0,0,0,0,0,0.8333,Sim,68.2219,Lorraine Caribe,2025-01-27 19:19:44,In Progress > Ready for Production > Done
+W1NNR-730,Tarefa,0,0,0,0,0,0.8333,Sim,11.8004,Lorraine Caribe,2025-04-02 13:01:31,In Progress > Ready for Production > Done
+W1NNR-1064,Tarefa,0,0,0,0,0,1.0,Sim,0.0,Lara Junqueira Alvarenga,2026-02-11 17:55:00,Done
+W1NNR-28,Problema,0,0,0,0,0,1.0,Sim,0.0,Eder Afonso,2024-05-16 00:21:24,Done
+W1NNR-307,Problema,0,0,0,0,0,1.0,Sim,0.0,Eder Afonso,2024-09-27 22:32:32,Done
+W1NNR-691,Problema,0,0,0,0,0,1.0,Sim,0.0,Lorraine Caribe,2025-03-14 23:04:58,Done

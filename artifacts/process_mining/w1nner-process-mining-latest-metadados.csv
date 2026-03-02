@@ -1,0 +1,17 @@
+﻿Metrica,Valor
+pm4py_available,True
+pm4py_events,6916
+pm4py_cases,987
+pm4py_activities,36
+pm4py_dfg_edges,135
+pm4py_start_activities,17
+pm4py_end_activities,8
+graphviz_dot_available,True
+graphviz_dot_path,/opt/homebrew/bin/dot
+pm4py_dfg_png,artifacts/process_mining/w1nner-process-mining-20260302_150331-pm4py-dfg.png
+pm4py_dfg_performance_png,artifacts/process_mining/w1nner-process-mining-20260302_150331-pm4py-dfg-performance.png
+pm4py_heuristics_png,artifacts/process_mining/w1nner-process-mining-20260302_150331-pm4py-heuristics.png
+pm4py_inductive_tree_png,artifacts/process_mining/w1nner-process-mining-20260302_150331-pm4py-inductive-tree.png
+pm4py_petri_png,artifacts/process_mining/w1nner-process-mining-20260302_150331-pm4py-petri.png
+pm4py_alignments_max_cases,0
+pm4py_alignments_skipped,disabled_by_limit
