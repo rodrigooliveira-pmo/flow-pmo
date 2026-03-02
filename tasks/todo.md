@@ -3266,3 +3266,32 @@
   - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
 - Suggested commit message:
   - `fix(process-mining): prefer validated latest workbook across dashboards`
+
+## Current Task (Process Mining: KPI de concluídos para itens únicos finalizados)
+- [x] Revisar a origem do KPI `Itens Concluídos (período)` na aba `Process Mining Jira` e confirmar divergência com unidade de throughput
+- [x] Ajustar cálculo para usar itens únicos finalizados no período (base de casos finalizados)
+- [x] Ajustar rótulo/layout do card para refletir a nova semântica de vazão
+- [x] Validar comportamento com verificação de sintaxe e inspeção do diff
+
+## Specification (Process Mining: KPI de concluídos para itens únicos finalizados)
+- Objetivo: alinhar o KPI principal da aba de Process Mining com a unidade de throughput, substituindo contagem agregada por pessoa por contagem de itens únicos finalizados no período.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O card deixa de usar soma de `Itens Concluidos` por responsável quando houver base de casos e passa a refletir `Issue Key` únicos finalizados no período.
+  - O rótulo do KPI explicita `itens únicos finalizados` (sem ambiguidade de unidade).
+  - O grid de KPIs mantém layout consistente (cards com mesma largura e quebra adequada em desktop/mobile).
+  - Código válido em sintaxe.
+
+## Review (Process Mining: KPI de concluídos para itens únicos finalizados)
+- What was validated:
+  - O KPI principal da aba `tab-process-mining-jira` foi alterado para priorizar contagem de `Issue Key` únicos da base de casos finalizados (`pm_cases`), com filtro adicional de `Done Final Date` válido quando a coluna existe.
+  - O fallback para soma de `Itens Concluidos` por pessoa foi mantido apenas para cenários sem `Issue Key` disponível.
+  - O rótulo do card foi atualizado para `Itens Únicos Finalizados (período)`, mantendo o layout em grade com `class_name='three columns'`.
+  - A base de `Cobertura Técnica` passou a usar o mesmo conjunto de itens finalizados (`finalized_issue_keys`) para manter unidade coerente com throughput.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `fix(process-mining): align throughput KPI to unique finalized items in period`

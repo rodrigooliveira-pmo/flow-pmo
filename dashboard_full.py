@@ -8527,10 +8527,22 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if pm_people.empty and pm_cases.empty:
             return html.Div('Sem dados de process mining para o período/filtros selecionados.')
 
-        if 'Itens Concluidos' in pm_people.columns and not pm_people.empty:
+        finalized_issue_keys = set()
+        if 'Issue Key' in pm_cases.columns:
+            cases_for_throughput = pm_cases.copy()
+            if 'Done Final Date' in cases_for_throughput.columns:
+                cases_for_throughput = cases_for_throughput[cases_for_throughput['Done Final Date'].notna()]
+            issue_keys = (
+                cases_for_throughput['Issue Key']
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+            finalized_issue_keys = set(issue_keys[issue_keys.ne('')].tolist())
+        if finalized_issue_keys:
+            total_concluidos = len(finalized_issue_keys)
+        elif 'Itens Concluidos' in pm_people.columns and not pm_people.empty:
             total_concluidos = int(pd.to_numeric(pm_people['Itens Concluidos'], errors='coerce').fillna(0).sum())
-        elif 'Issue Key' in pm_cases.columns:
-            total_concluidos = int(pm_cases['Issue Key'].nunique())
         else:
             total_concluidos = 0
 
@@ -8581,14 +8593,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         cobertura_tecnica_pct = np.nan
         itens_com_evidencia = 0
-        if not pm_cases.empty and 'Issue Key' in pm_cases.columns:
-            keys_done = (
-                pm_cases['Issue Key']
-                .astype(str)
-                .str.strip()
-                .str.upper()
-            )
-            keys_done = set(keys_done[keys_done.ne('')].tolist())
+        if finalized_issue_keys:
+            keys_done = set(finalized_issue_keys)
             if keys_done:
                 tech_keys = _extract_work_item_keys_from_bitbucket_logs(bitbucket_logs, start_ts, bitbucket_end_ts)
                 if responsavel and 'Done Final Author' in pm_cases.columns:
@@ -8600,7 +8606,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 cobertura_tecnica_pct = (itens_com_evidencia / len(keys_done) * 100.0) if len(keys_done) > 0 else np.nan
 
         kpis = html.Div([
-            create_kpi_card('Itens Concluídos (período)', total_concluidos, class_name='three columns'),
+            create_kpi_card('Itens Únicos Finalizados (período)', total_concluidos, class_name='three columns'),
             create_kpi_card('Itens com Retrabalho', itens_retrabalho, class_name='three columns'),
             create_kpi_card('Taxa de Retrabalho', f"{taxa_retrabalho:.1f}%", class_name='three columns'),
             create_kpi_card('Conformidade Média', f"{conf_media:.2f}" if pd.notna(conf_media) else '—', class_name='three columns'),
