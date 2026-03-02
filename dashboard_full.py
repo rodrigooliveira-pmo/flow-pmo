@@ -2480,6 +2480,71 @@ def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=N
     return fig
 
 
+def compute_process_capability_metrics(values, lsl=None, usl=None):
+    series = pd.to_numeric(pd.Series(values), errors='coerce').dropna()
+    result = {
+        'count': int(len(series)),
+        'lsl': float(lsl) if pd.notna(lsl) else np.nan,
+        'usl': float(usl) if pd.notna(usl) else np.nan,
+        'mean': np.nan,
+        'std': np.nan,
+        'cpu': np.nan,
+        'cpl': np.nan,
+        'cpk': np.nan,
+        'sigma_short': np.nan,
+        'sigma_long': np.nan,
+        'quality': 'Sem classificação',
+        'error': None,
+    }
+
+    if series.empty:
+        result['error'] = 'Sem dados suficientes para calcular Cpk e Nível Sigma.'
+        return result
+    if result['count'] < 2:
+        result['error'] = 'São necessários pelo menos 2 pontos para calcular desvio padrão amostral.'
+        return result
+    if not np.isfinite(result['lsl']) and not np.isfinite(result['usl']):
+        result['error'] = 'Informe ao menos um limite de especificação (LSL ou USL).'
+        return result
+    if np.isfinite(result['lsl']) and np.isfinite(result['usl']) and result['lsl'] >= result['usl']:
+        result['error'] = 'LSL deve ser menor que USL.'
+        return result
+
+    mean = float(series.mean())
+    std = float(series.std(ddof=1))
+    result['mean'] = mean
+    result['std'] = std
+    if not np.isfinite(std) or std <= 0:
+        result['error'] = 'Desvio padrão inválido (zero ou não finito) para cálculo de capabilidade.'
+        return result
+
+    if np.isfinite(result['usl']):
+        result['cpu'] = (result['usl'] - mean) / (3.0 * std)
+    if np.isfinite(result['lsl']):
+        result['cpl'] = (mean - result['lsl']) / (3.0 * std)
+
+    candidates = [v for v in [result['cpu'], result['cpl']] if np.isfinite(v)]
+    if not candidates:
+        result['error'] = 'Não foi possível calcular CPU/CPL com os limites informados.'
+        return result
+
+    cpk = float(min(candidates))
+    result['cpk'] = cpk
+    result['sigma_short'] = cpk * 3.0
+    result['sigma_long'] = (cpk * 3.0) - 1.5
+
+    if cpk < 1.0:
+        result['quality'] = 'Incapaz (Cpk < 1.00)'
+    elif cpk < 1.33:
+        result['quality'] = 'Apenas capaz (1.00 ≤ Cpk < 1.33)'
+    elif cpk < 2.0:
+        result['quality'] = 'Bom (1.33 ≤ Cpk < 2.00)'
+    else:
+        result['quality'] = 'Classe Seis Sigma (Cpk ≥ 2.00)'
+
+    return result
+
+
 def build_cfd_dataframe(df_source, start_ts=None, end_ts=None):
     """Builds CFD series using macro stages and cumulative stacking (right-to-left sum)."""
     if df_source is None or getattr(df_source, 'empty', True):
@@ -4603,6 +4668,14 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
     return d
 
 
+def optional_input(component_id, component_property):
+    """Dash compatibility shim for versions without Input(..., allow_optional=...)."""
+    try:
+        return Input(component_id, component_property, allow_optional=True)
+    except TypeError:
+        return Input(component_id, component_property)
+
+
 @app.callback(
     Output('main-view', 'data'),
     Output('tabs', 'value'),
@@ -4710,11 +4783,14 @@ def update_main_navigation_layout(main_view):
     Input('filter-portfolio-decision-statuses', 'value'),
     Input('filter-portfolio-workflow-statuses', 'value'),
     Input('filter-portfolio-sla-aging-json', 'value'),
-    Input('filter-portfolio-target-mix-json', 'value')
+    Input('filter-portfolio-target-mix-json', 'value'),
+    optional_input('estatistica-lsl', 'value'),
+    optional_input('estatistica-usl', 'value'),
 )
 def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team='__ALL__',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
-               pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None):
+               pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
+               estatistica_lsl=None, estatistica_usl=None):
     if main_view in (None, 'home'):
         return html.Div(
             'Selecione "Porfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
@@ -8344,27 +8420,29 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
 
-        # Base sem filtro de DataDone para calcular WIP
+        # Base sem filtro de DataDone para calcular WIP (mas mantendo filtros ativos)
         df_base = fato.copy()
         if projeto:
             df_base = df_base[df_base['Projeto'] == projeto]
         if tipo:
             df_base = df_base[df_base['TipoDemanda'] == tipo]
+        if classe_servico:
+            df_base = df_base[df_base['ClasseServico'] == classe_servico]
         if responsavel:
             df_base = df_base[df_base['Responsavel'] == responsavel]
+        df_base, _ = apply_selected_lead_time_metric(df_base, projeto, leadtime_stages)
+
         # Itens concluídos no período (para Lead Time)
-        df_done = df_base[
-            (df_base['DataDone'] >= start_date_ts) &
-            (df_base['DataDone'] <= end_date_ts)
-        ].copy()
-        df_done = df_done[done_time_eligible_mask(df_done)]
+        df_done = df.copy()
+        df_done = df_done[done_time_eligible_mask(df_done)].copy()
 
         # --- 1. Estatísticas de Lead Time ---
         lead_time_stats = {}
-        if not df_done.empty and 'LeadTime_Dias' in df_done.columns and not df_done['LeadTime_Dias'].dropna().empty:
-            lt = time_metric_series(df_done, 'LeadTime_Dias')
-            lt_exact = exact_percentile_map(lt, [0.25, 0.50, 0.75, 0.85, 0.95]) if not lt.empty else {}
-            lt_weibull = fit_weibull_linearized(lt) if not lt.empty else None
+        lead_col = 'LeadTime_Selected_Dias' if 'LeadTime_Selected_Dias' in df_done.columns else 'LeadTime_Dias'
+        lt = time_metric_series(df_done, lead_col, non_negative=True) if lead_col in df_done.columns else pd.Series(dtype='float64')
+        if not lt.empty:
+            lt_exact = exact_percentile_map(lt, [0.25, 0.50, 0.75, 0.85, 0.95])
+            lt_weibull = fit_weibull_linearized(lt)
             lead_time_stats = {
                 'Contagem': int(len(lt)),
                 'Média': f"{lt.mean():.2f}",
@@ -8385,6 +8463,46 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Curtose': f"{lt.kurtosis():.2f}",
             }
 
+        def parse_optional_number(value):
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                return np.nan
+            return parsed if np.isfinite(parsed) else np.nan
+
+        lsl_value = parse_optional_number(estatistica_lsl)
+        usl_value = parse_optional_number(estatistica_usl)
+        lsl_input_value = float(lsl_value) if np.isfinite(lsl_value) else None
+        usl_input_value = float(usl_value) if np.isfinite(usl_value) else None
+        capability_metrics = compute_process_capability_metrics(lt, lsl=lsl_value, usl=usl_value)
+
+        capability_table_data = []
+        capability_msg = None
+        if capability_metrics.get('error'):
+            capability_msg = capability_metrics['error']
+        else:
+            capability_table_data = [
+                {'Métrica': 'Amostra (n)', 'Valor': f"{capability_metrics['count']}"},
+                {'Métrica': 'LSL', 'Valor': f"{capability_metrics['lsl']:.2f}"},
+                {'Métrica': 'USL', 'Valor': f"{capability_metrics['usl']:.2f}"},
+                {'Métrica': 'Média (x̄)', 'Valor': f"{capability_metrics['mean']:.2f}"},
+                {'Métrica': 'Desvio padrão amostral (s)', 'Valor': f"{capability_metrics['std']:.4f}"},
+                {'Métrica': 'CPU', 'Valor': f"{capability_metrics['cpu']:.4f}" if np.isfinite(capability_metrics['cpu']) else 'N/A'},
+                {'Métrica': 'CPL', 'Valor': f"{capability_metrics['cpl']:.4f}" if np.isfinite(capability_metrics['cpl']) else 'N/A'},
+                {'Métrica': 'Cpk', 'Valor': f"{capability_metrics['cpk']:.4f}"},
+                {'Métrica': 'Nível Sigma (curto prazo = Cpk x 3)', 'Valor': f"{capability_metrics['sigma_short']:.3f}"},
+                {'Métrica': 'Nível Sigma (longo prazo = Cpk x 3 - 1.5)', 'Valor': f"{capability_metrics['sigma_long']:.3f}"},
+                {'Métrica': 'Interpretação', 'Valor': capability_metrics['quality']},
+            ]
+
+        capability_component = dash_table.DataTable(
+            columns=[{"name": "Métrica", "id": "Métrica"}, {"name": "Valor", "id": "Valor"}],
+            data=capability_table_data,
+            style_cell={'textAlign': 'left', 'padding': '8px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+        ) if capability_table_data else html.P(capability_msg or 'Sem dados para calcular Cpk e Nível Sigma.', style={'color': '#666'})
+
         lt_table_data = [{'Estatística': k, 'Valor': v} for k, v in lead_time_stats.items()]
         lt_table = dash_table.DataTable(
             columns=[{"name": "Estatística", "id": "Estatística"}, {"name": "Valor", "id": "Valor"}],
@@ -8397,12 +8515,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # Gráficos de Lead Time
         fig_lt_hist = {}
         fig_lt_box = {}
-        if not df_done.empty and 'LeadTime_Dias' in df_done.columns and not df_done['LeadTime_Dias'].dropna().empty:
-            fig_lt_hist = px.histogram(df_done, x='LeadTime_Dias', nbins=30,
+        if not df_done.empty and lead_col in df_done.columns and not df_done[lead_col].dropna().empty:
+            df_done_lt = df_done.copy()
+            df_done_lt[lead_col] = pd.to_numeric(df_done_lt[lead_col], errors='coerce')
+            df_done_lt = df_done_lt.dropna(subset=[lead_col])
+            df_done_lt = df_done_lt[df_done_lt[lead_col] >= 0]
+            fig_lt_hist = px.histogram(df_done_lt, x=lead_col, nbins=30,
                                        title='Distribuição do Lead Time (dias)',
-                                       labels={'LeadTime_Dias': 'Lead Time (dias)', 'count': 'Frequência'},
+                                       labels={lead_col: 'Lead Time (dias)', 'count': 'Frequência'},
                                        height=500)
-            lt_hist_series = time_metric_series(df_done, 'LeadTime_Dias')
+            lt_hist_series = time_metric_series(df_done_lt, lead_col, non_negative=True)
             lt_mean_val = lt_hist_series.mean()
             lt_median_val = exact_empirical_percentile(lt_hist_series, 0.50)
             lt_p85_val = exact_empirical_percentile(lt_hist_series, 0.85)
@@ -8410,8 +8532,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             fig_lt_hist.add_vline(x=lt_median_val, line_dash="dash", line_color="blue", annotation_text=f"Mediana: {lt_median_val:.1f}")
             fig_lt_hist.add_vline(x=lt_p85_val, line_dash="dash", line_color="orange", annotation_text=f"P85: {lt_p85_val:.1f}")
 
-            fig_lt_box = px.box(df_done, y='LeadTime_Dias', title='Box Plot do Lead Time (dias)',
-                                labels={'LeadTime_Dias': 'Lead Time (dias)'}, points='all', height=500)
+            fig_lt_box = px.box(df_done_lt, y=lead_col, title='Box Plot do Lead Time (dias)',
+                                labels={lead_col: 'Lead Time (dias)'}, points='all', height=500)
 
         # --- 2. Estatísticas de Throughput (semanal) ---
         tp_weekly = df_done.dropna(subset=['DataDone']).copy()
@@ -8519,6 +8641,42 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         return html.Div([
             html.H3("Estatística Descritiva", style={'textAlign': 'center'}),
             html.P(filtro_info, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '30px'}),
+
+            # Cpk / Six Sigma
+            html.H4("Capabilidade do Processo (Cpk e Nível Sigma)", style={'textAlign': 'center', 'marginTop': '20px', 'borderBottom': '2px solid #ddd', 'paddingBottom': '10px'}),
+            html.P(
+                "Informe os limites de especificação do cliente (LSL e USL) para calcular CPU, CPL, Cpk e nível sigma.",
+                style={'textAlign': 'center', 'color': '#666', 'marginBottom': '14px'}
+            ),
+            html.Div([
+                html.Div([
+                    html.Label("LSL (Limite Inferior):", style={'fontWeight': 'bold'}),
+                    dcc.Input(
+                        id='estatistica-lsl',
+                        type='number',
+                        value=lsl_input_value,
+                        debounce=True,
+                        placeholder='Ex.: 9.7',
+                        style={'width': '160px'}
+                    ),
+                ], style={'display': 'inline-flex', 'alignItems': 'center', 'gap': '8px', 'marginRight': '20px'}),
+                html.Div([
+                    html.Label("USL (Limite Superior):", style={'fontWeight': 'bold'}),
+                    dcc.Input(
+                        id='estatistica-usl',
+                        type='number',
+                        value=usl_input_value,
+                        debounce=True,
+                        placeholder='Ex.: 10.3',
+                        style={'width': '160px'}
+                    ),
+                ], style={'display': 'inline-flex', 'alignItems': 'center', 'gap': '8px'}),
+            ], style={'textAlign': 'center', 'marginBottom': '14px'}),
+            html.Div(capability_component, style={'width': '60%', 'margin': '0 auto'}),
+            html.P(
+                "Premissa: distribuição aproximadamente normal. Para processo não normal ou dados binários, use abordagem específica por yield/PPM.",
+                style={'textAlign': 'center', 'color': '#666', 'fontSize': '12px', 'marginTop': '10px'}
+            ),
 
             # Lead Time
             html.H4("Lead Time (dias)", style={'textAlign': 'center', 'marginTop': '30px', 'borderBottom': '2px solid #ddd', 'paddingBottom': '10px'}),
@@ -8859,14 +9017,6 @@ def create_table(df, table_id='table-main', title='Tabela'):
 
 def create_generic_datatable(df, table_id, title):
     return create_table(df, table_id=table_id, title=title)
-
-
-def optional_input(component_id, component_property):
-    """Dash compatibility shim for versions without Input(..., allow_optional=...)."""
-    try:
-        return Input(component_id, component_property, allow_optional=True)
-    except TypeError:
-        return Input(component_id, component_property)
 
 
 @app.callback(

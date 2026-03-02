@@ -1,5 +1,36 @@
 # Task Plan
 
+## Current Task (Estatística Descritiva: Cpk e Nível Sigma)
+- [x] Registrar plano e escopo para incluir Cpk e Nível Sigma na aba de estatística descritiva
+- [x] Implementar entrada de limites de especificação (LSL/USL) e cálculo de Cpk/Six Sigma
+- [x] Validar sintaxe e smoke test da aba `Estatística Descritiva`
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Estatística Descritiva: Cpk e Nível Sigma)
+- Objetivo: adicionar na aba `Estatística Descritiva` o cálculo de Cpk e Nível Sigma (curto e longo prazo) com base em dados e limites de especificação informados.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba exibe campos para `LSL` e `USL`.
+  - Com limites válidos e dados de Lead Time disponíveis, o dashboard calcula `CPU`, `CPL`, `Cpk`, `Sigma (curto prazo)` e `Sigma (longo prazo, deslocamento 1.5σ)`.
+  - A aba exibe interpretação qualitativa do Cpk.
+  - Quando dados/limites forem inválidos, a interface mostra mensagem clara sem quebrar o restante da aba.
+
+## Review (Estatística Descritiva: Cpk e Nível Sigma)
+- What was validated:
+  - A aba `tab-estatistica` recebeu bloco de capabilidade com campos `LSL` e `USL` e cálculo de `CPU`, `CPL`, `Cpk`, `Nível Sigma (curto prazo)` e `Nível Sigma (longo prazo)`.
+  - O cálculo foi encapsulado em `compute_process_capability_metrics(...)`, com validações para amostra mínima, limites ausentes/inválidos e desvio padrão zero.
+  - A interpretação do Cpk foi adicionada na própria tabela (`Incapaz`, `Apenas capaz`, `Bom`, `Classe Seis Sigma`).
+  - Em cenários sem limites ou com dados insuficientes, a aba mostra mensagem clara e preserva os demais blocos de estatística.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... render_tab(... tab='tab-estatistica' ... 9.7, 10.3) ... print('has_cpk_label', ...) ... PY`
+  - `python3 - <<'PY' ... render_tab(... tab='tab-estatistica' ... None, None) ... print('msg_limite', ...) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(estatistica): add Cpk and six sigma calculations with LSL/USL inputs`
+
 ## Current Task (Performance do Serviço: visão consolidada dinâmica por filtros)
 - [x] Registrar plano e escopo da visão consolidada dinâmica
 - [x] Remover valores hardcoded e calcular KPIs com base no período e filtros ativos
@@ -2890,3 +2921,43 @@
   - `rg -n "present_buckets|category_orders=\\{'AgingBucket'" dashboard_full.py`
 - Suggested commit message:
   - `fix(dashboard): avoid plotly keyerror when aging bucket categories are missing after filters`
+
+## Current Task (Diagnóstico: relatório Estatística com dados incorretos)
+- [x] Extrair evidências do PDF e reproduzir os números com o mesmo período/filtros
+- [x] Validar consistência entre aba `tab-estatistica`, filtros ativos e métrica de lead time selecionada
+- [x] Corrigir a origem da divergência no `dashboard_full.py`
+- [x] Validar sintaxe e reproduzir os KPIs após a correção
+- [x] Registrar review com causa raiz, evidências e sugestão de commit
+
+## Specification (Diagnóstico: relatório Estatística com dados incorretos)
+- Objetivo: identificar e corrigir por que o relatório da aba `Estatística Descritiva` não reflete corretamente os dados do período/filtros selecionados.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba `tab-estatistica` usa a mesma base filtrada do dashboard (incluindo `classe_servico`) em vez de recalcular sobre `fato` bruto.
+  - Lead Time da aba passa a usar a métrica selecionada (`LeadTime_Selected_Dias`) e não apenas `LeadTime_Dias`.
+  - Throughput/WIP permanecem coerentes com o recorte de período/filtros.
+  - Código válido em sintaxe.
+
+## Review (Diagnóstico: relatório Estatística com dados incorretos)
+- What was validated:
+  - O PDF exportado da aba `Estatística Descritiva` (W1NNER, 01/01/2026 a 31/01/2026) mostrava `Throughput` com dados (`Total de Itens = 88`) e, ao mesmo tempo, `Lead Time` sem dados.
+  - A causa raiz foi confirmada em dois pontos:
+    - **Dados**: no modelo carregado (`PowerBI_Model_20260302_084834.xlsx`), os 89 itens concluídos no período (88 elegíveis) tinham `LeadTime_Dias` nulo, pois `DataBacklog` estava vazio nesse recorte.
+    - **Código**: `tab-estatistica` ignorava o dataframe filtrado + métrica selecionada (`LeadTime_Selected_Dias`) e recalculava em cima de `fato` usando `LeadTime_Dias` fixo.
+  - A aba foi corrigida para:
+    - usar `df_done = df` (recorte filtrado do callback) para métricas de concluídos;
+    - aplicar `LeadTime_Selected_Dias` (fallback para `LeadTime_Dias`);
+    - manter WIP em base sem filtro de conclusão, mas com os mesmos filtros ativos, incluindo `classe_servico`.
+  - Após correção, no mesmo recorte do PDF:
+    - `lead_count = 86`, `lead_mean = 10.13`, `lead_p85 = 20.00`;
+    - `throughput_total = 88`, `throughput_weeks = 4`.
+- Evidence (tests/logs/diff):
+  - `pdftotext '/Users/rodrigoalmeidadeoliveira/Downloads/Dashboard de Métricas (Full)-estatística.pdf' /tmp/dashboard_estatistica.txt`
+  - `python3 - <<'PY' ... import dashboard_full as d ... print(d.MODEL_FILE, rows_done_period, lead_non_null) ... PY`
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.render_tab(... tab='tab-estatistica' ...) ... print('lead_count', ... ) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dashboard): align estatistica tab with filtered lead-time metric and active service filters`
