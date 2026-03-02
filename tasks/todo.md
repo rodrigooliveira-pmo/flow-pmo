@@ -3175,3 +3175,64 @@
   - `git diff -- dashboard_full.py tasks/todo.md`
 - Suggested commit message:
   - `fix(dashboard): align estatistica tab with filtered lead-time metric and active service filters`
+
+## Current Task (CFD detalhado indisponível em todos os projetos)
+- [x] Confirmar causa raiz do aviso de modo detalhado indisponível
+- [x] Ajustar descoberta de pastas para incluir `../dados/latest` e `../dados`
+- [x] Melhorar mensagem de erro do CFD com diagnóstico acionável por causa
+- [x] Validar sintaxe e execução básica do fluxo do CFD
+
+## Specification (CFD detalhado indisponível em todos os projetos)
+- Objetivo: tornar o carregamento do downstream detalhado robusto para o layout de pastas do projeto e tornar o erro do CFD explícito para evitar diagnóstico ambíguo.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O loader de dados considera também `../dados/latest` e `../dados` além dos diretórios já existentes.
+  - Quando o detalhado estiver indisponível, a UI do CFD mostra uma causa específica (sem CSV, sem concluídos no filtro, sem etapas válidas etc.).
+  - Código válido em sintaxe.
+
+## Review (CFD detalhado indisponível em todos os projetos)
+- What was validated:
+  - A pasta informada pelo usuário foi confirmada: em `.../flow-pmo/dados/latest` existia apenas `portfolio-bt-ns-latest-data.csv`, sem arquivos `*-downstream-*-latest-data.csv` por projeto.
+  - `_candidate_data_folders()` passou a considerar explicitamente as pastas de projeto `../dados/latest` e `../dados`, além dos diretórios já existentes.
+  - A anotação do CFD para modo detalhado indisponível deixou de ser genérica e agora informa causa específica:
+    - sem projeto;
+    - sem CSV downstream por projeto;
+    - filtro sem itens concluídos;
+    - ausência de etapas válidas no CSV.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... import dashboard_full as d; print(d.DATA_FOLDERS); print(d._get_cfd_detailed_unavailable_reason(...)) ... PY`
+  - `find '/Users/rodrigoalmeidadeoliveira/.../flow-pmo/dados' -maxdepth 3 -type f -name '*-latest-data.csv'`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(cfd): include project dados/latest in downstream discovery and show precise unavailability reasons`
+
+## Current Task (Publicar downstream latest em pasta central latest)
+- [x] Atualizar script macOS para copiar aliases `*-downstream-latest-data.csv` para `../dados/latest`
+- [x] Atualizar script PowerShell para copiar aliases `*-downstream-latest-data.csv` para `../dados/latest`
+- [x] Validar sintaxe dos scripts alterados no ambiente atual
+
+## Specification (Publicar downstream latest em pasta central latest)
+- Objetivo: garantir que toda execução de exportação downstream publique automaticamente os aliases `*-downstream-latest-data.csv` na pasta central `.../flow-pmo/dados/latest`.
+- Escopo:
+  - `run_all_projects_macos.sh`
+  - `run_all_projects.ps1`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Após gerar `*-data.csv`, o script atualiza `*-latest-data.csv` no `OutDir` e replica o mesmo arquivo para `../dados/latest`.
+  - A pasta `../dados/latest` é criada automaticamente quando não existir.
+  - Scripts permanecem válidos em sintaxe.
+
+## Review (Publicar downstream latest em pasta central latest)
+- What was validated:
+  - `run_all_projects_macos.sh` agora define `LATEST_DIR` (com fallback para `../dados/latest` relativo ao script), cria a pasta e replica cada `*-latest-data.csv` downstream para esse destino.
+  - `run_all_projects.ps1` recebeu a mesma lógica: resolução de `latestDir` (com override via `FLOW_PMO_LATEST_DIR`), criação da pasta e cópia dos aliases downstream para a pasta central.
+  - O comportamento anterior de atualizar `*-latest-data.csv` no `OutDir` foi preservado.
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `pwsh` não disponível neste ambiente para validação sintática automática do `.ps1`.
+  - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 tasks/todo.md`
+- Suggested commit message:
+  - `feat(pipeline): always publish downstream latest aliases to central dados/latest folder`

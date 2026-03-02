@@ -53,11 +53,14 @@ def _candidate_data_folders():
     explicit_dir = os.getenv('FLOW_PMO_DATA_DIR', '').strip()
     legacy_override = os.getenv('DATA_FOLDER', '').strip()
     base_dir = os.path.dirname(__file__)
+    project_root_dir = os.path.abspath(os.path.join(base_dir, os.pardir))
     home_dir = os.path.expanduser('~')
     return _existing_dirs([
         explicit_dir,
         legacy_override,
         *split_env_dirs,
+        os.path.join(project_root_dir, 'dados', 'latest'),
+        os.path.join(project_root_dir, 'dados'),
         os.path.join(home_dir, 'Documents', 'dados'),
         os.path.join(home_dir, 'Documents', 'Dados'),
         os.path.join(base_dir, 'data'),
@@ -3163,14 +3166,46 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
             }],
         )
     else:
+        unavailable_reason = _get_cfd_detailed_unavailable_reason(
+            projeto=projeto,
+            filtered_item_ids=filtered_item_ids,
+            bottlenecks_df=bottlenecks_df,
+        )
         fig.update_layout(
             annotations=[{
-                'text': 'Modo detalhado indisponível: selecione um projeto com CSV downstream (`*-data.csv`) contendo datas por etapa.',
+                'text': f'Modo detalhado indisponível: {unavailable_reason}',
                 'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
                 'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#777'}
             }]
         )
     return fig
+
+
+def _get_cfd_detailed_unavailable_reason(projeto=None, filtered_item_ids=None, bottlenecks_df=None):
+    if not projeto:
+        return 'selecione um projeto para carregar o CSV downstream detalhado (`*-data.csv`).'
+
+    items_df = load_project_downstream_items_csv(projeto)
+    if items_df is None or items_df.empty:
+        return (
+            f'CSV downstream (`*-data.csv`) não encontrado para {projeto} '
+            'nas pastas de dados/URLs configuradas.'
+        )
+
+    if filtered_item_ids is not None:
+        allowed_ids = {str(x).strip() for x in filtered_item_ids if pd.notna(x) and str(x).strip()}
+        if not allowed_ids:
+            return 'o filtro atual não possui itens concluídos (escopo do modo detalhado).'
+        if 'ID' in items_df.columns:
+            id_set = set(items_df['ID'].astype(str).str.strip())
+            if not id_set.intersection(allowed_ids):
+                return 'os itens concluídos do filtro não foram encontrados no CSV downstream do projeto.'
+
+    stage_cols = _detect_stage_date_columns(items_df, bottlenecks_df=bottlenecks_df)
+    if len(stage_cols) < 2:
+        return 'o CSV downstream não tem ao menos 2 etapas com datas válidas para montar o gráfico.'
+
+    return 'dados insuficientes para o recorte atual.'
 
 
 def build_cfd_summary_payload(

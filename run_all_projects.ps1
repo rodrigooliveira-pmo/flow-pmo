@@ -49,9 +49,14 @@ if (-not (Test-Path $scriptPath)) {
 }
 $metricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
 $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
+$latestDirDefault = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'dados/latest'
+$latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
 
 if (-not (Test-Path $OutDir)) {
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+}
+if (-not (Test-Path $latestDir)) {
+    New-Item -ItemType Directory -Path $latestDir -Force | Out-Null
 }
 
 # Ajuste as chaves Jira se necessário.
@@ -85,6 +90,15 @@ foreach ($p in $projects) {
     & python $scriptPath --projects $p.Key --out $outFile --env-file $EnvFile --workers $Workers
     if ($LASTEXITCODE -ne 0) {
         throw "Falha na exportação do projeto $($p.Key)."
+    }
+
+    $downstreamLatest = Join-Path $OutDir ("{0}-latest-data.csv" -f $p.FilePrefix)
+    if (Test-Path $outFile) {
+        Copy-Item -Path $outFile -Destination $downstreamLatest -Force
+        Write-Host "Arquivo latest atualizado: $downstreamLatest" -ForegroundColor Green
+        $latestAliasTarget = Join-Path $latestDir (Split-Path -Path $downstreamLatest -Leaf)
+        Copy-Item -Path $downstreamLatest -Destination $latestAliasTarget -Force
+        Write-Host "Alias latest publicado em: $latestAliasTarget" -ForegroundColor Green
     }
 
     $bottleneckOut = Join-Path $OutDir ("{0}-{1}-data_bottlenecks.csv" -f $p.FilePrefix, $DateTag)
