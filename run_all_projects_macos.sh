@@ -125,6 +125,23 @@ import_env_file() {
 
 import_env_file "$ENV_FILE"
 
+publish_latest_artifact() {
+    local source_file="$1"
+    local latest_dir="$2"
+    [[ -f "$source_file" ]] || return 0
+    local target_file="${latest_dir}/$(basename "$source_file")"
+    cp -f "$source_file" "$target_file"
+    echo "Alias latest publicado em: ${target_file}"
+}
+
+sync_latest_artifacts_from_out_dir() {
+    local source_dir="$1"
+    local latest_dir="$2"
+    find "$source_dir" -maxdepth 1 -type f -iname "*latest*" -print0 | while IFS= read -r -d '' file; do
+        publish_latest_artifact "$file" "$latest_dir"
+    done
+}
+
 if [[ -z "${JIRA_BASE_URL:-}" || -z "${JIRA_EMAIL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
     echo "Defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN (ou preencha o arquivo $ENV_FILE) antes de executar."
     exit 1
@@ -190,8 +207,7 @@ for i in "${!PROJECT_KEYS[@]}"; do
     if [[ -f "$out_file" ]]; then
         cp -f "$out_file" "$downstream_latest"
         echo "Arquivo latest atualizado: ${downstream_latest}"
-        cp -f "$downstream_latest" "${LATEST_DIR}/$(basename "$downstream_latest")"
-        echo "Alias latest publicado em: ${LATEST_DIR}/$(basename "$downstream_latest")"
+        publish_latest_artifact "$downstream_latest" "$LATEST_DIR"
     fi
 
     bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"
@@ -199,6 +215,7 @@ for i in "${!PROJECT_KEYS[@]}"; do
     if [[ -f "$bottleneck_out" ]]; then
         cp -f "$bottleneck_out" "$bottleneck_latest"
         echo "Arquivo latest atualizado: ${bottleneck_latest}"
+        publish_latest_artifact "$bottleneck_latest" "$LATEST_DIR"
     fi
 
     if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
@@ -206,6 +223,7 @@ for i in "${!PROJECT_KEYS[@]}"; do
         if [[ -f "${detailed_changelog_out}" ]]; then
             cp -f "${detailed_changelog_out}" "${detailed_changelog_latest}"
             echo "Arquivo latest atualizado: ${detailed_changelog_latest}"
+            publish_latest_artifact "$detailed_changelog_latest" "$LATEST_DIR"
         fi
     fi
 done
@@ -228,6 +246,7 @@ if [[ "$RUN_PORTFOLIO_EXPORT" == true ]]; then
     "$PYTHON_BIN" "$PORTFOLIO_SCRIPT" --projects BT NS --out "$portfolio_out" --env-file "$ENV_FILE"
     cp -f "$portfolio_out" "${OUT_DIR}/portfolio-bt-ns-latest-data.csv"
     echo "Arquivo latest atualizado: ${OUT_DIR}/portfolio-bt-ns-latest-data.csv"
+    publish_latest_artifact "${OUT_DIR}/portfolio-bt-ns-latest-data.csv" "$LATEST_DIR"
 fi
 
 if [[ "$RUN_METRICS" == true ]]; then
@@ -237,6 +256,7 @@ if [[ "$RUN_METRICS" == true ]]; then
     export DATA_FOLDER="$OUT_DIR"
     export FLOW_PMO_DATA_DIR="$OUT_DIR"
     "$PYTHON_BIN" "$METRICS_SCRIPT"
+    sync_latest_artifacts_from_out_dir "$OUT_DIR" "$LATEST_DIR"
 fi
 
 if [[ "$OPEN_DASHBOARD" == true ]]; then

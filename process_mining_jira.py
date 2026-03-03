@@ -57,6 +57,8 @@ ISSUE_TYPE_ALIASES = {
     "problema": {"bug", "problema", "problem", "incident", "incidente"},
 }
 
+WINDOWS_DEFAULT_LATEST_DIR = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
+
 
 def normalize_text(value: Any) -> str:
     raw = str(value or "").strip().lower()
@@ -821,8 +823,33 @@ def _copy_latest_artifact(source: Path, target: Path) -> bool:
         return False
 
 
+def _resolve_central_latest_dir(out_dir: Path) -> Path:
+    env_latest_dir = str(os.getenv("FLOW_PMO_LATEST_DIR", "")).strip()
+    if env_latest_dir:
+        return Path(env_latest_dir)
+    if os.name == "nt":
+        return Path(WINDOWS_DEFAULT_LATEST_DIR)
+    return out_dir / "latest"
+
+
+def _publish_to_central_latest(latest_file: Path, central_latest_dir: Path) -> bool:
+    try:
+        source_abs = latest_file.resolve(strict=False)
+        target = central_latest_dir / latest_file.name
+        target_abs = target.resolve(strict=False)
+        if source_abs == target_abs:
+            return True
+        central_latest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(latest_file, target)
+        return True
+    except Exception as exc:
+        print(f"Aviso: falha ao publicar latest central ({latest_file.name}): {exc}")
+        return False
+
+
 def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame], pm4py_align_max_cases: int = 500) -> dict[str, str]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    central_latest_dir = _resolve_central_latest_dir(out_dir)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{prefix}-{stamp}"
     latest_base = f"{prefix}-latest"
@@ -881,6 +908,7 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame],
         excel_latest = out_dir / f"{latest_base}.xlsx"
         if _copy_latest_artifact(excel, excel_latest):
             paths["excel_latest"] = str(excel_latest)
+            _publish_to_central_latest(excel_latest, central_latest_dir)
     elif last_excel_error is not None:
         print(f"Aviso: Excel não gerado ({last_excel_error}). Seguindo com saída CSV.")
     for key, df in datasets.items():
@@ -890,6 +918,7 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame],
         csv_latest = out_dir / f"{latest_base}-{key}.csv"
         if _copy_latest_artifact(csv_path, csv_latest):
             paths[f"{key}_latest"] = str(csv_latest)
+            _publish_to_central_latest(csv_latest, central_latest_dir)
     for key, value in pm_extra_files.items():
         paths[key] = value
         src = Path(value)
@@ -900,6 +929,7 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame],
             latest_path = src.with_name(latest_name)
             if _copy_latest_artifact(src, latest_path):
                 paths[f"{key}_latest"] = str(latest_path)
+                _publish_to_central_latest(latest_path, central_latest_dir)
     return paths
 
 

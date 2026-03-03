@@ -49,8 +49,35 @@ if (-not (Test-Path $scriptPath)) {
 }
 $metricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
 $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
-$latestDirDefault = Join-Path (Split-Path -Path $PSScriptRoot -Parent) 'dados/latest'
+$latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
+
+function Publish-LatestArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$LatestDir
+    )
+
+    if (-not (Test-Path $SourcePath)) {
+        return
+    }
+
+    $targetPath = Join-Path $LatestDir (Split-Path -Path $SourcePath -Leaf)
+    Copy-Item -Path $SourcePath -Destination $targetPath -Force
+    Write-Host "Alias latest publicado em: $targetPath" -ForegroundColor Green
+}
+
+function Sync-LatestArtifactsFromOutDir {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceDir,
+        [Parameter(Mandatory = $true)][string]$LatestDir
+    )
+
+    $latestFiles = Get-ChildItem -Path $SourceDir -File | Where-Object { $_.Name -match 'latest' }
+    foreach ($f in $latestFiles) {
+        Publish-LatestArtifact -SourcePath $f.FullName -LatestDir $LatestDir
+    }
+}
 
 if (-not (Test-Path $OutDir)) {
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
@@ -96,9 +123,7 @@ foreach ($p in $projects) {
     if (Test-Path $outFile) {
         Copy-Item -Path $outFile -Destination $downstreamLatest -Force
         Write-Host "Arquivo latest atualizado: $downstreamLatest" -ForegroundColor Green
-        $latestAliasTarget = Join-Path $latestDir (Split-Path -Path $downstreamLatest -Leaf)
-        Copy-Item -Path $downstreamLatest -Destination $latestAliasTarget -Force
-        Write-Host "Alias latest publicado em: $latestAliasTarget" -ForegroundColor Green
+        Publish-LatestArtifact -SourcePath $downstreamLatest -LatestDir $latestDir
     }
 
     $bottleneckOut = Join-Path $OutDir ("{0}-{1}-data_bottlenecks.csv" -f $p.FilePrefix, $DateTag)
@@ -106,6 +131,7 @@ foreach ($p in $projects) {
     if (Test-Path $bottleneckOut) {
         Copy-Item -Path $bottleneckOut -Destination $bottleneckLatest -Force
         Write-Host "Arquivo latest atualizado: $bottleneckLatest" -ForegroundColor Green
+        Publish-LatestArtifact -SourcePath $bottleneckLatest -LatestDir $latestDir
     }
 }
 
@@ -133,6 +159,7 @@ if ($RunPortfolioExport) {
     $portfolioLatest = Join-Path $OutDir "portfolio-bt-ns-latest-data.csv"
     Copy-Item -Path $portfolioOut -Destination $portfolioLatest -Force
     Write-Host "Arquivo latest atualizado: $portfolioLatest" -ForegroundColor Green
+    Publish-LatestArtifact -SourcePath $portfolioLatest -LatestDir $latestDir
 }
 
 if ($RunMetrics) {
@@ -147,6 +174,7 @@ if ($RunMetrics) {
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao executar o processamento de métricas."
     }
+    Sync-LatestArtifactsFromOutDir -SourceDir $OutDir -LatestDir $latestDir
 }
 
 if ($OpenDashboard) {

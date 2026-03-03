@@ -6,6 +6,7 @@ import csv
 import re
 import json
 import shutil
+import platform
 from pathlib import Path
 from datetime import datetime
 
@@ -36,6 +37,8 @@ DEFAULT_PATTERN_RULES = {
     "estagnacao": {"wip_tp_ratio_min": 3.0, "wip_age_over_p85_min": 1.3, "flow_pressure_min": 1.05},
     "compromisso_prematuro": {"flow_pressure_min": 1.1, "wip_tp_ratio_min": 2.2, "predictability_ratio_min": 2.0},
 }
+
+WINDOWS_DEFAULT_LATEST_DIR = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 
 
 def load_env_file(env_file):
@@ -88,6 +91,18 @@ def copy_latest_artifact(source_file, target_file):
     try:
         shutil.copy2(source_file, target_file)
         print(f"Arquivo latest atualizado: {target_file}")
+        latest_dir = os.getenv("FLOW_PMO_LATEST_DIR", "").strip()
+        if not latest_dir:
+            if platform.system() == 'Windows':
+                latest_dir = WINDOWS_DEFAULT_LATEST_DIR
+            else:
+                latest_dir = os.path.join(os.path.dirname(os.path.abspath(target_file)), "latest")
+        source_abs = os.path.abspath(target_file)
+        target_abs = os.path.abspath(os.path.join(latest_dir, os.path.basename(target_file)))
+        if source_abs != target_abs:
+            os.makedirs(latest_dir, exist_ok=True)
+            shutil.copy2(target_file, target_abs)
+            print(f"Alias latest publicado em: {target_abs}")
         return target_file
     except Exception as exc:
         print(f"Warning: Não foi possível atualizar {target_file}: {exc}")
@@ -2984,10 +2999,6 @@ def process_multiple_csv_files(input_folder, output_folder):
         print(f"Error log saved to: {error_log_file}")
     
     return output_file
-
-# Execute the function with the input and output folders
-import platform
-
 
 def resolve_data_folder():
     env_candidates = [

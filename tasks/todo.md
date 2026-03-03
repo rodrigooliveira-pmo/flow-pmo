@@ -3324,3 +3324,24 @@
 - Suggested commit message:
   - `fix(process-mining): align throughput KPI to unique finalized items in period`
 
+## Current Task (Centralizar publicação de todos os arquivos latest em Dados/latest)
+- [x] Rastrear scripts e módulos que geram artefatos `latest`
+- [x] Ajustar orquestradores (`run_all_projects.ps1` e `run_all_projects_macos.sh`) para sincronizar todos os `*latest*` para pasta central
+- [x] Ajustar geradores (`dash_board_metricas.py` e `process_mining_jira.py`) para publicar `latest` também na pasta central
+- [x] Documentar variável de ambiente `FLOW_PMO_LATEST_DIR` no `.env.example`
+- [x] Validar sintaxe dos arquivos alterados
+
+## Specification (Centralizar publicação de todos os arquivos latest em Dados/latest)
+- Objetivo: garantir que todos os artefatos com nome `latest` (downstream, bottlenecks, portfolio, PowerBI model, dashboard output e process mining) sejam publicados em `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest`.
+- Escopo:
+  - `run_all_projects.ps1`
+  - `run_all_projects_macos.sh`
+  - `dash_board_metricas.py`
+  - `process_mining_jira.py`
+  - `.env.example`
+- Critério de aceite:
+  - Todo arquivo contendo `latest` gerado no `OutDir` do pipeline é replicado para a pasta central de `latest`.
+  - `process_mining_jira.py` publica aliases `-latest` também na pasta central.
+  - `FLOW_PMO_LATEST_DIR` continua suportado como override explícito.
+  - Código válido em sintaxe.
+
