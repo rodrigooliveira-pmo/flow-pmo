@@ -1,5 +1,31 @@
 # Task Plan
 
+## Current Task (Deploy: parser tolerante para URL map downstream)
+- [x] Diagnosticar motivo da indisponibilidade do modo detalhado apos deploy
+- [x] Tornar `_load_downstream_url_map()` tolerante a env JSON malformada
+- [x] Validar sintaxe do arquivo alterado
+
+## Specification (Deploy: parser tolerante para URL map downstream)
+- Objetivo: impedir falso negativo de "CSV downstream não encontrado" quando `FLOW_PMO_DOWNSTREAM_CSV_URL_MAP` estiver com aspas extras/formato imperfeito.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Criterio de aceite:
+  - `FLOW_PMO_DOWNSTREAM_CSV_URL_MAP` continua funcionando em JSON valido.
+  - Valor com aspas externas extras tambem e aceito.
+  - Em falha de `json.loads`, parser tenta recuperar pares `projeto:url` antes de desistir.
+
+## Review (Deploy: parser tolerante para URL map downstream)
+- What was validated:
+  - `_load_downstream_url_map()` agora tenta multiplas normalizacoes do raw env antes de desistir.
+  - Foi adicionado fallback por regex para recuperar pares `projeto:url` em cenarios malformados.
+  - O fluxo de fallback evita retornar `{}` em casos recuperaveis, reduzindo erro de indisponibilidade do modo detalhado.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `fix(cfd): make downstream URL map parsing tolerant to malformed env JSON`
+
 ## Current Task (Process Mining: comprometido em horas úteis 8h/dia + cartões únicos)
 - [x] Ajustar o gráfico de trabalho comprometido para exibir explicitamente horas úteis normalizadas com teto de 8h/dia
 - [x] Adicionar versão do gráfico por quantidade de cartões únicos por pessoa e área
@@ -88,6 +114,33 @@
   - `git status --short`
 - Suggested commit message:
   - `feat(deploy): replace wrappers with single complete python deploy script`
+
+## Current Task (Deploy Python: fallback local da Vercel CLI no Windows)
+- [x] Diagnosticar erro de autenticacao em `whoami` quando script cai para `npx vercel`
+- [x] Ajustar resolucao da CLI para usar `node node_modules/vercel/dist/index.js` quando `node_modules/.bin/vercel.cmd` nao existir
+- [x] Validar sintaxe e resolucao de comando no ambiente local
+
+## Specification (Deploy Python: fallback local da Vercel CLI no Windows)
+- Objetivo: impedir falha de `whoami` em ambientes onde a instalacao local do pacote `vercel` nao cria `node_modules/.bin/vercel.cmd`.
+- Escopo:
+  - `deploy.py`
+  - `tasks/todo.md`
+- Criterio de aceite:
+  - `resolve_vercel_bin` retorna CLI local funcional sem depender de `npx` quando `node_modules/vercel/dist/index.js` existir.
+  - O comando resolvido no Windows passa a ser `node .../node_modules/vercel/dist/index.js`.
+  - O script continua com fallback para `vercel` global e `npx` como ultima opcao.
+
+## Review (Deploy Python: fallback local da Vercel CLI no Windows)
+- What was validated:
+  - O script agora detecta `node_modules/vercel/dist/index.js` e executa a CLI via `node`, cobrindo o cenário sem `.bin/vercel.cmd`.
+  - O fallback `npx` foi mantido como ultima alternativa, com `--yes`.
+  - A validacao local mostrou que o resolvedor nao aponta mais para `npx vercel` nesse repositório.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile deploy.py`
+  - `python deploy.py preview --yes --dry-run`
+  - `python -c "import deploy; from pathlib import Path; print(' '.join(deploy.resolve_vercel_bin(Path('.').resolve())))"`
+- Suggested commit message:
+  - `fix(deploy): use local vercel dist cli via node when .bin wrapper is missing`
 
 ## Current Task (Dashboard PM: gráfico backlog restante vs trabalho executado por pessoa)
 - [x] Mapear métricas existentes para leitura proxy (`executado` vs `backlog restante estimado`)

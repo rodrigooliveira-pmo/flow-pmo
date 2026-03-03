@@ -12,6 +12,27 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-03
+- Context: Regressao apos deploy no CFD detalhado com mensagem de CSV downstream indisponivel.
+- User correction: Reportou que o dashboard passou a exibir erro de ausencia de `*-data.csv` para W1NNER apos deploy.
+- Root cause: Parser de `FLOW_PMO_DOWNSTREAM_CSV_URL_MAP` era estrito (`json.loads`) e falhava com valor de env malformado por aspas extras.
+- Prevention rule: Para envs JSON criticas de runtime, implementar parse tolerante (normalizacao + fallback) e nao depender de um unico formato perfeito.
+- Action added to workflow: Em qualquer leitura de `*_URL_MAP`, testar formatos comuns quebrados antes de retornar vazio.
+
+- Date: 2026-03-03
+- Context: Falha no `deploy.py` com erro de token invalido na etapa `whoami`.
+- User correction: Reportou erro `You defined "--token", but its contents are invalid` ao executar `python deploy.py`.
+- Root cause: O script convertia automaticamente `VERCEL_OIDC_TOKEN` para `VERCEL_TOKEN`, mas o formato OIDC (JWT) e invalido para a Vercel CLI.
+- Prevention rule: Nunca mapear automaticamente `VERCEL_OIDC_TOKEN` para `VERCEL_TOKEN`; validar formato de token antes de chamar a CLI.
+- Action added to workflow: Em scripts de deploy Vercel, aplicar validacao de `VERCEL_TOKEN` e fallback para sessao local quando o token for invalido.
+
+- Date: 2026-03-03
+- Context: Erro no `deploy.py` durante etapa `whoami` em Windows com mensagem `'vercel' nao e reconhecido`.
+- User correction: Reportou que o script estava resolvendo `C:\Program Files\nodejs\npx.CMD vercel whoami` e falhando.
+- Root cause: Assumi que fallback via `npx vercel` era confiavel; no ambiente real faltava binario/link esperado para resolver `vercel` dentro do npx.
+- Prevention rule: Em ferramentas Node locais, priorizar execucao direta da CLI instalada (`node node_modules/<pkg>/dist/index.js`) antes de depender de `npx`.
+- Action added to workflow: Sempre verificar `node_modules/.bin/<tool>` e `node_modules/<tool>/dist/index.js` no ambiente alvo quando houver falha de comando.
+
+- Date: 2026-03-03
 - Context: Entrega inicial do fluxo de deploy cross-platform para Vercel.
 - User correction: Solicitou explicitamente um script Python unico que trate diferencas/excecoes de ambiente e execute deploy completo.
 - Root cause: Interpretei "cross-platform" como necessidade de wrappers por SO, em vez de priorizar um unico entrypoint Python com toda a orquestracao.

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,9 @@ from pathlib import Path
 
 class DeployError(RuntimeError):
     """Erro controlado do fluxo de deploy."""
+
+
+VERCEL_TOKEN_ALLOWED_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def load_env_file(path: Path, env: dict[str, str]) -> None:
@@ -38,13 +42,20 @@ def resolve_vercel_bin(repo_root: Path) -> list[str]:
     if local_bin.exists():
         return [str(local_bin)]
 
+    # Fallback robusto quando o link em node_modules/.bin nao existe,
+    # mas o pacote vercel esta instalado localmente.
+    local_js_cli = repo_root / "node_modules" / "vercel" / "dist" / "index.js"
+    node_bin = shutil.which("node")
+    if local_js_cli.exists() and node_bin:
+        return [node_bin, str(local_js_cli)]
+
     global_bin = shutil.which("vercel")
     if global_bin:
         return [global_bin]
 
     npx_bin = shutil.which("npx")
     if npx_bin:
-        return [npx_bin, "vercel"]
+        return [npx_bin, "--yes", "vercel"]
 
     raise DeployError(
         "Vercel CLI nao encontrada. Rode `npm i` (local) ou `npm i -g vercel`."
@@ -128,6 +139,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def normalize_vercel_token(env: dict[str, str]) -> tuple[bool, str]:
+    token = env.get("VERCEL_TOKEN", "").strip()
+    if not token:
+        if env.get("VERCEL_OIDC_TOKEN"):
+            return False, (
+                "VERCEL_OIDC_TOKEN detectado, mas ele nao e usado como VERCEL_TOKEN "
+                "(formato incompativel com a CLI)."
+            )
+        return False, "Nenhum VERCEL_TOKEN detectado; usando sessao local (vercel login)."
+
+    if not VERCEL_TOKEN_ALLOWED_RE.fullmatch(token):
+        env.pop("VERCEL_TOKEN", None)
+        return False, (
+            "VERCEL_TOKEN invalido para a CLI (caracteres nao permitidos). "
+            "Token removido da execucao atual; usando sessao local."
+        )
+    return True, "VERCEL_TOKEN valido detectado."
+
+
 def main() -> int:
     args = build_parser().parse_args()
     repo_root = Path(args.cwd).resolve()
@@ -135,8 +165,7 @@ def main() -> int:
 
     load_env_file(repo_root / ".env.local", env)
     load_env_file(repo_root / ".env", env)
-    if "VERCEL_TOKEN" not in env and "VERCEL_OIDC_TOKEN" in env:
-        env["VERCEL_TOKEN"] = env["VERCEL_OIDC_TOKEN"]
+    has_usable_token, token_message = normalize_vercel_token(env)
 
     try:
         ensure_project_files(repo_root)
@@ -162,7 +191,8 @@ def main() -> int:
     print(f"Sistema detectado: {platform.system()}")
     print(f"Diretorio do projeto: {repo_root}")
     print(f"Modo de deploy: {args.mode}")
-    print(f"Token detectado: {'sim' if env.get('VERCEL_TOKEN') else 'nao'}")
+    print(f"Token detectado: {'sim' if has_usable_token else 'nao'}")
+    print(f"Auth: {token_message}")
 
     if args.dry_run:
         print("\n[DRY RUN] Fluxo planejado:")

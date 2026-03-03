@@ -163,10 +163,27 @@ def _load_downstream_url_map():
     raw = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL_MAP', '').strip()
     if not raw:
         return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return {}
+    parsed = None
+    for candidate in (
+        raw,
+        raw.strip('"').strip("'"),
+        raw.replace('\\"', '"'),
+    ):
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            break
+        except Exception:
+            continue
+    if parsed is None:
+        # Fallback tolerante para env malformada:
+        # ex.: FLOW_PMO_DOWNSTREAM_CSV_URL_MAP="{"W1NNER":"https://..."}"
+        matches = re.findall(r'"?([A-Za-z0-9& _-]+)"?\s*:\s*"([^"]+)"', raw)
+        if matches:
+            parsed = {k: v for k, v in matches}
+        else:
+            return {}
     if not isinstance(parsed, dict):
         return {}
     out = {}
