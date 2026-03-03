@@ -415,10 +415,27 @@ def select_latest_csv_per_project(csv_files):
     selected_unknown = []
     ignored_files = []
 
+    def _is_workflow_input_csv(stem_lower):
+        """
+        Return True only for CSVs that are valid workflow inputs for metrics consolidation.
+        Excludes derived/report/process-mining artifacts that must not compete as latest project CSV.
+        """
+        if "bottleneck" in stem_lower:
+            return False
+        if "process-mining" in stem_lower:
+            return False
+        if stem_lower.startswith("executive_report_"):
+            return False
+        if stem_lower.startswith("portfolio-bt-ns-"):
+            return False
+        if stem_lower.startswith("multi-downstream-"):
+            return False
+        return True
+
     for file_path in sorted(csv_files):
         stem_lower = Path(file_path).stem.lower()
         # Ignore derived artifacts that are not pipeline input datasets.
-        if "bottleneck" in stem_lower:
+        if not _is_workflow_input_csv(stem_lower):
             ignored_files.append(file_path)
             continue
 

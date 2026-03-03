@@ -3345,3 +3345,30 @@
   - `FLOW_PMO_LATEST_DIR` continua suportado como override explícito.
   - Código válido em sintaxe.
 
+## Current Task (W1NNER ausente no seletor de projeto em produção)
+- [x] Diagnosticar por logs e código por que `W1NNER` não entra em `Dim_Projeto`
+- [x] Corrigir seleção de CSV `latest` para ignorar artefatos derivados que não são insumo de workflow
+- [x] Validar carregamento de 4 projetos e registrar evidências
+
+## Specification (W1NNER ausente no seletor de projeto em produção)
+- Objetivo: impedir que arquivos derivados (ex.: `w1nner-process-mining-*.csv`) concorram como dataset principal do projeto na consolidação de métricas.
+- Escopo:
+  - `dash_board_metricas.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O seletor de latest por projeto não escolhe mais arquivos `process-mining`, `executive_report`, `portfolio` ou `multi-downstream`.
+  - O arquivo `w1nner-downstream-<data>-data.csv` volta a ser carregado no consolidado quando existir.
+  - A consolidação final volta a ter `Successfully loaded data for 4 projects` no cenário com W1NNER/S1NC/BEFINANCE/DATA&ANALYTICS.
+
+## Review (W1NNER ausente no seletor de projeto em produção)
+- What was validated:
+  - Causa raiz confirmada: `select_latest_csv_per_project(...)` usava detecção por nome e permitia que `w1nner-process-mining-...-pm4py_tbr_summary.csv` vencesse o `w1nner-downstream-...-data.csv` por ter timestamp mais recente.
+  - Foi adicionado filtro explícito de insumo de workflow no seletor, excluindo artefatos derivados (`process-mining`, `executive_report`, `portfolio-bt-ns`, `multi-downstream`, além de `bottleneck`).
+  - Na execução de validação, o resumo passou a listar `w1nner-downstream-20260303-data.csv: OK` e `Successfully loaded data for 4 projects`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dash_board_metricas.py`
+  - `python -c "import dash_board_metricas"` (execução completa acionada pelo módulo; log confirmou `Selected 4 latest CSV files` e `Successfully loaded data for 4 projects`, incluindo `w1nner-downstream-20260303-data.csv`)
+  - `git diff -- dash_board_metricas.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(metrics): prevent process-mining csv from overriding W1NNER downstream latest selection`
+
