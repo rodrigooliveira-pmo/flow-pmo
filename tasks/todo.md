@@ -28,6 +28,480 @@
 - Suggested commit message:
   - `feat(dashboard): add backlog restante vs trabalho executado proxy chart by person`
 
+## Current Task (Vercel: Process Mining por URL fixa única)
+- [x] Registrar escopo e critérios para consumo do relatório de process mining por env única
+- [x] Implementar suporte a `FLOW_PMO_PROCESS_MINING_REPORT_URL` no `dashboard_full.py`
+- [x] Implementar suporte a `FLOW_PMO_PROCESS_MINING_REPORT_URL` no `dashboard_process_mining.py`
+- [x] Atualizar documentação de deploy e validar sintaxe/import
+
+## Specification (Vercel: Process Mining por URL fixa única)
+- Objetivo: permitir que os dashboards consumam o relatório de Process Mining por uma única variável de ambiente (`FLOW_PMO_PROCESS_MINING_REPORT_URL`), evitando configuração por arquivo.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `DEPLOY_VERCEL.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Se `FLOW_PMO_PROCESS_MINING_REPORT_URL` estiver definida, os dashboards baixam e usam esse `.xlsx` como fonte de Process Mining.
+  - Se a env não estiver definida, o comportamento atual de busca local por arquivos `w1nner-process-mining-*.xlsx` permanece.
+  - Documentação de deploy lista explicitamente a nova variável com exemplo de uso.
+
+## Review (Vercel: Process Mining por URL fixa única)
+- What was validated:
+  - `dashboard_full.py` passou a priorizar `FLOW_PMO_PROCESS_MINING_REPORT_URL` para obter o `.xlsx` de Process Mining, com cache local em `/tmp/flow-pmo-models`.
+  - `dashboard_process_mining.py` recebeu o mesmo comportamento, mantendo consistência entre dashboard principal e sandbox de Process Mining.
+  - Na ausência da env, ambos preservam o fallback atual por varredura local (`w1nner-process-mining-*.xlsx`).
+  - `DEPLOY_VERCEL.md` foi atualizado com a nova variável e exemplo de valor para `w1nner-process-mining-latest.xlsx`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py dashboard_process_mining.py`
+  - `python3 - <<'PY' ... import dashboard_full/dashboard_process_mining ... PY`
+  - `rg -n "FLOW_PMO_PROCESS_MINING_REPORT_URL|_download_process_mining_report_from_url" dashboard_full.py dashboard_process_mining.py DEPLOY_VERCEL.md`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py DEPLOY_VERCEL.md tasks/todo.md`
+- Suggested commit message:
+  - `feat(vercel): support process mining report from single FLOW_PMO_PROCESS_MINING_REPORT_URL`
+
+## Current Task (Process Mining: gerar artefatos latest com nome fixo)
+- [x] Registrar escopo e critérios para geração `latest` no exportador de process mining
+- [x] Implementar no `process_mining_jira.py` a atualização automática dos arquivos `-latest` (xlsx/csv/pm4py imagens)
+- [x] Validar sintaxe/CLI e registrar review com evidências
+
+## Specification (Process Mining: gerar artefatos latest com nome fixo)
+- Objetivo: garantir que o exportador de process mining sempre gere aliases estáveis com nome fixo (`<prefix>-latest...`), facilitando publicação em storage/CDN e consumo pelo dashboard em produção.
+- Escopo:
+  - `process_mining_jira.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Após execução, além dos arquivos com timestamp, existe `w1nner-process-mining-latest.xlsx`.
+  - Para cada dataset CSV exportado, existe também a versão `w1nner-process-mining-latest-<dataset>.csv`.
+  - Para cada imagem PM4Py gerada, existe também o alias `w1nner-process-mining-latest-<sufixo>.png`.
+  - O comportamento atual (arquivos versionados por timestamp) permanece inalterado.
+
+## Review (Process Mining: gerar artefatos latest com nome fixo)
+- What was validated:
+  - O `write_outputs(...)` agora mantém arquivos com timestamp e também atualiza aliases fixos `-latest`.
+  - Foi adicionado `w1nner-process-mining-latest.xlsx` após a geração do Excel timestampado.
+  - Todos os CSVs exportados agora também possuem cópia `w1nner-process-mining-latest-<dataset>.csv`.
+  - Imagens PM4Py geradas (`-pm4py-*.png`) também recebem cópias com prefixo `w1nner-process-mining-latest`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile process_mining_jira.py`
+  - `python3 process_mining_jira.py --help`
+  - Execução funcional com CSV sintético:
+    - `python3 process_mining_jira.py --input <tmp>/in.csv --out-dir <tmp> --pm4py-align-max-cases 0`
+    - `ls <tmp> | rg "w1nner-process-mining-latest"` (confirmou `latest.xlsx`, CSVs e PNGs)
+  - `git diff -- process_mining_jira.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): generate stable latest aliases for excel/csv/pm4py artifacts`
+
+## Current Task (Dashboard Full: relatórios Process Mining da extração)
+- [x] Registrar escopo e critérios de aceite para ampliar relatórios de Process Mining no `dashboard_full.py`
+- [x] Expandir leitura do workbook de Process Mining para abas adicionais produzidas pela extração
+- [x] Exibir, na aba `Process Mining Jira`, os relatórios operacionais principais vistos no PDF (KPIs de horas, variantes, DFG/top arestas e conformidade PM4Py)
+- [x] Validar sintaxe/smoke test e registrar review com evidências
+
+## Specification (Dashboard Full: relatórios Process Mining da extração)
+- Objetivo: exibir na aba `Process Mining Jira` do `dashboard_full.py` os relatórios já produzidos por `process_mining_jira.py`, aproximando a visão do dashboard dedicado (`dashboard_process_mining.py`/PDF) sem depender de arquivos estáticos.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `load_w1nner_process_mining_report()` passa a carregar abas extras do relatório (`HorasPessoaResumo`, `HorasPessoaStatus`, `VariantesTop`, `EventosFiltrados`, `PM4PyDFGEdges`, `PM4PyDFGPerfEdges`, `PM4PyTBRResumo`, `PM4PyTBRCasos`, `PM4PyAlignResumo`, `PM4PyAlignCasos`, `PM4PyAlignTopMoves`).
+  - A aba `tab-process-mining-jira` exibe KPIs de horas e cobertura técnica além dos KPIs atuais.
+  - A aba passa a exibir pelo menos gráficos/tabelas de variantes, DFG (top arestas) e conformidade PM4Py (TBR/Align quando disponível).
+  - Filtros de período e responsável continuam aplicados sem quebrar a renderização.
+
+## Review (Dashboard Full: relatórios Process Mining da extração)
+- What was validated:
+  - `load_w1nner_process_mining_report()` foi expandido para carregar todas as abas de relatório produzidas pelo `process_mining_jira.py`, incluindo blocos operacionais e PM4Py.
+  - A aba `tab-process-mining-jira` passou a incorporar KPIs adicionais alinhados ao relatório do PDF: horas de execução no período, horas no fluxo (proxy), média de horas por evento, cobertura técnica, commits e PRs Bitbucket.
+  - Foram adicionadas visualizações e tabelas para `VariantesTop`, `PM4PyDFGEdges`, `PM4PyDFGPerfEdges`, `PM4PyTBRResumo`/`PM4PyTBRCasos` e `PM4PyAlign*`, além de tabelas de horas por pessoa/status.
+  - O filtro de período/responsável foi estendido para os novos datasets (eventos, horas e casos PM4Py) mantendo comportamento consistente.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.render_tab('services','tab-process-mining-jira',...) ... print(token in str(node)) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): expand dashboard_full tab with extraction reports and pm4py views`
+
+## Current Task (Documentação: Process Mining e Dashboards Criados)
+- [x] Registrar plano e escopo da atualização de documentação
+- [x] Atualizar `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` com seção de process mining e inventário de dashboards
+- [x] Atualizar `INDICE_CENTRAL.md` com navegação rápida dos dashboards criados
+- [x] Validar alterações por busca textual e diff
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Documentação: Process Mining e Dashboards Criados)
+- Objetivo: atualizar a documentação do projeto para refletir explicitamente os componentes de Process Mining e o conjunto atual de dashboards criados.
+- Escopo:
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`
+  - `INDICE_CENTRAL.md`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A documentação descreve `process_mining_jira.py` e `dashboard_process_mining.py`.
+  - A documentação lista os dashboards existentes e seu propósito.
+  - O índice central passa a incluir uma seção de navegação para dashboards do projeto.
+
+## Review (Documentação: Process Mining e Dashboards Criados)
+- What was validated:
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md` passou a documentar explicitamente o pipeline de process mining (`process_mining_jira.py`) e o dashboard dedicado (`dashboard_process_mining.py`).
+  - A seção de dashboards foi reorganizada para refletir os dashboards criados atualmente (`dashboard_full.py`, `dashboard_process_mining.py`, `dashboard_app.py`), incluindo o `One Page Report` no dashboard principal.
+  - O inventário de funcionalidades foi atualizado para `02/03/2026` e ganhou seção específica de Process Mining.
+  - `INDICE_CENTRAL.md` recebeu seção “Dashboards do Projeto” com foco, arquivo e comando de execução para cada dashboard.
+- Evidence (tests/logs/diff):
+  - `rg -n "process_mining_jira|dashboard_process_mining|Dashboards Interativos|One Page Report|12.7 Process Mining" ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md INDICE_CENTRAL.md`
+  - `git diff -- ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md INDICE_CENTRAL.md tasks/todo.md`
+- Suggested commit message:
+  - `docs: update architecture and index with process mining flow and created dashboards`
+
+## Current Task (Estatística Descritiva: Cpk e Nível Sigma)
+- [x] Registrar plano e escopo para incluir Cpk e Nível Sigma na aba de estatística descritiva
+- [x] Implementar entrada de limites de especificação (LSL/USL) e cálculo de Cpk/Six Sigma
+- [x] Validar sintaxe e smoke test da aba `Estatística Descritiva`
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Estatística Descritiva: Cpk e Nível Sigma)
+- Objetivo: adicionar na aba `Estatística Descritiva` o cálculo de Cpk e Nível Sigma (curto e longo prazo) com base em dados e limites de especificação informados.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba exibe campos para `LSL` e `USL`.
+  - Com limites válidos e dados de Lead Time disponíveis, o dashboard calcula `CPU`, `CPL`, `Cpk`, `Sigma (curto prazo)` e `Sigma (longo prazo, deslocamento 1.5σ)`.
+  - A aba exibe interpretação qualitativa do Cpk.
+  - Quando dados/limites forem inválidos, a interface mostra mensagem clara sem quebrar o restante da aba.
+
+## Review (Estatística Descritiva: Cpk e Nível Sigma)
+- What was validated:
+  - A aba `tab-estatistica` recebeu bloco de capabilidade com campos `LSL` e `USL` e cálculo de `CPU`, `CPL`, `Cpk`, `Nível Sigma (curto prazo)` e `Nível Sigma (longo prazo)`.
+  - O cálculo foi encapsulado em `compute_process_capability_metrics(...)`, com validações para amostra mínima, limites ausentes/inválidos e desvio padrão zero.
+  - A interpretação do Cpk foi adicionada na própria tabela (`Incapaz`, `Apenas capaz`, `Bom`, `Classe Seis Sigma`).
+  - Em cenários sem limites ou com dados insuficientes, a aba mostra mensagem clara e preserva os demais blocos de estatística.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... render_tab(... tab='tab-estatistica' ... 9.7, 10.3) ... print('has_cpk_label', ...) ... PY`
+  - `python3 - <<'PY' ... render_tab(... tab='tab-estatistica' ... None, None) ... print('msg_limite', ...) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(estatistica): add Cpk and six sigma calculations with LSL/USL inputs`
+
+## Current Task (Performance do Serviço: visão consolidada dinâmica por filtros)
+- [x] Registrar plano e escopo da visão consolidada dinâmica
+- [x] Remover valores hardcoded e calcular KPIs com base no período e filtros ativos
+- [x] Validar sintaxe e smoke test da aba `Performance do Serviço`
+- [x] Registrar review com evidências e sugestão de commit
+
+## Specification (Performance do Serviço: visão consolidada dinâmica por filtros)
+- Objetivo: tornar dinâmico o bloco "Visão consolidada: planejamento do quarter x execução real" da aba `Performance do Serviço`, refletindo os filtros ativos e o período selecionado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O bloco não utiliza mais números estáticos.
+  - Cards e bullets mudam conforme filtros (`projeto`, `tipo`, `classe_servico`, `responsavel`) e período (`start_date`, `end_date`).
+  - O período exibido no texto do bloco reflete o intervalo selecionado no dashboard.
+  - Código permanece válido em sintaxe/import.
+
+## Review (Performance do Serviço: visão consolidada dinâmica por filtros)
+- What was validated:
+  - O bloco "Visão consolidada: planejamento do quarter x execução real" deixou de usar `consolidated_inputs` fixo e passou a calcular valores do recorte filtrado.
+  - Foram calculados dinamicamente: itens planejados no período, entregues no período, em andamento, horas executadas (via `TempoExecucao_Dias`), estimado do quarter (por Story Points/histórico com fallback), consumo do estimado, média h/dev/dia e bloqueios.
+  - O texto de período agora usa o intervalo selecionado (`dd/mm a dd/mm`) em vez de string fixa.
+  - As bullets de risco foram ajustadas para refletir os valores calculados no recorte.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.render_tab(main_view='services', tab='tab-performance', ... ) ... print(type(node).__name__) ... PY`
+  - `rg -n "consolidated_inputs|01/01 a 25/02|14947|6263|253|169|84|bloqueios" dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): make performance consolidated section dynamic by active filters and period`
+
+## Current Task (Dashboard Full: One Page dinâmico por filtros)
+- [x] Substituir renderização estática do One Page por geração dinâmica no `tab-one-page`
+- [x] Calcular KPIs, gargalos, dimensões, achados, equipe e recomendações com base nos filtros ativos
+- [x] Validar sintaxe/import e smoke test de renderização do componente
+
+## Specification (Dashboard Full: One Page dinâmico por filtros)
+- Objetivo: fazer o One Page Report refletir dinamicamente os dados coletados e os filtros aplicados no dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Aba `One Page Report` continua disponível na navegação de serviços.
+  - Conteúdo deixa de depender de HTML estático e passa a ser calculado em tempo real pelo callback.
+  - Métricas e blocos reagem a `projeto`, `período`, `tipo`, `classe de serviço` e `responsável`.
+  - Quando Process Mining não estiver disponível no projeto filtrado, o relatório permanece funcional com fallback para dados Jira/Bitbucket.
+
+## Review (Dashboard Full: One Page dinâmico por filtros)
+- What was validated:
+  - `tab-one-page` agora usa `build_dynamic_one_page_report(...)` no callback, eliminando leitura de arquivo HTML estático.
+  - Foi implementado design system e regras de semáforo para KPIs e dimensões (`ONE_PAGE_THEME`, `_one_page_status_by_threshold`, cards/barras dinâmicos).
+  - O relatório monta dinamicamente:
+    - Health strip (throughput, pressão, lead time, conformidade, cobertura técnica, retrabalho);
+    - Ranking de gargalos (com fallback model/csv quando necessário);
+    - Indicadores por dimensão;
+    - Achados priorizados;
+    - Composição da equipe e atividade técnica;
+    - Recomendações por horizonte.
+  - Fallback de dados foi mantido para contextos sem Process Mining (projetos além de W1NNER) sem quebrar a renderização.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... import dashboard_full as d; d.build_dynamic_one_page_report('W1NNER', ...); print(type(...).__name__) ... PY`
+  - `rg -n "build_dynamic_one_page_report|tab-one-page|ONE_PAGE_THEME" dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): make one-page report dynamic based on active filters and collected data`
+
+## Current Task (Dashboard Full: incluir aba One Page Report)
+- [x] Adicionar aba `One Page Report` na navegação de serviços
+- [x] Implementar renderização do HTML do one-page report dentro do dashboard
+- [x] Aplicar fallback quando arquivo não existir e validar sintaxe
+
+## Specification (Dashboard Full: incluir aba One Page Report)
+- Objetivo: incorporar o one-page report no `dashboard_full.py` como uma aba nativa do dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Nova aba aparece no menu de serviços com label `One Page Report`.
+  - Ao abrir a aba, o dashboard carrega um HTML de report em `artifacts/` (priorizando arquivo do projeto selecionado).
+  - Se o arquivo não existir, o usuário vê mensagem clara de indisponibilidade em vez de erro de execução.
+  - Código permanece válido em sintaxe.
+
+## Review (Dashboard Full: incluir aba One Page Report)
+- What was validated:
+  - A aba `One Page Report` foi adicionada em `SERVICE_TABS` e passa a aparecer no menu principal de serviços.
+  - Foi criada a função `resolve_one_page_report_file(project_key)` para resolver arquivo por projeto com fallback (`one-page-report-<projeto>.html`, `one-page-report-w1nner.html`, `one-page-report.html`), com suporte a `FLOW_PMO_ONE_PAGE_REPORT_FILE` e `FLOW_PMO_ONE_PAGE_REPORT_DIR`.
+  - O `render_tab` ganhou o branch `tab-one-page` que carrega o HTML via `html.Iframe(srcDoc=...)` e trata cenários de arquivo ausente/erro de leitura com mensagens claras.
+  - A sintaxe do arquivo permaneceu válida.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `rg -n "tab-one-page|One Page Report|resolve_one_page_report_file|One Page carregado" dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): add one-page report tab to dashboard_full with project-based html fallback`
+
+## Current Task (One Page Report W1NNER: aderência ao guia executivo)
+- [x] Registrar plano e especificação do one-page report
+- [x] Ajustar `one-page-report-w1nner.html` para aderência aos blocos e regras visuais do guia
+- [x] Validar estrutura final do HTML e registrar evidências
+
+## Specification (One Page Report W1NNER: aderência ao guia executivo)
+- Objetivo: produzir um one-page report executivo do projeto W1NNER seguindo as orientações do documento anexo.
+- Escopo:
+  - `tasks/todo.md`
+  - `artifacts/one-page-report-w1nner.html`
+- Critério de aceite:
+  - Estrutura final contém os 6 blocos definidos (header, health strip, painéis duplos, recomendações e footer).
+  - Health strip possui 6 KPIs com semaforização visual consistente.
+  - Painéis de gargalos, dimensões, achados, equipe e recomendações refletem o padrão de conteúdo orientado no guia.
+  - Arquivo HTML final válido para abertura local e exportação/impressão.
+
+## Review (One Page Report W1NNER: aderência ao guia executivo)
+- What was validated:
+  - O relatório foi criado em `artifacts/one-page-report-w1nner.html` com os 6 blocos do guia (header, health strip, dois painéis duplos, recomendações e footer).
+  - O health strip contém 6 KPIs com semaforização visual por barra superior e valor em destaque.
+  - Foram adicionados ajustes de responsividade para manter legibilidade em desktop e mobile.
+  - Conteúdo de gargalos, dimensões, achados, equipe e recomendações ficou alinhado ao formato executivo do documento de orientação.
+- Evidence (tests/logs/diff):
+  - `rg -n "HEADER|HEALTH STRIP|Ranking de Gargalos|Indicadores por Dimensão|Achados Principais|Composição e Carga da Equipe|Recomendações Priorizadas|FOOTER" artifacts/one-page-report-w1nner.html`
+  - `python3 - <<'PY' ... HTMLParser ... print('html_parse_ok') ... print('health_items', text.count('class=\"health-item')) ... PY`
+  - `git diff -- tasks/todo.md artifacts/one-page-report-w1nner.html`
+- Suggested commit message:
+  - `feat(report): create w1nner one-page executive report following flow-pmo guidelines`
+
+## Current Task (Dashboard Process Mining: erro de chunk async-graph)
+- [x] Diagnosticar erro `Loading chunk 746 failed` no `dcc.Graph` do dashboard process mining
+- [x] Ajustar inicialização do app para evitar falha de carregamento assíncrono do `async-graph.js`
+- [x] Validar sintaxe/import e registrar evidências
+
+## Specification (Dashboard Process Mining: erro de chunk async-graph)
+- Objetivo: eliminar falhas recorrentes de carregamento do chunk JS do `dcc.Graph` no dashboard de process mining (`http://127.0.0.1:8051`).
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - App inicia com carregamento local de componentes e sem dependência de lazy chunk para `dcc.Graph`.
+  - Execução local reduz risco de mismatch de assets em hot reload.
+  - Script permanece válido em sintaxe/import.
+
+## Review (Dashboard Process Mining: erro de chunk async-graph)
+- What was validated:
+  - `dashboard_process_mining.py` passou a iniciar o Dash com `serve_locally=True` e `eager_loading=True`, eliminando dependência de chunk assíncrono (`dash/dcc/async-graph.js`) durante renderização inicial.
+  - Execução local foi ajustada para `dev_tools_hot_reload=False`, reduzindo risco de inconsistência de assets JS durante recarregamento em desenvolvimento.
+  - Import/sintaxe mantidos válidos.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... import dashboard_process_mining as d; print(d.app.config.get('eager_loading')); print(d.app.config.get('serve_locally')) ... PY`
+  - `git diff -- dashboard_process_mining.py`
+- Suggested commit message:
+  - `fix(process-mining): prevent dcc graph async chunk load failures in local dash app`
+
+
+## Current Task (Bitbucket logs: rastreamento de work items)
+- [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de commits
+- [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de pull requests
+- [x] Adicionar extração de chaves de work item (`PROJ-123`) no export de pipelines
+- [x] Validar sintaxe/help e registrar evidências
+
+## Specification (Bitbucket logs: rastreamento de work items)
+- Objetivo: permitir correlação entre logs do Bitbucket e tarefas/issues/bugs do dashboard via chaves de work item.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - CSVs de commits, PRs e pipelines passam a conter `work_item_keys` e `primary_work_item_key`.
+  - Extração usa regex robusta para padrões tipo `W1NNR-2154` em mensagem/título/branch.
+  - Script permanece válido em sintaxe e `--help`.
+
+## Review (Bitbucket logs: rastreamento de work items)
+- What was validated:
+  - `bitbucket_export.py` agora extrai chaves de work item via regex (`[A-Z][A-Z0-9]+-\\d+`) e adiciona `work_item_keys` + `primary_work_item_key` no CSV de commits.
+  - O CSV de PR passa a incluir as mesmas colunas de rastreamento usando `title`, `source_branch` e `destination_branch`.
+  - O CSV de pipelines passa a incluir as mesmas colunas usando `ref_name`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 - <<'PY' ... extract_work_item_keys(...) + export_* com payload mock ... PY`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(integration): add work-item key extraction to bitbucket commit/pr/pipeline exports`
+
+## Current Task (Dashboard Full: métricas de contribuições Bitbucket em CSV)
+- [x] Expandir export de PR para incluir revisores e contagens de aprovação/reprovação no CSV
+- [x] Calcular métricas por pessoa no `dashboard_full.py` (PRs abertos, aprovações, reprovações, PRs declinados, commits)
+- [x] Exibir painel e ranking dessas métricas na aba `Performance do Serviço`
+- [x] Validar sintaxe/execução local e registrar review com evidências
+
+## Specification (Dashboard Full: métricas de contribuições Bitbucket em CSV)
+- Objetivo: apresentar no `dashboard_full.py` as métricas de contribuição solicitadas usando arquivos CSV do Bitbucket.
+- Escopo:
+  - `bitbucket_export.py`
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - CSV de PR passa a incluir dados suficientes para contar aprovações/reprovações por revisor.
+  - Dashboard mostra ranking por pessoa com as colunas: `PRs abertos`, `Aprovações`, `Reprovações`, `PRs declinados (autor)`, `Commits`.
+  - O recorte respeita projeto e período filtrados na aba.
+  - Não quebra leitura de CSV legado sem as novas colunas.
+
+## Review (Dashboard Full: métricas de contribuições Bitbucket em CSV)
+- What was validated:
+  - `bitbucket_export.py` passou a exportar no CSV de PR os campos `approved_by` e `changes_requested_by`, além de contagens de revisores.
+  - `dashboard_full.py` agora calcula métricas por pessoa usando CSVs Bitbucket no período filtrado (`PRs Abertos`, `Aprovações`, `Reprovações`, `PRs Declinados (Autor)`, `Commits`).
+  - A aba `Performance do Serviço` passou a exibir bloco de contribuição com KPIs, tabela ranking e gráfico de contribuições.
+  - Compatibilidade mantida com CSV legado sem colunas novas de revisão (métricas de aprovação/reprovação ficam zeradas).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py dashboard_full.py`
+  - `python3 bitbucket_export.py --help`
+  - `python3 - <<'PY' ... load_project_bitbucket_logs('W1NNER') + compute_bitbucket_contributor_metrics(...) ... PY`
+  - `git diff -- bitbucket_export.py dashboard_full.py tasks/todo.md`
+- Operational note:
+  - Para preencher aprovações/reprovações por pessoa no dashboard, é necessário reexportar `*_pullrequests.csv` com esta versão do exportador.
+- Suggested commit message:
+  - `feat(dashboard): add csv-based bitbucket contribution ranking and reviewer metrics`
+
+## Current Task (Bitbucket export: otimização de performance)
+- [x] Paralelizar export por endpoint (commits/PRs/pipelines)
+- [x] Adicionar flags para pular endpoints não necessários
+- [x] Corrigir export de PR para incluir todos os estados (`state=ALL`)
+- [x] Reduzir payload da API usando `fields`
+- [x] Validar CLI/sintaxe e documentar comandos recomendados
+
+## Specification (Bitbucket export: otimização de performance)
+- Objetivo: reduzir tempo do `bitbucket_export.py` em execuções operacionais recorrentes.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador suporta execução paralela configurável (`--workers`).
+  - Exportador permite pular endpoints (`--skip-commits`, `--skip-pullrequests`, `--skip-pipelines`).
+  - Pull requests passam a exportar todos os estados do endpoint (`state=ALL`).
+  - Requisições usam `fields` para reduzir payload transferido.
+
+## Review (Bitbucket export: otimização de performance)
+- What was validated:
+  - `bitbucket_export.py` agora executa endpoints em paralelo com `ThreadPoolExecutor` (`--workers`, default `3`).
+  - Foram adicionadas flags de skip por endpoint para reduzir tempo quando só parte dos dados é necessária.
+  - Pull requests agora usam `state=ALL`, evitando CSV com apenas PRs abertos.
+  - Endpoints usam `fields` com seleção mínima de colunas para reduzir transferência e parsing.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 bitbucket_export.py --help`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Notes:
+  - Neste ambiente, o teste online do endpoint falhou por DNS/rede (`api.bitbucket.org` indisponível), então a validação foi estrutural/local.
+- Suggested commit message:
+  - `perf(integration): parallelize and slim bitbucket export with endpoint skip flags`
+
+## Current Task (Validação DORA Bitbucket: MTTR e taxa de falha)
+- [x] Auditar consistência entre tabela do dashboard e CSVs extraídos do Bitbucket
+- [x] Corrigir export de pipelines para incluir resultado real (sucesso/falha) além do estado de execução
+- [x] Ajustar leitura/cálculo no dashboard para priorizar resultado real do pipeline
+- [x] Validar sintaxe e registrar evidências + comando de reexport
+
+## Specification (Validação DORA Bitbucket: MTTR e taxa de falha)
+- Objetivo: garantir que MTTR e taxa de falha DORA usem o resultado real dos pipelines do Bitbucket.
+- Escopo:
+  - `bitbucket_export.py`
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador grava coluna explícita com resultado do pipeline (`SUCCESSFUL`, `FAILED`, etc.).
+  - Dashboard usa essa coluna para classificar sucesso/falha, mantendo fallback compatível para arquivos legados.
+  - Validação local comprova que os números do print atual eram efeito de estado `COMPLETED` e documenta necessidade de reexport.
+
+## Review (Validação DORA Bitbucket: MTTR e taxa de falha)
+- Findings (ordered by severity):
+  - `bitbucket_export.py` exportava `state` usando `state.name` (ex.: `COMPLETED`), que representa estado de execução e não resultado (`SUCCESSFUL`/`FAILED`). Isso força `Taxa de demanda de falha = 0.0%` e `MTTR = —` por ausência de falhas detectáveis.
+  - `w1nner_pullrequests.csv` estava com apenas 10 linhas e todas em `OPEN`, indicando que o endpoint de PR está trazendo somente abertos no export atual; para fallback de lead time por PR merge, isso reduz cobertura histórica.
+- What was changed:
+  - `bitbucket_export.py` agora exporta também `state_type` e `state_result` em pipelines.
+  - `dashboard_full.py` passa a usar `state_result` como fonte primária para `state_norm` (fallback para `state` em CSV legado).
+- Evidence (tests/logs/diff):
+  - `wc -l w1nner_commits.csv w1nner_pullrequests.csv w1nner_pipelines.csv`
+  - `python3 - <<'PY' ... value_counts de state em w1nner_pipelines.csv ... PY`
+  - `python3 - <<'PY' ... value_counts de state em w1nner_pullrequests.csv ... PY`
+  - `python3 -m py_compile bitbucket_export.py dashboard_full.py`
+  - `python3 - <<'PY' ... d._compute_bitbucket_weekly_dora(...) ... PY`
+  - `git diff -- bitbucket_export.py dashboard_full.py tasks/todo.md`
+- Operational note:
+  - É necessário reexecutar `bitbucket_export.py` para gerar `w1nner_pipelines.csv` com a nova coluna `state_result`; sem isso o dashboard continuará em fallback legado.
+- Suggested commit message:
+  - `fix(dora): export and consume bitbucket pipeline result status for failure rate and mttr`
+
+## Current Task (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
+- [x] Mapear e carregar automaticamente CSVs do Bitbucket por projeto (`*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv`)
+- [x] Calcular métricas DORA semanais no `dashboard_full.py` com prioridade para dados Bitbucket e fallback para cálculo atual
+- [x] Integrar os valores DORA na tabela de performance sem marcar como placeholder cinza
+- [x] Validar sintaxe/import e registrar review/evidências
+
+## Specification (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
+- Objetivo: usar os logs exportados do Bitbucket para popular os indicadores DORA no dashboard de serviços.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O dashboard identifica automaticamente os CSVs mais recentes do Bitbucket no padrão por projeto.
+  - A tabela de `Performance do Serviço` exibe `Frequência de Deploy`, `Lead time para mudanças`, `Taxa de demanda de falha` e `MTTR` com dados de Bitbucket quando disponíveis.
+  - Quando faltarem dados no Bitbucket, o dashboard mantém fallback com a lógica atual baseada em itens do fluxo.
+  - As linhas DORA deixam de ser tratadas como placeholders (não acinzentadas à força).
+
+## Review (Dashboard Serviços: indicadores DORA com logs do Bitbucket)
+- What was validated:
+  - `dashboard_full.py` agora detecta CSVs do Bitbucket por projeto (`*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv`) e também permite override via `FLOW_PMO_BITBUCKET_PREFIX_MAP`.
+  - Os indicadores DORA semanais da aba `Performance do Serviço` passaram a usar prioridade de dados Bitbucket:
+    - `Frequência de Deploy`: quantidade de pipelines bem-sucedidos na semana.
+    - `Lead time para mudanças`: média `commit -> deploy` (fallback para `PR created -> merged`).
+    - `Taxa de demanda de falha`: `% pipelines com falha na semana`.
+    - `MTTR`: tempo médio de recuperação (`falha -> próximo deploy bem-sucedido`).
+  - Quando não há logs suficientes do Bitbucket, os quatro indicadores continuam com fallback para o cálculo já existente no modelo de fluxo.
+  - As linhas DORA deixaram de ser estilizadas como placeholder cinza na tabela.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 -c "import dashboard_full as d; logs=d.load_project_bitbucket_logs('W1NNER'); print({k: getattr(v,'shape',None) for k,v in logs.items()}); print('ok')"`
+  - `python3 - <<'PY' ... d.compute_weekly_service_metrics(..., projeto='W1NNER') ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): compute weekly DORA metrics from bitbucket logs with flow fallback`
+
 ## Current Task (Portfólio Features NS: raias automáticas por prefixo do título)
 - [x] Implementar mapeamento automático de `Lane name` por prefixo do título (S1NC/BeFinance/W1NNR/D&A/CROSS)
 - [x] Expor configuração via CLI/env e manter fallback
@@ -489,64 +963,6 @@
   - O ambiente local atual está com instalação de `pm4py` inconsistente (`ModuleNotFoundError: pm4py.util`); portanto a validação funcional dos novos artefatos PM4Py depende de rodar o exportador em ambiente com PM4Py íntegro.
 - Suggested commit message:
   - `feat(process-mining): add tbr/alignments exports and conformance visualizations`
-
-## Current Task (Process mining: gráficos PM4Py no Dash - DFG/Petri variants)
-- [x] Gerar no exportador `process_mining_jira.py` PNGs PM4Py adicionais de Rede de Petri (decoração por frequência/performance via token replay)
-- [x] Carregar e exibir no `dashboard_process_mining.py` os novos artefatos PM4Py (DFG freq/perf + Petri variants) em cards por tipo
-- [x] Organizar a exibição nas abas de domínio sem quebrar fallback quando os PNGs não existirem
-- [x] Validar sintaxe/import e revisar diff
-
-## Specification (Process mining: gráficos PM4Py no Dash - DFG/Petri variants)
-- Objetivo: incorporar no dashboard de process mining os gráficos PM4Py equivalentes aos exemplos de DFG (frequência/performance) e variantes de Rede de Petri (pura + decoradas), usando o padrão atual de imagens exportadas.
-- Escopo:
-  - `process_mining_jira.py`
-  - `dashboard_process_mining.py`
-  - `tasks/todo.md`
-- Critério de aceite:
-  - O exportador tenta gerar PNGs adicionais de Petri decorada por frequência/performance (com fallback e metadados de erro se PM4Py/Graphviz/API falharem).
-  - O dashboard reconhece os novos sufixos de arquivo e renderiza cards com títulos distintos para cada gráfico.
-  - A UI continua funcionando quando parte dos artefatos não está presente.
-
-## Review (Process mining: gráficos PM4Py no Dash - DFG/Petri variants)
-- What was validated:
-  - `process_mining_jira.py` tenta gerar `-pm4py-petri-token-freq.png` e `-pm4py-petri-token-perf.png` a partir da mesma Rede de Petri descoberta + `token replay`, com fallbacks para diferenças de assinatura da API do PM4Py.
-  - `dashboard_process_mining.py` passou a reconhecer e exibir esses artefatos como cards com títulos distintos, junto dos cards de DFG/DFG performance/Petri já existentes.
-  - A lógica continua tolerante à ausência de arquivos (somente renderiza os cards encontrados no disco).
-- Evidence (tests/logs/diff):
-  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('process_mining_jira.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dashboard_process_mining.py').read_text(encoding='utf-8')); print('syntax ok')"`
-  - `python -c "import process_mining_jira, dashboard_process_mining; print('imports ok')"`
-  - `git diff -- process_mining_jira.py dashboard_process_mining.py tasks/todo.md`
-- Notes:
-  - A validação funcional dos PNGs PM4Py depende de rodar o exportador em ambiente com PM4Py íntegro (o ambiente local desta sessão segue com instalação inconsistente).
-- Suggested commit message:
-  - `feat(process-mining): add pm4py petri token decoration images to dashboard`
-
-## Current Task (Otimização de performance do exportador process mining)
-- [x] Reduzir custo padrão do `process_mining_jira.py` desabilitando `alignments` por padrão (ativação explícita via CLI)
-- [x] Eliminar replay duplicado de TBR (resumo derivado do diagnóstico em vez de rodar `fitness_token_based_replay`)
-- [x] Validar sintaxe/import e registrar evidências
-
-## Specification (Otimização de performance do exportador process mining)
-- Objetivo: reduzir significativamente o tempo de geração do relatório de process mining, mantendo os artefatos pesados (especialmente alignments) disponíveis sob demanda.
-- Escopo:
-  - `process_mining_jira.py`
-  - `tasks/todo.md`
-- Critério de aceite:
-  - `alignments` não roda por padrão sem flag explícita (ex.: `--pm4py-align-max-cases > 0`).
-  - O log deixa de mostrar replay TBR duplicado por causa de chamadas redundantes.
-  - O exportador continua gerando workbook com fallbacks/metadados sem quebrar compatibilidade.
-
-## Review (Otimização de performance do exportador process mining)
-- What was validated:
-  - `process_mining_jira.py` agora usa `--pm4py-align-max-cases=0` por padrão, desabilitando alignments no caminho rápido.
-  - O resumo de TBR passou a ser derivado do resultado de `conformance_diagnostics_token_based_replay`, removendo a chamada redundante a `fitness_token_based_replay` (que causava um segundo replay).
-  - O módulo continua importando normalmente.
-- Evidence (tests/logs/diff):
-  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('process_mining_jira.py').read_text(encoding='utf-8')); print('syntax ok')"`
-  - `python -c "import process_mining_jira; print('import ok')"`
-  - `git diff -- process_mining_jira.py tasks/todo.md`
-- Suggested commit message:
-  - `perf(process-mining): disable alignments by default and remove duplicate tbr replay`
 
 ## Review (Indicador explícito de histórias/tasks sem feature tática no Portfólio)
 - What was validated:
@@ -2162,4 +2578,749 @@
 - Suggested commit message:
   - `feat(process-mining-ui): add normalized person-day capacity heuristic and bottleneck analytics`
 
+
+
+## Current Task (Bitbucket API: ler acesso via .env)
+- [x] Definir variáveis de acesso Bitbucket em arquivo `.env` e exemplo versionado
+- [x] Criar script Python para extrair commits, pull requests e pipelines lendo credenciais do `.env`
+- [x] Validar `--help` e execução de smoke test sem rede (`--dry-run`)
+- [x] Registrar review/evidências e sugestão de commit
+
+## Specification (Bitbucket API: ler acesso via .env)
+- Objetivo: permitir extração de logs de commits, PRs e pipelines do Bitbucket sem hardcode de credenciais, usando variáveis em arquivo `.env`.
+- Escopo:
+  - `bitbucket_export.py`
+  - `.env.example`
+  - `.gitignore`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Script lê `BB_EMAIL`, `BB_TOKEN`, `BB_WORKSPACE`, `BB_REPO` do `.env` por padrão.
+  - Suporta override por CLI (`--env-file`, `--workspace`, `--repo`, etc.).
+  - Exporta CSV de `commits`, `pullrequests` e `pipelines` com paginação da API Bitbucket (`next`).
+  - Possui modo `--dry-run` para validar configuração local sem chamar API.
+
+## Review (Bitbucket API: ler acesso via .env)
+- What was validated:
+  - Script `bitbucket_export.py` criado com leitura automática de `.env` (ou arquivo via `--env-file`) usando variáveis `BB_EMAIL`, `BB_TOKEN`, `BB_WORKSPACE`, `BB_REPO`.
+  - Exportação CSV implementada para `commits`, `pullrequests` e `pipelines` com paginação baseada no campo `next` da API Bitbucket.
+  - Arquivo `.env.example` adicionado com as chaves necessárias e `.env` incluído no `.gitignore` para evitar commit de credenciais reais.
+  - Script inclui `--dry-run` para validar carregamento de configuração sem chamada de rede.
+- Evidence (tests/logs/diff):
+  - `python3 bitbucket_export.py --help`
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 bitbucket_export.py --env-file .env.example --dry-run`
+  - `git diff -- bitbucket_export.py .env.example .gitignore tasks/todo.md`
+- Suggested commit message:
+  - `feat(integration): add bitbucket csv exporter with .env-based auth`
+
+## Current Task (Avaliação: cruzamento Jira + Bitbucket para capacidade por pessoa)
+- [x] Levantar campos disponíveis nos exportadores de Jira e Bitbucket
+- [x] Medir cobertura real dos CSVs Bitbucket disponíveis no workspace
+- [x] Classificar métricas em: imediatas, possíveis com aproximação e dependentes de evolução de coleta
+- [x] Registrar recomendações de implementação faseada e riscos de qualidade de dados
+
+## Specification (Avaliação: cruzamento Jira + Bitbucket para capacidade por pessoa)
+- Objetivo: avaliar viabilidade técnica e confiabilidade de métricas por pessoa (work items + commits/PRs) antes de implementar.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `bitbucket_export.py`
+  - `dashboard_full.py`
+  - `w1nner_commits.csv`
+  - `w1nner_pullrequests.csv`
+  - `w1nner_pipelines.csv`
+- Critério de aceite:
+  - Diagnóstico explicita o que é medível já com os dados atuais.
+  - Diagnóstico explicita limitações de join pessoa-a-pessoa e item-a-item.
+  - Diagnóstico sugere sequência de implementação com menor risco de viés.
+
+## Review (Avaliação: cruzamento Jira + Bitbucket para capacidade por pessoa)
+- What was validated:
+  - Exportador Jira (`jira_to_pipeline_csv.py`) já gera base de itens com `ID`, `Responsável`, datas por etapa e opcional de changelog detalhado com `Author` de transição.
+  - Exportador Bitbucket (`bitbucket_export.py`) já gera work item key em commits/PRs/pipelines e dados de revisão (`approved_by`, `changes_requested_by`).
+  - Cobertura observada nos CSVs locais (`W1NNER`):
+    - `commits`: 22.188 linhas; `primary_work_item_key` em 40,7%.
+    - `pullrequests`: 875 linhas; `primary_work_item_key` em 97,5%.
+    - `pipelines`: 4.360 linhas; `primary_work_item_key` em 7,7%.
+    - Join `pipelines.commit_hash -> commits.hash`: 87,2% de match.
+  - Principais riscos para capacidade por pessoa:
+    - identidade de pessoa não unificada entre Jira e Bitbucket (display name/email/variações);
+    - parte relevante dos commits sem chave Jira;
+    - baixa cobertura de chave em pipelines para rastreio item-a-item direto.
+- Evidence (tests/logs/diff):
+  - `sed -n '1,330p' bitbucket_export.py`
+  - `sed -n '1,220p' jira_to_pipeline_csv.py`
+  - `python3 - <<'PY' ... profile de cobertura e joins dos 3 CSVs Bitbucket ... PY`
+- Suggested commit message:
+  - `docs(assessment): map feasible jira-bitbucket capacity metrics and data gaps`
+
+## Current Task (MVP: capacidade por pessoa cruzando Jira + Bitbucket)
+- [x] Implementar padronização de identidade por pessoa com mapa de aliases configurável
+- [x] Calcular métricas Jira por pessoa no período filtrado da aba Performance
+- [x] Consolidar métricas Jira + Bitbucket em ranking único com score proxy
+- [x] Exibir seção de capacidade cruzada na aba `Performance do Serviço`
+- [x] Validar sintaxe e smoke tests de cálculo/renderização
+
+## Specification (MVP: capacidade por pessoa cruzando Jira + Bitbucket)
+- Objetivo: disponibilizar no dashboard um ranking de capacidade por pessoa combinando throughput Jira e atividade técnica no Bitbucket.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Suporte a alias de pessoa via `FLOW_PMO_PERSON_ALIAS_MAP` para reduzir divergência de nomes Jira/Bitbucket.
+  - Nova tabela de capacidade cruzada com pelo menos: `Itens Concluídos`, `Itens c/ Evidência Técnica`, `Cobertura Técnica`, `PRs`, `Aprovações`, `Commits`.
+  - Seção renderiza dentro da aba `Performance do Serviço` respeitando filtros ativos.
+
+## Review (MVP: capacidade por pessoa cruzando Jira + Bitbucket)
+- What was validated:
+  - `dashboard_full.py` agora suporta alias de pessoas por variável de ambiente `FLOW_PMO_PERSON_ALIAS_MAP` (json) para canonizar nomes entre Jira e Bitbucket.
+  - Foi adicionado cálculo Jira por pessoa no período (`Itens Concluídos`, `Itens Iniciados`, `WIP no Fim`, `Lead Time Mediano`).
+  - Foi adicionado consolidado cruzado Jira + Bitbucket com:
+    - `Itens com Evidência Técnica` (issue key presente em commits/PRs no período)
+    - `Cobertura Técnica (%)`
+    - `Score Capacidade (proxy)` para ordenação do ranking.
+  - A seção `Contribuições Bitbucket (CSV)` passou a incluir bloco adicional `Capacidade Cruzada (Jira + Bitbucket)` na aba `Performance do Serviço`.
+  - A integração foi conectada ao fluxo existente, passando `df_proj` (filtros ativos) para o consolidado cruzado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_bitbucket_contributor_metrics / compute_jira_person_capacity_metrics / compute_cross_source_capacity_metrics ... PY`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section('W1NNER', start, end, jira_df=df) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add cross-source capacity ranking per person (jira + bitbucket)`
+
+## Current Task (Hotfix: KeyError 'Pessoa' no consolidado Jira+Bitbucket)
+- [x] Reproduzir cenário de dataframe vazio no consolidado cruzado
+- [x] Corrigir merge para preservar schema mínimo com coluna `Pessoa`
+- [x] Validar cálculo/renderização com Jira vazio, Bitbucket vazio e cenário normal
+
+## Review (Hotfix: KeyError 'Pessoa' no consolidado Jira+Bitbucket)
+- What was validated:
+  - `compute_cross_source_capacity_metrics` agora garante coluna `Pessoa` nos dataframes de Jira/Bitbucket antes do `pd.merge`.
+  - O erro `KeyError: 'Pessoa'` deixa de ocorrer quando uma das fontes está vazia.
+  - O render da seção de contribuições/capacidade continua funcional no cenário normal.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_cross_source_capacity_metrics(... logs vazios ...) ... PY`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section('W1NNER', ...) ... PY`
+- Suggested commit message:
+  - `fix(dashboard): handle empty jira/bitbucket person datasets in cross-source merge`
+
+## Current Task (Fase 2: capacidade semanal por pessoa no cruzamento Jira+Bitbucket)
+- [x] Implementar dataframe semanal consolidado por pessoa (`Semana`, `Pessoa`, métricas Jira/Bitbucket)
+- [x] Adicionar gráfico de tendência semanal de `Score Capacidade (proxy)` no bloco de capacidade cruzada
+- [x] Ajustar seção para funcionar com ausência parcial de dados (somente Jira ou somente Bitbucket)
+- [x] Validar sintaxe e smoke tests para cenários normal/parcial
+
+## Specification (Fase 2: capacidade semanal por pessoa no cruzamento Jira+Bitbucket)
+- Objetivo: evoluir o MVP para permitir leitura temporal (semanal) da capacidade por pessoa, não apenas acumulado do período.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Função de agregação semanal cruzada disponível no backend da dashboard.
+  - Bloco `Capacidade Cruzada (Jira + Bitbucket)` passa a exibir tendência semanal dos top contribuidores.
+  - A aba `Performance do Serviço` permanece estável quando uma fonte está vazia.
+
+## Review (Fase 2: capacidade semanal por pessoa no cruzamento Jira+Bitbucket)
+- What was validated:
+  - `dashboard_full.py` agora possui `compute_cross_source_capacity_weekly_metrics(...)`, consolidando por semana e pessoa:
+    - `Itens Concluidos` (Jira por `DataDone`)
+    - `PRs Abertos` (PR `created_on`)
+    - `Aprovacoes` / `Reprovacoes` (PR `updated_on` + reviewers)
+    - `Commits`
+    - `Score Capacidade (proxy)`
+  - O bloco `Capacidade Cruzada (Jira + Bitbucket)` ganhou gráfico de tendência semanal para as top 5 pessoas do período.
+  - `build_bitbucket_contributor_section(...)` foi robustecido para:
+    - mostrar painel de Bitbucket quando houver dados;
+    - manter o bloco cruzado quando Bitbucket estiver vazio mas Jira existir;
+    - retornar mensagem única somente quando ambas as fontes estiverem sem dados.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_cross_source_capacity_weekly_metrics(jira, logs, ...) ... PY`
+  - `python3 - <<'PY' ... weekly jira-only / weekly bb-only ... PY`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section(...) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add weekly cross-source capacity trends per person`
+
+## Current Task (Fase 3: filtros de Top N e métrica semanal na capacidade cruzada)
+- [x] Adicionar filtros na UI para `Top N` e `Métrica semanal` da capacidade cruzada
+- [x] Propagar filtros no callback principal e na função da seção de contribuições/capacidade
+- [x] Aplicar filtros no gráfico semanal (`score`, `itens concluídos`, `commits`, `PRs`)
+- [x] Validar renderização com múltiplas combinações de filtros
+
+## Specification (Fase 3: filtros de Top N e métrica semanal na capacidade cruzada)
+- Objetivo: tornar a análise de capacidade cruzada mais exploratória, permitindo escolher quantas pessoas comparar e qual métrica semanal observar.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Novos filtros aparecem no painel principal de filtros.
+  - Aba `Performance do Serviço` aplica os filtros ao bloco `Capacidade Cruzada (Jira + Bitbucket)`.
+  - Gráfico semanal passa a alternar entre métricas: score, itens concluídos, commits e PRs abertos.
+
+## Review (Fase 3: filtros de Top N e métrica semanal na capacidade cruzada)
+- What was validated:
+  - Filtros adicionados na UI:
+    - `filter-capacity-top-n` (3, 5, 8, 10, 15, 20)
+    - `filter-capacity-weekly-metric` (`score`, `itens_concluidos`, `commits`, `prs_abertos`)
+  - Callback principal `render_tab` atualizado para receber e propagar os dois filtros para `build_bitbucket_contributor_section(...)`.
+  - A seção de capacidade cruzada agora usa:
+    - `Top N` para limitar ranking e pessoas da série temporal.
+    - métrica selecionada para eixo Y do gráfico semanal.
+  - Assinatura de `render_tab` preserva defaults para compatibilidade com chamadas internas.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... build_bitbucket_contributor_section(... top_n=3/10, weekly_metric='score/commits/prs_abertos') ... PY`
+  - `python3 - <<'PY' ... render_tab('services','tab-performance',..., 8, 'itens_concluidos', '__ALL__') ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add top-n and weekly metric filters for cross-source capacity chart`
+
+## Current Task (Process Mining W1NNER: cruzamento Jira + Bitbucket pelos indicadores do anexo)
+- [x] Ler indicadores do anexo PDF e mapear para a página `dashboard_process_mining.py`
+- [x] Implementar carga dos logs Bitbucket (`commits`, `pullrequests`, `pipelines`) no dashboard de Process Mining
+- [x] Calcular métricas cruzadas por pessoa (itens Jira + atividade técnica Bitbucket + evidência técnica)
+- [x] Exibir novos KPIs e visualizações de capacidade integrada na aba `Operacional`
+- [x] Validar sintaxe e smoke test com dados reais disponíveis
+
+## Specification (Process Mining W1NNER: cruzamento Jira + Bitbucket pelos indicadores do anexo)
+- Objetivo: cruzar os dados Jira/Process Mining com logs do Bitbucket para complementar os indicadores operacionais por pessoa.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Dashboard carrega CSVs Bitbucket do projeto W1NNER com o mesmo padrão usado no dashboard principal.
+  - Métricas cruzadas incluem pelo menos: `Commits`, `PRs Merged`, `Aprovações`, `Reprovações`, `Itens c/ Evidência Técnica`, `Cobertura Técnica (%)`, `Score Integrado`.
+  - Aba `Operacional` exibe gráfico e tabela por pessoa combinando Jira + Bitbucket.
+
+## Review (Process Mining W1NNER: cruzamento Jira + Bitbucket pelos indicadores do anexo)
+- What was validated:
+  - `dashboard_process_mining.py` passou a incluir helpers para:
+    - carregamento de logs Bitbucket por projeto/prefixo (`FLOW_PMO_BITBUCKET_PREFIX_MAP` + fallback `w1nner`)
+    - normalização de nomes de pessoas
+    - agregação de métricas Bitbucket por pessoa no período filtrado
+    - consolidação Jira + Bitbucket com `Itens c/ Evidência Técnica` e `Cobertura Técnica (%)`.
+  - O bloco de KPIs recebeu cartões adicionais de Bitbucket/cross:
+    - `Commits (Bitbucket)`, `PRs Merged (Bitbucket)`, `Aprovações PR (Bitbucket)`, `Reprovações PR (Bitbucket)`,
+    - `Itens c/ Evidência Técnica`, `Cobertura Técnica`.
+  - A aba `Operacional` ganhou:
+    - gráfico `Capacidade Integrada por Pessoa (Jira + Bitbucket)`
+    - tabela detalhada por pessoa com métricas cruzadas.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... load_project_bitbucket_logs('W1NNER') ... PY`
+  - `python3 - <<'PY' ... compute_bitbucket_person_metrics(...) ... PY`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_metrics(pm_people, pm_cases, ...) ... PY`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add jira-bitbucket cross indicators per person in operational view`
+
+## Current Task (Process Mining: visão semanal dos indicadores cruzados Jira+Bitbucket)
+- [x] Implementar agregado semanal por pessoa no cruzamento Jira+Bitbucket
+- [x] Adicionar filtros de `Top N` e `Métrica semanal` na UI do Process Mining
+- [x] Conectar filtros ao callback principal e renderizar tendência semanal na aba `Operacional`
+- [x] Validar sintaxe e render callback com dados reais
+
+## Specification (Process Mining: visão semanal dos indicadores cruzados Jira+Bitbucket)
+- Objetivo: habilitar tendência semanal por pessoa dos indicadores cruzados no dashboard de Process Mining, em linha com a experiência do `dashboard_full.py`.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Cálculo semanal por pessoa disponível para métricas cruzadas.
+  - UI oferece filtros de `Top N` e `Métrica semanal`.
+  - Aba `Operacional` exibe gráfico semanal controlado pelos filtros.
+
+## Review (Process Mining: visão semanal dos indicadores cruzados Jira+Bitbucket)
+- What was validated:
+  - Função `compute_pm_bitbucket_cross_weekly(...)` adicionada para consolidar por `Semana + Pessoa`:
+    - `Itens Concluidos`, `Commits`, `PRs Abertos`, `PRs Merged`, `Aprovacoes`, `Reprovacoes`, `Score Integrado`.
+  - Novos controles na barra superior:
+    - `pm-cross-topn`
+    - `pm-cross-weekly-metric`
+  - Callback `render_pm(...)` atualizado para receber os novos inputs e usar no gráfico:
+    - título dinâmico com métrica e Top N selecionado.
+  - Aba `Operacional` passou a exibir gráfico `Tendência Semanal Integrada (...)` abaixo do gráfico de capacidade integrada.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_weekly(...) ... PY`
+  - `python3 - <<'PY' ... render_pm(..., 8, 'prs_merged') ... PY`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add weekly cross-source trend controls and chart`
+
+## Current Task (Process Mining v2: alias robusto + cobertura semanal + PRs declinados semanais)
+- [x] Implementar canonicalização de pessoas com `FLOW_PMO_PERSON_ALIAS_MAP`
+- [x] Adicionar `PRs Declinados` no agregado semanal integrado
+- [x] Adicionar `Itens c/ Evidência Técnica` e `Cobertura Técnica (%)` no agregado semanal
+- [x] Expor novas métricas no filtro semanal da UI (`Cobertura Técnica` e `PRs Declinados`)
+- [x] Validar callback/renderização com as novas métricas
+
+## Specification (Process Mining v2: alias robusto + cobertura semanal + PRs declinados semanais)
+- Objetivo: aumentar robustez do cruzamento Jira+Bitbucket e completar a leitura semanal com qualidade de rastreabilidade e sinal de rejeição de PR.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Pessoas podem ser unificadas por aliases configuráveis entre Jira e Bitbucket.
+  - Série semanal inclui `PRs Declinados` por pessoa.
+  - Série semanal inclui `Itens c/ Evidência Técnica` e `Cobertura Técnica (%)` por pessoa.
+  - Filtro de métrica semanal permite escolher essas novas métricas.
+
+## Review (Process Mining v2: alias robusto + cobertura semanal + PRs declinados semanais)
+- What was validated:
+  - `dashboard_process_mining.py` agora suporta canonicalização de pessoas via `FLOW_PMO_PERSON_ALIAS_MAP` (com matching por nome normalizado e email).
+  - `compute_pm_bitbucket_cross_weekly(...)` passou a calcular:
+    - `PRs Declinados`
+    - `Itens c/ Evidencia Tecnica`
+    - `Cobertura Tecnica (%)`
+    - mantendo `Score Integrado` e demais métricas já existentes.
+  - Filtro `pm-cross-weekly-metric` ganhou opções:
+    - `Cobertura Técnica (%)`
+    - `PRs Declinados`
+  - Consolidado integrado por pessoa também passou a exibir `PRs Declinados` na tabela e nos totais.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_process_mining.py`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_weekly(...): cols incl. PRs Declinados + Cobertura Técnica ... PY`
+  - `python3 - <<'PY' ... compute_pm_bitbucket_cross_metrics(...): PRs Declinados nos totais ... PY`
+  - `python3 - <<'PY' ... render_pm(..., 'cobertura_tecnica') + render_pm(..., 'prs_declinados') ... PY`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add alias-based identity and weekly declined-pr/technical-coverage metrics`
+
+## Current Task (Hotfix Bitbucket export: diffstat 404 por `%0D` no href)
+- [x] Diagnosticar 404 no diffstat com URL de `links.diffstat.href` contaminada por CR/LF
+- [x] Ajustar exportador para priorizar endpoint canônico por PR id (`/pullrequests/{id}/diffstat`)
+- [x] Adicionar sanitização defensiva de URL de diffstat como fallback
+- [x] Validar sintaxe e normalização local
+
+## Review (Hotfix Bitbucket export: diffstat 404 por `%0D` no href)
+- What was validated:
+  - O erro observado (`...diffstat/...:hash%0Dhash?... -> 404`) vem de `href` com revspec malformado.
+  - `bitbucket_export.py` agora usa preferencialmente `.../pullrequests/{id}/diffstat`, reduzindo dependência de `href` instável.
+  - Foi adicionada função `normalize_diffstat_url(...)` para remover CR/LF e `%0D/%0A` quando houver fallback para URL vinda da API.
+  - Exportador segue válido em sintaxe após ajuste.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 - <<'PY' ... normalize_diffstat_url('...%0D...') ... PY`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): stabilize bitbucket diffstat lookup using pr endpoint and url sanitization`
+
+## Current Task (Hotfix complementar diffstat: redirect 3xx para URL malformada)
+- [x] Diagnosticar que endpoint canônico `/pullrequests/{id}/diffstat` pode redirecionar para URL com `%0D`
+- [x] Implementar tratamento manual de redirect em `fetch_pullrequest_volume` com sanitização de `Location`
+- [x] Validar com teste local mockado de redirect -> payload diffstat
+
+## Review (Hotfix complementar diffstat: redirect 3xx para URL malformada)
+- What was validated:
+  - Em alguns PRs, o endpoint canônico responde com redirect para `diffstat/revspec` contendo `%0D`, causando 404 quando seguido cegamente.
+  - `fetch_pullrequest_volume` foi alterado para:
+    - fazer request com `allow_redirects=False`;
+    - ler `Location`, sanitizar URL (removendo `%0D/%0A` e CR/LF), e seguir manualmente;
+    - manter paginação de `next` com sanitização.
+  - Teste mockado confirmou que o redirect sanitizado remove `%0D` e preserva contagem de `additions/deletions/files_changed`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 - <<'PY' ... MockSession redirect 302 -> diffstat payload ... PY`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): follow and sanitize diffstat redirects to avoid malformed %0D urls`
+
+## Current Task (Hotfix ruído operacional: diffstat 404 conhecido)
+- [x] Tratar `HTTP 404` em diffstat como ausência de volume (sem warning por PR)
+- [x] Manter warning apenas para erros não esperados de rede/API
+- [x] Validar sintaxe do exportador
+
+## Review (Hotfix ruído operacional: diffstat 404 conhecido)
+- What was validated:
+  - `bitbucket_export.py` passou a tratar `requests.HTTPError` com `status_code == 404` no diffstat como caso esperado, retornando colunas de volume vazias sem log de aviso.
+  - Erros HTTP diferentes de 404 e falhas de rede continuam gerando warning.
+  - Sintaxe do script permanece válida.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `git diff -- bitbucket_export.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(integration): silence expected 404 diffstat misses while keeping other warnings`
+
+## Current Task (Bitbucket export: tolerância a rate limit 429)
+- [x] Implementar retry automático para chamadas HTTP do Bitbucket (429/5xx)
+- [x] Respeitar cabeçalho `Retry-After` quando presente
+- [x] Aplicar retry em paginação principal e coleta de diffstat de PR
+- [x] Validar sintaxe e help da CLI
+
+## Specification (Bitbucket export: tolerância a rate limit 429)
+- Objetivo: evitar interrupção do export completo quando o Bitbucket retornar `429 Too Many Requests`.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Requisições fazem retry com backoff para `429` e `5xx`.
+  - Se `Retry-After` vier na resposta, o tempo é respeitado.
+  - Fluxo de commits/PRs/pipelines e diffstat de PR usam o mesmo mecanismo de retry.
+  - Script permanece válido em sintaxe/help.
+
+## Review (Bitbucket export: tolerância a rate limit 429)
+- What was validated:
+  - Foi adicionado helper de request com retry (`request_with_retry`) com backoff e suporte a `Retry-After`.
+  - `iter_paginated` agora usa esse helper para commits/PRs/pipelines.
+  - `fetch_pullrequest_volume` também usa o helper para reduzir falhas em `diffstat` sob limitação de taxa.
+  - CLI e sintaxe seguem válidas.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile bitbucket_export.py`
+  - `python3 bitbucket_export.py --help`
+- Suggested commit message:
+  - `fix(integration): add retry/backoff for bitbucket 429 and transient 5xx responses`
+
+## Review Addendum (Bitbucket export: tolerância a rate limit 429)
+- Additional findings from real run:
+  - Mesmo com retry inicial, o export continuou sofrendo 429 em quase todas as páginas de commits de histórico longo.
+- Additional changes:
+  - Adicionado `cooldown` global entre tentativas quando ocorre `429`.
+  - Adicionado pacing contínuo de requests com `--min-request-interval-ms` (default `350ms`).
+  - Em `429` sem `Retry-After`, aplica espera mínima conservadora (>=8s) com jitter.
+- Suggested commit message (updated):
+  - `fix(integration): add global cooldown and request pacing for persistent bitbucket 429 limits`
+
+## Current Task (Gráfico: commits x cartões concluídos por pessoa)
+- [x] Definir dataset do gráfico com foco em desconexão Jira-Bitbucket
+- [x] Gerar gráfico scatter com destaque dos casos críticos e exportar em HTML
+- [x] Validar geração do arquivo e registrar evidências/review
+
+## Specification (Gráfico: commits x cartões concluídos por pessoa)
+- Objetivo: criar visual que evidencie a assimetria entre atividade técnica (commits) e vazão de cartões concluídos no Jira.
+- Escopo:
+  - `scripts/generate_commits_vs_jira_chart.py` (novo)
+  - `artifacts/commits_vs_jira_done.html` (novo)
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Scatter com eixo X = commits e eixo Y = cartões concluídos por pessoa.
+  - Destaque visual de outliers: alta vazão sem código e alta atividade técnica sem conclusão no Jira.
+  - Inclusão de anotações para pessoas-chave citadas no diagnóstico.
+  - Artefato HTML gerado localmente e abrível no navegador.
+
+## Review (Gráfico: commits x cartões concluídos por pessoa)
+- What was validated:
+  - Script novo `scripts/generate_commits_vs_jira_chart.py` criado para cruzar dados de `VazaoPessoaResumo/ConformidadeCasos` com logs Bitbucket e gerar scatter `Commits x Itens Concluidos`.
+  - O gráfico classifica automaticamente os quadrantes de desconexão (`Alta vazão sem evidência técnica` e `Atividade técnica sem fechamento Jira`) e anota as pessoas-chave do diagnóstico.
+  - Artefato final gerado em `artifacts/commits_vs_jira_done.html` com período do recorte e indicador de cobertura técnica no subtítulo.
+- Evidence (tests/logs/diff):
+  - `python3 scripts/generate_commits_vs_jira_chart.py --days 30`
+  - Saída: `Arquivo gerado: .../artifacts/commits_vs_jira_done.html`
+  - Saída (amostra): `Lucas Pizol / Peterson Bem / Gabriel de Oliveira Koehler` em `Atividade técnica sem fechamento Jira`; `Lorraine Caribe` e `Thaís Cabral` em `Alta vazão sem evidência técnica`.
+- Suggested commit message:
+  - `feat(analytics): add jira-vs-bitbucket commits x done scatter chart with disconnect highlights`
+
+## Current Task (Dashboard Full: incluir relatório commits x cartões Jira)
+- [x] Adicionar visual de correlação `Commits x Itens Concluídos` na aba de Process Mining do `dashboard_full.py`
+- [x] Destacar padrões de desconexão Jira-Bitbucket com classificação visual e tabelas de outliers
+- [x] Validar sintaxe/execução e registrar evidências
+
+## Specification (Dashboard Full: incluir relatório commits x cartões Jira)
+- Objetivo: disponibilizar no dashboard principal o relatório de desconexão Jira-Bitbucket já gerado em HTML.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba `tab-process-mining-jira` exibe scatter `Commits (Bitbucket)` no eixo X e `Itens Concluídos (Jira)` no eixo Y por pessoa.
+  - O visual diferencia os padrões: alta vazão sem commits e commits sem conclusão no Jira.
+  - O bloco apresenta resumo de cobertura técnica e tabelas com principais outliers.
+
+## Review (Dashboard Full: incluir relatório commits x cartões Jira)
+- What was validated:
+  - Foi adicionada a função `build_pm_commits_vs_jira_report(...)` em `dashboard_full.py`, responsável por cruzar `VazaoPessoaResumo` (Jira PM) com contribuições do Bitbucket no período filtrado.
+  - A aba `tab-process-mining-jira` agora renderiza o bloco novo de rastreabilidade com:
+    - scatter `Commits (Bitbucket) x Itens Concluídos (Jira)` por pessoa;
+    - classificação visual (`Alta vazão sem commits`, `Commits sem conclusão Jira`, `Fluxo conectado`);
+    - destaque/anotações para pessoas-chave;
+    - resumo de cobertura técnica por `Issue Key` com base em `work_item_keys`/`primary_work_item_key`;
+    - duas tabelas de outliers (vazão sem commits e commits sem conclusão Jira).
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... build_pm_commits_vs_jira_report(...) ... print(type(comp).__name__) ... PY`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `feat(process-mining): add jira-vs-bitbucket commits x done traceability report to dashboard_full`
+
+## Current Task (Dashboard Full: aba Process Mining + score percentual de capacidade)
+- [x] Tornar a aba `Process Mining Jira` visível na navegação de serviços
+- [x] Recalcular `Score Capacidade` como percentual no bloco `Capacidade Cruzada (Jira + Bitbucket)`
+- [x] Atualizar tabela/gráficos/filtro semanal para refletir score em `%`
+- [x] Validar sintaxe/import após ajuste
+
+## Specification (Dashboard Full: aba Process Mining + score percentual de capacidade)
+- Objetivo: corrigir visibilidade da aba de Process Mining e apresentar o score de capacidade em formato percentual.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `Process Mining Jira` aparece como aba em `SERVICE_TABS`.
+  - `Score Capacidade` deixa de ser valor absoluto e passa a ser participação percentual no score ponderado do período.
+  - Tabela e gráficos da seção `Capacidade Cruzada` exibem o score em `%`.
+
+## Review (Dashboard Full: aba Process Mining + score percentual de capacidade)
+- What was validated:
+  - A aba `Process Mining Jira` foi incluída explicitamente em `SERVICE_TABS`.
+  - O cálculo de `Score Capacidade` foi alterado para:
+    - score bruto = `itens concluídos + PRs abertos + aprovações + reprovações + commits/5`;
+    - score percentual = `(score bruto da pessoa / soma dos scores brutos no período) * 100`.
+  - A visualização semanal da capacidade também passou a calcular o percentual por semana.
+  - A tabela da capacidade cruzada agora mostra o valor formatado com sufixo `%`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; print('import ok')"`
+  - `rg -n \"tab-process-mining-jira|Score Capacidade \\(%\\)|proxy bruto\" dashboard_full.py`
+- Suggested commit message:
+  - `fix(dashboard): expose process mining tab and convert cross-capacity score to percentage`
+
+## Current Task (Ajuste do score percentual de capacidade cruzada)
+- [x] Revisar definição de percentual do score de capacidade após feedback do usuário
+- [x] Trocar cálculo de participação no total por índice relativo ao maior score do período (0–100%)
+- [x] Aplicar a mesma regra no cálculo semanal
+- [x] Validar sintaxe e exemplo de saída
+
+## Specification (Ajuste do score percentual de capacidade cruzada)
+- Objetivo: tornar o `%` de capacidade mais interpretável no ranking por pessoa.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `Score Capacidade (%)` usa denominador de máximo score bruto do recorte, e não soma total.
+  - Maior score do recorte aparece como `100%`.
+  - Série semanal usa a mesma lógica (máximo por semana).
+
+## Review (Ajuste do score percentual de capacidade cruzada)
+- What was validated:
+  - `compute_cross_source_capacity_metrics` agora calcula `%` como `score_bruto_pessoa / maior_score_bruto_do_período * 100`.
+  - `compute_cross_source_capacity_weekly_metrics` passou a usar `maior_score_bruto_da_semana` como denominador.
+  - Texto explicativo da seção `Capacidade Cruzada` foi atualizado para refletir a nova regra.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_cross_source_capacity_metrics(...) ... print(max Score Capacidade (%)) ... PY`
+  - Evidência: `max 100.0` no recorte testado.
+- Suggested commit message:
+  - `fix(dashboard): normalize cross-capacity score percentage against period max`
+
+## Current Task (Dashboard Full: visão consolidada planejamento do quarter x execução)
+- [x] Definir bloco consolidado com os números-chave do período (01/01 a 25/02)
+- [x] Aplicar fórmulas de aderência (entregues/planejados e horas executadas/estimadas no quarter)
+- [x] Exibir direcionadores de risco e ação imediata no contexto da aba `Performance do Serviço`
+- [x] Validar sintaxe e registrar evidências no review
+
+## Specification (Dashboard Full: visão consolidada planejamento do quarter x execução)
+- Objetivo: incluir no `dashboard_full.py` uma visão consolidada que traduza métricas do período em direcionamento operacional, explicitando que a referência de horas é o planejamento do quarter (não capacidade do time).
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Nova seção na aba `Performance do Serviço` com:
+    - período analisado (01/01 a 25/02),
+    - itens planejados, entregues, em andamento,
+    - horas executadas, horas estimadas para o quarter e percentual consumido.
+  - Percentuais são calculados por fórmula no código (não texto estático).
+  - O texto destaca leitura de aderência entre planejamento macro e execução real.
+  - Inclui alertas operacionais: média de 8,11h/dev/dia, 28 bloqueios e necessidade de corte/priorização mais cedo na sprint.
+  - Inclui as três perguntas críticas de gestão: previsto, risco e ajuste imediato.
+
+## Review (Dashboard Full: visão consolidada planejamento do quarter x execução)
+- What was validated:
+  - A aba `Performance do Serviço` ganhou um bloco `Visão consolidada: planejamento do quarter x execução real`.
+  - Os percentuais centrais são calculados por fórmula no código:
+    - `Entregues (%) = itens_entregues / itens_planejados`
+    - `Consumo do estimado (%) = horas_executadas / horas_estimadas_quarter`
+  - O texto da seção explicita que a referência de horas é o volume estimado do quarter (não capacidade do time).
+  - Foram incluídos direcionadores operacionais e as três perguntas críticas de decisão.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(dashboard): add consolidated quarter-plan-vs-execution view in service performance tab`
+
+## Current Task (Dashboard Full: KeyError no bucket 8-15 no Aging)
+- [x] Diagnosticar causa do `KeyError: '8-15'` no `render_aging_buckets`
+- [x] Ajustar ordenação/categorização de buckets para recortes com categorias ausentes
+- [x] Validar sintaxe e smoke test da função de renderização
+
+## Specification (Dashboard Full: KeyError no bucket 8-15 no Aging)
+- Objetivo: eliminar falha de renderização do gráfico de aging por TEAM quando um ou mais buckets não aparecem no dataset filtrado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `render_aging_buckets` não lança `KeyError` com buckets ausentes (ex.: sem `8-15`).
+  - Ordem visual dos buckets permanece estável para os buckets presentes.
+  - Código válido em sintaxe.
+
+## Review (Dashboard Full: KeyError no bucket 8-15 no Aging)
+- What was validated:
+  - A função `render_aging_buckets` foi ajustada para normalizar `AgingBucket`, tratar valores vazios/`NaN` como `Sem data` e calcular `present_buckets` apenas com categorias existentes no recorte atual.
+  - A ordenação visual foi preservada pela ordem canônica (`0-7`, `8-15`, `16-30`, `31-60`, `60+`, `Sem data`), mas limitada aos buckets presentes para evitar o `KeyError` no agrupamento interno do Plotly.
+  - O gráfico passou a receber `category_orders={'AgingBucket': present_buckets}` para não forçar grupos inexistentes.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... smoke test com dataframe sem bucket 8-15 ... px.bar(...) ... print('smoke_ok', ...) ... PY`
+  - `rg -n "present_buckets|category_orders=\\{'AgingBucket'" dashboard_full.py`
+- Suggested commit message:
+  - `fix(dashboard): avoid plotly keyerror when aging bucket categories are missing after filters`
+
+## Current Task (Diagnóstico: relatório Estatística com dados incorretos)
+- [x] Extrair evidências do PDF e reproduzir os números com o mesmo período/filtros
+- [x] Validar consistência entre aba `tab-estatistica`, filtros ativos e métrica de lead time selecionada
+- [x] Corrigir a origem da divergência no `dashboard_full.py`
+- [x] Validar sintaxe e reproduzir os KPIs após a correção
+- [x] Registrar review com causa raiz, evidências e sugestão de commit
+
+## Specification (Diagnóstico: relatório Estatística com dados incorretos)
+- Objetivo: identificar e corrigir por que o relatório da aba `Estatística Descritiva` não reflete corretamente os dados do período/filtros selecionados.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba `tab-estatistica` usa a mesma base filtrada do dashboard (incluindo `classe_servico`) em vez de recalcular sobre `fato` bruto.
+  - Lead Time da aba passa a usar a métrica selecionada (`LeadTime_Selected_Dias`) e não apenas `LeadTime_Dias`.
+  - Throughput/WIP permanecem coerentes com o recorte de período/filtros.
+  - Código válido em sintaxe.
+
+## Review (Diagnóstico: relatório Estatística com dados incorretos)
+- What was validated:
+  - O PDF exportado da aba `Estatística Descritiva` (W1NNER, 01/01/2026 a 31/01/2026) mostrava `Throughput` com dados (`Total de Itens = 88`) e, ao mesmo tempo, `Lead Time` sem dados.
+  - A causa raiz foi confirmada em dois pontos:
+    - **Dados**: no modelo carregado (`PowerBI_Model_20260302_084834.xlsx`), os 89 itens concluídos no período (88 elegíveis) tinham `LeadTime_Dias` nulo, pois `DataBacklog` estava vazio nesse recorte.
+    - **Código**: `tab-estatistica` ignorava o dataframe filtrado + métrica selecionada (`LeadTime_Selected_Dias`) e recalculava em cima de `fato` usando `LeadTime_Dias` fixo.
+  - A aba foi corrigida para:
+    - usar `df_done = df` (recorte filtrado do callback) para métricas de concluídos;
+    - aplicar `LeadTime_Selected_Dias` (fallback para `LeadTime_Dias`);
+    - manter WIP em base sem filtro de conclusão, mas com os mesmos filtros ativos, incluindo `classe_servico`.
+  - Após correção, no mesmo recorte do PDF:
+    - `lead_count = 86`, `lead_mean = 10.13`, `lead_p85 = 20.00`;
+    - `throughput_total = 88`, `throughput_weeks = 4`.
+- Evidence (tests/logs/diff):
+  - `pdftotext '/Users/rodrigoalmeidadeoliveira/Downloads/Dashboard de Métricas (Full)-estatística.pdf' /tmp/dashboard_estatistica.txt`
+  - `python3 - <<'PY' ... import dashboard_full as d ... print(d.MODEL_FILE, rows_done_period, lead_non_null) ... PY`
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.render_tab(... tab='tab-estatistica' ...) ... print('lead_count', ... ) ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dashboard): align estatistica tab with filtered lead-time metric and active service filters`
+
+## Current Task (CFD detalhado indisponível em todos os projetos)
+- [x] Confirmar causa raiz do aviso de modo detalhado indisponível
+- [x] Ajustar descoberta de pastas para incluir `../dados/latest` e `../dados`
+- [x] Melhorar mensagem de erro do CFD com diagnóstico acionável por causa
+- [x] Validar sintaxe e execução básica do fluxo do CFD
+
+## Specification (CFD detalhado indisponível em todos os projetos)
+- Objetivo: tornar o carregamento do downstream detalhado robusto para o layout de pastas do projeto e tornar o erro do CFD explícito para evitar diagnóstico ambíguo.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O loader de dados considera também `../dados/latest` e `../dados` além dos diretórios já existentes.
+  - Quando o detalhado estiver indisponível, a UI do CFD mostra uma causa específica (sem CSV, sem concluídos no filtro, sem etapas válidas etc.).
+  - Código válido em sintaxe.
+
+## Review (CFD detalhado indisponível em todos os projetos)
+- What was validated:
+  - A pasta informada pelo usuário foi confirmada: em `.../flow-pmo/dados/latest` existia apenas `portfolio-bt-ns-latest-data.csv`, sem arquivos `*-downstream-*-latest-data.csv` por projeto.
+  - `_candidate_data_folders()` passou a considerar explicitamente as pastas de projeto `../dados/latest` e `../dados`, além dos diretórios já existentes.
+  - A anotação do CFD para modo detalhado indisponível deixou de ser genérica e agora informa causa específica:
+    - sem projeto;
+    - sem CSV downstream por projeto;
+    - filtro sem itens concluídos;
+    - ausência de etapas válidas no CSV.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... import dashboard_full as d; print(d.DATA_FOLDERS); print(d._get_cfd_detailed_unavailable_reason(...)) ... PY`
+  - `find '/Users/rodrigoalmeidadeoliveira/.../flow-pmo/dados' -maxdepth 3 -type f -name '*-latest-data.csv'`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(cfd): include project dados/latest in downstream discovery and show precise unavailability reasons`
+
+## Current Task (Publicar downstream latest em pasta central latest)
+- [x] Atualizar script macOS para copiar aliases `*-downstream-latest-data.csv` para `../dados/latest`
+- [x] Atualizar script PowerShell para copiar aliases `*-downstream-latest-data.csv` para `../dados/latest`
+- [x] Validar sintaxe dos scripts alterados no ambiente atual
+
+## Specification (Publicar downstream latest em pasta central latest)
+- Objetivo: garantir que toda execução de exportação downstream publique automaticamente os aliases `*-downstream-latest-data.csv` na pasta central `.../flow-pmo/dados/latest`.
+- Escopo:
+  - `run_all_projects_macos.sh`
+  - `run_all_projects.ps1`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Após gerar `*-data.csv`, o script atualiza `*-latest-data.csv` no `OutDir` e replica o mesmo arquivo para `../dados/latest`.
+  - A pasta `../dados/latest` é criada automaticamente quando não existir.
+  - Scripts permanecem válidos em sintaxe.
+
+## Review (Publicar downstream latest em pasta central latest)
+- What was validated:
+  - `run_all_projects_macos.sh` agora define `LATEST_DIR` (com fallback para `../dados/latest` relativo ao script), cria a pasta e replica cada `*-latest-data.csv` downstream para esse destino.
+  - `run_all_projects.ps1` recebeu a mesma lógica: resolução de `latestDir` (com override via `FLOW_PMO_LATEST_DIR`), criação da pasta e cópia dos aliases downstream para a pasta central.
+  - O comportamento anterior de atualizar `*-latest-data.csv` no `OutDir` foi preservado.
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `pwsh` não disponível neste ambiente para validação sintática automática do `.ps1`.
+  - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 tasks/todo.md`
+- Suggested commit message:
+  - `feat(pipeline): always publish downstream latest aliases to central dados/latest folder`
+
+## Current Task (Process Mining Jira não encontrado com latest existente)
+- [x] Reproduzir resolução de arquivo do Process Mining nos dashboards
+- [x] Corrigir descoberta de pastas candidatas para incluir `../dados/latest` e `artifacts/process_mining`
+- [x] Tornar seleção de arquivo robusta (priorizar `w1nner-process-mining-latest.xlsx` e validar workbook)
+- [x] Validar carregamento em runtime após ajuste
+
+## Specification (Process Mining Jira não encontrado com latest existente)
+- Objetivo: eliminar falso negativo de "Relatório de process mining não encontrado" quando o arquivo `w1nner-process-mining-latest.xlsx` já existe.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Ambos os dashboards consideram também `../dados/latest`, `../dados` e `artifacts/process_mining` na busca.
+  - A seleção do arquivo prioriza `w1nner-process-mining-latest.xlsx`.
+  - Apenas workbooks válidos (com abas esperadas de process mining) são aceitos.
+
+## Review (Process Mining Jira não encontrado com latest existente)
+- What was validated:
+  - `dashboard_process_mining.py` não incluía `../dados/latest` na busca padrão; agora inclui.
+  - `dashboard_full.py` e `dashboard_process_mining.py` passaram a validar workbook antes de aceitar candidato e priorizam o alias estável `w1nner-process-mining-latest.xlsx`.
+  - A busca pós-ajuste resolveu com sucesso para `.../dados/latest/w1nner-process-mining-latest.xlsx`.
+- Evidence (tests/logs/diff):
+  - `python3 - <<'PY' ... import dashboard_process_mining as d; print(d.DATA_FOLDERS); print(d.find_latest_process_mining_report()) ... PY`
+  - `python3 - <<'PY' ... import dashboard_full as d; print(d.DATA_FOLDERS); print(d._find_latest_w1nner_process_mining_excel()) ... PY`
+  - `python3 -m py_compile dashboard_full.py dashboard_process_mining.py`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(process-mining): prefer validated latest workbook across dashboards`
+
+## Current Task (Process Mining: KPI de concluídos para itens únicos finalizados)
+- [x] Revisar a origem do KPI `Itens Concluídos (período)` na aba `Process Mining Jira` e confirmar divergência com unidade de throughput
+- [x] Ajustar cálculo para usar itens únicos finalizados no período (base de casos finalizados)
+- [x] Ajustar rótulo/layout do card para refletir a nova semântica de vazão
+- [x] Validar comportamento com verificação de sintaxe e inspeção do diff
+
+## Specification (Process Mining: KPI de concluídos para itens únicos finalizados)
+- Objetivo: alinhar o KPI principal da aba de Process Mining com a unidade de throughput, substituindo contagem agregada por pessoa por contagem de itens únicos finalizados no período.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O card deixa de usar soma de `Itens Concluidos` por responsável quando houver base de casos e passa a refletir `Issue Key` únicos finalizados no período.
+  - O rótulo do KPI explicita `itens únicos finalizados` (sem ambiguidade de unidade).
+  - O grid de KPIs mantém layout consistente (cards com mesma largura e quebra adequada em desktop/mobile).
+  - Código válido em sintaxe.
+
+## Review (Process Mining: KPI de concluídos para itens únicos finalizados)
+- What was validated:
+  - O KPI principal da aba `tab-process-mining-jira` foi alterado para priorizar contagem de `Issue Key` únicos da base de casos finalizados (`pm_cases`), com filtro adicional de `Done Final Date` válido quando a coluna existe.
+  - O fallback para soma de `Itens Concluidos` por pessoa foi mantido apenas para cenários sem `Issue Key` disponível.
+  - O rótulo do card foi atualizado para `Itens Únicos Finalizados (período)`, mantendo o layout em grade com `class_name='three columns'`.
+  - A base de `Cobertura Técnica` passou a usar o mesmo conjunto de itens finalizados (`finalized_issue_keys`) para manter unidade coerente com throughput.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+- Suggested commit message:
+  - `fix(process-mining): align throughput KPI to unique finalized items in period`
 

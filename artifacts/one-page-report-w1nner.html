@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One Page Report — W1NNER — Janeiro/2026</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface-2: #232734;
+    --border: #2e3345;
+    --text: #e2e8f0;
+    --text-muted: #8892a8;
+    --text-dim: #5a6478;
+    --accent: #3b82f6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --teal: #14b8a6;
+    --purple: #a78bfa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.4;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .report {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  /* === HEADER === */
+  .report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  .report-header .title-group h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .report-header .title-group h1 span {
+    color: var(--accent);
+  }
+
+  .report-header .meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .report-header .period-badge {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* === HEALTH STRIP === */
+  .health-strip {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .health-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .health-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+
+  .health-item.good::before { background: var(--green); }
+  .health-item.warn::before { background: var(--amber); }
+  .health-item.bad::before { background: var(--red); }
+  .health-item.neutral::before { background: var(--accent); }
+
+  .health-item .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .health-item.good .value { color: var(--green); }
+  .health-item.warn .value { color: var(--amber); }
+  .health-item.bad .value { color: var(--red); }
+  .health-item.neutral .value { color: var(--accent); }
+
+  .health-item .label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    line-height: 1.3;
+  }
+
+  .health-item .sublabel {
+    font-size: 8px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* === TWO COLUMNS === */
+  .content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .panel-title {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .panel-title .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* === BOTTLENECK TABLE === */
+  .bottleneck-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .bottleneck-table th {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    text-align: left;
+    padding: 4px 8px 8px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .bottleneck-table td {
+    font-size: 11px;
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(46, 51, 69, 0.5);
+    color: var(--text);
+  }
+
+  .bottleneck-table td:first-child {
+    font-weight: 600;
+  }
+
+  .bottleneck-table td.mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  .bar-cell {
+    position: relative;
+    padding-right: 50px !important;
+  }
+
+  .bar-bg {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 8px;
+    border-radius: 2px;
+    opacity: 0.15;
+  }
+
+  .bar-bg.critical { background: var(--red); }
+  .bar-bg.warning { background: var(--amber); }
+  .bar-bg.ok { background: var(--green); }
+
+  /* === SEVERITY BADGE === */
+  .severity {
+    display: inline-block;
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .severity.critical { background: rgba(239,68,68,0.15); color: var(--red); }
+  .severity.warning { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .severity.ok { background: rgba(34,197,94,0.15); color: var(--green); }
+
+  /* === DIMENSION SCORES === */
+  .dimensions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .dim-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 50px;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+  }
+
+  .dim-label {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .dim-bar-track {
+    height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .dim-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+
+  .dim-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-align: right;
+    font-weight: 600;
+  }
+
+  /* === KEY FINDINGS === */
+  .findings {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .finding {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    border-left: 3px solid;
+  }
+
+  .finding.critical { border-color: var(--red); }
+  .finding.warning { border-color: var(--amber); }
+  .finding.info { border-color: var(--accent); }
+
+  .finding .text {
+    font-size: 10px;
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  .finding .text strong {
+    color: var(--text);
+  }
+
+  /* === RECOMMENDATIONS === */
+  .reco-strip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+
+  .reco-strip .panel-title {
+    margin-bottom: 8px;
+  }
+
+  .reco-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .reco-item {
+    padding: 10px;
+    background: var(--surface-2);
+    border-radius: 6px;
+    border-top: 2px solid;
+  }
+
+  .reco-item.immediate { border-color: var(--red); }
+  .reco-item.short { border-color: var(--amber); }
+  .reco-item.medium { border-color: var(--teal); }
+
+  .reco-item .timeline {
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .reco-item.immediate .timeline { color: var(--red); }
+  .reco-item.short .timeline { color: var(--amber); }
+  .reco-item.medium .timeline { color: var(--teal); }
+
+  .reco-item .reco-text {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* === FOOTER === */
+  .report-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 9px;
+    color: var(--text-dim);
+  }
+
+  .report-footer .gen-info {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* === PRINT OVERRIDES === */
+  @media print {
+    body { background: white; color: #1a1a2e; }
+    .report { padding: 16px; }
+    .health-item, .panel, .reco-strip { border-color: #ddd; background: #f9fafb; }
+  }
+
+  @media (max-width: 1100px) {
+    .health-strip {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .content-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .reco-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .dim-row {
+      grid-template-columns: 120px 1fr 56px;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .report {
+      padding: 14px;
+    }
+
+    .report-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .report-header .title-group h1 {
+      font-size: 20px;
+    }
+
+    .health-strip {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .dim-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+
+    .dim-value {
+      text-align: left;
+    }
+
+    .report-footer {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="report">
+
+  <!-- HEADER -->
+  <div class="report-header">
+    <div class="title-group">
+      <h1>One Page Report — <span>W1NNER</span></h1>
+      <div class="meta">Flow Forensics™ · Cliente: WINNER · Diagnóstico de Processo · Gerado em 28/02/2026</div>
+    </div>
+    <div class="period-badge">JAN 2026</div>
+  </div>
+
+  <!-- HEALTH STRIP: 6 KPIs principais -->
+  <div class="health-strip">
+    <div class="health-item good">
+      <div class="value">89</div>
+      <div class="label">Throughput</div>
+      <div class="sublabel">cards únicos no período</div>
+    </div>
+    <div class="health-item bad">
+      <div class="value">1.33</div>
+      <div class="label">Pressão (ρ)</div>
+      <div class="sublabel">λ/μ &gt; 1 = sobrecarga</div>
+    </div>
+    <div class="health-item warn">
+      <div class="value">8 / 20d</div>
+      <div class="label">Lead Time</div>
+      <div class="sublabel">mediana / p85</div>
+    </div>
+    <div class="health-item bad">
+      <div class="value">3.5%</div>
+      <div class="label">Conformidade</div>
+      <div class="sublabel">fluxo prescrito</div>
+    </div>
+    <div class="health-item bad">
+      <div class="value">1.8%</div>
+      <div class="label">Cobertura Git</div>
+      <div class="sublabel">rastreabilidade</div>
+    </div>
+    <div class="health-item warn">
+      <div class="value">9.8%</div>
+      <div class="label">Retrabalho</div>
+      <div class="sublabel">itens c/ reversão</div>
+    </div>
+  </div>
+
+  <div class="content-grid">
+
+    <!-- LEFT: Gargalos -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot"></span> Ranking de Gargalos</div>
+      <table class="bottleneck-table">
+        <thead>
+          <tr>
+            <th>Etapa</th>
+            <th>Horas Úteis</th>
+            <th>Mediana/Evt</th>
+            <th>Severidade</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Ready to Homolog</td>
+            <td class="mono bar-cell">
+              <span class="bar-bg critical" style="width: 95%;"></span>
+              1.448,5h
+            </td>
+            <td class="mono">19,98h</td>
+            <td><span class="severity critical">Crítico</span></td>
+          </tr>
+          <tr>
+            <td>In Progress</td>
+            <td class="mono bar-cell">
+              <span class="bar-bg critical" style="width: 82%;"></span>
+              1.225,4h
+            </td>
+            <td class="mono">18,39h</td>
+            <td><span class="severity critical">Crítico</span></td>
+          </tr>
+          <tr>
+            <td>QA Approved Hml</td>
+            <td class="mono bar-cell">
+              <span class="bar-bg warning" style="width: 42%;"></span>
+              647,9h
+            </td>
+            <td class="mono">12,50h</td>
+            <td><span class="severity warning">Atenção</span></td>
+          </tr>
+          <tr>
+            <td>Homolog</td>
+            <td class="mono bar-cell">
+              <span class="bar-bg warning" style="width: 28%;"></span>
+              427,6h
+            </td>
+            <td class="mono">8,00h</td>
+            <td><span class="severity warning">Atenção</span></td>
+          </tr>
+          <tr>
+            <td>QA Approved Staging</td>
+            <td class="mono bar-cell">
+              <span class="bar-bg ok" style="width: 15%;"></span>
+              226,2h
+            </td>
+            <td class="mono">8,00h</td>
+            <td><span class="severity ok">OK</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- RIGHT: Dimensões de Saúde -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot"></span> Indicadores por Dimensão</div>
+      <div class="dimensions">
+        <div class="dim-row">
+          <div class="dim-label">Inflação Throughput</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 90%; background: var(--red);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--red);">10,1x</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">Pressão de Fluxo</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 85%; background: var(--red);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--red);">ρ 1,33</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">Razão Val/Exec</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 75%; background: var(--amber);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--amber);">2,25x</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">Conformidade</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 3.5%; background: var(--red);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--red);">3,5%</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">Cobertura Técnica</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 1.8%; background: var(--red);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--red);">1,8%</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">Utilização Equipe</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 96%; background: var(--amber);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--amber);">7,7h/d</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">Retrabalho</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 9.8%; background: var(--amber);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--amber);">9,8%</div>
+        </div>
+        <div class="dim-row">
+          <div class="dim-label">PR sem Aprovação</div>
+          <div class="dim-bar-track">
+            <div class="dim-bar-fill" style="width: 91.6%; background: var(--red);"></div>
+          </div>
+          <div class="dim-value" style="color: var(--red);">91,6%</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="content-grid">
+
+    <!-- LEFT: Key Findings -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot"></span> Achados Principais</div>
+      <div class="findings">
+        <div class="finding critical">
+          <div class="text"><strong>Sobrecarga sistêmica:</strong> ρ = 1,33 indica que o sistema acumula trabalho 33% mais rápido do que consegue entregar. Filas crescem indefinidamente sem intervenção.</div>
+        </div>
+        <div class="finding critical">
+          <div class="text"><strong>Gargalo de homologação:</strong> 1.448h úteis acumuladas em Ready to Homolog. Capacidade de QA insuficiente para absorver a produção do desenvolvimento.</div>
+        </div>
+        <div class="finding warning">
+          <div class="text"><strong>Equipe bipartida:</strong> subsistema Jira (gestão/QA) e subsistema Git (desenvolvimento) operam quase sem conexão rastreável. Handoff é o ponto de falha.</div>
+        </div>
+        <div class="finding warning">
+          <div class="text"><strong>Gate de qualidade fragilizado:</strong> 91,6% dos PRs incorporados sem aprovação formal. Code review pode ser cerimonial, não substancial.</div>
+        </div>
+        <div class="finding info">
+          <div class="text"><strong>Classes de serviço implícitas:</strong> conformidade bimodal (picos em 0 e 0,6) indica dois padrões de execução coexistindo sem formalização.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Composição da Equipe -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot"></span> Composição e Carga da Equipe</div>
+      <table class="bottleneck-table">
+        <thead>
+          <tr>
+            <th>Pessoa</th>
+            <th>H. Úteis</th>
+            <th>H. Est. (norm)</th>
+            <th>h/dia</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Igor Rezende</td>
+            <td class="mono">685,6h</td>
+            <td class="mono">144,0h</td>
+            <td class="mono">8,0</td>
+          </tr>
+          <tr>
+            <td>Christopher Alves</td>
+            <td class="mono">660,4h</td>
+            <td class="mono">142,2h</td>
+            <td class="mono">7,9</td>
+          </tr>
+          <tr>
+            <td>Gabriel Koehler</td>
+            <td class="mono">628,8h</td>
+            <td class="mono">156,4h</td>
+            <td class="mono">7,4</td>
+          </tr>
+          <tr>
+            <td>Danilo Monreal</td>
+            <td class="mono">528,6h</td>
+            <td class="mono">72,0h</td>
+            <td class="mono">8,0</td>
+          </tr>
+          <tr>
+            <td>Peterson Bem</td>
+            <td class="mono">509,4h</td>
+            <td class="mono">127,1h</td>
+            <td class="mono">7,5</td>
+          </tr>
+          <tr>
+            <td>Barbara Rossi</td>
+            <td class="mono">393,2h</td>
+            <td class="mono">32,0h</td>
+            <td class="mono">8,0</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
+        <div style="font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Atividade Técnica (Bitbucket)</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+          <div style="text-align: center;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: var(--purple);">234</div>
+            <div style="font-size: 8px; color: var(--text-dim); text-transform: uppercase;">Commits</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: var(--purple);">83</div>
+            <div style="font-size: 8px; color: var(--text-dim); text-transform: uppercase;">PRs Merged</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: var(--red);">7</div>
+            <div style="font-size: 8px; color: var(--text-dim); text-transform: uppercase;">Aprovações</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RECOMMENDATIONS STRIP -->
+  <div class="reco-strip">
+    <div class="panel-title"><span class="dot"></span> Recomendações Priorizadas</div>
+    <div class="reco-grid">
+      <div class="reco-item immediate">
+        <div class="timeline">Imediato (2 semanas)</div>
+        <div class="reco-text">Implementar WIP limits na entrada do fluxo para reduzir ρ abaixo de 1,0. Higienizar backlog removendo itens com mais de 90 dias sem movimentação.</div>
+      </div>
+      <div class="reco-item short">
+        <div class="timeline">Curto prazo (30 dias)</div>
+        <div class="reco-text">Ampliar capacidade de homologação ou adotar política de pull. Tornar obrigatória a vinculação de Issue Key em commits. Configurar branch protection rules.</div>
+      </div>
+      <div class="reco-item medium">
+        <div class="timeline">Médio prazo (60 dias)</div>
+        <div class="reco-text">Formalizar classes de serviço distintas (Suporte, Desenvolvimento, Urgência) com políticas de WIP e lead time próprias por classe.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="report-footer">
+    <div>Flow Forensics™ · Rodrigo Oliveira · AKT/AKC Kanban University · Doutorando IA (PUC-PR)</div>
+    <div class="gen-info">Dados: Jira + Bitbucket + Flow-PMO · Período: 2026-01-01 a 2026-01-31</div>
+  </div>
+
+</div>
+</body>
+</html>

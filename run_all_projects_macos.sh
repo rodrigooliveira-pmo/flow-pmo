@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${HOME}/Documents/Dados"
+LATEST_DIR_DEFAULT="$(cd "${SCRIPT_DIR}/.." && pwd)/dados/latest"
+LATEST_DIR="${FLOW_PMO_LATEST_DIR:-$LATEST_DIR_DEFAULT}"
 DATE_TAG="$(date +%Y%m%d)"
 ENV_FILE="${SCRIPT_DIR}/jira_env.txt"
 WORKERS=8
@@ -140,6 +142,7 @@ DASHBOARD_SCRIPT="${SCRIPT_DIR}/dashboard_full.py"
 
 [[ -f "$SCRIPT_PATH" ]] || { echo "Arquivo nao encontrado: $SCRIPT_PATH"; exit 1; }
 mkdir -p "$OUT_DIR"
+mkdir -p "$LATEST_DIR"
 
 PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
 PROJECT_PREFIXES=("w1nner-downstream" "s1nc-downstream" "befinance-downstream" "dataanalytics-downstream")
@@ -187,6 +190,8 @@ for i in "${!PROJECT_KEYS[@]}"; do
     if [[ -f "$out_file" ]]; then
         cp -f "$out_file" "$downstream_latest"
         echo "Arquivo latest atualizado: ${downstream_latest}"
+        cp -f "$downstream_latest" "${LATEST_DIR}/$(basename "$downstream_latest")"
+        echo "Alias latest publicado em: ${LATEST_DIR}/$(basename "$downstream_latest")"
     fi
 
     bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"

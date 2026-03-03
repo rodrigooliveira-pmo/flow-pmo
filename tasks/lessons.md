@@ -11,6 +11,27 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-02
+- Context: Ajuste de score percentual em `Capacidade Cruzada (Jira + Bitbucket)`.
+- User correction: Indicou que o cálculo percentual continuava inadequado após a primeira versão.
+- Root cause: Interpretei `%` como participação no total do time, mas a leitura esperada era índice relativo por pessoa.
+- Prevention rule: Em métricas “em percentual” de ranking individual, confirmar se o denominador esperado é total da equipe, teto/meta, ou máximo do recorte.
+- Action added to workflow: Antes de fechar KPI percentual novo, validar explicitamente a interpretação com 3 checks: `maior valor = 100%?`, `soma = 100%?`, `semântica esperada pelo usuário`.
+
+- Date: 2026-03-02
+- Context: Inclusão de relatório Jira x Bitbucket no `dashboard_full.py`.
+- User correction: Informou que a aba de Process Mining não estava visível e exigiu que o score de capacidade fosse percentual.
+- Root cause: Implementei o relatório e o bloco de capacidade sem garantir exposição explícita da aba em `SERVICE_TABS` e mantive score absoluto (`proxy`) em vez de percentual.
+- Prevention rule: Sempre validar navegação (tab visível no menu ativo) e unidade de medida pedida pelo usuário (absoluto vs percentual) antes de concluir visualizações.
+- Action added to workflow: Em alterações de dashboards, incluir checklist final: (1) aba visível em `SERVICE_TABS`, (2) unidade exibida coerente com pedido, (3) rótulo da métrica alinhado ao cálculo.
+
+- Date: 2026-02-27
+- Context: Implementação de ranking cruzado Jira + Bitbucket na aba Performance.
+- User correction: Reportou exceção `KeyError: 'Pessoa'` no merge do consolidado (`compute_cross_source_capacity_metrics`).
+- Root cause: O merge assumia que o dataframe de métricas Bitbucket sempre teria a coluna `Pessoa`; quando a fonte vinha vazia, a função retornava `DataFrame()` sem schema e o merge quebrava.
+- Prevention rule: Em merges de fontes opcionais (Jira/Bitbucket), garantir schema mínimo explícito antes do `pd.merge` (colunas-chave devem existir mesmo com dataframe vazio).
+- Action added to workflow: Antes de concluir features de agregação multi-fonte, executar smoke test com cada fonte vazia isoladamente e ambas vazias.
+
 - Date: 2026-02-25
 - Context: Divergência do componente de calendário entre localhost e Vercel, com hacks JS quebrando interação em produção.
 - User correction: Mostrou que localhost estava com DatePicker novo (mês/ano nativos) enquanto produção continuava com UI antiga e comportamento quebrado.
@@ -143,3 +164,24 @@ Use this file after any user correction.
 - Root cause: Mantive `WIP` e `WIP Age` ancorados em `DataInProgress`, enquanto o painel já estava adotando `LeadStart_Selected` para outras métricas de compromisso.
 - Prevention rule: Se o filtro redefine "quando o trabalho entra no fluxo medido", aplicar isso também às métricas de WIP/WIP Age da mesma tela (salvo regra de negócio explícita em contrário).
 - Action added to workflow: Em auditorias de filtros semânticos, testar separadamente impacto em `Lead Time`, `Chegadas`, `WIP` e `WIP Age`.
+
+- Date: 2026-02-27
+- Context: Primeiro teste real do exportador Bitbucket retornou `400 Invalid pagelen` no endpoint de pull requests.
+- User correction: Mostrou execução com erro em `.../pullrequests?pagelen=100`.
+- Root cause: Assumi limite uniforme de `pagelen=100` para todos os endpoints, mas o endpoint de PR rejeitou esse valor.
+- Prevention rule: Em integrações Bitbucket, usar `pagelen` conservador (`<=50`) por padrão para compatibilidade entre endpoints.
+- Action added to workflow: Ao implementar paginação Bitbucket, validar limites por endpoint ou começar com `pagelen=50` antes de otimizações.
+
+- Date: 2026-02-27
+- Context: Execução real do exportador Bitbucket com histórico completo interrompida em página alta de commits.
+- User correction: Reportou erro `429 Too Many Requests` no endpoint de commits (`page=440`) e pediu continuidade prática da implementação.
+- Root cause: O fluxo de paginação fazia `raise_for_status()` direto, sem retry/backoff para limite de taxa temporário.
+- Prevention rule: Em integrações paginadas com APIs externas, tratar `429` e `5xx` com retry exponencial e suporte a `Retry-After` antes de considerar falha fatal.
+- Action added to workflow: Para novos conectores HTTP, criar helper central de request resiliente e reutilizar em todos os pontos de chamada.
+
+- Date: 2026-02-27
+- Context: Exportador ainda sofria 429 contínuo mesmo com retry/backoff curto.
+- User correction: Compartilhou log longo mostrando 429 recorrente por página durante commits históricos.
+- Root cause: Retry sem pacing global permitia retomar cedo demais, mantendo o cliente preso no limite de taxa da janela da API.
+- Prevention rule: Para APIs com rate limit por janela, combinar retry com throttling contínuo (intervalo mínimo entre requests) e cooldown global após 429.
+- Action added to workflow: Em conectores HTTP de alto volume, expor parâmetro de pacing (`min-request-interval`) e definir default conservador.
