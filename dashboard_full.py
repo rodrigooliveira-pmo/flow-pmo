@@ -554,6 +554,73 @@ def _canonical_person_name(raw_name, alias_index=None):
     return fallback
 
 
+def _normalize_seniority_bucket(raw_value):
+    text = normalize_text(raw_value)
+    if not text:
+        return 'Nao classificado'
+    if ('senior' in text) or ('sr' == text) or (' s r ' in f" {text} "):
+        return 'Senior'
+    if ('junior' in text) or ('jr' == text) or (' j r ' in f" {text} "):
+        return 'Junior'
+    return 'Outros'
+
+
+def _load_person_seniority_index(alias_index=None):
+    raw = os.getenv('FLOW_PMO_PERSON_SENIORITY_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    alias_index = alias_index if isinstance(alias_index, dict) else _load_person_alias_index()
+    out = {}
+    for person_name, seniority in parsed.items():
+        person = _canonical_person_name(person_name, alias_index=alias_index)
+        if not person:
+            continue
+        out[person] = _normalize_seniority_bucket(seniority)
+    return out
+
+
+def _coerce_story_points_value(raw_value):
+    if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+        return np.nan
+    if isinstance(raw_value, (int, float)):
+        return float(raw_value)
+    text = str(raw_value).strip()
+    if not text:
+        return np.nan
+    text = text.replace(',', '.')
+    match = re.search(r'-?\d+(?:\.\d+)?', text)
+    if not match:
+        return np.nan
+    try:
+        return float(match.group(0))
+    except Exception:
+        return np.nan
+
+
+def _story_points_band(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return 'Sem estimativa'
+    v = float(value)
+    if v <= 0:
+        return '0'
+    if v <= 1:
+        return '1'
+    if v <= 3:
+        return '2-3'
+    if v <= 5:
+        return '5'
+    if v <= 8:
+        return '8'
+    return '13+'
+
+
 def _load_project_bitbucket_csv(project_prefix, suffix):
     if not project_prefix:
         return pd.DataFrame()
@@ -8542,6 +8609,73 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if 'Done Final Author' in pm_align_cases.columns:
                 pm_align_cases = pm_align_cases[pm_align_cases['Done Final Author'] == responsavel]
 
+        pm_pull_dev = pd.DataFrame()
+        pm_pull_dev_by_band = pd.DataFrame()
+        pull_dev_total_cards = 0
+        pull_dev_total_story_points = 0.0
+        if not pm_events.empty and {'Issue Key', 'Author', 'To Status Norm'}.issubset(pm_events.columns):
+            dev_status_norms = {'in progress', 'in development', 'development', 'doing', 'desenvolvimento'}
+            pull_events = pm_events.copy()
+            pull_events['To Status Norm'] = pull_events['To Status Norm'].astype(str).map(normalize_text)
+            pull_events = pull_events[pull_events['To Status Norm'].isin(dev_status_norms)].copy()
+            if 'From Status Norm' in pull_events.columns:
+                pull_events['From Status Norm'] = pull_events['From Status Norm'].astype(str).map(normalize_text)
+                pull_events = pull_events[~pull_events['From Status Norm'].isin(dev_status_norms)].copy()
+            pull_events['Issue Key'] = pull_events['Issue Key'].astype(str).str.strip().str.upper()
+            pull_events = pull_events[pull_events['Issue Key'].ne('')].copy()
+            if 'History Created' in pull_events.columns:
+                pull_events = pull_events.sort_values(['Issue Key', 'History Created'])
+            else:
+                pull_events = pull_events.sort_values(['Issue Key'])
+            pull_events = pull_events.drop_duplicates(subset=['Issue Key'], keep='first')
+
+            alias_index = _load_person_alias_index()
+            pull_events['Responsavel'] = pull_events['Author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+            pull_events['Responsavel'] = pull_events['Responsavel'].replace('', 'Sem Autor')
+
+            ds_items = load_project_downstream_items_csv('W1NNER')
+            if not ds_items.empty and 'ID' in ds_items.columns:
+                ds_points = ds_items.copy()
+                ds_points['Issue Key'] = ds_points['ID'].astype(str).str.strip().str.upper()
+                if 'Story Points' not in ds_points.columns:
+                    ds_points['Story Points'] = np.nan
+                if 'Story point estimate' not in ds_points.columns:
+                    ds_points['Story point estimate'] = np.nan
+                def _resolve_story_points(row):
+                    primary = _coerce_story_points_value(row.get('Story Points'))
+                    if pd.notna(primary):
+                        return primary
+                    return _coerce_story_points_value(row.get('Story point estimate'))
+
+                ds_points['StoryPoints_Value'] = ds_points.apply(_resolve_story_points, axis=1)
+                ds_points = ds_points[['Issue Key', 'StoryPoints_Value']].drop_duplicates(subset=['Issue Key'], keep='first')
+                pull_events = pull_events.merge(ds_points, how='left', on='Issue Key')
+            else:
+                pull_events['StoryPoints_Value'] = np.nan
+
+            seniority_index = _load_person_seniority_index(alias_index=alias_index)
+            pull_events['Senioridade'] = pull_events['Responsavel'].map(seniority_index).fillna('Nao classificado')
+            pull_events['Faixa Story Points'] = pull_events['StoryPoints_Value'].apply(_story_points_band)
+            faixa_order = ['Sem estimativa', '0', '1', '2-3', '5', '8', '13+']
+            pull_events['Faixa Story Points'] = pd.Categorical(pull_events['Faixa Story Points'], categories=faixa_order, ordered=True)
+            pm_pull_dev = pull_events.copy()
+            pull_dev_total_cards = int(pm_pull_dev['Issue Key'].nunique())
+            pull_dev_total_story_points = float(pd.to_numeric(pm_pull_dev['StoryPoints_Value'], errors='coerce').fillna(0).sum())
+            pm_pull_dev_by_band = (
+                pm_pull_dev
+                .groupby(['Faixa Story Points', 'Senioridade'], dropna=False)
+                .agg(
+                    **{
+                        'Cards Puxados': ('Issue Key', 'nunique'),
+                        'Story Points Total': ('StoryPoints_Value', lambda s: pd.to_numeric(s, errors='coerce').fillna(0).sum()),
+                        'Pessoas Distintas': ('Responsavel', 'nunique'),
+                    }
+                )
+                .reset_index()
+            )
+            pm_pull_dev_by_band['Faixa Story Points'] = pm_pull_dev_by_band['Faixa Story Points'].astype(str)
+            pm_pull_dev_by_band = pm_pull_dev_by_band.sort_values(['Faixa Story Points', 'Senioridade'])
+
         if pm_people.empty and pm_cases.empty:
             return html.Div('Sem dados de process mining para o período/filtros selecionados.')
 
@@ -8628,6 +8762,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             create_kpi_card('Itens com Retrabalho', itens_retrabalho, class_name='three columns'),
             create_kpi_card('Taxa de Retrabalho', f"{taxa_retrabalho:.1f}%", class_name='three columns'),
             create_kpi_card('Conformidade Média', f"{conf_media:.2f}" if pd.notna(conf_media) else '—', class_name='three columns'),
+            create_kpi_card('Cards Puxados p/ Dev', pull_dev_total_cards, class_name='three columns'),
+            create_kpi_card('SP Puxados p/ Dev', f"{pull_dev_total_story_points:,.1f}", class_name='three columns'),
             create_kpi_card('Horas Execução (período)', f"{horas_execucao_periodo:,.1f}", class_name='three columns'),
             create_kpi_card('Horas no Fluxo (proxy)', f"{horas_fluxo_total:,.1f}", class_name='three columns'),
             create_kpi_card('Média h/Evento (proxy)', f"{horas_fluxo_media_evento:.2f}" if pd.notna(horas_fluxo_media_evento) else '—', class_name='three columns'),
@@ -8655,6 +8791,31 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 color_continuous_scale='RdYlGn_r'
             )
             fig_vazao_pessoa.update_layout(height=560, yaxis={'categoryorder': 'total ascending'})
+
+        fig_pull_dev_overlay = go.Figure()
+        if not pm_pull_dev_by_band.empty and {'Faixa Story Points', 'Cards Puxados', 'Senioridade'}.issubset(pm_pull_dev_by_band.columns):
+            fig_pull_dev_overlay = px.bar(
+                pm_pull_dev_by_band,
+                x='Faixa Story Points',
+                y='Cards Puxados',
+                color='Senioridade',
+                barmode='overlay',
+                title='Cards puxados para In Development por faixa de story points',
+                hover_data=['Story Points Total', 'Pessoas Distintas'],
+                color_discrete_map={
+                    'Senior': '#1f77b4',
+                    'Junior': '#ff7f0e',
+                    'Outros': '#2ca02c',
+                    'Nao classificado': '#7f7f7f',
+                },
+            )
+            fig_pull_dev_overlay.update_traces(opacity=0.68)
+            fig_pull_dev_overlay.update_layout(
+                height=460,
+                xaxis_title='Faixa de Story Points',
+                yaxis_title='Cards puxados',
+                legend_title_text='Senioridade',
+            )
 
         fig_vazao_semanal = go.Figure()
         if not pm_weekly.empty and {'Semana', 'Responsavel', 'Itens Concluidos'}.issubset(pm_weekly.columns):
@@ -8794,6 +8955,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         ] if c in pm_people.columns]
         horas_people_cols = [c for c in ['Responsavel', 'HorasNoFluxo', 'HorasMediasPorEvento', 'Eventos', 'CardsUnicos'] if c in pm_hours_people.columns]
         horas_status_cols = [c for c in ['Responsavel', 'Status', 'HorasNoFluxo', 'Eventos', 'CardsUnicos'] if c in pm_hours_status.columns]
+        pull_dev_cols = [c for c in ['Issue Key', 'Responsavel', 'Senioridade', 'Faixa Story Points', 'StoryPoints_Value', 'History Created', 'From Status', 'To Status'] if c in pm_pull_dev.columns]
         tbr_summary_cols = [c for c in ['Metric', 'Value'] if c in pm_tbr_summary.columns]
         tbr_case_cols = [c for c in ['Issue Key', 'TraceIsFit', 'TraceFitness', 'MissingTokens', 'RemainingTokens', 'ConsumedTokens', 'ProducedTokens'] if c in pm_tbr_cases.columns]
         align_summary_cols = [c for c in ['Metric', 'Value'] if c in pm_align_summary.columns]
@@ -8810,6 +8972,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ),
             kpis,
             dcc.Graph(figure=fig_vazao_pessoa),
+            dcc.Graph(figure=fig_pull_dev_overlay),
             dcc.Graph(figure=fig_vazao_semanal),
             dcc.Graph(figure=fig_retrabalho_pessoa),
             dcc.Graph(figure=fig_tempo_status),
@@ -8872,6 +9035,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style_cell={'textAlign': 'left', 'padding': '6px'},
                 style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
                 sort_action='native',
+                page_size=12,
+            ),
+            html.H4('Itens puxados para In Development por pessoa e faixa de story points', style={'marginTop': '16px'}),
+            dash_table.DataTable(
+                columns=[{'name': c, 'id': c} for c in pull_dev_cols],
+                data=pm_pull_dev[pull_dev_cols].head(200).to_dict('records') if pull_dev_cols else [],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '100px', 'maxWidth': '240px', 'whiteSpace': 'normal'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                sort_action='native',
+                filter_action='native',
                 page_size=12,
             ),
             html.H4('Horas no Fluxo por Pessoa (proxy por transição/status)', style={'marginTop': '16px'}),

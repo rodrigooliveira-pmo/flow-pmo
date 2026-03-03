@@ -3488,3 +3488,39 @@
 - Suggested commit message:
   - `fix(cache): refresh remote latest artifacts with TTL to avoid stale production data`
 
+## Current Task (Process Mining: barras sobrepostas de cards puxados para In Development por faixa de story points)
+- [x] Definir extração de eventos de entrada em desenvolvimento por `Issue Key` e pessoa
+- [x] Enriquecer eventos com story points via join com downstream `*-latest-data.csv`
+- [x] Classificar faixas de story points e senioridade para comparação Senior x Junior
+- [x] Implementar gráfico de barras sobrepostas na aba `Process Mining Jira` do `dashboard_full.py`
+- [x] Expor tabela de apoio e KPIs de cards/SP puxados para desenvolvimento
+- [x] Validar sintaxe e revisar diff final
+
+## Specification (Process Mining: barras sobrepostas de cards puxados para In Development por faixa de story points)
+- Objetivo: medir quantos cards foram puxados para `In Development` por pessoa, quebrar por faixas de story points e permitir comparação de volume/complexidade entre perfis de senioridade.
+- Escopo:
+  - `dashboard_full.py`
+  - `.env.example`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O cálculo usa eventos de changelog (`EventosFiltrados`) para detectar quem puxou o card para desenvolvimento.
+  - Story points são adicionados por `Issue Key` a partir do downstream de itens (`load_project_downstream_items_csv('W1NNER')`).
+  - Existe gráfico em barras sobrepostas por faixa de story points com série por senioridade.
+  - Existe apoio em tabela com detalhe por item/pessoa/faixa.
+  - Variável opcional de configuração de senioridade está documentada.
+  - Código válido em sintaxe.
+
+## Review (Process Mining: barras sobrepostas de cards puxados para In Development por faixa de story points)
+- What was validated:
+  - Implementada nova base `pm_pull_dev` na aba `tab-process-mining-jira` usando primeiro evento de entrada em desenvolvimento por `Issue Key` (status alvo normalizado: `in progress`, `in development`, `development`, `doing`, `desenvolvimento`).
+  - Enriquecimento de complexidade implementado com join em downstream W1NNER por `Issue Key` e fallback `Story point estimate` quando `Story Points` ausente.
+  - Adicionadas faixas de story points (`Sem estimativa`, `0`, `1`, `2-3`, `5`, `8`, `13+`) e classificação de senioridade por variável de ambiente `FLOW_PMO_PERSON_SENIORITY_MAP`.
+  - Adicionado gráfico `Cards puxados para In Development por faixa de story points` em `barmode='overlay'` com séries por senioridade.
+  - Adicionados KPIs `Cards Puxados p/ Dev` e `SP Puxados p/ Dev` e tabela detalhada dos itens puxados.
+  - Documentada variável de ambiente opcional de senioridade em `.env.example`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py .env.example tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add overlay chart of cards pulled to development by story point band and seniority`
+
