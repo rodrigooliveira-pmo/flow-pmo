@@ -136,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Mostra os passos sem executar comandos de deploy.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Passa --force para `vercel deploy`.",
+    )
     return parser
 
 
@@ -178,6 +183,8 @@ def main() -> int:
     deploy_cmd = [*vercel_cmd, "deploy"]
     if args.mode == "prod":
         deploy_cmd.append("--prod")
+    if args.force:
+        deploy_cmd.append("--force")
     if args.yes:
         deploy_cmd.append("--yes")
 

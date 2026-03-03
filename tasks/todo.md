@@ -1,5 +1,20 @@
 # Task Plan
 
+## Current Task (Deploy: opcao --force)
+- [x] Adicionar argumento `--force` no `deploy.py`
+- [x] Encaminhar `--force` para o comando `vercel deploy`
+- [x] Validar help/sintaxe
+
+## Review (Deploy: opcao --force)
+- What was validated:
+  - `deploy.py` agora aceita a flag `--force`.
+  - Quando informada, a flag e propagada para `vercel deploy --force`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile deploy.py`
+  - `python deploy.py --help`
+- Suggested commit message:
+  - `feat(deploy): add --force option to vercel deploy command`
+
 ## Current Task (Deploy: parser tolerante para URL map downstream)
 - [x] Diagnosticar motivo da indisponibilidade do modo detalhado apos deploy
 - [x] Tornar `_load_downstream_url_map()` tolerante a env JSON malformada
