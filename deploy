@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Cross-platform deploy helper for Vercel (Windows and macOS)."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def _load_env_file(path: Path, env: dict[str, str]) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in env:
+            env[key] = value
+
+
+def _resolve_vercel_bin(repo_root: Path) -> list[str]:
+    local_bin = repo_root / "node_modules" / ".bin" / (
+        "vercel.cmd" if os.name == "nt" else "vercel"
+    )
+    if local_bin.exists():
+        return [str(local_bin)]
+
+    global_bin = shutil.which("vercel")
+    if global_bin:
+        return [global_bin]
+
+    npx_bin = shutil.which("npx")
+    if npx_bin:
+        return [npx_bin, "vercel"]
+
+    raise FileNotFoundError(
+        "Vercel CLI nao encontrada. Instale com `npm i` (local) ou `npm i -g vercel`."
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Realiza deploy da aplicacao na Vercel em Windows e macOS."
+    )
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=("prod", "preview"),
+        default="prod",
+        help="Tipo de deploy: prod (padrao) ou preview.",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Passa --yes para evitar prompts interativos da Vercel CLI.",
+    )
+    parser.add_argument(
+        "--cwd",
+        default=".",
+        help="Diretorio do projeto (padrao: diretorio atual).",
+    )
+    args = parser.parse_args()
+
+    repo_root = Path(args.cwd).resolve()
+    env = os.environ.copy()
+
+    _load_env_file(repo_root / ".env.local", env)
+    _load_env_file(repo_root / ".env", env)
+
+    if "VERCEL_TOKEN" not in env and "VERCEL_OIDC_TOKEN" in env:
+        env["VERCEL_TOKEN"] = env["VERCEL_OIDC_TOKEN"]
+
+    cmd = _resolve_vercel_bin(repo_root)
+    if args.mode == "prod":
+        cmd.append("--prod")
+    if args.yes:
+        cmd.append("--yes")
+
+    print(f"Executando deploy ({args.mode}) em: {repo_root}")
+    print("Comando:", " ".join(cmd))
+
+    try:
+        completed = subprocess.run(cmd, cwd=repo_root, env=env, check=False)
+        return completed.returncode
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

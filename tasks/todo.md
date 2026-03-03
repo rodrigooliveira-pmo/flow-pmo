@@ -1,5 +1,39 @@
 # Task Plan
 
+## Current Task (Deploy cross-platform: comando unico para Windows e macOS)
+- [x] Registrar plano e escopo para um script `deploy` cross-platform
+- [x] Implementar script principal `deploy` com suporte a deploy `prod` e `preview`
+- [x] Criar wrappers nativos (`deploy.ps1` e `deploy.sh`) para uso direto em Windows/macOS
+- [x] Validar help/sintaxe e registrar review com evidencias
+
+## Specification (Deploy cross-platform: comando unico para Windows e macOS)
+- Objetivo: disponibilizar um fluxo de deploy unico, com o comando `deploy`, que funcione tanto em Windows quanto em macOS para publicar na Vercel.
+- Escopo:
+  - `deploy`
+  - `deploy.ps1`
+  - `deploy.sh`
+  - `tasks/todo.md`
+- Criterio de aceite:
+  - Existe um script principal `deploy` com opcoes para deploy `prod` e `preview`.
+  - Em Windows, o deploy pode ser disparado via `./deploy.ps1`.
+  - Em macOS, o deploy pode ser disparado via `./deploy.sh`.
+  - O fluxo usa `node_modules/.bin/vercel` quando disponivel, com fallback para `vercel` global ou `npx vercel`.
+
+## Review (Deploy cross-platform: comando unico para Windows e macOS)
+- What was validated:
+  - Foi criado o script principal `deploy` (Python), com selecao de modo `prod` (padrao) ou `preview`.
+  - O script carrega `.env.local`/`.env` sem sobrescrever variaveis ja definidas e mapeia `VERCEL_OIDC_TOKEN` para `VERCEL_TOKEN` quando necessario.
+  - A resolucao da CLI da Vercel ficou robusta: `node_modules/.bin/vercel` -> `vercel` global -> `npx vercel`.
+  - Foram criados wrappers `deploy.ps1` (Windows) e `deploy.sh` (macOS) para manter o mesmo comando logico de deploy.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile deploy`
+  - `python deploy --help`
+  - `./deploy.ps1 --help`
+  - `C:\Program Files\Git\bin\bash.exe -n deploy.sh`
+  - `git status --short`
+- Suggested commit message:
+  - `feat(deploy): add cross-platform deploy command for Vercel (windows/macos)`
+
 ## Current Task (Dashboard PM: gráfico backlog restante vs trabalho executado por pessoa)
 - [x] Mapear métricas existentes para leitura proxy (`executado` vs `backlog restante estimado`)
 - [x] Criar novo gráfico por pessoa com separação visual de executado, restante e excedente
@@ -3371,4 +3405,31 @@
   - `git diff -- dash_board_metricas.py tasks/todo.md`
 - Suggested commit message:
   - `fix(metrics): prevent process-mining csv from overriding W1NNER downstream latest selection`
+
+## Current Task (Produção: dados W1NNER zerados com Process Mining atualizado)
+- [x] Diagnosticar divergência entre aba de serviço e aba de process mining em produção
+- [x] Corrigir cache de downloads remotos para URLs estáveis `*latest*`
+- [x] Validar sintaxe e registrar evidências
+
+## Specification (Produção: dados W1NNER zerados com Process Mining atualizado)
+- Objetivo: evitar uso indefinido de arquivos antigos em `/tmp` quando as variáveis de ambiente apontam para URLs fixas (`...latest...`) que mudam de conteúdo sem mudar a URL.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Download remoto (`FLOW_PMO_MODEL_URL`, downstream, bottlenecks, portfolio e process mining) respeita TTL de cache e revalida periodicamente.
+  - Com URL estável, a aplicação deixa de ficar presa ao primeiro arquivo baixado na instância.
+  - TTL configurável via `FLOW_PMO_REMOTE_CACHE_TTL_SECONDS` (default 300s).
+
+## Review (Produção: dados W1NNER zerados com Process Mining atualizado)
+- What was validated:
+  - Causa provável confirmada no código: os métodos `_download_*_from_url(...)` baixavam apenas quando o arquivo ainda não existia em `/tmp`, mantendo conteúdo potencialmente antigo enquanto a instância estivesse quente.
+  - Foi implementado refresh por TTL (`FLOW_PMO_REMOTE_CACHE_TTL_SECONDS`, padrão 300s) com download para arquivo temporário e `os.replace(...)` atômico.
+  - Ajuste aplicado em `dashboard_full.py` (modelo, downstream, bottlenecks, portfolio, process mining) e em `dashboard_process_mining.py` (process mining).
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py dashboard_process_mining.py`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(cache): refresh remote latest artifacts with TTL to avoid stale production data`
 

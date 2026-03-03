@@ -128,8 +128,32 @@ def _download_process_mining_report_from_url(url):
     os.makedirs(cache_dir, exist_ok=True)
     file_key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
     out_file = os.path.join(cache_dir, f"w1nner-process-mining-{file_key}.xlsx")
-    if not os.path.exists(out_file):
-        urllib.request.urlretrieve(url, out_file)
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _remote_cache_ttl_seconds():
+    raw = os.getenv("FLOW_PMO_REMOTE_CACHE_TTL_SECONDS", "").strip()
+    if not raw:
+        return 300
+    try:
+        return max(0, int(raw))
+    except Exception:
+        return 300
+
+
+def _refresh_remote_cache_file(url, out_file):
+    ttl = _remote_cache_ttl_seconds()
+    if os.path.exists(out_file):
+        age_seconds = max(
+            0.0,
+            (datetime.now() - datetime.fromtimestamp(os.path.getmtime(out_file))).total_seconds(),
+        )
+        if age_seconds <= float(ttl):
+            return out_file
+    tmp_file = f"{out_file}.tmp"
+    urllib.request.urlretrieve(url, tmp_file)
+    os.replace(tmp_file, out_file)
     return out_file
 
 
