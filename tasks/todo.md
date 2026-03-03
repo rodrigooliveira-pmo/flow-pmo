@@ -1,38 +1,34 @@
 # Task Plan
 
-## Current Task (Deploy cross-platform: comando unico para Windows e macOS)
-- [x] Registrar plano e escopo para um script `deploy` cross-platform
-- [x] Implementar script principal `deploy` com suporte a deploy `prod` e `preview`
-- [x] Criar wrappers nativos (`deploy.ps1` e `deploy.sh`) para uso direto em Windows/macOS
+## Current Task (Deploy completo: script Python unico)
+- [x] Consolidar o fluxo em um unico script Python `deploy.py`
+- [x] Implementar tratamento de ambiente e excecoes por etapa (`whoami`, `link`, `pull`, `deploy`)
+- [x] Remover wrappers extras para manter apenas o fluxo Python
 - [x] Validar help/sintaxe e registrar review com evidencias
 
-## Specification (Deploy cross-platform: comando unico para Windows e macOS)
-- Objetivo: disponibilizar um fluxo de deploy unico, com o comando `deploy`, que funcione tanto em Windows quanto em macOS para publicar na Vercel.
+## Specification (Deploy completo: script Python unico)
+- Objetivo: disponibilizar um unico script Python para deploy completo na Vercel, com tratamento cross-platform e mensagens claras de falha por etapa.
 - Escopo:
-  - `deploy`
-  - `deploy.ps1`
-  - `deploy.sh`
+  - `deploy.py`
   - `tasks/todo.md`
 - Criterio de aceite:
-  - Existe um script principal `deploy` com opcoes para deploy `prod` e `preview`.
-  - Em Windows, o deploy pode ser disparado via `./deploy.ps1`.
-  - Em macOS, o deploy pode ser disparado via `./deploy.sh`.
-  - O fluxo usa `node_modules/.bin/vercel` quando disponivel, com fallback para `vercel` global ou `npx vercel`.
+  - Existe apenas um fluxo principal em Python para deploy (`deploy.py`).
+  - O script trata Windows/macOS sem wrappers dedicados.
+  - O deploy completo inclui prechecks, autenticacao, link opcional do projeto, pull de ambiente e deploy.
+  - Erros em qualquer etapa retornam mensagem objetiva de diagnostico.
 
-## Review (Deploy cross-platform: comando unico para Windows e macOS)
+## Review (Deploy completo: script Python unico)
 - What was validated:
-  - Foi criado o script principal `deploy` (Python), com selecao de modo `prod` (padrao) ou `preview`.
-  - O script carrega `.env.local`/`.env` sem sobrescrever variaveis ja definidas e mapeia `VERCEL_OIDC_TOKEN` para `VERCEL_TOKEN` quando necessario.
-  - A resolucao da CLI da Vercel ficou robusta: `node_modules/.bin/vercel` -> `vercel` global -> `npx vercel`.
-  - Foram criados wrappers `deploy.ps1` (Windows) e `deploy.sh` (macOS) para manter o mesmo comando logico de deploy.
+  - O fluxo de deploy foi consolidado em `deploy.py` com etapas explicitas: `whoami`, `link`, `pull` e `deploy`.
+  - O script detecta ambiente, carrega `.env.local`/`.env`, resolve CLI local/global e trata fallback de token (`VERCEL_OIDC_TOKEN` -> `VERCEL_TOKEN`).
+  - O tratamento de excecoes agora retorna erro por etapa com diagnostico objetivo.
+  - Wrappers (`deploy.ps1` e `deploy.sh`) foram removidos para manter single-entrypoint em Python.
 - Evidence (tests/logs/diff):
-  - `python -m py_compile deploy`
-  - `python deploy --help`
-  - `./deploy.ps1 --help`
-  - `C:\Program Files\Git\bin\bash.exe -n deploy.sh`
+  - `python -m py_compile deploy.py`
+  - `python deploy.py --help`
   - `git status --short`
 - Suggested commit message:
-  - `feat(deploy): add cross-platform deploy command for Vercel (windows/macos)`
+  - `feat(deploy): replace wrappers with single complete python deploy script`
 
 ## Current Task (Dashboard PM: gráfico backlog restante vs trabalho executado por pessoa)
 - [x] Mapear métricas existentes para leitura proxy (`executado` vs `backlog restante estimado`)

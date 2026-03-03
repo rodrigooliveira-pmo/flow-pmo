@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-03
+- Context: Entrega inicial do fluxo de deploy cross-platform para Vercel.
+- User correction: Solicitou explicitamente um script Python unico que trate diferencas/excecoes de ambiente e execute deploy completo.
+- Root cause: Interpretei "cross-platform" como necessidade de wrappers por SO, em vez de priorizar um unico entrypoint Python com toda a orquestracao.
+- Prevention rule: Quando o usuario pedir "script unico", evitar artefatos paralelos e concentrar toda a logica operacional em um unico arquivo.
+- Action added to workflow: Em tarefas de automacao/deploy, confirmar no inicio se a entrega esperada e `single-entrypoint` ou `multi-wrapper` antes de implementar.
+
 - Date: 2026-03-02
 - Context: Ajuste de score percentual em `Capacidade Cruzada (Jira + Bitbucket)`.
 - User correction: Indicou que o cálculo percentual continuava inadequado após a primeira versão.
