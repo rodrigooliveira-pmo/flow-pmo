@@ -192,3 +192,17 @@ Use this file after any user correction.
 - Root cause: Retry sem pacing global permitia retomar cedo demais, mantendo o cliente preso no limite de taxa da janela da API.
 - Prevention rule: Para APIs com rate limit por janela, combinar retry com throttling contínuo (intervalo mínimo entre requests) e cooldown global após 429.
 - Action added to workflow: Em conectores HTTP de alto volume, expor parâmetro de pacing (`min-request-interval`) e definir default conservador.
+
+- Date: 2026-03-03
+- Context: Ajuste do gráfico de Process Mining para análise de cards puxados por faixa de story points.
+- User correction: Solicitou que o gráfico mostrasse todas as pessoas com volume de cards puxados separado em faixas de story points.
+- Root cause: Eu implementei primeiro a visão agregada por faixa/senioridade, mas não priorizei a pergunta operacional principal por pessoa.
+- Prevention rule: Em pedidos de visualização, validar explicitamente o eixo principal (quem/tempo/faixa) antes de finalizar.
+- Action added to workflow: Para novos gráficos de breakdown, conferir checklist: `dimensão principal pedida`, `segmentação secundária` e `unidade no eixo Y`.
+
+- Date: 2026-03-03
+- Context: Gráficos do Process Mining exibindo pessoas fora do período selecionado na tela.
+- User correction: Solicitou que os gráficos se atenham aos filtros de data aplicados.
+- Root cause: Eu usei datasets agregados da planilha de process mining para alguns gráficos sem recomputar após os filtros de data no dashboard.
+- Prevention rule: Em dashboards com filtros temporais, evitar usar agregados pré-computados sem recorte; preferir recomputar no runtime a partir da base filtrada.
+- Action added to workflow: Para cada gráfico novo/alterado, validar explicitamente: `fonte pós-filtro`, `janela temporal aplicada` e `consistência com a seleção de datas da UI`.

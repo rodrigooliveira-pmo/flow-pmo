@@ -3505,7 +3505,7 @@
 - Critério de aceite:
   - O cálculo usa eventos de changelog (`EventosFiltrados`) para detectar quem puxou o card para desenvolvimento.
   - Story points são adicionados por `Issue Key` a partir do downstream de itens (`load_project_downstream_items_csv('W1NNER')`).
-  - Existe gráfico em barras sobrepostas por faixa de story points com série por senioridade.
+  - Existe gráfico por pessoa com volume de cards puxados quebrado por faixas de story points.
   - Existe apoio em tabela com detalhe por item/pessoa/faixa.
   - Variável opcional de configuração de senioridade está documentada.
   - Código válido em sintaxe.
@@ -3515,7 +3515,7 @@
   - Implementada nova base `pm_pull_dev` na aba `tab-process-mining-jira` usando primeiro evento de entrada em desenvolvimento por `Issue Key` (status alvo normalizado: `in progress`, `in development`, `development`, `doing`, `desenvolvimento`).
   - Enriquecimento de complexidade implementado com join em downstream W1NNER por `Issue Key` e fallback `Story point estimate` quando `Story Points` ausente.
   - Adicionadas faixas de story points (`Sem estimativa`, `0`, `1`, `2-3`, `5`, `8`, `13+`) e classificação de senioridade por variável de ambiente `FLOW_PMO_PERSON_SENIORITY_MAP`.
-  - Adicionado gráfico `Cards puxados para In Development por faixa de story points` em `barmode='overlay'` com séries por senioridade.
+  - Gráfico ajustado para mostrar todas as pessoas com volume de cards puxados quebrado por faixa de story points (barras empilhadas por pessoa).
   - Adicionados KPIs `Cards Puxados p/ Dev` e `SP Puxados p/ Dev` e tabela detalhada dos itens puxados.
   - Documentada variável de ambiente opcional de senioridade em `.env.example`.
 - Evidence (tests/logs/diff):
@@ -3523,4 +3523,34 @@
   - `git diff -- dashboard_full.py .env.example tasks/todo.md`
 - Suggested commit message:
   - `feat(process-mining): add overlay chart of cards pulled to development by story point band and seniority`
+
+## Current Task (Process Mining: garantir aderência total dos gráficos ao filtro de data)
+- [x] Diagnosticar por que pessoas sem atividade recente continuavam aparecendo em alguns gráficos
+- [x] Recalcular datasets visuais a partir das bases já filtradas por data (`pm_cases` e `pm_events`)
+- [x] Ajustar gráficos/tabelas da aba Process Mining para usar os datasets recalculados
+- [x] Validar sintaxe e revisar diff
+
+## Specification (Process Mining: garantir aderência total dos gráficos ao filtro de data)
+- Objetivo: fazer com que os gráficos da aba `Process Mining Jira` respeitem estritamente o período selecionado nos filtros de data da tela.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Critério de aceite:
+  - Gráficos de vazão por pessoa, vazão semanal, retrabalho, tempos por status e distribuição de variantes usam apenas registros dentro do recorte de data ativo.
+  - Indicadores de horas por pessoa/status e DFG também passam a refletir somente eventos filtrados pelo período.
+  - Não há dependência de agregados pré-calculados em aba quando estes não respeitarem o filtro atual.
+  - Código válido em sintaxe.
+
+## Review (Process Mining: garantir aderência total dos gráficos ao filtro de data)
+- What was validated:
+  - A causa raiz foi confirmada: parte dos gráficos usava abas agregadas do workbook (`VazaoPessoaResumo`, `VazaoPessoaSemanal`, `TemposPorStatus`, `DFG`) sem recomputar após aplicar filtro de data no dashboard.
+  - Foi implementado recálculo em runtime dos datasets de gráficos a partir de `pm_cases` e `pm_events` já filtrados por data/responsável.
+  - `pm_people`, `pm_weekly`, `pm_status`, `pm_hours_people`, `pm_hours_status`, `pm_dfg_edges`, `pm_dfg_perf_edges` e `pm_variants` agora são reconstruídos no escopo filtrado antes da montagem dos gráficos.
+  - O gráfico de cards puxados por pessoa/faixa continua derivado de `pm_events` filtrado e permanece aderente ao período selecionado.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md tasks/lessons.md`
+- Suggested commit message:
+  - `fix(process-mining): recompute chart datasets from date-filtered events/cases`
 

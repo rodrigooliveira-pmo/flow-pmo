@@ -8609,6 +8609,177 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if 'Done Final Author' in pm_align_cases.columns:
                 pm_align_cases = pm_align_cases[pm_align_cases['Done Final Author'] == responsavel]
 
+        # Rebuild graph datasets from date-filtered bases to guarantee UI date filter adherence.
+        if not pm_cases.empty and {'Issue Key', 'Done Final Author', 'Done Final Date'}.issubset(pm_cases.columns):
+            done_cases = pm_cases[pm_cases['Done Final Date'].notna()].copy()
+            if not done_cases.empty:
+                done_cases['Responsavel'] = done_cases['Done Final Author'].fillna('').astype(str).str.strip().replace('', 'Sem Autor')
+                done_cases['Com Retrabalho'] = (
+                    pd.to_numeric(done_cases.get('Rework Score', pd.Series(0, index=done_cases.index)), errors='coerce')
+                    .fillna(0)
+                    .gt(0)
+                    .astype(int)
+                )
+                done_cases['Semana'] = pd.to_datetime(done_cases['Done Final Date'], errors='coerce').dt.to_period('W-SUN').dt.start_time
+
+                pm_weekly = (
+                    done_cases.groupby(['Semana', 'Responsavel'], dropna=False)
+                    .agg(
+                        **{
+                            'Itens Concluidos': ('Issue Key', 'nunique'),
+                            'Itens Com Retrabalho': ('Com Retrabalho', 'sum'),
+                        }
+                    )
+                    .reset_index()
+                )
+                pm_weekly['Taxa Retrabalho (%)'] = np.where(
+                    pm_weekly['Itens Concluidos'] > 0,
+                    pm_weekly['Itens Com Retrabalho'] / pm_weekly['Itens Concluidos'] * 100.0,
+                    0.0,
+                )
+
+                pm_people = (
+                    done_cases.groupby('Responsavel', dropna=False)
+                    .agg(
+                        **{
+                            'Itens Concluidos': ('Issue Key', 'nunique'),
+                            'Itens Com Retrabalho': ('Com Retrabalho', 'sum'),
+                            'Rework Score Total': ('Rework Score', 'sum'),
+                            'Lead Time Mediano (dias)': ('Lead Time Fluxo (dias)', 'median'),
+                            'Semanas Com Entrega': ('Semana', lambda s: s.dropna().nunique()),
+                        }
+                    )
+                    .reset_index()
+                )
+                pm_people['Taxa Retrabalho (%)'] = np.where(
+                    pm_people['Itens Concluidos'] > 0,
+                    pm_people['Itens Com Retrabalho'] / pm_people['Itens Concluidos'] * 100.0,
+                    0.0,
+                )
+                pm_people['Media Itens/Semana Ativa'] = np.where(
+                    pm_people['Semanas Com Entrega'] > 0,
+                    pm_people['Itens Concluidos'] / pm_people['Semanas Com Entrega'],
+                    0.0,
+                )
+                pm_people = pm_people.sort_values('Itens Concluidos', ascending=False).reset_index(drop=True)
+            else:
+                pm_weekly = pd.DataFrame(columns=['Semana', 'Responsavel', 'Itens Concluidos', 'Itens Com Retrabalho', 'Taxa Retrabalho (%)'])
+                pm_people = pd.DataFrame(columns=['Responsavel', 'Itens Concluidos', 'Itens Com Retrabalho'])
+
+        if not pm_events.empty:
+            evt = pm_events.copy()
+            if 'Author' in evt.columns:
+                evt['Author'] = evt['Author'].fillna('').astype(str).str.strip().replace('', 'Sem Autor')
+            if 'Issue Key' in evt.columns:
+                evt['Issue Key'] = evt['Issue Key'].astype(str).str.strip()
+
+            if {'TempoStatusDias', 'To Status', 'Issue Key'}.issubset(evt.columns):
+                x_status = evt.dropna(subset=['TempoStatusDias']).copy()
+                if not x_status.empty:
+                    x_status['TempoStatusDias'] = pd.to_numeric(x_status['TempoStatusDias'], errors='coerce')
+                    x_status = x_status.dropna(subset=['TempoStatusDias'])
+                    pm_status = (
+                        x_status.groupby('To Status', dropna=False)
+                        .agg(
+                            **{
+                                'Qtde Ocorrencias': ('Issue Key', 'count'),
+                                'Qtde Itens': ('Issue Key', 'nunique'),
+                                'Tempo Medio (dias)': ('TempoStatusDias', 'mean'),
+                                'Tempo Mediano (dias)': ('TempoStatusDias', 'median'),
+                                'P85 (dias)': ('TempoStatusDias', lambda s: float(s.quantile(0.85)) if len(s) else np.nan),
+                                'P95 (dias)': ('TempoStatusDias', lambda s: float(s.quantile(0.95)) if len(s) else np.nan),
+                            }
+                        )
+                        .reset_index()
+                        .rename(columns={'To Status': 'Status'})
+                    )
+                else:
+                    pm_status = pd.DataFrame(columns=['Status', 'Qtde Ocorrencias', 'Qtde Itens', 'Tempo Medio (dias)', 'Tempo Mediano (dias)', 'P85 (dias)', 'P95 (dias)'])
+
+            if {'Author', 'TempoStatusDias', 'Issue Key'}.issubset(evt.columns):
+                x_hours = evt.dropna(subset=['TempoStatusDias']).copy()
+                if not x_hours.empty:
+                    x_hours['HorasNoFluxo'] = pd.to_numeric(x_hours['TempoStatusDias'], errors='coerce').fillna(0) * 24.0
+                    pm_hours_people = (
+                        x_hours.groupby('Author', dropna=False)
+                        .agg(
+                            **{
+                                'HorasNoFluxo': ('HorasNoFluxo', 'sum'),
+                                'Eventos': ('Issue Key', 'count'),
+                                'CardsUnicos': ('Issue Key', 'nunique'),
+                            }
+                        )
+                        .reset_index()
+                        .rename(columns={'Author': 'Responsavel'})
+                    )
+                    pm_hours_people['HorasMediasPorEvento'] = np.where(
+                        pm_hours_people['Eventos'] > 0,
+                        pm_hours_people['HorasNoFluxo'] / pm_hours_people['Eventos'],
+                        0.0,
+                    )
+
+                    if 'To Status' in x_hours.columns:
+                        pm_hours_status = (
+                            x_hours.groupby(['Author', 'To Status'], dropna=False)
+                            .agg(
+                                **{
+                                    'HorasNoFluxo': ('HorasNoFluxo', 'sum'),
+                                    'Eventos': ('Issue Key', 'count'),
+                                    'CardsUnicos': ('Issue Key', 'nunique'),
+                                }
+                            )
+                            .reset_index()
+                            .rename(columns={'Author': 'Responsavel', 'To Status': 'Status'})
+                        )
+                    else:
+                        pm_hours_status = pd.DataFrame(columns=['Responsavel', 'Status', 'HorasNoFluxo', 'Eventos', 'CardsUnicos'])
+                else:
+                    pm_hours_people = pd.DataFrame(columns=['Responsavel', 'HorasNoFluxo', 'HorasMediasPorEvento', 'Eventos', 'CardsUnicos'])
+                    pm_hours_status = pd.DataFrame(columns=['Responsavel', 'Status', 'HorasNoFluxo', 'Eventos', 'CardsUnicos'])
+
+            if {'From Status', 'To Status'}.issubset(evt.columns):
+                edge_base = evt.copy()
+                edge_base['From Status'] = edge_base['From Status'].fillna('').astype(str).str.strip()
+                edge_base['To Status'] = edge_base['To Status'].fillna('').astype(str).str.strip()
+                edge_base = edge_base[(edge_base['From Status'] != '') & (edge_base['To Status'] != '')].copy()
+                if not edge_base.empty:
+                    pm_dfg_edges = (
+                        edge_base.groupby(['From Status', 'To Status'], dropna=False)
+                        .size()
+                        .reset_index(name='Count')
+                        .rename(columns={'From Status': 'From', 'To Status': 'To'})
+                    )
+                    if 'TempoStatusDias' in edge_base.columns:
+                        perf_base = edge_base.dropna(subset=['TempoStatusDias']).copy()
+                        perf_base['PerfHours'] = pd.to_numeric(perf_base['TempoStatusDias'], errors='coerce').fillna(0) * 24.0
+                        pm_dfg_perf_edges = (
+                            perf_base.groupby(['From Status', 'To Status'], dropna=False)['PerfHours']
+                            .mean()
+                            .reset_index()
+                            .rename(columns={'From Status': 'From', 'To Status': 'To'})
+                        )
+                    else:
+                        pm_dfg_perf_edges = pd.DataFrame(columns=['From', 'To', 'PerfHours'])
+                else:
+                    pm_dfg_edges = pd.DataFrame(columns=['From', 'To', 'Count'])
+                    pm_dfg_perf_edges = pd.DataFrame(columns=['From', 'To', 'PerfHours'])
+
+        if not pm_cases.empty and {'Variant', 'Issue Key'}.issubset(pm_cases.columns):
+            v = pm_cases.copy()
+            v['Variant'] = v['Variant'].fillna('').astype(str).str.strip()
+            v = v[v['Variant'] != '']
+            if not v.empty:
+                pm_variants = (
+                    v.groupby('Variant', dropna=False)
+                    .agg(**{'Qtde Casos': ('Issue Key', 'nunique')})
+                    .reset_index()
+                    .sort_values('Qtde Casos', ascending=False)
+                )
+                total_var = max(1, int(pm_variants['Qtde Casos'].sum()))
+                pm_variants['Pct Casos'] = pm_variants['Qtde Casos'] / total_var * 100.0
+            else:
+                pm_variants = pd.DataFrame(columns=['Variant', 'Qtde Casos', 'Pct Casos'])
+
         pm_pull_dev = pd.DataFrame()
         pm_pull_dev_by_band = pd.DataFrame()
         pull_dev_total_cards = 0
@@ -8663,18 +8834,29 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             pull_dev_total_story_points = float(pd.to_numeric(pm_pull_dev['StoryPoints_Value'], errors='coerce').fillna(0).sum())
             pm_pull_dev_by_band = (
                 pm_pull_dev
-                .groupby(['Faixa Story Points', 'Senioridade'], dropna=False)
+                .groupby(['Responsavel', 'Faixa Story Points'], dropna=False)
                 .agg(
                     **{
                         'Cards Puxados': ('Issue Key', 'nunique'),
                         'Story Points Total': ('StoryPoints_Value', lambda s: pd.to_numeric(s, errors='coerce').fillna(0).sum()),
-                        'Pessoas Distintas': ('Responsavel', 'nunique'),
                     }
                 )
                 .reset_index()
             )
             pm_pull_dev_by_band['Faixa Story Points'] = pm_pull_dev_by_band['Faixa Story Points'].astype(str)
-            pm_pull_dev_by_band = pm_pull_dev_by_band.sort_values(['Faixa Story Points', 'Senioridade'])
+            person_totals = (
+                pm_pull_dev_by_band
+                .groupby('Responsavel', dropna=False)['Cards Puxados']
+                .sum()
+                .sort_values(ascending=True)
+            )
+            person_order = person_totals.index.tolist()
+            pm_pull_dev_by_band['Responsavel'] = pd.Categorical(
+                pm_pull_dev_by_band['Responsavel'],
+                categories=person_order,
+                ordered=True,
+            )
+            pm_pull_dev_by_band = pm_pull_dev_by_band.sort_values(['Responsavel', 'Faixa Story Points'])
 
         if pm_people.empty and pm_cases.empty:
             return html.Div('Sem dados de process mining para o período/filtros selecionados.')
@@ -8793,28 +8975,24 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             fig_vazao_pessoa.update_layout(height=560, yaxis={'categoryorder': 'total ascending'})
 
         fig_pull_dev_overlay = go.Figure()
-        if not pm_pull_dev_by_band.empty and {'Faixa Story Points', 'Cards Puxados', 'Senioridade'}.issubset(pm_pull_dev_by_band.columns):
+        if not pm_pull_dev_by_band.empty and {'Responsavel', 'Faixa Story Points', 'Cards Puxados'}.issubset(pm_pull_dev_by_band.columns):
+            faixa_order = ['Sem estimativa', '0', '1', '2-3', '5', '8', '13+']
             fig_pull_dev_overlay = px.bar(
                 pm_pull_dev_by_band,
-                x='Faixa Story Points',
-                y='Cards Puxados',
-                color='Senioridade',
-                barmode='overlay',
-                title='Cards puxados para In Development por faixa de story points',
-                hover_data=['Story Points Total', 'Pessoas Distintas'],
-                color_discrete_map={
-                    'Senior': '#1f77b4',
-                    'Junior': '#ff7f0e',
-                    'Outros': '#2ca02c',
-                    'Nao classificado': '#7f7f7f',
-                },
+                x='Cards Puxados',
+                y='Responsavel',
+                color='Faixa Story Points',
+                orientation='h',
+                barmode='stack',
+                title='Cards puxados para In Development por pessoa (quebrado por faixa de story points)',
+                hover_data=['Story Points Total'],
+                category_orders={'Faixa Story Points': faixa_order},
             )
-            fig_pull_dev_overlay.update_traces(opacity=0.68)
             fig_pull_dev_overlay.update_layout(
-                height=460,
-                xaxis_title='Faixa de Story Points',
-                yaxis_title='Cards puxados',
-                legend_title_text='Senioridade',
+                height=max(520, 24 * max(1, len(pm_pull_dev_by_band['Responsavel'].cat.categories))),
+                xaxis_title='Cards puxados',
+                yaxis_title='Pessoa',
+                legend_title_text='Faixa de Story Points',
             )
 
         fig_vazao_semanal = go.Figure()
