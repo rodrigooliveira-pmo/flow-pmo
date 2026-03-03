@@ -117,6 +117,16 @@ STATUS_EXECUTION_WEIGHTS = {
     "qa approved staging": 0.05,
     "ready for production": 0.05,
 }
+COMMITTED_WORK_AREA_RULES = (
+    ("AREA DEV", ("in progress", "ready for code review", "code review")),
+    ("AREA QA", ("ready for testing", "testing/qa", "testing qa", "testing", "qa")),
+    ("Staging", ("ready for staging", "staging", "ready for production")),
+)
+COMMITTED_WORK_AREA_COLORS = {
+    "AREA DEV": "#0f766e",
+    "AREA QA": "#2563eb",
+    "Staging": "#b8860b",
+}
 WORKDAY_START_HOUR = 9
 WORKDAY_END_HOUR = 18
 WORKDAY_DAILY_CAP_HOURS = 8.0
@@ -797,6 +807,17 @@ def execution_status_weight(status_name: str) -> float:
     if execution_status_bucket(s) == "Espera":
         return 0.4
     return 0.0
+
+
+def committed_work_area(status_name: str) -> str:
+    s = str(status_name or "").strip().lower()
+    if not s:
+        return "Fora do Escopo"
+    for area_name, hints in COMMITTED_WORK_AREA_RULES:
+        for hint in hints:
+            if hint in s:
+                return area_name
+    return "Fora do Escopo"
 
 
 def compute_overlap_hours(events_df: pd.DataFrame, start_ts=None, end_ts=None) -> pd.DataFrame:
@@ -2391,6 +2412,115 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
             )
             fig_exec_norm_bucket_status.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
 
+    committed_work_by_area_status = pd.DataFrame()
+    fig_committed_work_area_person = go.Figure()
+    fig_committed_cards_area_person = go.Figure()
+    if not exec_daily_norm.empty and {"Responsavel", "Status", "HorasUteisNormalizadas", "Issue Key"}.issubset(exec_daily_norm.columns):
+        committed_base = (
+            exec_daily_norm.assign(
+                AreaFluxo=exec_daily_norm["Status"].map(committed_work_area),
+                HorasUteisComprometidas8hDia=_safe_num(exec_daily_norm["HorasUteisNormalizadas"]).fillna(0),
+                IssueKeyNorm=exec_daily_norm["Issue Key"].astype(str).str.strip().str.upper(),
+            )
+            .loc[:, ["Responsavel", "AreaFluxo", "Status", "IssueKeyNorm", "HorasUteisComprometidas8hDia"]]
+        )
+        committed_base = committed_base[
+            committed_base["AreaFluxo"] != "Fora do Escopo"
+        ].copy()
+        committed_base["Status"] = committed_base["Status"].astype(str).str.strip()
+        committed_base = committed_base[
+            committed_base["Status"].ne("")
+        ].copy()
+        committed_base = committed_base[
+            committed_base["IssueKeyNorm"].ne("")
+        ].copy()
+
+        committed_work_by_area_status = (
+            committed_base.groupby(["Responsavel", "AreaFluxo", "Status"], dropna=False)
+            .agg(
+                HorasUteisComprometidas8hDia=("HorasUteisComprometidas8hDia", "sum"),
+                CartoesUnicos=("IssueKeyNorm", "nunique"),
+            )
+            .reset_index()
+        )
+
+        if not committed_work_by_area_status.empty:
+            area_by_person_hours = (
+                committed_work_by_area_status.groupby(["Responsavel", "AreaFluxo"], dropna=False)["HorasUteisComprometidas8hDia"]
+                .sum()
+                .reset_index()
+            )
+            area_by_person_cards = (
+                committed_base.groupby(["Responsavel", "AreaFluxo"], dropna=False)["IssueKeyNorm"]
+                .nunique()
+                .reset_index(name="CartoesUnicos")
+            )
+            totals = area_by_person_hours.groupby("Responsavel")["HorasUteisComprometidas8hDia"].sum().sort_values(ascending=False)
+            top_people = totals.head(20).index.tolist()
+            area_by_person_hours = area_by_person_hours[area_by_person_hours["Responsavel"].isin(top_people)].copy()
+            area_by_person_cards = area_by_person_cards[area_by_person_cards["Responsavel"].isin(top_people)].copy()
+
+            details = (
+                committed_work_by_area_status[committed_work_by_area_status["Responsavel"].isin(top_people)]
+                .sort_values(["Responsavel", "AreaFluxo", "HorasUteisComprometidas8hDia"], ascending=[True, True, False])
+                .groupby(["Responsavel", "AreaFluxo"], dropna=False)
+                .apply(
+                    lambda g: " | ".join(
+                        f"{str(row['Status'])}: {float(row['HorasUteisComprometidas8hDia']):.1f}h / {int(row['CartoesUnicos'])} cards"
+                        for _, row in g.iterrows()
+                    )
+                )
+                .reset_index(name="DetalheStatus")
+            )
+            area_by_person_hours = area_by_person_hours.merge(details, on=["Responsavel", "AreaFluxo"], how="left")
+            area_by_person_cards = area_by_person_cards.merge(details, on=["Responsavel", "AreaFluxo"], how="left")
+
+            area_order = [rule[0] for rule in COMMITTED_WORK_AREA_RULES]
+            area_by_person_hours["AreaFluxo"] = pd.Categorical(area_by_person_hours["AreaFluxo"], categories=area_order, ordered=True)
+            area_by_person_cards["AreaFluxo"] = pd.Categorical(area_by_person_cards["AreaFluxo"], categories=area_order, ordered=True)
+
+            fig_committed_work_area_person = px.bar(
+                area_by_person_hours,
+                x="HorasUteisComprometidas8hDia",
+                y="Responsavel",
+                color="AreaFluxo",
+                orientation="h",
+                barmode="stack",
+                custom_data=["DetalheStatus"],
+                title="Trabalho Comprometido por Pessoa e Área (horas úteis normalizadas, cap 8h/dia)",
+                color_discrete_map=COMMITTED_WORK_AREA_COLORS,
+            )
+            fig_committed_work_area_person.update_traces(
+                hovertemplate=(
+                    "Responsável: %{y}<br>"
+                    "Área: %{fullData.name}<br>"
+                    "Horas úteis comprometidas (8h/dia): %{x:.1f}h<br>"
+                    "Status: %{customdata[0]}<extra></extra>"
+                )
+            )
+            fig_committed_work_area_person.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
+            fig_committed_cards_area_person = px.bar(
+                area_by_person_cards,
+                x="CartoesUnicos",
+                y="Responsavel",
+                color="AreaFluxo",
+                orientation="h",
+                barmode="stack",
+                custom_data=["DetalheStatus"],
+                title="Trabalho Comprometido por Pessoa e Área (cartões únicos)",
+                color_discrete_map=COMMITTED_WORK_AREA_COLORS,
+            )
+            fig_committed_cards_area_person.update_traces(
+                hovertemplate=(
+                    "Responsável: %{y}<br>"
+                    "Área: %{fullData.name}<br>"
+                    "Cartões únicos: %{x:.0f}<br>"
+                    "Status: %{customdata[0]}<extra></extra>"
+                )
+            )
+            fig_committed_cards_area_person.update_layout(height=560, yaxis={"categoryorder": "total ascending"})
+
     fig_bottleneck_median = go.Figure()
     fig_bottleneck_load = go.Figure()
     fig_bottleneck_scatter = go.Figure()
@@ -2475,6 +2605,7 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
     exec_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasExecucaoUteisPonderadasPeriodo", "HorasExecucaoUteisPeriodo", "HorasExecucaoPeriodo", "Eventos", "CardsUnicos"] if c in exec_by_status.columns]
     exec_norm_people_cols = [c for c in ["Responsavel", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "MediaHrsEstimadasPorDiaAtivo", "DiasAtivos", "CardsUnicos", "Slices"] if c in exec_norm_by_person.columns]
     exec_norm_status_cols = [c for c in ["Responsavel", "ExecBucket", "Status", "HorasEstimadasTrabalho", "HorasEstimadasTrabalhoPonderadas", "HorasUteisCargaFluxo", "DiasComAtividade", "CardsUnicos", "Slices"] if c in exec_norm_by_status.columns]
+    committed_area_status_cols = [c for c in ["Responsavel", "AreaFluxo", "Status", "HorasUteisComprometidas8hDia", "CartoesUnicos"] if c in committed_work_by_area_status.columns]
     cross_people_cols = [c for c in ["Pessoa", "Itens Concluidos", "Itens c/ Evidencia Tecnica", "Cobertura Tecnica (%)", "Commits", "PRs Abertos", "PRs Merged", "PRs Declinados", "Aprovacoes", "Reprovacoes", "Score Integrado"] if c in cross_people.columns]
     bottleneck_cols = [c for c in ["Status", "HorasUteisMedianaEvento", "HorasUteisP85Evento", "HorasUteisP95Evento", "HorasUteisTotalPeriodo", "HorasUteisMediaEvento", "Eventos", "CardsUnicos"] if c in bottlenecks.columns]
 
@@ -2702,6 +2833,15 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
         dcc.Graph(figure=fig_exec_backlog_vs_executed),
         dcc.Graph(figure=fig_exec_bucket_person),
         dcc.Graph(figure=fig_exec_norm_bucket_person),
+        html.H4("Trabalho Comprometido por Pessoa e Área do Fluxo (status-alvo)"),
+        html.Div(
+            "Mapeamento aplicado: AREA DEV (In progress, Ready for code review, Code review), "
+            "AREA QA (Ready for testing, Testing/QA) e Staging (Ready for staging, Staging, Ready for production). "
+            "As horas abaixo já são horas úteis normalizadas com teto de 8h por pessoa/dia.",
+            style={"color": "#555", "fontSize": "13px", "marginBottom": "8px"},
+        ),
+        dcc.Graph(figure=fig_committed_work_area_person),
+        dcc.Graph(figure=fig_committed_cards_area_person),
         dcc.Graph(figure=fig_exec_by_status),
         dcc.Graph(figure=fig_horas_pessoa),
         dcc.Graph(figure=fig_horas_status),
@@ -2771,6 +2911,19 @@ def render_pm(data, start_date, end_date, person, cross_topn, cross_weekly_metri
         dash_table.DataTable(
             columns=[{"name": c, "id": c} for c in exec_norm_status_cols],
             data=exec_norm_by_status[exec_norm_status_cols].head(80).to_dict("records") if exec_norm_status_cols else [],
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "260px", "whiteSpace": "normal"},
+            style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},
+            sort_action="native",
+            filter_action="native",
+            page_size=12,
+        ),
+        html.H4("Detalhe do Trabalho Comprometido por Pessoa, Área e Status"),
+        dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in committed_area_status_cols],
+            data=committed_work_by_area_status[committed_area_status_cols].sort_values(
+                ["Responsavel", "AreaFluxo", "HorasUteisComprometidas8hDia"], ascending=[True, True, False]
+            ).head(200).to_dict("records") if committed_area_status_cols else [],
             style_table={"overflowX": "auto"},
             style_cell={"textAlign": "left", "padding": "6px", "minWidth": "100px", "maxWidth": "260px", "whiteSpace": "normal"},
             style_header={"backgroundColor": "rgb(230,230,230)", "fontWeight": "bold"},

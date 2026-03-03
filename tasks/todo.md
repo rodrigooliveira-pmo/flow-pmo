@@ -1,5 +1,64 @@
 # Task Plan
 
+## Current Task (Process Mining: comprometido em horas úteis 8h/dia + cartões únicos)
+- [x] Ajustar o gráfico de trabalho comprometido para exibir explicitamente horas úteis normalizadas com teto de 8h/dia
+- [x] Adicionar versão do gráfico por quantidade de cartões únicos por pessoa e área
+- [x] Atualizar tabela de detalhe para incluir horas úteis e cartões únicos por status
+- [x] Validar sintaxe/import e registrar evidências
+
+## Specification (Process Mining: comprometido em horas úteis 8h/dia + cartões únicos)
+- Objetivo: evoluir o gráfico de trabalho comprometido por pessoa/área para mostrar a métrica em horas úteis limitadas a 8h/dia e disponibilizar também a leitura por cartões únicos.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O gráfico de horas mostra explicitamente que usa horas úteis normalizadas com teto de 8h por pessoa/dia.
+  - Existe um segundo gráfico empilhado por pessoa/área mostrando `cartões únicos`.
+  - A tabela de detalhe inclui colunas de horas úteis e cartões únicos por `Responsavel + AreaFluxo + Status`.
+
+## Review (Process Mining: comprometido em horas úteis 8h/dia + cartões únicos)
+- What was validated:
+  - O gráfico de trabalho comprometido foi ajustado para usar e rotular explicitamente `HorasUteisComprometidas8hDia` (derivada de `HorasUteisNormalizadas`).
+  - Foi criado um novo gráfico empilhado por pessoa/área para `CartoesUnicos`.
+  - O hover dos dois gráficos passou a mostrar detalhamento por status com horas e quantidade de cards.
+  - A tabela de auditoria foi atualizada com `HorasUteisComprometidas8hDia` e `CartoesUnicos`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_process_mining.py`
+  - `python -c "import dashboard_process_mining; print('import ok')"`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): show committed work in normalized 8h/day useful hours and unique cards view`
+
+## Current Task (Process Mining: trabalho comprometido por pessoa e por área do fluxo)
+- [x] Definir mapeamento de status para áreas do fluxo (AREA DEV, AREA QA, Staging)
+- [x] Implementar agregação de horas comprometidas por `Responsavel + Area + Status` com base em horas úteis normalizadas
+- [x] Adicionar gráfico empilhado por pessoa com cores por área e detalhe de status no hover
+- [x] Adicionar tabela de auditoria por pessoa/área/status
+- [x] Validar sintaxe/import e registrar review com evidências
+
+## Specification (Process Mining: trabalho comprometido por pessoa e por área do fluxo)
+- Objetivo: exibir na aba operacional do dashboard de Process Mining um gráfico de trabalho comprometido por pessoa, segmentado por área do fluxo solicitada pelo usuário.
+- Escopo:
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O mapeamento de área considera: `AREA DEV` (`In progress`, `Ready for code review`, `code review`), `AREA QA` (`ready for testing`, `testing/qa`) e `Staging` (`ready for staging`, `staging`, `ready for production`).
+  - O gráfico apresenta barras empilhadas horizontais por pessoa com horas comprometidas por área.
+  - O dashboard inclui tabela de suporte com o detalhamento `Responsavel + AreaFluxo + Status + HorasComprometidas`.
+
+## Review (Process Mining: trabalho comprometido por pessoa e por área do fluxo)
+- What was validated:
+  - Foi implementado o mapeamento explícito de status para áreas (`COMMITTED_WORK_AREA_RULES`) com cores dedicadas por área.
+  - O cálculo de trabalho comprometido usa `HorasUteisNormalizadas` já existente no fluxo operacional para evitar superestimação por concorrência.
+  - Foi adicionado novo gráfico empilhado `Trabalho Comprometido por Pessoa e Área do Fluxo (DEV, QA, Staging)` com hover detalhado por status.
+  - Foi adicionada tabela de auditoria `Detalhe do Trabalho Comprometido por Pessoa, Área e Status`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_process_mining.py`
+  - `python -c "import dashboard_process_mining; print('import ok')"`
+  - `git diff -- dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): add committed work by person chart split by DEV/QA/Staging areas`
+
 ## Current Task (Deploy completo: script Python unico)
 - [x] Consolidar o fluxo em um unico script Python `deploy.py`
 - [x] Implementar tratamento de ambiente e excecoes por etapa (`whoami`, `link`, `pull`, `deploy`)
