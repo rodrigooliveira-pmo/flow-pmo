@@ -33,6 +33,7 @@ CSV_COLUMNS = [
     "Link",
     "UpdatedAt",
     "StatusChangedAt",
+    "DueDate",
 ]
 
 
@@ -321,6 +322,7 @@ def build_output_row(
         "Link": f"{base_url}/browse/{key}" if key else "",
         "UpdatedAt": str(fields.get("updated") or ""),
         "StatusChangedAt": str(fields.get("statuscategorychangedate") or ""),
+        "DueDate": str(fields.get("duedate") or ""),
     }
 
 
@@ -379,7 +381,7 @@ def main() -> int:
         if effort_tshirt_field:
             print(f"Campo Effort T-shirt size autodetectado: {effort_tshirt_field}")
 
-    fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate"]
+    fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate", "duedate"]
     if team_field and team_field not in fields:
         fields.append(team_field)
     if effort_tshirt_field and effort_tshirt_field not in fields:

@@ -2330,12 +2330,12 @@ def compute_portfolio_snapshot(df, updated_at_label):
         if 'UltimaMovimentacao' in features.columns else np.nan
     )
     epicos_detalhe = (
-        epics[['TeamDisplay', 'ID', 'Titulo', 'Status', 'Complexidade', 'QtdFeatures', 'QtdItensFluxo', 'AgingDiasSemAlteracao', 'Link']]
+        epics[['TeamDisplay', 'ID', 'Titulo', 'Status', 'StatusCategoria', 'Complexidade', 'QtdFeatures', 'QtdItensFluxo', 'AgingDiasSemAlteracao', 'Link']]
         .rename(columns={'TeamDisplay': 'Team', 'ID': 'EpicID', 'AgingDiasSemAlteracao': 'AgingDiasSemAlteracao'})
         .sort_values(['Team', 'QtdItensFluxo', 'QtdFeatures'], ascending=[True, False, False], ignore_index=True)
     )
     features_detalhe = (
-        features[['TeamDisplay', 'ID', 'Titulo', 'Status', 'EffortTShirtDisplay', 'Complexidade', 'EpicID', 'EpicTitulo', 'QtdFilhos', 'DiasSemMovimentacao', 'Link']]
+        features[['TeamDisplay', 'ID', 'Titulo', 'Status', 'StatusCategoria', 'EffortTShirtDisplay', 'Complexidade', 'EpicID', 'EpicTitulo', 'QtdFilhos', 'DiasSemMovimentacao', 'Link']]
         .rename(columns={'TeamDisplay': 'Team', 'ID': 'FeatureID', 'EffortTShirtDisplay': 'Effort T-shirt'})
         .sort_values(['Team', 'QtdFilhos', 'DiasSemMovimentacao'], ascending=[True, False, False], ignore_index=True)
     )
@@ -2603,23 +2603,41 @@ def build_portfolio_snapshot_from_csv():
 def get_portfolio_snapshot():
     now = datetime.now()
     cached_at = PORTFOLIO_CACHE.get('fetched_at')
-    if cached_at and (now - cached_at) <= PORTFOLIO_CACHE_TTL and PORTFOLIO_CACHE.get('data') is not None:
-        return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('error')
+    if cached_at and (now - cached_at) <= PORTFOLIO_CACHE_TTL and PORTFOLIO_CACHE.get('data') is not None and PORTFOLIO_CACHE.get('df') is not None:
+        return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('df'), PORTFOLIO_CACHE.get('error')
     try:
-        payload = build_portfolio_snapshot_from_csv()
+        csv_file = find_latest_portfolio_csv()
+        if not csv_file:
+            raise RuntimeError(
+                f'CSV de portfólio não encontrado. Configure FLOW_PMO_PORTFOLIO_CSV_URL ou FLOW_PMO_PORTFOLIO_CSV_FILE, '
+                f'ou gere um arquivo {PORTFOLIO_CSV_PREFIX}YYYYMMDD{PORTFOLIO_CSV_SUFFIX} '
+                f'em uma destas pastas: {", ".join(DATA_FOLDERS or [DATA_FOLDER])}.'
+            )
+
+        df = pd.read_csv(csv_file)
+        if 'DueDate' not in df.columns:
+            df['DueDate'] = pd.NaT
+        df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce')
+
+        updated_at_label = datetime.fromtimestamp(os.path.getctime(csv_file)).strftime('%Y-%m-%d %H:%M')
+        snapshot = compute_portfolio_snapshot(df, updated_at_label)
+        snapshot['source_file'] = csv_file
+
         PORTFOLIO_CACHE['fetched_at'] = now
-        PORTFOLIO_CACHE['data'] = payload
+        PORTFOLIO_CACHE['data'] = snapshot
+        PORTFOLIO_CACHE['df'] = df
         PORTFOLIO_CACHE['error'] = None
-        return payload, None
+        return snapshot, df, None
     except Exception as exc:
         PORTFOLIO_CACHE['fetched_at'] = now
         PORTFOLIO_CACHE['data'] = None
+        PORTFOLIO_CACHE['df'] = None
         PORTFOLIO_CACHE['error'] = str(exc)
-        return None, str(exc)
+        return None, None, str(exc)
 
 def get_portfolio_team_filter_options():
     default_options = [{'label': 'Todos os Teams', 'value': '__ALL__'}]
-    snapshot, error = get_portfolio_snapshot()
+    snapshot, _, error = get_portfolio_snapshot()
     if error or not snapshot:
         return default_options
 
@@ -5194,6 +5212,7 @@ def update_main_navigation_layout(main_view):
     Input('filter-capacity-top-n', 'value'),
     Input('filter-capacity-weekly-metric', 'value'),
     Input('filter-portfolio-team', 'value'),
+    Input('filter-portfolio-quarter', 'value'),
     Input('filter-portfolio-threshold-backlog-15', 'value'),
     Input('filter-portfolio-threshold-backlog-30', 'value'),
     Input('filter-portfolio-threshold-fresh-15', 'value'),
@@ -5205,7 +5224,7 @@ def update_main_navigation_layout(main_view):
     optional_input('estatistica-lsl', 'value'),
     optional_input('estatistica-usl', 'value'),
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team='__ALL__',
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team='__ALL__', portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
                estatistica_lsl=None, estatistica_usl=None):
@@ -5450,6 +5469,35 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ], style={'backgroundColor': '#fff7ed', 'border': '1px solid #fed7aa', 'borderRadius': '10px', 'padding': '10px'})
         ], style={'marginTop': '14px', 'marginBottom': '14px'})
 
+        not_started_epics = pd.DataFrame()
+        if 'epicos_detalhe' in snapshot['groups']:
+            epicos_detalhe = snapshot['groups']['epicos_detalhe']
+            if not epicos_detalhe.empty and 'StatusCategoria' in epicos_detalhe.columns:
+                not_started_epics = epicos_detalhe[epicos_detalhe['StatusCategoria'] == 'Backlog'].copy()
+
+        not_started_features = pd.DataFrame()
+        if 'features_detalhe' in snapshot['groups']:
+            features_detalhe = snapshot['groups']['features_detalhe']
+            if not features_detalhe.empty and 'StatusCategoria' in features_detalhe.columns:
+                not_started_features = features_detalhe[features_detalhe['StatusCategoria'] == 'Backlog'].copy()
+
+        not_started_section = html.Div()
+        if portfolio_quarter != 'ALL' and (not not_started_epics.empty or not not_started_features.empty):
+            children = [html.H3(f"Itens de Portfólio para {portfolio_quarter} Não Iniciados", style={'textAlign': 'left'})]
+            if not not_started_epics.empty:
+                children.append(portfolio_table_component(
+                    not_started_epics[['EpicID', 'Titulo', 'Team', 'Status']],
+                    "Épicos não iniciados",
+                    'table-portfolio-epics-not-started'
+                ))
+            if not not_started_features.empty:
+                children.append(portfolio_table_component(
+                    not_started_features[['FeatureID', 'Titulo', 'Team', 'Status']],
+                    "Features não iniciadas",
+                    'table-portfolio-features-not-started'
+                ))
+            not_started_section = html.Div(children, style={'marginTop': '24px'})
+
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
             leadtime_selection_summary,
@@ -5612,7 +5660,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         fig_lt_scatter.update_yaxes(title_text='Lead Time (dias)')
 
         subtitle = (
-            f"Projeto: {projeto or 'Todos'} | Período: {start_ts.date()} a {end_ts.date()} | "
+            f"Projeto: {projeto or 'Todos'} | Período: {start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')} | "
             f"Amostra: {int(len(lt_series))} itens | Início: {leadtime_meta.get('label', 'padrão')}"
         )
         return html.Div([
@@ -5623,7 +5671,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         ])
 
     if tab == PORTFOLIO_TAB_VALUE:
-        snapshot, error = get_portfolio_snapshot()
+        snapshot, df_portfolio, error = get_portfolio_snapshot()
         if error:
             return html.Div([
                 html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
@@ -5636,6 +5684,26 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     style={'textAlign': 'center', 'color': '#666'}
                 ),
             ], style={'padding': '20px'})
+
+        df_portfolio_filtered = df_portfolio.copy()
+        if portfolio_quarter != 'ALL':
+            quarter_dates = {
+                'Q1-2026': ('2026-01-01', '2026-03-31'),
+                'Q2-2026': ('2026-04-01', '2026-06-30'),
+                'Q3-2026': ('2026-07-01', '2026-09-30'),
+                'Q4-2026': ('2026-10-01', '2026-12-31'),
+            }
+            if portfolio_quarter in quarter_dates:
+                q_start, q_end = quarter_dates[portfolio_quarter]
+                q_start_ts = pd.to_datetime(q_start)
+                q_end_ts = pd.to_datetime(q_end)
+                df_portfolio_filtered = df_portfolio[
+                    (df_portfolio['DueDate'] >= q_start_ts) &
+                    (df_portfolio['DueDate'] <= q_end_ts)
+                ].copy()
+
+        # Re-compute snapshot with filtered data
+        snapshot = compute_portfolio_snapshot(df_portfolio_filtered, snapshot['updated_at'])
 
         groups = snapshot['groups']
 
@@ -7469,6 +7537,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ),
             flow_reference_cards,
             html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
+            not_started_section,
         ])
 
     if tab == 'tab-fluxo':
