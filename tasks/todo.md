@@ -1,5 +1,21 @@
 # Task Plan
 
+## Current Task (Filtro de projeto: opção global "Todos os projetos")
+- [x] Identificar ponto de montagem do dropdown `filter-projeto` no `dashboard_full.py`
+- [x] Incluir opção explícita "Todos os projetos" no filtro e normalizar valor sentinela para escopo global
+- [x] Validar sintaxe e registrar review com evidências
+
+## Review (Filtro de projeto: opção global "Todos os projetos")
+- What was validated:
+  - O dropdown `Projeto` agora inclui a opção explícita `Todos os projetos` no topo e inicia com ela selecionada.
+  - Foi adicionada normalização do valor sentinela (`__ALL_PROJECTS__ -> None`) para que a lógica existente de escopo global seja reaproveitada sem regressão.
+  - A normalização foi aplicada nos pontos críticos de callback (`update_leadtime_stage_filter_options` e `render_tab`) para evitar filtros indevidos por string sentinela.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(filters): add explicit all-projects option and map sentinel to global scope`
+
 ## Current Task (Portfólio: filtro Classe Serviço/Prioridade não filtrando épicos)
 - [x] Diagnosticar por que o filtro de prioridade não afetava o módulo de portfólio
 - [x] Aplicar filtro `classe_servico` no dataset de portfólio antes de recomputar snapshot

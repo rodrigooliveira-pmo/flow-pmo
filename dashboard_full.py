@@ -394,6 +394,8 @@ PORTFOLIO_CACHE = {
 }
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_TAB_VALUE = 'tab-portfolio'
+PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
+PROJECT_FILTER_ALL_LABEL = 'Todos os projetos'
 SERVICE_TABS = [
     ('Performance do Serviço', 'tab-performance'),
     ('One Page Report', 'tab-one-page'),
@@ -3249,6 +3251,14 @@ def create_kpi_card(title, value, class_name='six columns', card_style=None, tit
 def unique_sorted(col):
     return sorted([x for x in col.dropna().unique()])
 
+
+def normalize_project_filter_value(projeto):
+    """Convert explicit 'all projects' selection into global scope (None)."""
+    if projeto in (None, '', PROJECT_FILTER_ALL_VALUE):
+        return None
+    return projeto
+
+
 def weekly_bucket_start(date_series):
     return date_series.dt.to_period(WEEK_PERIOD).dt.start_time
 
@@ -5513,7 +5523,15 @@ app.layout = html.Div([
                                                             display_format='YYYY-MM-DD',
                                                             month_format='MMMM YYYY',
                                                             show_outside_days=True)], style={'display':'inline-block', 'marginRight':'20px'}),
-        html.Div([html.Label('Projeto:'), dcc.Dropdown(id='filter-projeto', options=[{'label':p,'value':p} for p in unique_sorted(fato['Projeto'])], value=unique_sorted(fato['Projeto'])[0] if len(unique_sorted(fato['Projeto']))>0 else None, clearable=False)], style={'width':'20%', 'display':'inline-block'}),
+        html.Div([
+            html.Label('Projeto:'),
+            dcc.Dropdown(
+                id='filter-projeto',
+                options=[{'label': PROJECT_FILTER_ALL_LABEL, 'value': PROJECT_FILTER_ALL_VALUE}] + [{'label': p, 'value': p} for p in unique_sorted(fato['Projeto'])],
+                value=PROJECT_FILTER_ALL_VALUE,
+                clearable=False
+            )
+        ], style={'width':'20%', 'display':'inline-block'}),
         html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['TipoDemanda'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Classe Serviço (Prioridade):'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
@@ -5700,6 +5718,7 @@ def handle_main_menu_navigation(_portfolio_clicks, _services_clicks, _home_click
     State('filter-leadtime-stages', 'value'),
 )
 def update_leadtime_stage_filter_options(projeto, current_value):
+    projeto = normalize_project_filter_value(projeto)
     stage_cols, stage_source = get_leadtime_stage_filter_columns(projeto)
     if not stage_cols:
         return [], []
@@ -5811,6 +5830,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             style={'padding': '16px', 'border': '1px dashed #d1d5db', 'borderRadius': '10px', 'maxWidth': '780px', 'margin': '12px auto'}
         )
 
+    projeto = normalize_project_filter_value(projeto)
     df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
     df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
     leadtime_selection_summary = build_leadtime_stage_selection_summary(projeto, leadtime_stages)
