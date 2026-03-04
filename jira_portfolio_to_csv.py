@@ -25,6 +25,7 @@ CSV_COLUMNS = [
     "Titulo",
     "Projeto",
     "Team",
+    "Prioridade",
     "EffortTShirtSize",
     "Tipo",
     "Status",
@@ -323,6 +324,7 @@ def build_output_row(
         "Titulo": str(fields.get("summary") or ""),
         "Projeto": str((fields.get("project") or {}).get("key") or ""),
         "Team": team_text,
+        "Prioridade": str((fields.get("priority") or {}).get("name") or ""),
         "EffortTShirtSize": effort_tshirt_size,
         "Tipo": issue_type_name,
         "Status": str((fields.get("status") or {}).get("name") or ""),
@@ -390,7 +392,7 @@ def main() -> int:
         if effort_tshirt_field:
             print(f"Campo Effort T-shirt size autodetectado: {effort_tshirt_field}")
 
-    fields = ["summary", "issuetype", "project", "parent", "status", "updated", "statuscategorychangedate", "duedate"]
+    fields = ["summary", "issuetype", "project", "parent", "status", "priority", "updated", "statuscategorychangedate", "duedate"]
     if team_field and team_field not in fields:
         fields.append(team_field)
     if effort_tshirt_field and effort_tshirt_field not in fields:

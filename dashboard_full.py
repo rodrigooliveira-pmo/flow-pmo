@@ -384,7 +384,14 @@ LEAD_TIME_START_STAGE_PREFERENCES = [
 ]
 
 PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
-PORTFOLIO_CACHE = {'fetched_at': None, 'data': None, 'error': None}
+PORTFOLIO_CACHE = {
+    'fetched_at': None,
+    'data': None,
+    'df': None,
+    'error': None,
+    'source_file': None,
+    'source_mtime': None,
+}
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_TAB_VALUE = 'tab-portfolio'
 SERVICE_TABS = [
@@ -2585,6 +2592,7 @@ def find_latest_portfolio_csv():
         return _download_portfolio_csv_from_url(csv_url)
 
     candidates = []
+    preferred_latest_name = f'{PORTFOLIO_CSV_PREFIX}latest{PORTFOLIO_CSV_SUFFIX}'.lower()
     for folder in DATA_FOLDERS:
         try:
             entries = os.listdir(folder)
@@ -2595,6 +2603,9 @@ def find_latest_portfolio_csv():
                 candidates.append(os.path.join(folder, name))
     if not candidates:
         return None
+    preferred_matches = [p for p in candidates if os.path.basename(p).lower() == preferred_latest_name]
+    if preferred_matches:
+        return max(preferred_matches, key=os.path.getctime)
     return max(candidates, key=os.path.getctime)
 
 
@@ -2623,7 +2634,19 @@ def get_portfolio_snapshot():
     now = datetime.now()
     cached_at = PORTFOLIO_CACHE.get('fetched_at')
     if cached_at and (now - cached_at) <= PORTFOLIO_CACHE_TTL and PORTFOLIO_CACHE.get('data') is not None and PORTFOLIO_CACHE.get('df') is not None:
-        return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('df'), PORTFOLIO_CACHE.get('error')
+        try:
+            latest_csv = find_latest_portfolio_csv()
+            if latest_csv:
+                latest_abs = os.path.abspath(latest_csv)
+                cached_abs = os.path.abspath(str(PORTFOLIO_CACHE.get('source_file') or ''))
+                latest_mtime = os.path.getmtime(latest_csv)
+                cached_mtime = PORTFOLIO_CACHE.get('source_mtime')
+                if latest_abs == cached_abs and cached_mtime is not None and float(latest_mtime) == float(cached_mtime):
+                    return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('df'), PORTFOLIO_CACHE.get('error')
+            else:
+                return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('df'), PORTFOLIO_CACHE.get('error')
+        except Exception:
+            return PORTFOLIO_CACHE.get('data'), PORTFOLIO_CACHE.get('df'), PORTFOLIO_CACHE.get('error')
     try:
         csv_file = find_latest_portfolio_csv()
         if not csv_file:
@@ -2637,6 +2660,8 @@ def get_portfolio_snapshot():
         if 'DueDate' not in df.columns:
             df['DueDate'] = pd.NaT
         df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce')
+        if 'Prioridade' not in df.columns:
+            df['Prioridade'] = ''
 
         updated_at_label = datetime.fromtimestamp(os.path.getctime(csv_file)).strftime('%Y-%m-%d %H:%M')
         snapshot = compute_portfolio_snapshot(df, updated_at_label)
@@ -2646,12 +2671,16 @@ def get_portfolio_snapshot():
         PORTFOLIO_CACHE['data'] = snapshot
         PORTFOLIO_CACHE['df'] = df
         PORTFOLIO_CACHE['error'] = None
+        PORTFOLIO_CACHE['source_file'] = csv_file
+        PORTFOLIO_CACHE['source_mtime'] = os.path.getmtime(csv_file)
         return snapshot, df, None
     except Exception as exc:
         PORTFOLIO_CACHE['fetched_at'] = now
         PORTFOLIO_CACHE['data'] = None
         PORTFOLIO_CACHE['df'] = None
         PORTFOLIO_CACHE['error'] = str(exc)
+        PORTFOLIO_CACHE['source_file'] = None
+        PORTFOLIO_CACHE['source_mtime'] = None
         return None, None, str(exc)
 
 def get_portfolio_team_filter_options():
@@ -2982,7 +3011,7 @@ def render_portfolio_roadmap_quarter_view(df_source, selected_quarter='ALL'):
     ], style={'marginBottom': '20px'})
 
 
-def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', high_priority_ids=None):
+def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', high_priority_ids=None, high_priority_titles=None):
     if df_source is None or df_source.empty:
         return html.Div([
             html.H4('One Page Completo - Roadmap 2026', style={'margin': '0 0 6px 0'}),
@@ -3019,6 +3048,7 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         axis=1
     )
     high_ids = set(str(x).strip().upper() for x in (high_priority_ids or set()) if str(x).strip())
+    high_titles_norm = set(normalize_text(x) for x in (high_priority_titles or set()) if str(x).strip())
     if 'ID' in df.columns:
         df['ID'] = df['ID'].fillna('').astype(str)
     else:
@@ -3027,11 +3057,17 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         df['IsHighestPriority'] = df['Prioridade'].apply(portfolio_is_highest_priority)
     else:
         df['IsHighestPriority'] = False
-    df['IsHighestPriority'] = df['IsHighestPriority'] | df['ID'].astype(str).str.strip().str.upper().isin(high_ids)
     if 'Titulo' in df.columns:
         df['Titulo'] = df['Titulo'].fillna('').astype(str).str.strip().replace('', 'Sem título')
     else:
         df['Titulo'] = 'Sem título'
+    df['TituloNorm'] = df['Titulo'].map(normalize_text)
+    df['IsHighestPriority'] = (
+        df['IsHighestPriority'] |
+        df['ID'].astype(str).str.strip().str.upper().isin(high_ids) |
+        df['TituloNorm'].isin(high_titles_norm) |
+        df['TituloNorm'].str.contains('higest|highest', regex=True, na=False)
+    )
     if 'DueDate' in df.columns:
         df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce')
 
@@ -6174,6 +6210,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ], style={'padding': '20px'})
 
         df_portfolio_filtered = df_portfolio.copy()
+        if 'Prioridade' not in df_portfolio_filtered.columns:
+            df_portfolio_filtered['Prioridade'] = ''
+        if 'ClasseServico' not in df_portfolio_filtered.columns:
+            df_portfolio_filtered['ClasseServico'] = df_portfolio_filtered['Prioridade'].apply(
+                lambda v: resolve_service_class('', v)
+            )
+        if classe_servico:
+            df_portfolio_filtered = df_portfolio_filtered[
+                df_portfolio_filtered['ClasseServico'].astype(str) == str(classe_servico)
+            ].copy()
         if portfolio_quarter != 'ALL':
             quarter_dates = {
                 'Q1-2026': ('2026-01-01', '2026-03-31'),
@@ -6185,9 +6231,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 q_start, q_end = quarter_dates[portfolio_quarter]
                 q_start_ts = pd.to_datetime(q_start)
                 q_end_ts = pd.to_datetime(q_end)
-                df_portfolio_filtered = df_portfolio[
-                    (df_portfolio['DueDate'] >= q_start_ts) &
-                    (df_portfolio['DueDate'] <= q_end_ts)
+                df_portfolio_filtered = df_portfolio_filtered[
+                    (df_portfolio_filtered['DueDate'] >= q_start_ts) &
+                    (df_portfolio_filtered['DueDate'] <= q_end_ts)
                 ].copy()
 
         # Re-compute snapshot with filtered data
@@ -6241,7 +6287,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         has_us_items = bool(groups.get('has_us_items', False))
 
         selected_team = str(portfolio_team or '__ALL__')
-        df_portfolio_full_scope = df_portfolio.copy() if df_portfolio is not None else pd.DataFrame()
+        df_portfolio_full_scope = df_portfolio_filtered.copy() if df_portfolio_filtered is not None else pd.DataFrame()
 
         def filter_by_team(df_source, team_col='Team'):
             if df_source is None or df_source.empty or selected_team == '__ALL__':
@@ -7267,6 +7313,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             }
 
         high_priority_ids = set()
+        high_priority_titles = set()
+        manual_high_ids_raw = os.getenv('FLOW_PMO_PORTFOLIO_HIGHEST_IDS', '').strip()
+        if manual_high_ids_raw:
+            for token in re.split(r'[;,\n]+', manual_high_ids_raw):
+                t = str(token).strip()
+                if t:
+                    high_priority_ids.add(t.upper())
+        manual_high_titles_raw = os.getenv('FLOW_PMO_PORTFOLIO_HIGHEST_TITLES', '').strip()
+        if manual_high_titles_raw:
+            for token in re.split(r'[;,\n]+', manual_high_titles_raw):
+                t = str(token).strip()
+                if t:
+                    high_priority_titles.add(t)
         candidate_projects = []
         if projeto:
             candidate_projects.append(str(projeto).strip().upper())
@@ -7309,7 +7368,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             render_portfolio_roadmap_full_epics_view(
                 df_portfolio_full_scope,
                 selected_quarter='ALL',
-                high_priority_ids=high_priority_ids
+                high_priority_ids=high_priority_ids,
+                high_priority_titles=high_priority_titles
             )
         ], style={'paddingTop': '10px'})
 

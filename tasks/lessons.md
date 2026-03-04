@@ -222,6 +222,20 @@ Use this file after any user correction.
 - Action added to workflow: Ao criar roadmap por quarter, validar com tabela de conferência `Status original -> Status da legenda -> Quarter` antes de fechar.
 
 - Date: 2026-03-04
+- Context: Filtro `Classe Serviço (Prioridade)` não impactava os épicos no módulo de Portfólio.
+- User correction: Reportou que o filtro de prioridades não estava filtrando os épicos no dashboard.
+- Root cause: O branch `tab-portfolio` não aplicava `classe_servico` sobre `df_portfolio_filtered`; além disso o loader priorizava arquivo datado em vez do alias `latest` com dados atualizados.
+- Prevention rule: Para filtros globais expostos na UI, validar explicitamente aplicação em cada módulo (serviços e portfólio) e confirmar a fonte de dados efetivamente carregada.
+- Action added to workflow: Em regressões de filtro, registrar evidência mínima: `arquivo selecionado`, `contagem antes/depois do filtro` e `colunas-base do filtro`.
+
+- Date: 2026-03-04
+- Context: Usuário pediu estrela para itens `Highest/Higest`, mas a UI não exibiu nenhum destaque.
+- User correction: Reportou explicitamente que a estrela não estava aparecendo.
+- Root cause: O CSV de portfólio consumido pelo dashboard não tinha coluna `Prioridade`, e o fallback por IDs não casava com a base downstream disponível.
+- Prevention rule: Antes de depender de um campo de negócio na UI, validar presença do campo na fonte ativa e preparar fallback configurável quando a fonte estiver incompleta.
+- Action added to workflow: Em componentes de destaque por atributo (prioridade, risco etc.), sempre incluir fallback por configuração (`env`) e teste de render com dado sintético.
+
+- Date: 2026-03-04
 - Context: Solicitação de destacar com estrela os itens `Highest/Higest` no one page completo.
 - User correction: Indicou explicitamente que os projetos marcados como `Higest` devem exibir o ícone de estrela conforme referência visual.
 - Root cause: A visualização não tinha suporte de destaque visual para prioridade máxima no nível do épico.

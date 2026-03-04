@@ -1,5 +1,59 @@
 # Task Plan
 
+## Current Task (Portfólio: filtro Classe Serviço/Prioridade não filtrando épicos)
+- [x] Diagnosticar por que o filtro de prioridade não afetava o módulo de portfólio
+- [x] Aplicar filtro `classe_servico` no dataset de portfólio antes de recomputar snapshot
+- [x] Corrigir seleção de arquivo para priorizar `portfolio-bt-ns-latest-data.csv`
+- [x] Validar presença de `Prioridade` e contagem de `Highest` no snapshot carregado
+
+## Review (Portfólio: filtro Classe Serviço/Prioridade não filtrando épicos)
+- What was validated:
+  - Causa raiz 1: o branch de Portfólio não aplicava o filtro `classe_servico` ao `df_portfolio_filtered`.
+  - Causa raiz 2: o loader escolhia `portfolio-bt-ns-YYYYMMDD-data.csv` por `ctime`, ignorando o alias `latest` que já tinha `Prioridade`.
+  - O filtro agora é aplicado ao dataset de portfólio via `ClasseServico <- resolve_service_class('', Prioridade)`.
+  - A seleção do arquivo de portfólio agora prioriza explicitamente `portfolio-bt-ns-latest-data.csv`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `selected ...\\dados\\latest\\portfolio-bt-ns-latest-data.csv`
+  - `Prioridade: Medium 179 | Highest 25 | High 4`
+  - `highest rows 25` após mapeamento de `ClasseServico`
+- Suggested commit message:
+  - `fix(portfolio): apply classe_servico filter to portfolio snapshot and prefer latest alias csv`
+
+## Current Task (Dataset portfólio: Prioridade não preenchida)
+- [x] Diagnosticar por que a coluna `Prioridade` veio vazia no `portfolio-bt-ns-latest-data.csv`
+- [x] Corrigir exportador para solicitar campo Jira `priority`
+- [x] Regerar CSV latest e validar distribuição de prioridades
+
+## Review (Dataset portfólio: Prioridade não preenchida)
+- What was validated:
+  - Causa raiz confirmada: `jira_portfolio_to_csv.py` montava a coluna `Prioridade`, mas a lista `fields` da busca Jira não incluía `priority`.
+  - Ajuste aplicado em `fields` para incluir `priority`.
+  - Após regeneração do latest, a coluna passou a vir preenchida (`Medium`, `Highest`, `High`), com 25 itens `Highest`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile jira_portfolio_to_csv.py`
+  - `python jira_portfolio_to_csv.py --projects BT NS --out ...\\portfolio-bt-ns-latest-data.csv`
+  - `python -c "... value_counts Prioridade ... highest_like ..."` (resultado: `Highest 25`)
+- Suggested commit message:
+  - `fix(portfolio-export): request jira priority field so Prioridade is populated in latest csv`
+
+## Current Task (One page: estrela Highest não aparecendo)
+- [x] Diagnosticar por que a estrela não aparecia no one page completo
+- [x] Adicionar fallback manual por env (`FLOW_PMO_PORTFOLIO_HIGHEST_IDS` e `FLOW_PMO_PORTFOLIO_HIGHEST_TITLES`)
+- [x] Incluir `Prioridade` no exportador `jira_portfolio_to_csv.py` para suporte nativo em novas extrações
+- [x] Validar sintaxe e renderização com caso de teste
+
+## Review (One page: estrela Highest não aparecendo)
+- What was validated:
+  - A ausência de estrela no cenário atual foi causada por falta de `Prioridade` no CSV de portfólio atual e ausência de match de IDs com o downstream.
+  - O dashboard agora aceita marcação de estrela por lista manual de IDs/títulos via env.
+  - O exportador de portfólio passou a incluir a coluna `Prioridade`, permitindo marcação automática em próximas gerações de CSV.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py jira_portfolio_to_csv.py`
+  - `python -c "import dashboard_full as d; ...; print('star', '★' in str(node))"` com título manual (resultado `star True`)
+- Suggested commit message:
+  - `fix(portfolio-roadmap): enable highest-star fallback via env and export priority in portfolio csv`
+
 ## Current Task (Portfólio one page: estrela para itens Highest/Higest)
 - [x] Adicionar ícone de estrela nos épicos marcados como `Highest/Higest` na aba `One Page Completo`
 - [x] Implementar detecção por prioridade no próprio dataset e fallback por IDs de alta prioridade
