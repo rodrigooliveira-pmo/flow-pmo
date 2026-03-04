@@ -214,6 +214,27 @@ Use this file after any user correction.
 - Prevention rule: Para APIs com rate limit por janela, combinar retry com throttling contínuo (intervalo mínimo entre requests) e cooldown global após 429.
 - Action added to workflow: Em conectores HTTP de alto volume, expor parâmetro de pacing (`min-request-interval`) e definir default conservador.
 
+- Date: 2026-03-04
+- Context: Nova visão de roadmap por quarter no portfólio apresentou distribuição incorreta (concentração artificial em `Planning`/`Q1`).
+- User correction: Informou que a distribuição exibida não estava correta.
+- Root cause: Usei fallback amplo de status (`Backlog`/`Em progresso`) para classificar `Planning`/`Running`, o que inflou a legenda fora da regra pedida; também havia fallback implícito de quarter para o selecionado.
+- Prevention rule: Em visões executivas com legenda explícita, aplicar mapeamento estrito ao vocabulário solicitado e não inferir categorias extras sem validação do usuário.
+- Action added to workflow: Ao criar roadmap por quarter, validar com tabela de conferência `Status original -> Status da legenda -> Quarter` antes de fechar.
+
+- Date: 2026-03-04
+- Context: Solicitação de destacar com estrela os itens `Highest/Higest` no one page completo.
+- User correction: Indicou explicitamente que os projetos marcados como `Higest` devem exibir o ícone de estrela conforme referência visual.
+- Root cause: A visualização não tinha suporte de destaque visual para prioridade máxima no nível do épico.
+- Prevention rule: Sempre que houver categoria executiva explícita (ex.: `Highest`), refletir isso com sinal visual dedicado na UI, não apenas por texto.
+- Action added to workflow: Em ajustes de roadmap visual, revisar checklist de realce: `cores`, `ícones de prioridade`, `ordenação por criticidade`.
+
+- Date: 2026-03-04
+- Context: One page roadmap exibiu vazio em Q3/Q4 apesar de `DueDate` preenchido no CSV latest.
+- User correction: Reportou inconsistência e evidenciou que os épicos tinham `DueDate` populado na planilha.
+- Root cause: O mapeamento de legenda estava estrito demais e descartava itens com status `Triagem`, que representam planejamento no portfólio atual.
+- Prevention rule: Antes de concluir um mapeamento semântico de status, validar distribuição por status real do CSV em cada quarter (Q1..Q4), não apenas no quarter inicial.
+- Action added to workflow: Em mudanças de mapeamento de legenda, executar checklist de reconciliação: `count por quarter`, `count por status original` e `count por status mapeado`.
+
 - Date: 2026-03-03
 - Context: Ajuste do gráfico de Process Mining para análise de cards puxados por faixa de story points.
 - User correction: Solicitou que o gráfico mostrasse todas as pessoas com volume de cards puxados separado em faixas de story points.

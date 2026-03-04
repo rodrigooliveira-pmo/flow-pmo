@@ -1,5 +1,77 @@
 # Task Plan
 
+## Current Task (Portfólio one page: estrela para itens Highest/Higest)
+- [x] Adicionar ícone de estrela nos épicos marcados como `Highest/Higest` na aba `One Page Completo`
+- [x] Implementar detecção por prioridade no próprio dataset e fallback por IDs de alta prioridade
+- [x] Validar sintaxe e renderização
+
+## Review (Portfólio one page: estrela para itens Highest/Higest)
+- What was validated:
+  - A renderização da linha do épico agora suporta ícone `★` em círculo para itens de prioridade máxima.
+  - A detecção considera variações `Highest` e `Higest`.
+  - O código permite marcar prioridade alta por coluna `Prioridade` no dataset e por IDs enriquecidos.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `python -c "import dashboard_full as d; ...; print('has_star', '★' in str(node))"`
+- Suggested commit message:
+  - `feat(portfolio-roadmap): show star icon on highest-priority epics in one-page complete tab`
+
+## Current Task (Portfólio one page completo: separar Running de Planning)
+- [x] Corrigir distribuição visual para não misturar itens `Running` com `Planning`
+- [x] Ordenar itens `Running` por `% de avanço` dentro de cada quarter
+- [x] Validar renderização e sintaxe
+
+## Review (Portfólio one page completo: separar Running de Planning)
+- What was validated:
+  - A lista de épicos em cada quarter passou a ser segmentada por status (`Running`, `Planning`, `Done`, `Paused`) com cabeçalho por bloco.
+  - Os itens `Running` agora aparecem agrupados no topo e ordenados por `% de avanço`.
+  - A segunda linha de avanço permanece visível apenas para `Running`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `python -c "import dashboard_full as d; ...; print('ok', 'Running (' in txt and 'Planning (' in txt)"`
+- Suggested commit message:
+  - `fix(portfolio-roadmap): separate running and planning blocks and sort running by progress percent`
+
+## Current Task (Portfólio: nova aba one page completo com épicos e % de avanço)
+- [x] Criar nova aba temática no Portfólio para exibir o one page completo com nomes dos épicos
+- [x] Implementar layout por quarter (Q1..Q4) com lista de épicos e cores pela legenda (`Running`, `Planning`, `Done`, `Paused`)
+- [x] Adicionar segunda linha para itens `Running` com `% de avanço` calculado pelo status/coluna de fluxo
+- [x] Validar sintaxe e renderização da nova aba
+
+## Review (Portfólio: nova aba one page completo com épicos e % de avanço)
+- What was validated:
+  - Foi adicionada a aba `One Page Completo` dentro das tabs do módulo Portfólio.
+  - A aba usa apenas épicos (`TipoNorm in {epico, epic}`) e distribui por quarter via `DueDate`.
+  - Cada épico agora é exibido pelo nome; para itens `Running`, há segunda linha com `% de avanço` e barra visual.
+  - O `% de avanço` considera `%` explícito no status e fallback por etapa de fluxo (ex.: `ready for development`, `in progress`, `testing`, `staging`, `ready to delivery`, `done`).
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `python -c "import dashboard_full as d; ...; print('tab_token', 'portfolio-one-page-completo' in str(...))"`
+  - Validação de amostra no CSV latest:
+    - `Running`: `0%`, `20%`, `80%` com `RoadmapProgressPct` coerente
+- Suggested commit message:
+  - `feat(portfolio-roadmap): add complete one-page epic view tab with running progress percentage line`
+
+## Current Task (Portfólio roadmap: consistência de Q3/Q4 com DueDate)
+- [x] Diagnosticar por que Q3/Q4 exibiam vazio mesmo com `DueDate` preenchido no CSV latest
+- [x] Ajustar mapeamento de status para incluir `Triagem/Backlog` como `Planning` no one page roadmap
+- [x] Validar distribuição por quarter no arquivo `portfolio-bt-ns-latest-data.csv`
+
+## Review (Portfólio roadmap: consistência de Q3/Q4 com DueDate)
+- What was validated:
+  - Causa raiz confirmada: itens de Q3/Q4 estavam com status `Triagem` e eram descartados pelo mapeamento estrito anterior.
+  - O mapeamento de `Planning` foi ampliado para incluir `Triagem`, `Backlog`, `To Do/Todo`, `Business Review`, `Ready for Development` e `Ready to Start`.
+  - A mensagem de vazio foi ajustada para refletir ausência de status mapeado (não ausência de `DueDate`).
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - Validação no CSV latest:
+    - `Q1 45 {'Planning': 41, 'Done': 2, 'Running': 2}`
+    - `Q2 44 {'Planning': 43, 'Running': 1}`
+    - `Q3 27 {'Planning': 27}`
+    - `Q4 25 {'Planning': 25}`
+- Suggested commit message:
+  - `fix(portfolio-roadmap): map triagem/backlog to planning so Q3/Q4 due-date items are shown`
+
 ## Current Task (Portfólio: visão roadmap por quarter com legenda de status)
 - [x] Definir mapeamento de status para `Planning`, `Running`, `Done` e `Paused` conforme regra solicitada
 - [x] Implementar componente visual `One Page - Roadmap 2026` com `Q1..Q4` na aba de Portfólio
