@@ -2323,6 +2323,12 @@ def compute_portfolio_snapshot(df, updated_at_label):
         epicos_fluxo_etapas = epicos_fluxo_etapas.sort_values('TotalItens', ascending=False, ignore_index=True)
 
     # Visões detalhadas separadas (épicos x features) para reduzir mistura de contexto.
+    status_categoria_by_id = df.set_index('ID')['StatusCategoria'] if ('ID' in df.columns and 'StatusCategoria' in df.columns) else pd.Series(dtype='object')
+    if 'StatusCategoria' not in epics.columns:
+        epics['StatusCategoria'] = epics['ID'].map(status_categoria_by_id).fillna('Não mapeado')
+    if 'StatusCategoria' not in features.columns:
+        features['StatusCategoria'] = features['ID'].map(status_categoria_by_id).fillna('Não mapeado')
+
     epic_title_map = epics.set_index('ID')['Titulo'] if not epics.empty else pd.Series(dtype='object')
     features['EpicTitulo'] = features['EpicID'].map(epic_title_map).fillna('')
     features['DiasSemMovimentacao'] = (
@@ -5022,6 +5028,21 @@ app.layout = html.Div([
             )
         ], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([
+            html.Label('Quarter (Portfólio):'),
+            dcc.Dropdown(
+                id='filter-portfolio-quarter',
+                options=[
+                    {'label': 'Todos os Quarters', 'value': 'ALL'},
+                    {'label': 'Q1-2026', 'value': 'Q1-2026'},
+                    {'label': 'Q2-2026', 'value': 'Q2-2026'},
+                    {'label': 'Q3-2026', 'value': 'Q3-2026'},
+                    {'label': 'Q4-2026', 'value': 'Q4-2026'},
+                ],
+                value='ALL',
+                clearable=False
+            )
+        ], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'180px'}),
+        html.Div([
             html.Label('Portfólio: thresholds (backlog/freshness 15,30)'),
             html.Div([
                 dcc.Input(id='filter-portfolio-threshold-backlog-15', type='number', value=15, min=0, step=1, style={'width': '70px'}),
@@ -5468,35 +5489,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ], style={'marginTop': '6px', 'marginBottom': '0', 'paddingLeft': '20px'})
             ], style={'backgroundColor': '#fff7ed', 'border': '1px solid #fed7aa', 'borderRadius': '10px', 'padding': '10px'})
         ], style={'marginTop': '14px', 'marginBottom': '14px'})
-
-        not_started_epics = pd.DataFrame()
-        if 'epicos_detalhe' in snapshot['groups']:
-            epicos_detalhe = snapshot['groups']['epicos_detalhe']
-            if not epicos_detalhe.empty and 'StatusCategoria' in epicos_detalhe.columns:
-                not_started_epics = epicos_detalhe[epicos_detalhe['StatusCategoria'] == 'Backlog'].copy()
-
-        not_started_features = pd.DataFrame()
-        if 'features_detalhe' in snapshot['groups']:
-            features_detalhe = snapshot['groups']['features_detalhe']
-            if not features_detalhe.empty and 'StatusCategoria' in features_detalhe.columns:
-                not_started_features = features_detalhe[features_detalhe['StatusCategoria'] == 'Backlog'].copy()
-
-        not_started_section = html.Div()
-        if portfolio_quarter != 'ALL' and (not not_started_epics.empty or not not_started_features.empty):
-            children = [html.H3(f"Itens de Portfólio para {portfolio_quarter} Não Iniciados", style={'textAlign': 'left'})]
-            if not not_started_epics.empty:
-                children.append(portfolio_table_component(
-                    not_started_epics[['EpicID', 'Titulo', 'Team', 'Status']],
-                    "Épicos não iniciados",
-                    'table-portfolio-epics-not-started'
-                ))
-            if not not_started_features.empty:
-                children.append(portfolio_table_component(
-                    not_started_features[['FeatureID', 'Titulo', 'Team', 'Status']],
-                    "Features não iniciadas",
-                    'table-portfolio-features-not-started'
-                ))
-            not_started_section = html.Div(children, style={'marginTop': '24px'})
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
@@ -6899,6 +6891,31 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             render_tipo_balanceamento(tipo_balanceamento),
         ], style={'paddingTop': '10px'})
 
+        not_started_epics = pd.DataFrame()
+        if epicos_detalhe is not None and not epicos_detalhe.empty and 'StatusCategoria' in epicos_detalhe.columns:
+            not_started_epics = epicos_detalhe[epicos_detalhe['StatusCategoria'] == 'Backlog'].copy()
+
+        not_started_features = pd.DataFrame()
+        if features_detalhe is not None and not features_detalhe.empty and 'StatusCategoria' in features_detalhe.columns:
+            not_started_features = features_detalhe[features_detalhe['StatusCategoria'] == 'Backlog'].copy()
+
+        not_started_section = html.Div()
+        if portfolio_quarter != 'ALL' and (not not_started_epics.empty or not not_started_features.empty):
+            children = [html.H4(f"Itens de Portfólio para {portfolio_quarter} Não Iniciados", style={'textAlign': 'left'})]
+            if not not_started_epics.empty:
+                children.append(portfolio_table_component(
+                    not_started_epics[['EpicID', 'Titulo', 'Team', 'Status']],
+                    'Épicos não iniciados',
+                    'table-portfolio-epics-not-started'
+                ))
+            if not not_started_features.empty:
+                children.append(portfolio_table_component(
+                    not_started_features[['FeatureID', 'Titulo', 'Team', 'Status']],
+                    'Features não iniciadas',
+                    'table-portfolio-features-not-started'
+                ))
+            not_started_section = html.Div(children, style={'marginTop': '20px'})
+
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
@@ -6916,6 +6933,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     dcc.Tab(label='Effort & Concentração', value='portfolio-effort-concentracao', children=[effort_concentracao_section]),
                 ]
             ),
+            not_started_section,
         ], style={'padding': '10px 20px 20px 20px'})
 
     if tab == 'tab-painel-3x3':
@@ -7537,7 +7555,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ),
             flow_reference_cards,
             html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
-            not_started_section,
         ])
 
     if tab == 'tab-fluxo':
