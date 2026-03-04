@@ -1,5 +1,38 @@
 # Task Plan
 
+## Current Task (Portfólio: visão roadmap por quarter com legenda de status)
+- [x] Definir mapeamento de status para `Planning`, `Running`, `Done` e `Paused` conforme regra solicitada
+- [x] Implementar componente visual `One Page - Roadmap 2026` com `Q1..Q4` na aba de Portfólio
+- [x] Exibir legenda com contagem por status e cards de projetos por quarter
+- [x] Validar sintaxe e execução do novo bloco
+
+## Specification (Portfólio: visão roadmap por quarter com legenda de status)
+- Objetivo: adicionar no `dashboard_full.py` uma visão de portfólio por quarter com cores/legenda no padrão solicitado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - A aba de Portfólio passa a exibir uma seção visual `One Page - Roadmap 2026` com trilha `Q1..Q4`.
+  - Regras de status aplicadas:
+    - `Planning`: itens em `planning/pllaning` (com fallback para categoria `Backlog`).
+    - `Running`: itens `ready to delivery` e status percentuais até `80%` (com fallback para `Em progresso`).
+    - `Done`: itens `done/concluído/closed/resolved`.
+    - `Paused`: itens com sinalização `blocked/suspend/paused` (prioridade sobre os demais).
+  - Legenda exibe contagem por status no recorte ativo.
+
+## Review (Portfólio: visão roadmap por quarter com legenda de status)
+- What was validated:
+  - Foi criada a nova seção `One Page - Roadmap 2026` dentro do `Resumo Executivo` do portfólio.
+  - A nova função aplica o mapeamento de status com prioridade explícita para `Paused`.
+  - A visualização mostra `Q1..Q4`, legenda com contagens por status e lista de projetos por quarter com chips coloridos.
+  - A base `items_base` passou a carregar `DueDate` quando disponível para classificação de quarter.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `python -c "import dashboard_full as d; s,df,err=d.get_portfolio_snapshot(); ...; node=d.render_portfolio_roadmap_quarter_view(...); print(type(node).__name__)"`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(portfolio): add one-page roadmap by quarter with planning/running/done/paused legend`
+
 ## Current Task (Deploy: opcao --force)
 - [x] Adicionar argumento `--force` no `deploy.py`
 - [x] Encaminhar `--force` para o comando `vercel deploy`

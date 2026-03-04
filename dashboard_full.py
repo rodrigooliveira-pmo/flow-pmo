@@ -430,6 +430,14 @@ PORTFOLIO_COLOR_THRESHOLDS = {
     'aging_us_comp_20': {'green_max': 0, 'yellow_max': 5},
     'aging_features_comp_40': {'green_max': 0, 'yellow_max': 8},
 }
+PORTFOLIO_ROADMAP_QUARTERS_2026 = ['Q1-2026', 'Q2-2026', 'Q3-2026', 'Q4-2026']
+PORTFOLIO_ROADMAP_STATUS_ORDER = ['Running', 'Planning', 'Done', 'Paused']
+PORTFOLIO_ROADMAP_STATUS_COLORS = {
+    'Running': '#8ec7cf',
+    'Planning': '#d5c6dc',
+    'Done': '#97c95c',
+    'Paused': '#e4d8ad',
+}
 
 DEFAULT_PATTERN_RULES = {
     "urgencia_cronica": {"expedite_pct_min": 25.0, "flow_pressure_min": 1.0, "failure_demand_pct_min": 30.0},
@@ -2478,11 +2486,14 @@ def compute_portfolio_snapshot(df, updated_at_label):
     else:
         tipo_balanceamento = pd.DataFrame(columns=['Tipo', 'WorkItems', '% Atual', '% Alvo', 'Desvio (pp)', 'Desvio Abs (pp)'])
 
-    items_base = df[[
+    items_base_cols = [
         'ID', 'Projeto', 'TeamOriginal', 'TeamDisplay', 'Tipo', 'TipoNorm', 'Status', 'StatusNorm',
         'StatusCategoria', 'AgingDiasSemAlteracao', 'IsOpen', 'IsBacklog', 'IsInProgress', 'IsFeature',
         'ParentID', 'EffortTShirtSize'
-    ]].copy()
+    ]
+    if 'DueDate' in df.columns:
+        items_base_cols.append('DueDate')
+    items_base = df[items_base_cols].copy()
 
     return {
         'updated_at': updated_at_label,
@@ -2698,6 +2709,217 @@ def portfolio_table_component(df, title, table_id):
             style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
         )
     ], style={'marginTop': '20px'})
+
+
+def portfolio_roadmap_status_label(status_value, status_categoria_value=''):
+    status_raw = str(status_value or '').strip()
+    status_norm = normalize_text(status_raw)
+    status_categoria_norm = normalize_text(status_categoria_value)
+
+    if any(term in status_norm for term in ('blocked', 'bloque', 'suspend', 'suspens', 'paused', 'pause')):
+        return 'Paused'
+
+    if any(term in status_norm for term in ('done', 'concluido', 'concluida', 'closed', 'resolved')):
+        return 'Done'
+
+    if 'ready to delivery' in status_norm:
+        return 'Running'
+
+    pct_match = re.search(r'(\d{1,3})\s*%', status_raw)
+    if pct_match:
+        try:
+            pct = float(pct_match.group(1))
+            if pct <= 80.0:
+                return 'Running'
+        except Exception:
+            pass
+
+    if ('planning' in status_norm) or ('pllaning' in status_norm):
+        return 'Planning'
+
+    if status_categoria_norm == 'concluido':
+        return 'Done'
+    if status_categoria_norm == 'em progresso':
+        return 'Running'
+    if status_categoria_norm == 'backlog':
+        return 'Planning'
+
+    return 'Planning'
+
+
+def portfolio_quarter_label_from_date(value):
+    dt = pd.to_datetime(value, errors='coerce')
+    if pd.isna(dt):
+        return None
+    quarter = int(((int(dt.month) - 1) // 3) + 1)
+    year = int(dt.year)
+    return f'Q{quarter}-{year}'
+
+
+def render_portfolio_roadmap_quarter_view(df_source, selected_quarter='ALL'):
+    if df_source is None or df_source.empty:
+        return html.Div([
+            html.H4('One Page - Roadmap 2026', style={'margin': '0 0 6px 0'}),
+            html.P('Sem itens de portfólio para montar o roadmap por quarter.', style={'margin': 0, 'color': '#666'})
+        ], style={'marginBottom': '18px'})
+
+    df = df_source.copy()
+    if 'DueDate' in df.columns:
+        df['RoadmapQuarter'] = df['DueDate'].apply(portfolio_quarter_label_from_date)
+    else:
+        df['RoadmapQuarter'] = None
+
+    if selected_quarter and selected_quarter != 'ALL':
+        df.loc[df['RoadmapQuarter'].isna(), 'RoadmapQuarter'] = selected_quarter
+
+    df['RoadmapStatus'] = df.apply(
+        lambda row: portfolio_roadmap_status_label(
+            row.get('Status', ''),
+            row.get('StatusCategoria', ''),
+        ),
+        axis=1
+    )
+
+    roadmap_df = df[df['RoadmapQuarter'].isin(PORTFOLIO_ROADMAP_QUARTERS_2026)].copy()
+    if roadmap_df.empty:
+        return html.Div([
+            html.H4('One Page - Roadmap 2026', style={'margin': '0 0 6px 0'}),
+            html.P(
+                'Nenhum item com quarter (DueDate) em 2026 no recorte atual. '
+                'Se necessário, selecione um quarter no filtro para forçar a visualização.',
+                style={'margin': 0, 'color': '#666'}
+            )
+        ], style={'marginBottom': '18px'})
+
+    legend_counts = (
+        roadmap_df['RoadmapStatus']
+        .value_counts()
+        .reindex(PORTFOLIO_ROADMAP_STATUS_ORDER, fill_value=0)
+    )
+
+    project_priority = {'Paused': 0, 'Running': 1, 'Planning': 2, 'Done': 3}
+
+    quarter_columns = []
+    for quarter in PORTFOLIO_ROADMAP_QUARTERS_2026:
+        q_df = roadmap_df[roadmap_df['RoadmapQuarter'] == quarter].copy()
+        if q_df.empty:
+            quarter_columns.append(
+                html.Div([
+                    html.Div(quarter, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': '#3e6166', 'marginBottom': '10px'}),
+                    html.Div('Sem projetos', style={'fontSize': '13px', 'color': '#666', 'fontStyle': 'italic'})
+                ], style={'padding': '12px', 'border': '1px solid #d8e1e3', 'borderRadius': '6px', 'minHeight': '200px'})
+            )
+            continue
+
+        by_project = (
+            q_df.groupby(['Projeto', 'RoadmapStatus'], dropna=False)
+            .size()
+            .reset_index(name='WorkItems')
+        )
+        by_project['Projeto'] = by_project['Projeto'].fillna('').astype(str).str.strip().replace('', 'Sem projeto')
+        by_project['Priority'] = by_project['RoadmapStatus'].map(project_priority).fillna(99)
+        by_project = by_project.sort_values(['Projeto', 'Priority', 'WorkItems'], ascending=[True, True, False], ignore_index=True)
+        by_project_primary = by_project.groupby('Projeto', as_index=False).first()
+
+        chips = []
+        for _, row in by_project_primary.iterrows():
+            status = str(row['RoadmapStatus'])
+            color = PORTFOLIO_ROADMAP_STATUS_COLORS.get(status, '#d9d9d9')
+            chips.append(
+                html.Div(
+                    str(row['Projeto']),
+                    title=f"{row['Projeto']} | {status}",
+                    style={
+                        'backgroundColor': color,
+                        'padding': '5px 8px',
+                        'borderRadius': '12px',
+                        'fontSize': '12px',
+                        'fontWeight': '600',
+                        'whiteSpace': 'nowrap',
+                        'overflow': 'hidden',
+                        'textOverflow': 'ellipsis',
+                        'maxWidth': '100%',
+                    }
+                )
+            )
+
+        status_counts = (
+            q_df['RoadmapStatus']
+            .value_counts()
+            .reindex(PORTFOLIO_ROADMAP_STATUS_ORDER, fill_value=0)
+            .to_dict()
+        )
+        quarter_columns.append(
+            html.Div([
+                html.Div(quarter, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': '#3e6166', 'marginBottom': '8px'}),
+                html.Div(
+                    f"Projetos: {int(by_project_primary['Projeto'].nunique())} | "
+                    f"Running {int(status_counts.get('Running', 0))} | "
+                    f"Planning {int(status_counts.get('Planning', 0))} | "
+                    f"Done {int(status_counts.get('Done', 0))} | "
+                    f"Paused {int(status_counts.get('Paused', 0))}",
+                    style={'fontSize': '12px', 'color': '#3d3d3d', 'marginBottom': '8px'}
+                ),
+                html.Div(
+                    chips,
+                    style={
+                        'display': 'grid',
+                        'gridTemplateColumns': '1fr',
+                        'gap': '6px',
+                        'maxHeight': '170px',
+                        'overflowY': 'auto'
+                    }
+                ),
+            ], style={'padding': '12px', 'border': '1px solid #d8e1e3', 'borderRadius': '6px', 'minHeight': '200px'})
+        )
+
+    legend = []
+    for status in PORTFOLIO_ROADMAP_STATUS_ORDER:
+        legend.append(
+            html.Div([
+                html.Span(
+                    f"{status} ({int(legend_counts.get(status, 0))})",
+                    style={
+                        'backgroundColor': PORTFOLIO_ROADMAP_STATUS_COLORS.get(status, '#ddd'),
+                        'padding': '4px 10px',
+                        'borderRadius': '10px',
+                        'fontWeight': 'bold',
+                        'fontSize': '13px',
+                        'display': 'inline-block'
+                    }
+                )
+            ], style={'display': 'inline-block', 'marginRight': '8px', 'marginBottom': '6px'})
+        )
+
+    return html.Div([
+        html.Div([
+            html.H3('One Page - Roadmap 2026', style={'margin': 0, 'color': 'white', 'fontStyle': 'italic'}),
+        ], style={'backgroundColor': '#334f52', 'padding': '10px 12px', 'borderRadius': '6px 6px 0 0'}),
+        html.Div([
+            html.Div(q, style={
+                'flex': '1',
+                'textAlign': 'center',
+                'fontWeight': 'bold',
+                'fontSize': '32px',
+                'color': '#e6f0f1',
+                'backgroundColor': '#4d7378',
+                'padding': '8px 0',
+                'borderRight': '2px solid #f5f9fa'
+            }) for q in ['Q1', 'Q2', 'Q3', 'Q4']
+        ], style={'display': 'flex', 'marginTop': '4px', 'borderRadius': '4px', 'overflow': 'hidden'}),
+        html.Div([
+            html.Span('Legenda:', style={'fontStyle': 'italic', 'fontWeight': 'bold', 'marginRight': '8px'}),
+            *legend
+        ], style={'marginTop': '14px', 'marginBottom': '12px'}),
+        html.Div(
+            quarter_columns,
+            style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fit, minmax(240px, 1fr))',
+                'gap': '10px'
+            }
+        )
+    ], style={'marginBottom': '20px'})
 
 def create_kpi_card(title, value, class_name='six columns', card_style=None, title_style=None, value_style=None):
     base_card_style = {'padding': '10px', 'borderRadius': '6px'}
@@ -6765,7 +6987,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'value_style': {'textAlign': 'left', 'fontSize': '48px', 'marginTop': '0', 'marginBottom': '0', 'lineHeight': '1.1'},
             }
 
+        roadmap_quarter_section = render_portfolio_roadmap_quarter_view(items_base_scope, selected_quarter=portfolio_quarter)
+
         resumo_exec_section = html.Div([
+            roadmap_quarter_section,
             render_thresholds_config_summary(),
             html.Div([
                 create_kpi_card('Total de épicos', f"{total_epicos_visao}", class_name='', **portfolio_kpi_style(kpi_color_epic)),

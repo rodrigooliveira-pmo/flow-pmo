@@ -274,6 +274,15 @@ def is_feature_issue(issue_type_name: str) -> bool:
     return tipo in {"feature", "funcionalidade"}
 
 
+def is_epic_issue(issue_type_name: str) -> bool:
+    tipo = str(issue_type_name or "").strip().lower()
+    return tipo in {"epic", "epico"}
+
+
+def is_effort_scope_issue(issue_type_name: str) -> bool:
+    return is_feature_issue(issue_type_name) or is_epic_issue(issue_type_name)
+
+
 def replace_field_in_list(fields: List[str], old_field: str, new_field: str) -> List[str]:
     out = []
     seen = set()
@@ -307,7 +316,7 @@ def build_output_row(
     team_text = own_team or parent_team
     issue_type_name = str((fields.get("issuetype") or {}).get("name") or "")
     effort_tshirt_size = ""
-    if effort_tshirt_field and is_feature_issue(issue_type_name):
+    if effort_tshirt_field and is_effort_scope_issue(issue_type_name):
         effort_tshirt_size = extract_custom_text(fields.get(effort_tshirt_field)).strip()
     return {
         "ID": key,
@@ -416,21 +425,21 @@ def main() -> int:
     # Se o customfield de Effort T-shirt Size estiver incorreto/ausente, tenta autodetectar e reconsulta.
     if issues:
         sample_size = min(50, len(issues))
-        feature_fields = []
+        effort_scope_fields = []
         for issue in issues[:sample_size]:
             issue_fields = issue.get("fields", {}) or {}
             issue_type = str((issue_fields.get("issuetype") or {}).get("name") or "")
-            if is_feature_issue(issue_type):
-                feature_fields.append(issue_fields)
+            if is_effort_scope_issue(issue_type):
+                effort_scope_fields.append(issue_fields)
 
         has_effort_field = False
-        if effort_tshirt_field and feature_fields:
-            for ff in feature_fields:
+        if effort_tshirt_field and effort_scope_fields:
+            for ff in effort_scope_fields:
                 if effort_tshirt_field in ff:
                     has_effort_field = True
                     break
 
-        if (not effort_tshirt_field) or (feature_fields and not has_effort_field):
+        if (not effort_tshirt_field) or (effort_scope_fields and not has_effort_field):
             discovered_effort_field = discover_effort_tshirt_field_id(base_url=base_url, email=email, token=token)
             if discovered_effort_field and discovered_effort_field != effort_tshirt_field:
                 if effort_tshirt_field:
@@ -464,14 +473,14 @@ def main() -> int:
         )
         for issue in issues
     ]
-    features_total = 0
-    features_with_effort = 0
+    effort_scope_total = 0
+    effort_scope_with_effort = 0
     for row in rows:
-        if is_feature_issue(row.get("Tipo", "")):
-            features_total += 1
+        if is_effort_scope_issue(row.get("Tipo", "")):
+            effort_scope_total += 1
             if str(row.get("EffortTShirtSize") or "").strip():
-                features_with_effort += 1
-    print(f"Features com Effort T-shirt size preenchido: {features_with_effort}/{features_total}")
+                effort_scope_with_effort += 1
+    print(f"Épicos/Features com Effort T-shirt size preenchido: {effort_scope_with_effort}/{effort_scope_total}")
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fp:
         writer = csv.DictWriter(fp, fieldnames=CSV_COLUMNS)
