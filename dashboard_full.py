@@ -5418,7 +5418,7 @@ app.layout = html.Div([
             ),
             html.Div([
                 html.Button(
-                    'Porfólio',
+                    'Portfólio',
                     id='btn-menu-portfolio',
                     n_clicks=0,
                     style={
@@ -5763,7 +5763,7 @@ def update_main_navigation_layout(main_view):
     hidden_style = {'display': 'none'}
 
     if main_view == 'portfolio':
-        return hidden_style, nav_style, 'Módulo: Porfólio', filters_style, hidden_style, build_portfolio_tab()
+        return hidden_style, nav_style, 'Módulo: Portfólio', filters_style, hidden_style, build_portfolio_tab()
 
     if main_view == 'services':
         return hidden_style, nav_style, 'Módulo: Serviços (Value Stream)', filters_style, {}, build_service_tabs()
@@ -5802,7 +5802,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                estatistica_lsl=None, estatistica_usl=None):
     if main_view in (None, 'home'):
         return html.Div(
-            'Selecione "Porfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
+            'Selecione "Portfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
             style={
                 'textAlign': 'center',
                 'color': '#666',

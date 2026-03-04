@@ -1718,7 +1718,7 @@
 
 ## Current Task (Redesenho dos botões da Tela Principal)
 - [x] Diagnosticar causa visual dos botões pequenos/desalinhados no menu inicial
-- [x] Ajustar estilos dos botões `Porfólio` e `Serviços (Value Stream)` para centralização e tamanho maior
+- [x] Ajustar estilos dos botões `Portfólio` e `Serviços (Value Stream)` para centralização e tamanho maior
 - [x] Validar sintaxe e registrar evidências/review
 
 ## Specification (Redesenho dos botões da Tela Principal)
@@ -1733,7 +1733,7 @@
 ## Review (Redesenho dos botões da Tela Principal)
 - What was validated:
   - `dashboard_full.py` teve ajuste apenas no bloco da tela principal (`Tela Principal`), sem mexer na lógica de navegação.
-  - Botões `Porfólio` e `Serviços (Value Stream)` ficaram maiores (`height`, `minWidth`, `fontSize`) e com centralização explícita via `display:flex`, `alignItems:center`, `justifyContent:center`.
+  - Botões `Portfólio` e `Serviços (Value Stream)` ficaram maiores (`height`, `minWidth`, `fontSize`) e com centralização explícita via `display:flex`, `alignItems:center`, `justifyContent:center`.
   - Container dos botões ganhou largura máxima maior para evitar compressão e melhorar alinhamento em telas médias.
 - Evidence (tests/logs/diff):
   - `git diff -- dashboard_full.py`
@@ -2646,14 +2646,14 @@
     - 7 etapas para `DT` + mensagem de fluxo por tipo habilitado
   - Leitura direta da aba `Fato_Gargalos` em `PowerBI_Model_latest.xlsx` após reprocessamento.
 
-## Current Task (Tela Principal com Menu Porfólio/Serviços)
+## Current Task (Tela Principal com Menu Portfólio/Serviços)
 - [x] Definir especificação e plano da navegação principal
-- [x] Implementar tela principal com 2 botões (`Porfólio` e `Serviços (Value Stream)`)
+- [x] Implementar tela principal com 2 botões (`Portfólio` e `Serviços (Value Stream)`)
 - [x] Separar acesso ao `Portfólio` das demais abas (Value Stream)
 - [x] Validar sintaxe e revisar diff
 
-## Specification (Tela Principal com Menu Porfólio/Serviços)
-- Objetivo: criar uma tela principal que funcione como menu de entrada, com dois botões para abrir `Porfólio` ou `Serviços (Value Stream)`.
+## Specification (Tela Principal com Menu Portfólio/Serviços)
+- Objetivo: criar uma tela principal que funcione como menu de entrada, com dois botões para abrir `Portfólio` ou `Serviços (Value Stream)`.
 - Escopo:
   - `dashboard_full.py` (layout e callbacks de navegação).
 - Restrições:
@@ -2661,13 +2661,13 @@
   - `Portfólio` deve ficar acessível separado das demais abas de serviço.
 - Critério de aceite:
   - Tela inicial aparece com 2 botões.
-  - Botão `Porfólio` abre somente a visão de portfólio.
+  - Botão `Portfólio` abre somente a visão de portfólio.
   - Botão `Serviços (Value Stream)` abre o conjunto das abas operacionais.
   - Usuário consegue voltar ao menu principal.
 
-## Review (Tela Principal com Menu Porfólio/Serviços)
+## Review (Tela Principal com Menu Portfólio/Serviços)
 - What was validated:
-  - Dashboard passa a abrir em uma tela principal com os botões `Porfólio` e `Serviços (Value Stream)`.
+  - Dashboard passa a abrir em uma tela principal com os botões `Portfólio` e `Serviços (Value Stream)`.
   - Navegação por botões controla o contexto (`home`, `portfolio`, `services`) sem refatorar o conteúdo das abas existentes.
   - `Portfólio` ficou separado do conjunto de abas de serviços (em `services`, as abas exibidas excluem `Portfólio`).
   - Botão `Voltar ao menu principal` foi adicionado para retornar à tela inicial.
