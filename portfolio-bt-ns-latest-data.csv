@@ -1,0 +1,208 @@
+﻿ID,Titulo,Projeto,Team,Prioridade,EffortTShirtSize,Tipo,Status,ParentID,ParentTipo,Link,UpdatedAt,StatusChangedAt,DueDate
+BT-219,Open Finance Transaction ID,BT,TECH S1NC,Medium,,Feature,READY FOR DEVELOPMENT,,,https://w1consultoria.atlassian.net/browse/BT-219,2026-03-03T16:25:02.198-0300,2026-02-20T19:01:13.695-0300,
+BT-212,Framework de Migração de Conectores (Scraping → Open Finance),BT,TECH S1NC,High,,Feature,READY FOR DEVELOPMENT,,,https://w1consultoria.atlassian.net/browse/BT-212,2026-03-03T16:24:59.716-0300,2026-02-10T11:29:44.613-0300,
+BT-211,Teste Hist,BT,,Medium,,História,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-211,2026-03-02T20:37:55.958-0300,2026-03-02T20:37:55.765-0300,
+BT-210,Card de teste,BT,,Medium,,História,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-210,2026-03-02T17:16:45.406-0300,2026-03-02T17:12:13.307-0300,
+BT-209,Corrigir regras para Liberação S1NC para Consultores,BT,,High,,Support,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-209,2026-03-02T15:43:30.949-0300,2026-03-02T15:42:57.929-0300,
+BT-208,Corrigir regras para Liberação S1NC para Consultores,BT,TECH S1NC,High,,Support,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-208,2026-03-02T15:40:01.970-0300,2026-03-02T15:38:57.079-0300,
+BT-205,BeFinance - Diagnóstico de Maturidade da empresa,BT,TECH BEFINANCE,Medium,M,Feature,In Progess,,,https://w1consultoria.atlassian.net/browse/BT-205,2026-03-03T14:46:23.648-0300,2026-03-03T14:46:23.649-0300,
+BT-204,W1NNR - Funil de Contratos,BT,Squad | W1nner,High,,Feature,Cancelled,,,https://w1consultoria.atlassian.net/browse/BT-204,2026-02-27T10:23:05.269-0300,2026-02-09T13:46:26.002-0300,
+BT-203,D&A - Apuração equity 2025 de todas BUs,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-203,2026-02-27T10:23:04.788-0300,2026-02-09T15:40:49.163-0300,
+BT-202,W1NNR - Funil de Contato - melhorias de UX,BT,TECH W1NNER,Medium,,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-202,2026-03-04T12:20:51.067-0300,2026-02-10T14:20:28.550-0300,2026-02-06
+BT-201,D&A - Melhorias Dash Comissões Repassadas,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-201,2026-02-27T10:23:03.620-0300,2026-02-09T15:40:31.562-0300,
+BT-200,D&A - Revisão automação de pesquisas de NPS da Binds,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-200,2026-02-27T10:23:03.087-0300,2026-02-09T15:41:27.709-0300,
+BT-199,D&A - Desenvolvimento de bases e segmentações para o Marketing e Eventos,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-199,2026-02-27T10:23:02.553-0300,2026-02-09T15:41:09.133-0300,
+BT-198,S1NC - Funções Perfil do Cliente,BT,TECH S1NC,Medium,M,Feature,In Progess,,,https://w1consultoria.atlassian.net/browse/BT-198,2026-03-02T12:30:26.622-0300,2026-03-02T12:30:26.622-0300,
+BT-197,D&A - Comissionamento Agency,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-197,2026-02-27T10:23:01.583-0300,2026-02-09T15:41:44.963-0300,
+BT-196,S1NC - Suporte Consultor,BT,TECH S1NC,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-196,2026-02-27T10:23:00.960-0300,2026-02-09T16:03:37.138-0300,
+BT-195,S1NC - ZTermos de Uso e Privacidade,BT,TECH S1NC,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-195,2026-02-27T10:23:00.395-0300,2026-02-09T16:03:19.223-0300,
+BT-194,D&A - Automação Análise Efetividade Canais de Aquisição,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-194,2026-02-27T10:22:59.815-0300,2026-02-09T15:40:16.650-0300,
+BT-193,D&A - Analises de impacto de propostas sem avanço,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-193,2026-02-27T10:22:59.262-0300,2026-02-09T15:39:58.678-0300,
+BT-192,D&A - Analise de investimentos potenciais,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-192,2026-02-27T10:22:58.692-0300,2026-02-09T15:39:41.345-0300,
+BT-191,D&A -Levantamento Parceiro para Rest Ambiente Dados,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-191,2026-02-27T10:22:58.178-0300,2026-02-09T15:09:09.834-0300,
+BT-190,W1NNR Perfis Administrativos - Estrutura de Base,BT,TECH W1NNER,Medium,M,Feature,In Progess,,,https://w1consultoria.atlassian.net/browse/BT-190,2026-03-04T12:20:50.529-0300,2026-02-09T12:25:19.368-0300,
+BT-189,D&A - Análise Clientes potenciais PGBL,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-189,2026-02-27T10:22:57.116-0300,2026-02-09T15:08:50.465-0300,
+BT-188,D&A - Apuração de campanhas: formula W1 e viagem Icatu,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-188,2026-02-27T10:22:56.528-0300,2026-02-09T15:09:29.932-0300,
+BT-187,D&A - Ranking de AP e PP para rastreamento de recordes dos BPs,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-187,2026-02-27T10:22:55.983-0300,2026-02-09T15:38:40.417-0300,
+BT-186,D&A - Base de segmentação de clientes para integração no HubSpot,BT,TECH DATA,Medium,,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-186,2026-02-27T10:22:55.470-0300,2026-02-09T15:35:19.887-0300,
+BT-185,D&A - Evolução de abertura de contas - Capital x XP,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-185,2026-02-27T10:22:54.974-0300,2026-02-09T15:39:23.101-0300,
+BT-184,D&A -Análises de margens por linha de produto,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-184,2026-02-27T10:22:54.482-0300,2026-02-09T15:39:02.518-0300,
+BT-183,W1NNER - Descontinuação da análise antiga - limpeza dos campos não utilizados,BT,TECH W1NNER,Medium,,Feature,In Progess,,,https://w1consultoria.atlassian.net/browse/BT-183,2026-02-27T11:06:35.660-0300,2026-02-27T11:02:43.697-0300,
+BT-182,BeFinance - Perfil do usuário,BT,TECH BEFINANCE,Medium,M,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-182,2026-03-03T14:46:13.589-0300,2026-03-03T14:46:13.590-0300,
+BT-181,BeFinance - Telas Login / Logout,BT,TECH BEFINANCE,Medium,M,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-181,2026-03-03T14:46:05.180-0300,2026-03-03T14:46:05.180-0300,
+BT-180,D&A - Análise Performance Indicadores W1 (Fase 2),BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-180,2026-02-27T10:22:52.015-0300,2026-02-09T15:08:28.393-0300,
+BT-179,SEC - PoC antivírus Cloudstrike,BT,TECH SECURITY,Medium,,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-179,2026-02-27T10:22:51.399-0300,2026-02-09T16:24:48.015-0300,
+BT-178,SEC - Cyber Security,BT,TECH SECURITY,Medium,,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-178,2026-02-27T10:22:50.813-0300,2026-02-09T16:23:18.237-0300,
+BT-177,GOV-TECH - Site Survey BH e SP (As Is Internet) com Altasnet,BT,TECH GOVENANÇA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-177,2026-02-27T10:22:50.271-0300,2026-02-09T16:26:11.877-0300,
+BT-176,SEC - Avaliação Backup W1 (Confecção de política e definição de execução),BT,TECH SECURITY,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-176,2026-03-04T14:09:42.682-0300,2026-02-09T16:25:17.257-0300,
+BT-175,S1NC - Push Notifications,BT,TECH S1NC,Medium,M,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-175,2026-03-02T12:30:08.716-0300,2026-03-02T12:30:08.717-0300,
+BT-174,W1NNR - Diagnóstico Simplificado Cliente (Visão cliente; print PDF),BT,TECH W1NNER,Medium,M,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-174,2026-02-27T10:22:48.553-0300,2026-02-11T10:39:56.977-0300,2026-01-26
+BT-173,SEC - Assessment e ações de SI no Google Workspace,BT,TECH SECURITY,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-173,2026-02-27T10:22:47.933-0300,2026-02-09T16:26:49.505-0300,
+BT-172,S1NC - Deeplink,BT,TECH S1NC,Medium,M,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-172,2026-03-02T12:30:11.925-0300,2026-03-02T12:30:11.925-0300,
+BT-171,D&A - S1NC - Opportunity Score,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-171,2026-02-27T10:22:46.809-0300,2026-02-09T16:08:49.653-0300,
+BT-170,D&A - Melhorias dashboard de expansão,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-170,2026-02-27T10:22:46.273-0300,2026-02-09T16:22:22.779-0300,
+BT-169,D&A - Dashboard de acompanhamento de metas,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-169,2026-02-27T10:22:45.757-0300,2026-02-09T16:09:08.245-0300,
+BT-168,D&A - Análise e Definição de Metas Comerciais,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-168,2026-02-27T10:22:45.175-0300,2026-02-09T16:06:36.160-0300,
+BT-167,"D&A - Melhorias Dash S1NC – Inclusão ARR/MRR/CAC, funil de clientes, melhorias visuais",BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-167,2026-02-27T10:22:44.672-0300,2026-02-09T16:06:19.883-0300,
+BT-166,D&A - Análise de BPs sem APs,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-166,2026-02-27T10:22:44.055-0300,2026-02-09T16:07:23.889-0300,
+BT-165,S1INC - Sincronizar Conta,BT,TECH S1NC,Medium,,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-165,2026-03-04T12:20:48.690-0300,2026-02-04T09:50:21.894-0300,
+BT-164,D&A - Análise e Definição de Metas Comerciais,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-164,2026-02-27T10:22:42.839-0300,2026-02-09T16:07:04.456-0300,
+BT-163,D&A - Documentação oficial equity 2026,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-163,2026-02-27T10:22:42.269-0300,2026-02-09T16:07:57.630-0300,
+BT-162,D&A - Evolução de investimento líquido de clientes por faixa de renda,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-162,2026-02-27T10:22:41.697-0300,2026-02-09T16:07:39.865-0300,
+BT-161,D&A - Dashboard para o equity 2026,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-161,2026-02-27T10:22:41.123-0300,2026-02-09T16:08:32.593-0300,
+BT-160,D&A - Automação de equity 2026,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-160,2026-02-27T10:22:40.603-0300,2026-02-09T16:08:15.286-0300,
+BT-159,D&A - Reestruturação Dados Capital (ATY),BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-159,2026-02-27T10:22:40.102-0300,2026-02-09T16:06:00.669-0300,
+BT-158,Feature XYZ,BT,TECH DATA,Highest,S,Feature,Cancelled,,,https://w1consultoria.atlassian.net/browse/BT-158,2026-03-04T12:20:51.703-0300,2026-02-09T15:06:07.093-0300,
+BT-157,D&A - Relatório mensal de indicadores de negócio,BT,TECH DATA,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-157,2026-02-27T10:22:38.843-0300,2026-02-09T16:05:43.601-0300,
+BT-156,W1NNR - Funil de Contatos - Novo fluxo de status,BT,TECH W1NNER,Medium,M,Feature,In Progess,,,https://w1consultoria.atlassian.net/browse/BT-156,2026-03-04T12:20:49.286-0300,2026-02-10T14:20:59.918-0300,
+BT-155,W1NNR - Descontinuação da análise antiga - fluxo de criação do cliente,BT,TECH W1NNER,Medium,M,Feature,Concluído,,,https://w1consultoria.atlassian.net/browse/BT-155,2026-02-27T11:06:26.895-0300,2026-02-23T17:28:53.784-0300,
+BT-154,W1NNR - Perfis Administrativos - Histórico e logs de alteração,BT,TECH W1NNER,Medium,M,Feature,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-154,2026-03-04T12:20:48.150-0300,2026-02-09T11:36:37.012-0300,
+BT-153,W1INNR - Perfis Administrativos - CRUD + Duplicar Perfil,BT,TECH W1NNER,Medium,M,Feature,READY FOR DEVELOPMENT,,,https://w1consultoria.atlassian.net/browse/BT-153,2026-03-04T12:20:47.479-0300,2026-02-09T11:35:53.717-0300,
+BT-152,Pen Test,BT,TECH SECURITY,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-152,2026-02-10T14:45:55.828-0300,2026-02-10T14:45:55.663-0300,2026-12-31
+BT-151,Copilot / LowCode Tech,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-151,2026-02-10T14:45:34.209-0300,2026-02-10T14:45:34.013-0300,2026-12-31
+BT-150,Algoritmo Alocação Cliente,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-150,2026-03-04T14:41:22.357-0300,2026-02-10T14:45:13.506-0300,2026-12-31
+BT-149,Algoritmo Acelerar LTV,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-149,2026-03-04T14:41:12.420-0300,2026-02-10T14:45:00.352-0300,2026-12-31
+BT-148,Algoritmo de Fidelização,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-148,2026-03-04T14:41:02.873-0300,2026-02-10T14:44:44.219-0300,2026-12-31
+BT-147,Algoritmo Match Leader <> Office,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-147,2026-02-10T14:44:20.272-0300,2026-02-10T14:44:20.079-0300,2026-12-31
+BT-146,Coleta Dados Capital,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-146,2026-02-10T14:44:04.677-0300,2026-02-10T14:44:04.425-0300,2026-12-31
+BT-145,Algoritmo Abertura Escritórios,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-145,2026-02-10T14:43:46.471-0300,2026-02-10T14:43:46.275-0300,2026-12-31
+BT-144,Aprovações Mobile <> SAP B1,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-144,2026-02-10T14:43:20.390-0300,2026-02-10T14:43:20.227-0300,2026-12-31
+BT-143,Lei do Bem,BT,TECH GOVENANÇA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-143,2026-02-10T14:42:03.241-0300,2026-02-10T14:42:03.017-0300,2026-12-31
+BT-142,Entrega e Pós Venda – Cons Finan,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-142,2026-02-10T14:39:36.647-0300,2026-02-10T14:39:36.402-0300,2026-12-31
+BT-141,Cupons e Trial S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-141,2026-03-04T17:12:23.422-0300,2026-02-10T14:39:16.364-0300,2026-12-31
+BT-140,Gestão de Dívidas,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-140,2026-02-10T14:38:55.870-0300,2026-02-10T14:38:55.675-0300,2026-12-31
+BT-139,Macro Análise Cart Investimentos,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-139,2026-02-10T14:38:34.167-0300,2026-02-10T14:38:33.940-0300,
+BT-138,Avatar Mario,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-138,2026-02-10T14:37:57.100-0300,2026-02-10T14:37:56.920-0300,
+BT-137,Gamificação Jornada Consultor,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-137,2026-02-10T14:37:39.544-0300,2026-02-10T14:37:39.381-0300,2026-12-31
+BT-136,BigQuery – Questões Comuns S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-136,2026-02-10T14:01:45.723-0300,2026-02-10T14:01:44.747-0300,2026-12-31
+BT-135,Aut Fluxo Doc e Cont Clientes,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-135,2026-02-10T14:01:17.646-0300,2026-02-10T14:01:17.486-0300,2026-12-31
+BT-134,Gestão de Projetos Business,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-134,2026-02-10T14:01:01.278-0300,2026-02-10T14:01:01.136-0300,2026-12-31
+BT-133,Estruturação BU Educação,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-133,2026-02-10T14:00:45.267-0300,2026-02-10T14:00:45.043-0300,2026-12-31
+BT-132,APP Multi Versão,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-132,2026-03-04T14:38:47.194-0300,2026-02-10T14:00:27.558-0300,2026-12-31
+BT-131,WAF,BT,TECH SECURITY,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-131,2026-02-10T13:48:18.399-0300,2026-02-10T13:48:18.199-0300,
+BT-130,Copilot Devs Seniors,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-130,2026-02-10T13:47:57.417-0300,2026-02-10T13:47:57.279-0300,2026-09-30
+BT-129,Automação de Testes QA,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-129,2026-02-10T13:47:39.903-0300,2026-02-10T13:47:39.706-0300,2026-09-30
+BT-128,Continuidade de Tech / Negócios,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-128,2026-02-10T13:47:23.069-0300,2026-02-10T13:47:22.828-0300,2026-09-30
+BT-127,Assessment / Implementação Arquitetura,BT,TECH ARQUITETURA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-127,2026-02-10T13:46:35.024-0300,2026-02-10T13:46:34.850-0300,2026-09-30
+BT-126,Assessment / Implementação Arquitetura,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-126,2026-02-10T13:45:31.673-0300,2026-02-10T13:45:31.449-0300,
+BT-125,Algoritmo Recomendação Academy,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-125,2026-02-10T13:43:17.466-0300,2026-02-10T13:43:17.243-0300,2026-09-30
+BT-124,Letramento Dados/AI (Líderes),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-124,2026-02-10T13:43:00.076-0300,2026-02-10T13:42:59.883-0300,2026-09-30
+BT-123,Aut Conc Reports Contratos,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-123,2026-02-10T13:25:12.113-0300,2026-02-10T13:25:11.910-0300,2026-09-30
+BT-122,Algoritmo de Pré-Churn Cliente ,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-122,2026-03-04T14:40:43.232-0300,2026-02-10T13:24:50.757-0300,2026-09-30
+BT-121,Data Lake Comercial,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-121,2026-02-10T13:24:27.648-0300,2026-02-10T13:24:27.393-0300,2026-09-30
+BT-120,Algoritmos de Cross-Sell,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-120,2026-03-04T14:40:32.493-0300,2026-02-10T13:24:09.072-0300,2026-09-30
+BT-119,Gamificação Evolução Comercial,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-119,2026-03-04T14:40:19.415-0300,2026-02-10T13:23:49.499-0300,2026-09-30
+BT-118,Algoritmo Pré Saturação Praça ,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-118,2026-02-10T13:23:33.700-0300,2026-02-10T13:23:33.538-0300,2026-09-30
+BT-117,Redundância Pagamentos,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-117,2026-03-03T17:27:55.434-0300,2026-02-10T13:23:12.471-0300,2026-09-30
+BT-116,Redundância Contratos,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-116,2026-03-03T17:28:15.934-0300,2026-02-10T13:22:42.680-0300,2026-09-30
+BT-115,Agente para Suporte interno W1,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-115,2026-02-10T13:22:25.226-0300,2026-02-10T13:22:25.008-0300,2026-12-31
+BT-114,Wikipedia W1 (Gestão do Conhecimento e Processos),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-114,2026-02-10T13:21:58.111-0300,2026-02-10T13:21:57.946-0300,
+BT-113,Agente PA para BPs,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-113,2026-02-10T13:21:39.342-0300,2026-02-10T13:21:39.147-0300,2026-09-30
+BT-112,Score Cliente e Modelo de Servir,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-112,2026-02-10T13:21:10.101-0300,2026-02-10T13:21:09.889-0300,2026-09-30
+BT-111,Estruturar Linhas de Fomento,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-111,2026-02-10T13:20:37.513-0300,2026-02-10T13:20:37.320-0300,2026-09-30
+BT-110,Jornada do BP out,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-110,2026-03-03T17:28:35.049-0300,2026-02-10T13:11:17.591-0300,2026-09-30
+BT-109,Agente para Hunting,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-109,2026-02-10T13:10:59.421-0300,2026-02-10T13:10:59.262-0300,2026-09-30
+BT-108,Agente para PFM,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-108,2026-03-04T14:38:32.908-0300,2026-02-10T13:10:40.483-0300,2026-09-30
+BT-107,Mesa CVM,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-107,2026-02-10T13:10:24.501-0300,2026-02-10T13:10:24.321-0300,2026-09-30
+BT-106,Aut Investimentos Objetivos,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-106,2026-02-10T13:09:51.350-0300,2026-02-10T13:09:51.194-0300,2026-09-30
+BT-105,Aut Jornadas Básicas via Réguas,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-105,2026-02-10T13:09:14.744-0300,2026-02-10T13:09:14.572-0300,2026-09-30
+BT-104,Estruturação Aquisição Digital de Clientes,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-104,2026-02-10T13:08:54.618-0300,2026-02-10T13:08:54.439-0300,2026-12-31
+BT-103,"Sistemas suportando Internacionalização (W1nner, S1NC e Be Finance)",BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-103,2026-02-10T13:08:23.370-0300,2026-02-10T13:08:23.091-0300,2026-12-31
+BT-102,Sistema Comissionamento,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-102,2026-02-10T13:07:51.676-0300,2026-02-10T13:07:51.498-0300,2026-06-30
+BT-101,Rev Jorn Venda Consultoria,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-101,2026-02-10T13:07:29.319-0300,2026-02-10T13:07:29.126-0300,2026-06-30
+BT-100,Rev Proposta Com Consultoria,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-100,2026-02-10T12:59:47.646-0300,2026-02-10T12:59:47.483-0300,2026-09-30
+BT-99,Fases Consultoria W1nner (C1 a C4),BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-99,2026-02-10T11:55:40.067-0300,2026-02-10T11:55:39.911-0300,2026-09-30
+BT-98,Gamificação S1NC,BT,TECH S1NC,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-98,2026-03-04T14:38:18.253-0300,2026-02-10T11:55:08.919-0300,2026-09-30
+BT-97,Estruturar Cons Emp por Tier,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-97,2026-02-10T11:54:38.036-0300,2026-02-10T11:54:37.838-0300,2026-09-30
+BT-96,Digitalização Jornada Consultoria Patrimonial,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-96,2026-02-10T11:53:44.371-0300,2026-02-10T11:53:44.176-0300,2025-12-31
+BT-95,Dores do SAC e do Suporte aos Usuários e BPs,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-95,2026-02-10T11:53:13.608-0300,2026-02-10T11:53:13.428-0300,2026-12-31
+BT-94,Estruturação BU Asset,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-94,2026-02-10T11:52:35.562-0300,2026-02-10T11:52:35.422-0300,2026-12-31
+BT-93,Estruturar Jornada de Investimento ,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-93,2026-02-10T11:51:07.311-0300,2026-02-10T11:51:07.181-0300,2026-12-31
+BT-92,OnBording e Letramento em SI,BT,TECH SECURITY,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-92,2026-02-10T11:41:33.830-0300,2026-02-10T11:41:33.705-0300,2026-06-30
+BT-91,Gestão de Usuários e Acessos,BT,TECH SECURITY,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-91,2026-02-10T11:41:09.295-0300,2026-02-10T11:41:09.148-0300,2026-06-30
+BT-90,API Manager,BT,Tech Arquitetura,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-90,2026-02-10T11:40:47.111-0300,2026-02-10T11:40:46.907-0300,2026-06-30
+BT-89,API Manager,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-89,2026-02-10T11:39:53.497-0300,2026-02-10T11:39:53.309-0300,
+BT-88,Estruturar Antivírus,BT,TECH SECURITY,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-88,2026-02-10T11:39:13.042-0300,2026-02-10T11:39:12.862-0300,2026-06-30
+BT-87,FinOps,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-87,2026-02-10T11:38:19.309-0300,2026-02-10T11:38:19.179-0300,2026-06-30
+BT-86,Operations Tech,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-86,2026-02-10T11:38:01.882-0300,2026-02-10T11:38:01.675-0300,2026-06-30
+BT-85,Escritório Agilidade,BT,TECH GOVENANÇA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-85,2026-02-10T11:37:46.707-0300,2026-02-10T11:37:46.590-0300,2026-06-30
+BT-84,Letramento Dados/AI (Diretoria),BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-84,2026-02-10T11:37:12.019-0300,2026-02-10T11:37:11.863-0300,2026-06-30
+BT-83,Algoritmo de Pré-Churn BP ,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-83,2026-03-04T14:39:52.212-0300,2026-02-10T11:36:40.372-0300,2026-06-30
+BT-82,Clusterização Clientes - ICP,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-82,2026-02-10T11:35:52.441-0300,2026-02-10T11:35:52.291-0300,2026-06-30
+BT-81,Nova Governança Comercial,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-81,2026-02-10T11:35:31.899-0300,2026-02-10T11:35:31.780-0300,2026-06-30
+BT-80,Data Lake Clientes,BT,TECH DATA,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-80,2026-03-04T14:39:41.582-0300,2026-02-10T11:35:09.057-0300,2026-06-30
+BT-79,Aut Integrações Parceiros (APIs),BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-79,2026-03-04T14:39:13.325-0300,2026-02-10T11:34:41.794-0300,2026-06-30
+BT-78,Gestão Metas Comerciais,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-78,2026-02-10T11:31:47.733-0300,2026-02-10T11:31:47.548-0300,2026-06-30
+BT-77,Dash Offices (Gestão e Operação),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-77,2026-02-10T11:31:16.615-0300,2026-02-10T11:31:16.424-0300,2026-06-30
+BT-76,Gestão Cancelamento e Inadimp,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-76,2026-02-10T11:30:56.230-0300,2026-02-10T11:30:56.099-0300,2026-06-30
+BT-75,Pag QRCode e Conciliação PIX,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-75,2026-03-03T17:21:00.247-0300,2026-02-10T11:30:34.156-0300,2026-06-30
+BT-74,Ranking de Produtos W1nner,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-74,2026-02-10T11:30:08.425-0300,2026-02-10T11:30:08.137-0300,2026-06-30
+BT-73,Cluster e Atend Cliente Premium,BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-73,2026-02-10T11:29:45.108-0300,2026-02-10T11:29:44.962-0300,2026-06-30
+BT-72,"Revisão Módulos Consultoria S1NC (Seguros, Aposent e Aquisição)",BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-72,2026-02-10T11:29:08.444-0300,2026-02-10T11:29:08.302-0300,2026-06-30
+BT-71,Mensurar Efet Planejamento Fin,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-71,2026-02-10T11:16:44.081-0300,2026-02-10T11:16:43.948-0300,2026-06-30
+BT-70,Up Framework W1nner e S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-70,2026-02-10T11:16:21.405-0300,2026-02-10T11:16:21.215-0300,2026-06-30
+BT-69,Aut Gestão Treinamentos,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-69,2026-02-10T11:15:52.534-0300,2026-02-10T11:15:52.392-0300,2026-06-30
+BT-68,Reg Caixa & Competência S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-68,2026-02-10T11:15:12.086-0300,2026-02-10T11:15:11.855-0300,2026-06-30
+BT-67,Refat W1nner Front – API Full Back,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-67,2026-02-10T11:12:54.526-0300,2026-02-10T11:12:34.176-0300,2026-06-30
+BT-66,Dash e Integrações Capital,BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-66,2026-02-10T11:12:08.140-0300,2026-02-10T11:12:07.598-0300,2026-06-30
+BT-65,S1NC teste W1nner (Treinamentos),BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-65,2026-02-10T11:05:39.839-0300,2026-02-10T11:05:39.695-0300,2026-06-30
+BT-64,RolePlay Treinamentos,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-64,2026-03-04T14:38:04.441-0300,2026-02-10T11:05:07.863-0300,2026-06-30
+BT-63,Jornada Pgto Patrim e Business,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-63,2026-02-10T11:04:47.080-0300,2026-02-10T11:04:46.890-0300,2026-06-30
+BT-62,Rev Módulo Planejamento S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-62,2026-02-10T11:04:14.071-0300,2026-02-10T11:04:13.915-0300,2026-04-30
+BT-61,Sincronização de Dívidas,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-61,2026-02-10T11:03:42.452-0300,2026-02-10T11:03:42.297-0300,2026-04-30
+BT-60,Gráfico de Objetivos S1NC,BT,TECH S1NC,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-60,2026-03-04T14:37:31.626-0300,2026-02-10T10:59:22.305-0300,2026-06-30
+BT-59,Recategorização Aut Usuário S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-59,2026-02-10T10:58:49.233-0300,2026-02-10T10:58:49.056-0300,2026-06-30
+BT-58,"NPS / CSAT S1NC, W1nner e BeFin",BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-58,2026-02-10T10:58:17.498-0300,2026-02-10T10:58:17.279-0300,2026-06-30
+BT-57,Algoritmo Qualificação Leads BP,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-57,2026-02-10T10:57:55.822-0300,2026-02-10T10:57:55.590-0300,2026-06-30
+BT-56,Jornada Cliente do BP out,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-56,2026-03-04T14:37:48.891-0300,2026-02-10T10:57:37.253-0300,2026-06-30
+BT-55,Jornada Realocação Contato,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-55,2026-02-10T11:26:01.900-0300,2026-02-10T10:57:12.571-0300,2026-06-30
+BT-54,Algoritmo Template Reunião,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-54,2026-02-10T10:56:45.704-0300,2026-02-10T10:56:45.561-0300,2026-06-30
+BT-53,Régua Etapas OnBording - Cliente,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-53,2026-02-10T10:56:18.103-0300,2026-02-10T10:56:17.926-0300,2026-06-30
+BT-52,Nova Jornada S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-52,2026-02-10T10:55:47.942-0300,2026-02-10T10:55:47.747-0300,2026-06-30
+BT-51,Licenciamento AD / Backoffice,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-51,2026-02-10T10:22:05.269-0300,2026-02-10T10:15:03.559-0300,2026-03-31
+BT-50,Implementação Observability,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-50,2026-02-10T11:26:20.759-0300,2026-02-10T10:14:49.818-0300,2026-03-31
+BT-49,Assessment / Implementação Cyber Security,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-49,2026-03-04T14:40:05.010-0300,2026-02-10T10:14:32.972-0300,2026-03-31
+BT-48,Gestão Semanal Perf Comercial,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-48,2026-02-10T10:23:21.639-0300,2026-02-10T10:14:12.140-0300,2026-03-31
+BT-47,Early Find Potential Leader,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-47,2026-03-04T14:39:24.955-0300,2026-02-10T10:13:49.914-0300,2026-03-31
+BT-46,Padr Prev Receitas W1/BPs (C3PO),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-46,2026-02-10T10:23:51.010-0300,2026-02-09T19:47:24.205-0300,2026-03-31
+BT-45,ML Team / Tools,BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-45,2026-02-10T10:24:04.032-0300,2026-02-09T19:47:13.186-0300,2026-03-31
+BT-44,Cliente 360º (Verdade Única),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-44,2026-02-10T10:24:20.091-0300,2026-02-09T19:46:50.088-0300,2026-03-31
+BT-43,Implem Plat Dados (DataBricks),BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-43,2026-02-10T10:24:33.565-0300,2026-02-09T19:45:47.127-0300,2026-03-31
+BT-42,Aut Conferência NF de BPs,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-42,2026-02-10T10:24:50.490-0300,2026-02-09T19:45:40.033-0300,2026-03-31
+BT-41,Processo MUAPD & MUEPD,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-41,2026-03-04T14:37:19.016-0300,2026-02-09T19:45:32.220-0300,2026-03-31
+BT-40,Intranet W1,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-40,2026-02-10T10:25:21.372-0300,2026-02-09T19:45:22.337-0300,2026-03-31
+BT-39,Divisão Offices Regionais,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-39,2026-02-10T10:25:43.259-0300,2026-02-09T19:45:13.123-0300,2026-03-31
+BT-38,Analytics Resultado Digital – S1NC,BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-38,2026-02-10T10:25:59.183-0300,2026-02-09T19:45:03.665-0300,2026-03-31
+BT-37,Gestão Perfis Administrativos,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-37,2026-02-10T10:26:15.842-0300,2026-02-09T19:44:47.621-0300,2026-03-31
+BT-36,Background Check Aut - BP,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-36,2026-02-10T10:26:28.398-0300,2026-02-09T19:44:37.143-0300,2026-03-31
+BT-35,Régua Etapas OnBording - BP,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-35,2026-02-10T10:26:41.569-0300,2026-02-09T19:44:23.151-0300,2026-03-31
+BT-34,Diagnóstico Business (W1nner),BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-34,2026-02-10T10:18:47.161-0300,2026-02-09T19:44:10.446-0300,2026-03-31
+BT-33,Segregação W1nner <> S1NC,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-33,2026-02-10T10:27:26.355-0300,2026-02-09T19:43:54.483-0300,2026-03-31
+BT-32,Primeiro RPA / Agente (Consórcio),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-32,2026-02-10T10:28:05.432-0300,2026-02-09T19:43:46.141-0300,2026-03-31
+BT-31,Agente Whatsapp Cons (Morada),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-31,2026-02-10T10:28:29.090-0300,2026-02-09T19:43:37.006-0300,2026-03-31
+BT-30,Analytics S1NC,BT,TECH DATA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-30,2026-02-10T10:28:42.289-0300,2026-02-09T19:43:25.358-0300,2026-03-31
+BT-29,Reestr Módulo Coaching W1nner,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-29,2026-02-10T10:19:05.356-0300,2026-02-09T19:43:02.788-0300,2026-03-31
+BT-28,Mesa Tech (Capital),BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-28,2026-02-10T10:28:57.855-0300,2026-02-09T19:42:49.093-0300,2026-03-31
+BT-27,Jornada Sincronização de Contas,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-27,2026-02-10T10:29:14.832-0300,2026-02-09T19:42:40.841-0300,2026-03-31
+BT-26,Multi-pagamento cartão,BT,TECH W1NNER,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-26,2026-03-04T14:37:02.847-0300,2026-02-09T19:42:25.240-0300,2026-03-31
+BT-25,Integ Agenda W1nner <> Google,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-25,2026-02-10T10:19:27.149-0300,2026-02-09T19:42:08.115-0300,2026-03-31
+BT-24,MVP Be Finance,BT,TECH BEFINANCE,Medium,,Épico,0%,,,https://w1consultoria.atlassian.net/browse/BT-24,2026-03-03T14:57:29.550-0300,2026-03-03T14:57:29.551-0300,2026-06-30
+BT-23,Reestruturação Funil Contatos,BT,TECH W1NNER,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-23,2026-03-05T16:44:24.560-0300,2026-02-09T19:41:28.008-0300,2026-03-31
+BT-22,Jornada Extrato Cartão – S1nc,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-22,2026-02-10T10:30:18.992-0300,2026-02-09T19:40:59.271-0300,2026-03-31
+BT-21,Reest Ranks – Eventos Movim,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-21,2026-02-10T10:30:33.235-0300,2026-02-09T19:40:40.083-0300,2026-03-31
+BT-20,Termos Uso e Pol Privacidade S1NC,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-20,2026-02-10T10:30:49.122-0300,2026-02-09T19:40:19.934-0300,2026-03-31
+BT-19,Dash Equity W1,BT,TECH DATA,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-19,2026-03-04T14:36:36.086-0300,2026-02-09T19:26:58.093-0300,2026-03-31
+BT-18,Aut e Dash Dream Team,BT,,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-18,2026-03-04T14:35:32.904-0300,2026-02-09T19:26:40.083-0300,2026-03-31
+BT-17,Rev Recomendação - Clientes,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-17,2026-02-10T10:31:37.462-0300,2026-02-09T19:26:11.529-0300,2026-03-31
+BT-16,W1NNER - Consolidação Comercial W1nner,BT,TECH W1NNER,Highest,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-16,2026-03-04T14:36:50.414-0300,2026-02-09T19:14:58.777-0300,2026-06-30
+BT-15,Alocação Cliente MMN,BT,,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-15,2026-02-10T10:32:10.843-0300,2026-02-09T16:44:06.451-0300,2026-03-31
+BT-13,S1NC -integração Jornadas BPs em Diferentes BUs <> W1nner,BT,TECH S1NC,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-13,2026-02-10T10:36:54.564-0300,2026-02-09T16:41:45.317-0300,2026-03-31
+BT-12,INFRA - Criação de ticket de abertura de incidentes no Sysaid,BT,TECH INFRA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-12,2026-02-10T10:37:05.798-0300,2026-02-09T16:30:34.773-0300,2026-03-31
+BT-11,TECH INFRA - Validação das melhorias e padronização das Infras Comerciais,BT,TECH INFRA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-11,2026-02-10T10:37:19.886-0300,2026-02-09T16:29:41.138-0300,2026-03-31
+BT-10,ClickCompliance - Avaliar problemas atuais da Integração GWS,BT,TECH GOVENANÇA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-10,2026-02-10T10:37:34.215-0300,2026-02-09T16:29:01.274-0300,2026-03-31
+BT-9,Projeto Survey WiFi,BT,TECH GOVENANÇA,Medium,,Épico,Triagem,,,https://w1consultoria.atlassian.net/browse/BT-9,2026-02-10T10:37:48.766-0300,2026-02-09T16:28:31.656-0300,2026-03-31
+BT-8,W1NNR - GESTÃO DE PERFIS ADMINISTRATIVOS,BT,TECH W1NNER,Medium,,Épico,Backlog,,,https://w1consultoria.atlassian.net/browse/BT-8,2026-02-23T17:35:58.936-0300,2026-02-06T19:55:26.263-0300,2026-03-31
+BT-7,W1NNR - Funil de Vendas – Consultoria Financeira,BT,TECH W1NNER,Highest,,Épico,80%,,,https://w1consultoria.atlassian.net/browse/BT-7,2026-03-04T14:33:32.430-0300,2026-02-06T19:39:20.556-0300,2026-03-31
+BT-6,lixo,BT,,Medium,,Feature,Cancelled,,,https://w1consultoria.atlassian.net/browse/BT-6,2026-02-06T19:54:19.518-0300,2026-02-06T19:54:19.519-0300,
+BT-4,S1NC - Como o SINC exibe os dados de cartão do cliente,BT,TECH S1NC,Highest,,Épico,20%,,,https://w1consultoria.atlassian.net/browse/BT-4,2026-03-02T13:16:05.320-0300,2026-02-04T10:31:12.253-0300,2026-03-31
+BT-2,lixo - teste,BT,Squad | S1NC,Medium,,Épico,Cancelled,,,https://w1consultoria.atlassian.net/browse/BT-2,2026-02-06T19:53:57.114-0300,2026-02-06T19:53:49.268-0300,

@@ -1,5 +1,21 @@
 # Task Plan
 
+## Current Task (Unificar regra de pressão de fluxo entre telas)
+- [x] Confirmar diferenças de regra entre One Page e Capacidade de Fila
+- [x] Ajustar Capacidade de Fila para usar `LeadStart_Selected` como chegada e `done_time_eligible_mask` como vazão
+- [x] Aplicar filtro de `ClasseServico` também na base da Capacidade de Fila
+- [x] Validar sintaxe e revisar diff
+
+## Review (Unificar regra de pressão de fluxo entre telas)
+- What was validated:
+  - A aba `Capacidade de Fila` passou a usar a mesma semântica de cálculo da pressão do One Page: chegadas por `LeadStart_Selected` e throughput por itens concluídos elegíveis.
+  - O filtro de `ClasseServico` também foi aplicado no recorte da aba de capacidade, alinhando os filtros entre telas.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dash_board_metricas.py').read_text(encoding='utf-8')); print('ok')"`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(flow-pressure): align queue capacity rho calculation with one-page rules`
+
 ## Current Task (Correção de parse dd/mm para datas de criação)
 - [x] Diagnosticar por que itens com `Created` visível no Jira ainda ficavam sem base LT
 - [x] Corrigir parse para `dayfirst=True` no preenchimento de `DataCriacaoID` no consolidado
@@ -4096,4 +4112,21 @@
   - `git diff -- dashboard_full.py tasks/todo.md`
 - Suggested commit message:
   - `chore(ui): hide portfolio project filter from dashboard controls`
+
+## Current Task (Produção: CFD detalhado acusando downstream não encontrado após mudanças de filtros)
+- [x] Localizar origem da mensagem na aba `CFD` e validar função de carga downstream
+- [x] Tornar a detecção de CSV downstream mais tolerante a variações de prefixo/nome em produção
+- [x] Validar sintaxe e revisar diff final
+
+## Review (Produção: CFD detalhado acusando downstream não encontrado após mudanças de filtros)
+- What was validated:
+  - A mensagem vem de `_get_cfd_detailed_unavailable_reason(...)` quando `load_project_downstream_items_csv(...)` retorna vazio.
+  - A carga downstream foi reforçada para aceitar múltiplos prefixos candidatos por projeto (`<prefix>-downstream`, `<prefix>` e prefixo bitbucket), reduzindo falso negativo de descoberta de arquivo.
+  - Foi adicionado fallback seguro para `FLOW_PMO_DOWNSTREAM_CSV_URL` em ambientes single-project, mesmo quando o nome do arquivo não segue exatamente o prefixo esperado.
+  - A seleção de `latest` agora considera múltiplos aliases (`<prefix>-latest-data.csv`) em vez de um único nome rígido.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(cfd): make downstream csv discovery resilient to project prefix variants in production`
 

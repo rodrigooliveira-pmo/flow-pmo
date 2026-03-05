@@ -4469,17 +4469,35 @@ def load_project_downstream_items_csv(projeto):
     if not projeto:
         return pd.DataFrame()
     project_key = str(projeto).strip().upper()
-    prefix = PROJECT_BOTTLENECK_PREFIX.get(project_key)
-    if not prefix:
+    prefix = str(PROJECT_BOTTLENECK_PREFIX.get(project_key, '')).strip().lower()
+    bitbucket_prefix = str(PROJECT_BITBUCKET_PREFIX.get(project_key, '')).strip().lower()
+    if not prefix and not bitbucket_prefix:
         return pd.DataFrame()
-    preferred_latest_name = f'{prefix}-latest-data.csv'
+
+    candidate_prefixes = []
+    for raw_prefix in (prefix, bitbucket_prefix):
+        p = str(raw_prefix or '').strip().lower()
+        if not p:
+            continue
+        if p not in candidate_prefixes:
+            candidate_prefixes.append(p)
+        if p.endswith('-downstream'):
+            short = p[:-11].strip('-_')
+            if short and short not in candidate_prefixes:
+                candidate_prefixes.append(short)
+    preferred_latest_names = {f'{p}-latest-data.csv' for p in candidate_prefixes}
 
     files = []
     url_map = _load_downstream_url_map()
     project_csv_url = url_map.get(project_key, '').strip()
     if not project_csv_url:
         global_csv_url = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL', '').strip()
-        if _url_filename_matches_project_suffix(global_csv_url, prefix, '-data.csv') and not global_csv_url.lower().endswith('-data_bottlenecks.csv'):
+        matches_any_prefix = any(
+            _url_filename_matches_project_suffix(global_csv_url, p, '-data.csv')
+            for p in candidate_prefixes
+        )
+        # Fallback para ambientes single-project com URL global estável sem prefixo padronizado.
+        if (matches_any_prefix or (global_csv_url and len(url_map) <= 1)) and not global_csv_url.lower().endswith('-data_bottlenecks.csv'):
             project_csv_url = global_csv_url
     if project_csv_url:
         try:
@@ -4493,9 +4511,10 @@ def load_project_downstream_items_csv(projeto):
         except Exception:
             continue
         for name in entries:
-            if not (name.startswith(prefix) and name.endswith('-data.csv')):
+            low_name = str(name).lower()
+            if not (low_name.endswith('-data.csv') and any(low_name.startswith(p) for p in candidate_prefixes)):
                 continue
-            if name.endswith('-data_bottlenecks.csv'):
+            if low_name.endswith('-data_bottlenecks.csv'):
                 continue
             files.append(os.path.join(folder, name))
 
@@ -4505,7 +4524,7 @@ def load_project_downstream_items_csv(projeto):
 
     latest_alias_matches = [
         path for path in files
-        if os.path.basename(path).lower() == preferred_latest_name.lower()
+        if os.path.basename(path).lower() in preferred_latest_names
     ]
     if latest_alias_matches:
         latest_file = max(latest_alias_matches, key=os.path.getctime)
@@ -10713,7 +10732,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
 
-        # Base para cálculo de capacidade: usa dados importados e filtros ativos.
+        # Base para cálculo de capacidade com as mesmas regras do One Page:
+        # chegada por LeadStart_Selected e vazão por itens concluídos elegíveis.
         df_capacity_base = fato.copy()
         if projeto:
             df_capacity_base = df_capacity_base[df_capacity_base['Projeto'] == projeto]
@@ -10721,6 +10741,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_capacity_base = df_capacity_base[df_capacity_base['TipoDemanda'] == tipo]
         if responsavel:
             df_capacity_base = df_capacity_base[df_capacity_base['Responsavel'] == responsavel]
+        if classe_servico:
+            df_capacity_base = df_capacity_base[df_capacity_base['ClasseServico'] == classe_servico]
+        df_capacity_base, _ = apply_selected_lead_time_metric(df_capacity_base, projeto, leadtime_stages)
+
+        lead_start_col = 'LeadStart_Selected' if 'LeadStart_Selected' in df_capacity_base.columns else 'DataInProgress'
+        lead_start_series = pd.to_datetime(df_capacity_base.get(lead_start_col), errors='coerce')
+        done_series = pd.to_datetime(df_capacity_base.get('DataDone'), errors='coerce')
+        done_eligible_mask = done_time_eligible_mask(df_capacity_base)
 
         weeks = pd.date_range(start=start_date_ts, end=end_date_ts + pd.Timedelta(days=7), freq='W-MON')
         if len(weeks) < 2:
@@ -10730,14 +10758,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         for i in range(len(weeks) - 1):
             week_start = weeks[i]
             week_end = weeks[i + 1]
-            arrivals = len(df_capacity_base[
-                (df_capacity_base['DataInProgress'] >= week_start) &
-                (df_capacity_base['DataInProgress'] < week_end)
-            ])
-            throughput = len(df_capacity_base[
-                (df_capacity_base['DataDone'] >= week_start) &
-                (df_capacity_base['DataDone'] < week_end)
-            ])
+            arrivals = int(((lead_start_series >= week_start) & (lead_start_series < week_end)).sum())
+            throughput = int(((done_series >= week_start) & (done_series < week_end) & done_eligible_mask).sum())
             weekly_rows.append({
                 'Semana': str(week_start.date()),
                 'Chegadas': arrivals,
