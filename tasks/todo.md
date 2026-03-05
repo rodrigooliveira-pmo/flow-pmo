@@ -1,5 +1,99 @@
 # Task Plan
 
+## Current Task (Correção de parse dd/mm para datas de criação)
+- [x] Diagnosticar por que itens com `Created` visível no Jira ainda ficavam sem base LT
+- [x] Corrigir parse para `dayfirst=True` no preenchimento de `DataCriacaoID` no consolidado
+- [x] Corrigir parser flexível do dashboard para tratar `dd/mm/yyyy` sem inversão mês/dia
+- [x] Validar sintaxe e teste pontual de parsing (`05/01/2026 -> 2026-01-05`)
+
+## Review (Correção de parse dd/mm para datas de criação)
+- What was validated:
+  - Causa raiz confirmada: datas textuais `dd/mm/yyyy` estavam sendo lidas em modo padrão (`month-first`) em pontos críticos, causando `Created` posterior ao `Done`.
+  - `dash_board_metricas.py` passou a parsear `Created` com `dayfirst=True` ao preencher `DataCriacaoID`.
+  - `_coerce_datetime_flexible(...)` em `dashboard_full.py` passou a detectar `dd/mm/yyyy` e parsear com `dayfirst=True`, com normalização de timezone.
+  - Teste pontual validou o comportamento: `05/01/2026 -> 2026-01-05`.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dash_board_metricas.py').read_text(encoding='utf-8')); print('ok')"`
+  - `python -c "import pandas as pd, dashboard_full as d; s=pd.Series(['05/01/2026','01/05/2026']); print(d._coerce_datetime_flexible(s).astype(str).tolist())"`
+  - `git diff -- dashboard_full.py dash_board_metricas.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dates): parse dd/mm creation dates with dayfirst to avoid invalid lead-time negatives`
+
+## Current Task (Extrair campo Start date do Jira)
+- [x] Confirmar que `BF-207` possui `Start date` visível no Jira e não estava no downstream consolidado
+- [x] Ajustar exportador (`jira_to_pipeline_csv.py`) para incluir `Start date` no CSV
+- [x] Incluir `startdate` na lista de campos buscados na API Jira
+- [x] Atualizar consolidação para priorizar `Start date` na resolução de início quando `In Progress` estiver vazio
+- [x] Validar sintaxe das alterações
+
+## Review (Extrair campo Start date do Jira)
+- What was validated:
+  - O downstream passou a suportar coluna explícita `Start date` no export.
+  - A busca de issues agora inclui o campo Jira `startdate` (além de suportar mapeamento customizado `start_date` via `JIRA_FIELD_MAP`).
+  - A consolidação (`resolve_in_progress_date`) passou a considerar `Start date` como primeira opção de fallback antes das demais etapas.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_pipeline_csv.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dash_board_metricas.py').read_text(encoding='utf-8')); print('ok')"`
+  - `rg -n "Start date|startdate|custom_as_date_text|resolve_in_progress_date" jira_to_pipeline_csv.py dash_board_metricas.py`
+- Suggested commit message:
+  - `feat(jira-export): include Start date and use it as lead-time start fallback`
+
+## Current Task (Extrair start de etapas intermediárias no consolidado)
+- [x] Validar caso `BF-207` e localizar coluna de start disponível no downstream
+- [x] Ajustar `resolve_in_progress_date` para usar a primeira data válida do workflow quando `In Progress` vier vazio
+- [x] Preencher IDs de data no fato (`DataInicioProgressoID`, `DataConclucaoID`, `DataCancelamentoID`) para auditoria
+- [x] Validar sintaxe e estimar quantos itens sem base LT passam a ter start via nova regra
+
+## Review (Extrair start de etapas intermediárias no consolidado)
+- What was validated:
+  - `BF-207` no downstream possui start em `ready homolog = 04/02/2026`, embora `In Progress` esteja vazio.
+  - `resolve_in_progress_date` foi atualizado para fallback robusto: se `In Progress` não existir, usa a menor data entre etapas de workflow (excluindo `Done`).
+  - O fato passa a preencher `DataInicioProgressoID`, `DataConclucaoID` e `DataCancelamentoID` com timestamps efetivos quando disponíveis.
+  - Avaliação no recorte atual dos `84` sem base LT mostrou que `73` já têm start recuperável no downstream com essa regra (restam `11` sem qualquer data de início).
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dash_board_metricas.py').read_text(encoding='utf-8')); print('dash_board_metricas.py ok')"`
+  - `python -c "import pandas as pd, dashboard_full as d; ...; print('missing_lt',84,'with_start_in_downstream',73,'without_start_any',11)"`
+  - `git diff -- dash_board_metricas.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(consolidation): recover start date from earliest workflow stage when In Progress is missing`
+
+## Current Task (Recuperar data de criação para itens sem base LT)
+- [x] Verificar presença de `S1NC-1885` e disponibilidade de data de criação no consolidado/downstream atual
+- [x] Ajustar exportador Jira downstream para incluir coluna `Created`
+- [x] Ajustar consolidação (`dash_board_metricas.py`) para preencher `DataCriacaoID` a partir de `Created`
+- [x] Validar sintaxe e registrar necessidade de reprocessamento dos CSVs para efeito nos dados atuais
+
+## Review (Recuperar data de criação para itens sem base LT)
+- What was validated:
+  - `S1NC-1885` existe no consolidado e no downstream, mas atualmente sem data de criação nos dados carregados.
+  - O exportador `jira_to_pipeline_csv.py` já consultava o campo Jira `created`, porém não escrevia no CSV; isso foi corrigido com a nova coluna `Created`.
+  - A consolidação `dash_board_metricas.py` passou a preencher `DataCriacaoID` com `Created` parseado para datetime.
+  - Com essa mudança, o fallback de Lead Time por criação ficará disponível após regerar downstream + consolidado.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_pipeline_csv.py').read_text(encoding='utf-8')); ast.parse(pathlib.Path('dash_board_metricas.py').read_text(encoding='utf-8')); print('ok')"`
+  - `git diff -- jira_to_pipeline_csv.py dash_board_metricas.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(data-pipeline): export created date and populate DataCriacaoID for lead-time fallback`
+
+## Current Task (Lead Time: fallback por criação/primeira movimentação)
+- [x] Implementar fallback em cadeia para `LeadStart_Selected` (início) com múltiplas fontes de data
+- [x] Recalcular `LeadTime_Selected_Dias` quando houver `DataDone` e início resolvido via fallback
+- [x] Expor no subtítulo da aba `Lead Time` a quantidade de itens cobertos por fallback
+- [x] Validar sintaxe e medir impacto no recorte de fevereiro/2026
+
+## Review (Lead Time: fallback por criação/primeira movimentação)
+- What was validated:
+  - Foi adicionada resolução flexível de data (`_coerce_datetime_flexible`) com suporte a formatos mistos, inclusive IDs no padrão `YYYYMMDD`.
+  - Foi implementada cadeia de fallback de início (`_resolve_lead_start_series`) priorizando etapas selecionadas e, na ausência, campos como `DataInProgress`, `DataBacklog`, criação e primeira movimentação (quando presentes).
+  - `apply_selected_lead_time_metric(...)` agora preenche `LeadTime_Selected_Dias` faltante via `DataDone - LeadStart_Selected` (somente valores `>= 0`) e contabiliza `fallback_sample`.
+  - No recorte informado, o fallback recuperou 2 itens na amostra de LT (`239 -> 241`); ainda restam itens sem base por ausência real de data de início/criação na fonte consolidada.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('dashboard_full.py ok')"`
+  - `python -c "import pandas as pd, dashboard_full as d; ...; print({'delivered':..., 'leadtime_sample':..., 'diff':..., 'fallback_sample':...})"`
+    Resultado: `{'delivered': 325, 'leadtime_sample': 241, 'diff': 84, 'fallback_sample': 2}`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(lead-time): add start-date fallback chain and backfill lead-time when done date is available`
+
 ## Current Task (Segunda rodada: aderência Lead Time vs Estatística)
 - [x] Centralizar o cálculo-base de Lead Time em helper compartilhado entre as abas
 - [x] Aplicar a mesma base de cálculo em `tab-lead-time` e `tab-estatistica`

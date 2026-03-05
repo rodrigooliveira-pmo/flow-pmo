@@ -4782,6 +4782,60 @@ def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
     return out.drop_duplicates(subset=['ItemID'], keep='first')
 
 
+def _coerce_datetime_flexible(series):
+    """Parse datetime from mixed raw values, including YYYYMMDD-like numeric ids."""
+    if series is None:
+        return pd.Series(dtype='datetime64[ns]')
+    raw = pd.Series(series)
+    raw_str = raw.astype(str).str.strip()
+    ddmmyyyy_mask = raw_str.str.fullmatch(r'\d{2}/\d{2}/\d{4}')
+    dt = pd.to_datetime(raw.where(~ddmmyyyy_mask), errors='coerce', utc=True).dt.tz_localize(None)
+    if ddmmyyyy_mask.any():
+        dt_ddmmyyyy = pd.to_datetime(raw.where(ddmmyyyy_mask), dayfirst=True, errors='coerce', utc=True).dt.tz_localize(None)
+        dt.loc[dt_ddmmyyyy.index] = dt_ddmmyyyy
+
+    num = pd.to_numeric(raw, errors='coerce')
+    if num.notna().any():
+        num_int = num.dropna().astype('Int64').astype(str).str.strip()
+        looks_yyyymmdd = num_int.str.fullmatch(r'\d{8}')
+        if looks_yyyymmdd.any():
+            parsed = pd.to_datetime(num_int.where(looks_yyyymmdd), format='%Y%m%d', errors='coerce')
+            dt.loc[parsed.index] = parsed
+    return dt
+
+
+def _resolve_lead_start_series(df_source):
+    """Resolve best-available lead start datetime per row using fallback chain."""
+    idx = df_source.index
+    lead_start = pd.Series(pd.NaT, index=idx, dtype='datetime64[ns]')
+    lead_source = pd.Series('', index=idx, dtype='object')
+
+    candidates = [
+        ('LeadStart_Selected', 'etapas'),
+        ('DataInProgress', 'in_progress'),
+        ('DataBacklog', 'backlog'),
+        ('DataInicioProgresso', 'inicio_progresso'),
+        ('DataInicioProgressoID', 'inicio_progresso_id'),
+        ('DataCriacao', 'criacao'),
+        ('DataCriacaoID', 'criacao_id'),
+        ('Created', 'created'),
+        ('CreatedDate', 'created_date'),
+        ('IssueCreated', 'issue_created'),
+        ('FirstMovementDate', 'first_movement'),
+        ('FirstTransitionDate', 'first_transition'),
+        ('History Created', 'history_created'),
+    ]
+    for col, source_tag in candidates:
+        if col not in df_source.columns:
+            continue
+        parsed = _coerce_datetime_flexible(df_source[col])
+        fill_mask = lead_start.isna() & parsed.notna()
+        if fill_mask.any():
+            lead_start.loc[fill_mask] = parsed.loc[fill_mask]
+            lead_source.loc[fill_mask] = source_tag
+    return lead_start, lead_source
+
+
 def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
     """Attach lead time metric based on selected downstream stages to the filtered dataframe."""
     if df is None or getattr(df, 'empty', True):
@@ -4790,7 +4844,7 @@ def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
         out = df.copy()
         out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
         out['LeadStart_Selected'] = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
-        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0, 'label': 'padrão'}
+        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0, 'label': 'padrão', 'fallback_sample': 0}
 
     out = df.copy()
     out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
@@ -4823,30 +4877,49 @@ def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
                 lead_map['Projeto'] = project_name
                 lead_maps.append(lead_map)
 
-    if not lead_maps:
-        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0, 'label': 'padrão'}
+    custom_days = pd.Series(np.nan, index=out.index, dtype='float64')
+    custom_start = pd.Series(pd.NaT, index=out.index, dtype='datetime64[ns]')
+    if lead_maps:
+        lead_map = pd.concat(lead_maps, ignore_index=True)
+        merge_keys = ['ItemID']
+        if 'Projeto' in out.columns and 'Projeto' in lead_map.columns:
+            out['Projeto'] = out['Projeto'].astype(str).str.strip()
+            lead_map['Projeto'] = lead_map['Projeto'].astype(str).str.strip()
+            merge_keys = ['Projeto', 'ItemID']
 
-    lead_map = pd.concat(lead_maps, ignore_index=True)
-    merge_keys = ['ItemID']
-    if 'Projeto' in out.columns and 'Projeto' in lead_map.columns:
-        out['Projeto'] = out['Projeto'].astype(str).str.strip()
-        lead_map['Projeto'] = lead_map['Projeto'].astype(str).str.strip()
-        merge_keys = ['Projeto', 'ItemID']
-
-    out['ItemID'] = out['ItemID'].astype(str)
-    out = out.merge(lead_map, how='left', on=merge_keys)
-    custom_days = pd.to_numeric(out.get('LeadTime_Custom_Dias'), errors='coerce')
-    custom_start = pd.to_datetime(out.get('LeadStart_Custom'), errors='coerce')
+        out['ItemID'] = out['ItemID'].astype(str)
+        out = out.merge(lead_map, how='left', on=merge_keys)
+        custom_days = pd.to_numeric(out.get('LeadTime_Custom_Dias'), errors='coerce')
+        custom_start = pd.to_datetime(out.get('LeadStart_Custom'), errors='coerce')
     out['LeadTime_Selected_Dias'] = custom_days.combine_first(out['LeadTime_Selected_Dias'])
     out['LeadStart_Selected'] = custom_start.combine_first(out['LeadStart_Selected'])
+
+    out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Selected_Dias'), errors='coerce')
+    out.loc[out['LeadTime_Selected_Dias'] < 0, 'LeadTime_Selected_Dias'] = np.nan
+
+    lead_start_resolved, lead_start_source = _resolve_lead_start_series(out)
+    out['LeadStart_Selected'] = lead_start_resolved
+    out['LeadStart_Source'] = lead_start_source
+
+    if 'DataDone' in out.columns:
+        done_ts = pd.to_datetime(out['DataDone'], errors='coerce')
+        fallback_days = pd.to_numeric((done_ts - out['LeadStart_Selected']).dt.days, errors='coerce')
+        fallback_days = fallback_days.where(fallback_days >= 0)
+        fill_lt_mask = out['LeadTime_Selected_Dias'].isna() & fallback_days.notna()
+        out.loc[fill_lt_mask, 'LeadTime_Selected_Dias'] = fallback_days.loc[fill_lt_mask]
+        out.loc[fill_lt_mask & out['LeadStart_Source'].eq(''), 'LeadStart_Source'] = 'fallback'
+    else:
+        fill_lt_mask = pd.Series(False, index=out.index)
     out.drop(columns=['LeadTime_Custom_Dias'], inplace=True, errors='ignore')
     out.drop(columns=['LeadStart_Custom'], inplace=True, errors='ignore')
     custom_sample = int(custom_days.notna().sum())
+    fallback_sample = int(fill_lt_mask.sum()) if 'fill_lt_mask' in locals() else 0
     return out, {
         'enabled': custom_sample > 0,
         'sample': int(out['LeadTime_Selected_Dias'].notna().sum()),
         'stage_count': len(selected_start_stages or []),
         'label': 'etapas selecionadas' if custom_sample > 0 else 'padrão',
+        'fallback_sample': fallback_sample,
     }
 
 
@@ -6414,12 +6487,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         lt_valid_total = int(len(lt_series))
         lt_missing_total = int(max(delivered_total - lt_valid_total, 0))
+        lt_fallback_total = int(leadtime_meta.get('fallback_sample', 0))
         lt_mean = lt_stats.get('mean', np.nan)
         lt_p50 = lt_stats.get('p50', np.nan)
         lt_p85 = lt_stats.get('p85', np.nan)
         subtitle = (
             f"Projeto: {projeto or 'Todos'} | Período: {start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')} | "
             f"Finalizados: {delivered_total} | LT válido: {lt_valid_total} | Sem base LT: {lt_missing_total} | "
+            f"Fallback aplicado: {lt_fallback_total} | "
             f"Média: {lt_mean:.2f} | P50: {lt_p50:.2f} | P85: {lt_p85:.2f} | "
             f"Início: {leadtime_meta.get('label', 'padrão')}"
         )

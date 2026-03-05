@@ -186,7 +186,7 @@ def detect_date_columns(df):
     # List of metadata columns that are NOT workflow stages
     metadata_cols = {'ID', 'Link', 'Title', 'Done', 'Tipo de Problema', 
                      'Prioridade', 'Versões de correção', 'Componentes', 
-                     'Responsável', 'Criador', 'Space', 'Resolução', 
+                     'Responsável', 'Criador', 'Created', 'Start date', 'Space', 'Resolução', 
                      'Data Cancelled',
                      'Etiquetas', 'Blocked Days', 'Blocked', 'Flagged', 
                      'Story Points', 'Organizations', 'Sprints', 'Principal', 
@@ -256,8 +256,9 @@ def resolve_backlog_date(row):
     """
     for col in ['Sprint Backlog', 'Backlog', 'Triagem']:
         value = row.get(col, pd.NaT)
-        if pd.notna(value):
-            return value
+        dt = pd.to_datetime(value, dayfirst=True, errors='coerce')
+        if pd.notna(dt):
+            return dt
     return pd.NaT
 
 
@@ -304,15 +305,45 @@ def compute_valid_lead_series(df):
 
 def resolve_in_progress_date(row):
     """
-    Resolve execution start date with fallback:
+    Resolve execution start date with robust fallback:
     - Prefer explicit 'In Progress'
-    - Fallback to 'Sprint Backlog' when In Progress is missing
+    - Otherwise use the earliest available workflow stage date (excluding terminal Done)
     """
-    in_progress = row.get('In Progress')
+    def _parse(value):
+        return pd.to_datetime(value, dayfirst=True, errors='coerce')
+
+    in_progress = _parse(row.get('In Progress'))
     if pd.notna(in_progress):
         return in_progress
-    sprint_backlog = row.get('Sprint Backlog')
-    return sprint_backlog if pd.notna(sprint_backlog) else pd.NaT
+
+    stage_candidates = [
+        'Start date',
+        'Sprint Backlog',
+        'Backlog',
+        'Triagem',
+        'Ready to Start',
+        'To Do',
+        'In progress',
+        'Development',
+        'ready code review',
+        'Code review',
+        'ready testing/Qa',
+        'Testing/QA',
+        'ready homolog',
+        'Homolog',
+        'ready for production',
+    ]
+    dates = []
+    for col in stage_candidates:
+        if col not in row.index:
+            continue
+        dt = _parse(row.get(col))
+        if pd.notna(dt):
+            dates.append(dt)
+
+    if dates:
+        return min(dates)
+    return pd.NaT
 
 
 def week_start_monday(ts):
@@ -2171,10 +2202,10 @@ def prepare_powerbi_fact_table(consolidated_data, dimensions):
                 'ComponenteID': comp_id,
                 'PrioridadeID': prio_id,
                 'ClasseServicoID': classe_servico_id,
-                'DataCriacaoID': None,  # Can be linked to Dim_Data
-                'DataInicioProgressoID': None,
-                'DataConclucaoID': None,
-                'DataCancelamentoID': None,
+                'DataCriacaoID': pd.to_datetime(row.get('Created'), dayfirst=True, errors='coerce') if pd.notna(row.get('Created')) else None,
+                'DataInicioProgressoID': effective_in_progress_date if pd.notna(effective_in_progress_date) else None,
+                'DataConclucaoID': done_date if pd.notna(done_date) else None,
+                'DataCancelamentoID': cancelled_date if pd.notna(cancelled_date) else None,
                 'Titulo': str(row.get('Title', '')),
                 'WorkItemSubType': str(row.get('WorkItemSubType', 'Outro')),
                 'ClasseServico': classe_servico,

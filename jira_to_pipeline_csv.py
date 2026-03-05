@@ -99,6 +99,8 @@ METADATA_COLUMNS = [
     "Componentes",
     "Responsável",
     "Criador",
+    "Created",
+    "Start date",
     "Space",
     "Resolução",
     "Data Cancelled",
@@ -834,9 +836,23 @@ def build_issue_row(
             return str(raw)
         return ""
 
+    def custom_as_date_text(key_name: str, fallback_field_ids: List[str]) -> str:
+        value = custom_as_text(key_name)
+        if value:
+            formatted = format_jira_datetime(value)
+            return formatted or value
+        for field_id in fallback_field_ids:
+            raw = fields.get(field_id)
+            if raw is None or raw == "":
+                continue
+            formatted = format_jira_datetime(str(raw))
+            return formatted or str(raw)
+        return ""
+
     principal_value = custom_as_text("principal")
     story_points_value = custom_as_number_text("story_points", ["customfield_10026", "customfield_10028"])
     story_point_estimate_value = custom_as_number_text("story_point_estimate", ["customfield_10016"])
+    start_date_value = custom_as_date_text("start_date", ["startdate"])
 
     # Defensive fix for field-map semantic inversion:
     # some environments configure "epic_name" as a custom field that actually stores a key (ex.: W1NNER-1771),
@@ -894,6 +910,8 @@ def build_issue_row(
         "Componentes": format_list(components),
         "Responsável": assignee,
         "Criador": creator,
+        "Created": format_jira_datetime(fields.get("created")),
+        "Start date": start_date_value,
         "Space": project_key,
         "Resolução": str(safe_get(fields, "resolution", "name") or ""),
         "Data Cancelled": cancelled_date,
@@ -1213,6 +1231,7 @@ def main() -> int:
         "parent",
         "status",
         "created",
+        "startdate",
         "resolutiondate",
         "customfield_10016",
         "customfield_10026",
