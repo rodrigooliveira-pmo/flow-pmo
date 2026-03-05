@@ -6564,10 +6564,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_portfolio_filtered['ClasseServico'] = df_portfolio_filtered['Prioridade'].apply(
                 lambda v: resolve_service_class('', v)
             )
-        if classe_servico:
-            df_portfolio_filtered = df_portfolio_filtered[
-                df_portfolio_filtered['ClasseServico'].astype(str) == str(classe_servico)
-            ].copy()
+        # O Portfólio usa taxonomia própria e não deve ser impactado pelo
+        # filtro global de Classe de Serviço do módulo de Serviços.
         if portfolio_quarter != 'ALL':
             quarter_dates = {
                 'Q1-2026': ('2026-01-01', '2026-03-31'),
@@ -6583,7 +6581,22 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     (df_portfolio_filtered['DueDate'] >= q_start_ts) &
                     (df_portfolio_filtered['DueDate'] <= q_end_ts)
                 ].copy()
-        effective_portfolio_project = projeto or portfolio_project
+        # Prioriza o filtro nativo da aba Portfólio e só herda o filtro global
+        # quando ele existe no escopo de projetos do CSV de portfólio.
+        effective_portfolio_project = None
+        if 'Projeto' in df_portfolio_filtered.columns:
+            available_portfolio_projects = {
+                normalize_text(p)
+                for p in df_portfolio_filtered['Projeto'].dropna().astype(str).str.strip().unique()
+                if str(p).strip()
+            }
+            portfolio_project_norm = normalize_text(normalize_project_filter_value(portfolio_project) or '')
+            projeto_norm = normalize_text(normalize_project_filter_value(projeto) or '')
+            if portfolio_project_norm and portfolio_project_norm in available_portfolio_projects:
+                effective_portfolio_project = portfolio_project
+            elif projeto_norm and projeto_norm in available_portfolio_projects:
+                effective_portfolio_project = projeto
+
         if effective_portfolio_project and 'Projeto' in df_portfolio_filtered.columns:
             project_norm = normalize_text(effective_portfolio_project)
             df_portfolio_filtered = df_portfolio_filtered[

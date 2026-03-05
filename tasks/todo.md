@@ -4130,3 +4130,38 @@
 - Suggested commit message:
   - `fix(cfd): make downstream csv discovery resilient to project prefix variants in production`
 
+## Current Task (Portfólio: One Page Completo vazio após unificação de filtros)
+- [x] Reproduzir o cenário em que a aba Portfólio recebe `projeto` global fora do escopo BT/NS
+- [x] Ajustar resolução de projeto efetivo no módulo de Portfólio para priorizar filtro próprio da aba
+- [x] Permitir herança do filtro global apenas quando o projeto existir no CSV de Portfólio
+- [x] Validar sintaxe e comportamento com `projeto='W1NNER'`
+
+## Review (Portfólio: One Page Completo vazio após unificação de filtros)
+- What was validated:
+  - Causa raiz confirmada: no Portfólio, o código priorizava `projeto` global (`effective_portfolio_project = projeto or portfolio_project`), o que zerava o dataset quando o projeto global não era BT/NS.
+  - Implementado filtro efetivo por escopo: primeiro usa `portfolio_project` (quando válido no CSV de Portfólio) e só usa `projeto` global se ele também existir no escopo de `Projeto` do Portfólio.
+  - Com isso, o “One Page Completo - Roadmap 2026” não cai indevidamente em “Sem itens de portfólio...” quando o usuário está com projeto global de Serviços.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax_ok')"`
+  - `python -c "import os; os.environ['FLOW_PMO_PORTFOLIO_CSV_FILE']='portfolio-bt-ns-latest-data.csv'; os.environ.pop('FLOW_PMO_PORTFOLIO_CSV_URL', None); import dashboard_full as d; comp=d.render_tab(main_view='portfolio', tab=d.PORTFOLIO_TAB_VALUE, start_date='2026-01-01', end_date='2026-12-31', projeto='W1NNER', tipo=None, classe_servico=None, responsavel=None, leadtime_stages=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=d.PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL'); txt=str(comp); print('has_empty_msg', 'Sem itens de portfólio para montar o roadmap completo.' in txt)"`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(portfolio): avoid empty one-page roadmap when global project filter is outside portfolio scope`
+
+## Current Task (Portfólio: One Page esvaziava após filtro global de Classe de Serviço)
+- [x] Reproduzir cenário com `classe_servico='Expedite'` na aba Portfólio
+- [x] Remover acoplamento do Portfólio ao filtro global de Classe de Serviço
+- [x] Validar sintaxe e validar que o One Page não exibe mensagem de vazio indevida
+
+## Review (Portfólio: One Page esvaziava após filtro global de Classe de Serviço)
+- What was validated:
+  - Causa raiz confirmada: a aba Portfólio aplicava `classe_servico` global no dataframe de portfólio.
+  - No CSV atual de portfólio, as classes derivadas são `Medium/Highest/High`; ao selecionar classes do módulo de Serviços (ex.: `Expedite`), o filtro zerava os dados do One Page.
+  - O filtro de `Classe de Serviço` foi desacoplado do Portfólio para preservar a taxonomia do módulo.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax_ok')"`
+  - `python -c "import os; os.environ['FLOW_PMO_PORTFOLIO_CSV_FILE']='portfolio-bt-ns-latest-data.csv'; import dashboard_full as d; c=d.render_tab('portfolio',d.PORTFOLIO_TAB_VALUE,'2026-01-01','2026-12-31',None,None,'Expedite',None,None,5,'score',d.PROJECT_FILTER_ALL_VALUE,'ALL'); t=str(c); print('empty_msg', 'Sem itens de portfólio para montar o roadmap completo.' in t)"`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(portfolio): ignore global service-class filter in portfolio one-page roadmap`
+
