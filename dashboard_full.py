@@ -2697,29 +2697,26 @@ def get_portfolio_snapshot():
         PORTFOLIO_CACHE['source_mtime'] = None
         return None, None, str(exc)
 
-def get_portfolio_team_filter_options():
-    default_options = [{'label': 'Todos os Teams', 'value': '__ALL__'}]
-    snapshot, _, error = get_portfolio_snapshot()
-    if error or not snapshot:
-        return default_options
+def get_portfolio_project_filter_options():
+    options = [{'label': PROJECT_FILTER_ALL_LABEL, 'value': PROJECT_FILTER_ALL_VALUE}]
+    projects = set()
 
-    groups = snapshot.get('groups', {})
-    frames = [
-        groups.get('epicos_por_team_total', pd.DataFrame()),
-        groups.get('features_por_team_total', pd.DataFrame()),
-    ]
-    teams = set()
-    for frame in frames:
-        if frame is None or frame.empty or 'Team' not in frame.columns:
-            continue
-        for team in frame['Team'].dropna().astype(str):
-            t = team.strip()
-            if t:
-                teams.add(t)
+    if 'Projeto' in fato.columns:
+        for project in unique_sorted(fato['Projeto']):
+            p = str(project).strip()
+            if p:
+                projects.add(p)
 
-    for team in sorted(teams):
-        default_options.append({'label': team, 'value': team})
-    return default_options
+    _, df_portfolio, error = get_portfolio_snapshot()
+    if not error and df_portfolio is not None and not df_portfolio.empty and 'Projeto' in df_portfolio.columns:
+        for project in df_portfolio['Projeto'].dropna().astype(str):
+            p = project.strip()
+            if p:
+                projects.add(p)
+
+    for project in sorted(projects):
+        options.append({'label': project, 'value': project})
+    return options
 
 
 def portfolio_table_component(df, title, table_id):
@@ -5867,14 +5864,14 @@ app.layout = html.Div([
             )
         ], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'220px'}),
         html.Div([
-            html.Label('Team (Portfólio):'),
+            html.Label('Projeto (Portfólio):'),
             dcc.Dropdown(
                 id='filter-portfolio-team',
-                options=get_portfolio_team_filter_options(),
-                value='__ALL__',
+                options=get_portfolio_project_filter_options(),
+                value=PROJECT_FILTER_ALL_VALUE,
                 clearable=False
             )
-        ], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
+        ], style={'display':'none'}),
         html.Div([
             html.Label('Quarter (Portfólio):'),
             dcc.Dropdown(
@@ -6030,6 +6027,26 @@ def update_leadtime_stage_filter_options(projeto, current_value):
 
 
 @app.callback(
+    Output('filter-portfolio-team', 'options'),
+    Output('filter-portfolio-team', 'value'),
+    Input('filter-projeto', 'value'),
+    State('filter-portfolio-team', 'value'),
+)
+def sync_portfolio_project_filter(projeto, current_portfolio_project):
+    options = get_portfolio_project_filter_options()
+    allowed_values = {opt.get('value') for opt in options}
+    primary_project = projeto if projeto in allowed_values else PROJECT_FILTER_ALL_VALUE
+
+    if primary_project != PROJECT_FILTER_ALL_VALUE:
+        return options, primary_project
+
+    if current_portfolio_project in allowed_values:
+        return options, current_portfolio_project
+
+    return options, PROJECT_FILTER_ALL_VALUE
+
+
+@app.callback(
     Output('main-menu-panel', 'style'),
     Output('main-nav-panel', 'style'),
     Output('main-nav-context', 'children'),
@@ -6094,7 +6111,7 @@ def update_main_navigation_layout(main_view):
     optional_input('estatistica-lsl', 'value'),
     optional_input('estatistica-usl', 'value'),
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team='__ALL__', portfolio_quarter='ALL',
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
                estatistica_lsl=None, estatistica_usl=None):
@@ -6129,6 +6146,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
 
     projeto = normalize_project_filter_value(projeto)
+    portfolio_project = normalize_project_filter_value(portfolio_team)
     df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
     df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
     leadtime_selection_summary = build_leadtime_stage_selection_summary(projeto, leadtime_stages)
@@ -6546,6 +6564,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     (df_portfolio_filtered['DueDate'] >= q_start_ts) &
                     (df_portfolio_filtered['DueDate'] <= q_end_ts)
                 ].copy()
+        effective_portfolio_project = projeto or portfolio_project
+        if effective_portfolio_project and 'Projeto' in df_portfolio_filtered.columns:
+            project_norm = normalize_text(effective_portfolio_project)
+            df_portfolio_filtered = df_portfolio_filtered[
+                df_portfolio_filtered['Projeto'].fillna('').astype(str).map(normalize_text) == project_norm
+            ].copy()
 
         # Re-compute snapshot with filtered data
         snapshot = compute_portfolio_snapshot(df_portfolio_filtered, snapshot['updated_at'])
@@ -6597,7 +6621,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_detalhe = groups.get('features_detalhe', pd.DataFrame())
         has_us_items = bool(groups.get('has_us_items', False))
 
-        selected_team = str(portfolio_team or '__ALL__')
+        selected_team = '__ALL__'
         df_portfolio_full_scope = df_portfolio_filtered.copy() if df_portfolio_filtered is not None else pd.DataFrame()
 
         def filter_by_team(df_source, team_col='Team'):
@@ -7595,7 +7619,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_sem_mov_15_visao = int((features_detalhe['DiasSemMovimentacao'] > 15).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
         features_sem_mov_30_visao = int((features_detalhe['DiasSemMovimentacao'] > 30).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
         hist_tasks_sem_feature_visao = int(hist_tasks_sem_feature_por_team['WorkItems'].sum()) if hist_tasks_sem_feature_por_team is not None and not hist_tasks_sem_feature_por_team.empty else 0
-        scope_label = 'Todos os teams' if selected_team == '__ALL__' else selected_team
+        scope_label = f"Projeto: {effective_portfolio_project}" if effective_portfolio_project else 'Todos os projetos'
         aging_label_us_20 = (
             'US com mais de 20 dias em processo sem alteração'
             if has_us_items else

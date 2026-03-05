@@ -4052,3 +4052,48 @@
 - Suggested commit message:
   - `fix(lead-time): compute selected lead time across all projects and preserve per-item fallback`
 
+## Current Task (Unificar filtro de Projeto entre Serviços e Portfólio)
+- [x] Mapear origem dos dois filtros (`filter-projeto` e `filter-portfolio-team`) no `dashboard_full.py`
+- [x] Padronizar o filtro de Portfólio para lista de projetos (mesmos nomes do filtro principal)
+- [x] Sincronizar seleção do filtro principal de projeto para o filtro de Portfólio
+- [x] Aplicar recorte de `Projeto` no dataset de Portfólio usando o mesmo valor efetivo
+- [x] Validar sintaxe e revisar diff final
+
+## Specification (Unificar filtro de Projeto entre Serviços e Portfólio)
+- Objetivo: fazer com que a seleção de projeto (ex.: `W1NNER`) aplique no módulo de Serviços e no módulo de Portfólio com a mesma nomenclatura.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - O dropdown de Portfólio exibe projetos (não teams), com opção `Todos os projetos`.
+  - Ao selecionar um projeto no filtro principal, o filtro de Portfólio reflete a mesma seleção.
+  - A aba de Portfólio passa a filtrar por coluna `Projeto` no mesmo valor selecionado.
+  - Código válido em sintaxe.
+
+## Review (Unificar filtro de Projeto entre Serviços e Portfólio)
+- What was validated:
+  - A causa raiz foi confirmada: o filtro secundário de Portfólio usava `Team`, o que criava duas semânticas diferentes para o usuário.
+  - O dropdown secundário foi convertido para `Projeto (Portfólio)` com a mesma base de nomes do filtro principal.
+  - Foi adicionado callback de sincronização para refletir imediatamente a seleção de `filter-projeto` no filtro de Portfólio.
+  - O recorte do dataset de Portfólio passou a aplicar `Projeto` (normalizado) antes da recomputação do snapshot.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(filters): unify project filter between services and portfolio views`
+
+## Current Task (Ocultar campo Projeto (Portfólio) da tela)
+- [x] Identificar o bloco de layout do dropdown `Projeto (Portfólio)` no `dashboard_full.py`
+- [x] Remover o campo da interface visual mantendo o estado interno/callbacks
+- [x] Validar sintaxe e revisar diff final
+
+## Review (Ocultar campo Projeto (Portfólio) da tela)
+- What was validated:
+  - O campo `Projeto (Portfólio)` foi removido da renderização visual (`display: none`) mantendo o componente para não quebrar callbacks existentes.
+  - A sincronização e o filtro unificado por projeto permanecem ativos por trás da tela.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `chore(ui): hide portfolio project filter from dashboard controls`
+
