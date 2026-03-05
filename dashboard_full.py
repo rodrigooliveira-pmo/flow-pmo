@@ -1590,76 +1590,87 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
     if len(weeks) < 2:
         return pd.DataFrame(), pd.DataFrame()
 
-    for i in range(len(weeks) - 1):
-        week_start = weeks[i]
-        week_end = weeks[i + 1]
-        arrivals = df_source[(df_source['DataInProgress'] >= week_start) & (df_source['DataInProgress'] < week_end)]
-        done = df_source[(df_source['DataDone'] >= week_start) & (df_source['DataDone'] < week_end)]
-        wip = df_source[(df_source['DataInProgress'] < week_end) & ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))]
+    if 'Projeto' in df_source.columns:
+        project_groups = [
+            ('Sem Projeto' if pd.isna(project_name) else str(project_name).strip(), group.copy())
+            for project_name, group in df_source.groupby('Projeto', dropna=False)
+            if not group.empty
+        ]
+    else:
+        project_groups = [('Todos os projetos', df_source.copy())]
 
-        tp = len(done)
-        inflow = len(arrivals)
-        flow_pressure = _safe_ratio(inflow, tp)
-        wip_tp_ratio = _safe_ratio(len(wip), tp)
-        lead_times = time_metric_series(done, 'LeadTime_Dias')
-        lt_p85 = exact_empirical_percentile(lead_times, 0.85) if not lead_times.empty else 0.0
-        lt_p50 = exact_empirical_percentile(lead_times, 0.50) if not lead_times.empty else 0.0
-        predictability = _safe_ratio(lt_p85, lt_p50) if lt_p50 > 0 else np.nan
+    for project_name, project_df in project_groups:
+        for i in range(len(weeks) - 1):
+            week_start = weeks[i]
+            week_end = weeks[i + 1]
+            arrivals = project_df[(project_df['DataInProgress'] >= week_start) & (project_df['DataInProgress'] < week_end)]
+            done = project_df[(project_df['DataDone'] >= week_start) & (project_df['DataDone'] < week_end)]
+            wip = project_df[(project_df['DataInProgress'] < week_end) & ((project_df['DataDone'] >= week_end) | pd.isna(project_df['DataDone']))]
 
-        defects = len(done[done['TipoDemanda'] == TYPE_ISSUES]) if 'TipoDemanda' in done.columns else 0
-        failure_pct = _safe_pct(defects, tp)
-        expedite_arrivals = len(arrivals[arrivals['ClasseServico'] == 'Expedite']) if 'ClasseServico' in arrivals.columns else 0
-        expedite_pct = _safe_pct(expedite_arrivals, inflow)
-        blocked_rate = _safe_pct(wip['Bloqueado'].sum(), len(wip)) if 'Bloqueado' in wip.columns and len(wip) > 0 else 0.0
-        discard_rate = _safe_pct(done['Descartado'].sum(), tp) if 'Descartado' in done.columns and tp > 0 else 0.0
-        wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0.0
-        wip_age_over_p85 = _safe_ratio(wip_age, lt_p85) if lt_p85 > 0 else np.nan
+            tp = len(done)
+            inflow = len(arrivals)
+            flow_pressure = _safe_ratio(inflow, tp)
+            wip_tp_ratio = _safe_ratio(len(wip), tp)
+            lead_times = time_metric_series(done, 'LeadTime_Dias')
+            lt_p85 = exact_empirical_percentile(lead_times, 0.85) if not lead_times.empty else 0.0
+            lt_p50 = exact_empirical_percentile(lead_times, 0.50) if not lead_times.empty else 0.0
+            predictability = _safe_ratio(lt_p85, lt_p50) if lt_p50 > 0 else np.nan
 
-        signals = {
-            "expedite_pct": float(expedite_pct),
-            "flow_pressure": float(flow_pressure) if pd.notna(flow_pressure) else np.nan,
-            "failure_demand_pct": float(failure_pct),
-            "predictability_ratio": float(predictability) if pd.notna(predictability) else np.nan,
-            "lead_time_p85": float(lt_p85),
-            "wip_tp_ratio": float(wip_tp_ratio) if pd.notna(wip_tp_ratio) else np.nan,
-            "blocked_rate": float(blocked_rate),
-            "discard_rate": float(discard_rate),
-            "wip_age_over_p85": float(wip_age_over_p85) if pd.notna(wip_age_over_p85) else np.nan,
-            "inflow": inflow,
-            "throughput": tp,
-            "wip": len(wip),
-        }
+            defects = len(done[done['TipoDemanda'] == TYPE_ISSUES]) if 'TipoDemanda' in done.columns else 0
+            failure_pct = _safe_pct(defects, tp)
+            expedite_arrivals = len(arrivals[arrivals['ClasseServico'] == 'Expedite']) if 'ClasseServico' in arrivals.columns else 0
+            expedite_pct = _safe_pct(expedite_arrivals, inflow)
+            blocked_rate = _safe_pct(wip['Bloqueado'].sum(), len(wip)) if 'Bloqueado' in wip.columns and len(wip) > 0 else 0.0
+            discard_rate = _safe_pct(done['Descartado'].sum(), tp) if 'Descartado' in done.columns and tp > 0 else 0.0
+            wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0.0
+            wip_age_over_p85 = _safe_ratio(wip_age, lt_p85) if lt_p85 > 0 else np.nan
 
-        for pattern_key, thresholds in rules.items():
-            hits = []
-            for metric, threshold in thresholds.items():
-                signal_name = metric.replace('_min', '').replace('_max', '')
-                value = signals.get(signal_name, np.nan)
-                if metric.endswith('_max'):
-                    if pd.notna(value) and value <= float(threshold):
-                        hits.append(f"{signal_name}<={threshold}")
-                else:
-                    if pd.notna(value) and value >= float(threshold):
-                        hits.append(f"{signal_name}>={threshold}")
-            min_hits = max(1, int(np.ceil(len(thresholds) * 0.6)))
-            if len(hits) < min_hits:
-                continue
-            severity = 'Crítico' if len(hits) >= len(thresholds) else 'Atenção'
-            rows.append({
-                'Semana': week_start.date(),
-                'Padrão': pattern_labels.get(pattern_key, pattern_key),
-                'Severidade': severity,
-                'Regras Acionadas': ' | '.join(hits),
-                'Expedite (%)': round(signals['expedite_pct'], 2),
-                'Pressure (λ/μ)': round(signals['flow_pressure'], 3) if pd.notna(signals['flow_pressure']) else np.nan,
-                'Failure Demand (%)': round(signals['failure_demand_pct'], 2),
-                'Predictability (P85/P50)': round(signals['predictability_ratio'], 2) if pd.notna(signals['predictability_ratio']) else np.nan,
-                'Lead Time P85': round(signals['lead_time_p85'], 2),
-                'WIP/Throughput': round(signals['wip_tp_ratio'], 2) if pd.notna(signals['wip_tp_ratio']) else np.nan,
-                'Blocked (%)': round(signals['blocked_rate'], 2),
-                'Discard (%)': round(signals['discard_rate'], 2),
-                'WIP Age / LT P85': round(signals['wip_age_over_p85'], 2) if pd.notna(signals['wip_age_over_p85']) else np.nan,
-            })
+            signals = {
+                "expedite_pct": float(expedite_pct),
+                "flow_pressure": float(flow_pressure) if pd.notna(flow_pressure) else np.nan,
+                "failure_demand_pct": float(failure_pct),
+                "predictability_ratio": float(predictability) if pd.notna(predictability) else np.nan,
+                "lead_time_p85": float(lt_p85),
+                "wip_tp_ratio": float(wip_tp_ratio) if pd.notna(wip_tp_ratio) else np.nan,
+                "blocked_rate": float(blocked_rate),
+                "discard_rate": float(discard_rate),
+                "wip_age_over_p85": float(wip_age_over_p85) if pd.notna(wip_age_over_p85) else np.nan,
+                "inflow": inflow,
+                "throughput": tp,
+                "wip": len(wip),
+            }
+
+            for pattern_key, thresholds in rules.items():
+                hits = []
+                for metric, threshold in thresholds.items():
+                    signal_name = metric.replace('_min', '').replace('_max', '')
+                    value = signals.get(signal_name, np.nan)
+                    if metric.endswith('_max'):
+                        if pd.notna(value) and value <= float(threshold):
+                            hits.append(f"{signal_name}<={threshold}")
+                    else:
+                        if pd.notna(value) and value >= float(threshold):
+                            hits.append(f"{signal_name}>={threshold}")
+                min_hits = max(1, int(np.ceil(len(thresholds) * 0.6)))
+                if len(hits) < min_hits:
+                    continue
+                severity = 'Crítico' if len(hits) >= len(thresholds) else 'Atenção'
+                rows.append({
+                    'Projeto': project_name,
+                    'Semana': week_start.date(),
+                    'Padrão': pattern_labels.get(pattern_key, pattern_key),
+                    'Severidade': severity,
+                    'Regras Acionadas': ' | '.join(hits),
+                    'Expedite (%)': round(signals['expedite_pct'], 2),
+                    'Pressure (λ/μ)': round(signals['flow_pressure'], 3) if pd.notna(signals['flow_pressure']) else np.nan,
+                    'Failure Demand (%)': round(signals['failure_demand_pct'], 2),
+                    'Predictability (P85/P50)': round(signals['predictability_ratio'], 2) if pd.notna(signals['predictability_ratio']) else np.nan,
+                    'Lead Time P85': round(signals['lead_time_p85'], 2),
+                    'WIP/Throughput': round(signals['wip_tp_ratio'], 2) if pd.notna(signals['wip_tp_ratio']) else np.nan,
+                    'Blocked (%)': round(signals['blocked_rate'], 2),
+                    'Discard (%)': round(signals['discard_rate'], 2),
+                    'WIP Age / LT P85': round(signals['wip_age_over_p85'], 2) if pd.notna(signals['wip_age_over_p85']) else np.nan,
+                })
 
     details = pd.DataFrame(rows)
     if details.empty:
@@ -3073,12 +3084,18 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
     if 'DueDate' in df.columns:
         df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce')
 
+    legend_counts = (
+        df['RoadmapStatus']
+        .value_counts()
+        .reindex(PORTFOLIO_ROADMAP_STATUS_ORDER, fill_value=0)
+    )
+
     legend = []
     for status in PORTFOLIO_ROADMAP_STATUS_ORDER:
         legend.append(
             html.Div([
                 html.Span(
-                    status,
+                    f"{status} ({int(legend_counts.get(status, 0))})",
                     style={
                         'backgroundColor': PORTFOLIO_ROADMAP_STATUS_COLORS.get(status, '#ddd'),
                         'padding': '4px 10px',
@@ -4598,30 +4615,68 @@ def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
 def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
     """Attach lead time metric based on selected downstream stages to the filtered dataframe."""
     if df is None or getattr(df, 'empty', True):
-        return df, {'enabled': False, 'sample': 0, 'stage_count': 0}
-    if not projeto or 'ItemID' not in df.columns:
+        return df, {'enabled': False, 'sample': 0, 'stage_count': 0, 'label': 'padrão'}
+    if 'ItemID' not in df.columns:
         out = df.copy()
         out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
         out['LeadStart_Selected'] = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
-        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0}
+        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0, 'label': 'padrão'}
 
-    lead_map = build_custom_lead_time_by_selected_stages(projeto, selected_start_stages)
     out = df.copy()
-    if lead_map.empty:
-        out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
-        out['LeadStart_Selected'] = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
-        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0}
+    out['LeadTime_Selected_Dias'] = pd.to_numeric(out.get('LeadTime_Dias'), errors='coerce')
+    out['LeadStart_Selected'] = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
+
+    lead_maps = []
+    if projeto:
+        lead_map = build_custom_lead_time_by_selected_stages(projeto, selected_start_stages)
+        if not lead_map.empty:
+            lead_map = lead_map.copy()
+            lead_map['Projeto'] = str(projeto)
+            lead_maps.append(lead_map)
+    else:
+        if 'Projeto' in out.columns:
+            project_values = (
+                out['Projeto']
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .unique()
+                .tolist()
+            )
+            for project_name in project_values:
+                if not project_name:
+                    continue
+                lead_map = build_custom_lead_time_by_selected_stages(project_name, selected_start_stages)
+                if lead_map.empty:
+                    continue
+                lead_map = lead_map.copy()
+                lead_map['Projeto'] = project_name
+                lead_maps.append(lead_map)
+
+    if not lead_maps:
+        return out, {'enabled': False, 'sample': int(out['LeadTime_Selected_Dias'].notna().sum()), 'stage_count': 0, 'label': 'padrão'}
+
+    lead_map = pd.concat(lead_maps, ignore_index=True)
+    merge_keys = ['ItemID']
+    if 'Projeto' in out.columns and 'Projeto' in lead_map.columns:
+        out['Projeto'] = out['Projeto'].astype(str).str.strip()
+        lead_map['Projeto'] = lead_map['Projeto'].astype(str).str.strip()
+        merge_keys = ['Projeto', 'ItemID']
 
     out['ItemID'] = out['ItemID'].astype(str)
-    out = out.merge(lead_map, how='left', on='ItemID')
-    out['LeadTime_Selected_Dias'] = pd.to_numeric(out['LeadTime_Custom_Dias'], errors='coerce')
-    out['LeadStart_Selected'] = pd.to_datetime(out['LeadStart_Custom'], errors='coerce')
+    out = out.merge(lead_map, how='left', on=merge_keys)
+    custom_days = pd.to_numeric(out.get('LeadTime_Custom_Dias'), errors='coerce')
+    custom_start = pd.to_datetime(out.get('LeadStart_Custom'), errors='coerce')
+    out['LeadTime_Selected_Dias'] = custom_days.combine_first(out['LeadTime_Selected_Dias'])
+    out['LeadStart_Selected'] = custom_start.combine_first(out['LeadStart_Selected'])
     out.drop(columns=['LeadTime_Custom_Dias'], inplace=True, errors='ignore')
     out.drop(columns=['LeadStart_Custom'], inplace=True, errors='ignore')
+    custom_sample = int(custom_days.notna().sum())
     return out, {
-        'enabled': True,
+        'enabled': custom_sample > 0,
         'sample': int(out['LeadTime_Selected_Dias'].notna().sum()),
         'stage_count': len(selected_start_stages or []),
+        'label': 'etapas selecionadas' if custom_sample > 0 else 'padrão',
     }
 
 
@@ -10094,7 +10149,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
 
-        # Base sem filtro de DataDone para calcular WIP (mas mantendo filtros ativos)
+        # Base única da aba (mesmos filtros ativos), sem recorte de DataDone.
+        # O recorte temporal é aplicado por métrica para manter consistência entre
+        # "Todos os projetos" e filtros por projeto.
         df_base = fato.copy()
         if projeto:
             df_base = df_base[df_base['Projeto'] == projeto]
@@ -10106,8 +10163,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_base = df_base[df_base['Responsavel'] == responsavel]
         df_base, _ = apply_selected_lead_time_metric(df_base, projeto, leadtime_stages)
 
-        # Itens concluídos no período (para Lead Time)
-        df_done = df.copy()
+        # Itens concluídos no período (para Lead Time e Throughput)
+        done_period_mask = (
+            (pd.to_datetime(df_base['DataDone'], errors='coerce') >= start_date_ts) &
+            (pd.to_datetime(df_base['DataDone'], errors='coerce') <= end_date_ts)
+        )
+        df_done = df_base[done_period_mask].copy()
         df_done = df_done[done_time_eligible_mask(df_done)].copy()
 
         # --- 1. Estatísticas de Lead Time ---

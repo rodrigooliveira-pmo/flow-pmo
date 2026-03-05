@@ -1,5 +1,57 @@
 # Task Plan
 
+## Current Task (Estatística Descritiva: corrigir números com "Todos os projetos")
+- [x] Diagnosticar divergência da aba `tab-estatistica` no cenário `Projeto = Todos os projetos`
+- [x] Unificar base de dados da aba para aplicar mesmos filtros ativos antes dos cálculos por métrica
+- [x] Validar sintaxe e checagem numérica de amostra agregada
+
+## Review (Estatística Descritiva: corrigir números com "Todos os projetos")
+- What was validated:
+  - A aba `tab-estatistica` passou a calcular os concluídos do período (`df_done`) a partir da mesma base filtrada da própria aba (`df_base`), em vez de misturar bases distintas.
+  - O ajuste elimina divergência potencial entre tabela e gráficos no cenário `Todos os projetos`, mantendo consistência com os filtros ativos (`Projeto`, `Tipo`, `Classe Serviço`, `Responsável`).
+  - A lógica de Lead Time selecionado por etapas (`LeadTime_Selected_Dias`) foi preservada.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `python - <<'PY' ... done 324 lt 183 mean 13.32 p85 24.0 ... projects in sample ['BEFINANCE', 'DATA&ANALYTICS', 'S1NC', 'W1NNER'] ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(estatistica): align descriptive stats datasets when all-projects filter is selected`
+
+## Current Task (Padrões Sistêmicos: filtro "Todos os projetos" com dados incorretos)
+- [x] Diagnosticar a causa raiz da divergência na aba `Padrões Sistêmicos` quando `Projeto = Todos os projetos`
+- [x] Ajustar o cálculo para detectar padrões por projeto/semana no escopo filtrado
+- [x] Manter compatibilidade para filtro de projeto específico e expor `Projeto` no detalhamento
+- [x] Validar sintaxe e revisar o diff
+
+## Review (Padrões Sistêmicos: filtro "Todos os projetos" com dados incorretos)
+- What was validated:
+  - Causa raiz confirmada: `detect_systemic_patterns(...)` agregava todos os projetos em um único bloco semanal, distorcendo sinais quando o filtro estava em `Todos os projetos`.
+  - A detecção passou a iterar por projeto (`groupby('Projeto')`) e calcular sinais por `projeto + semana`, mantendo o mesmo motor de regras.
+  - O detalhamento agora inclui a coluna `Projeto`, melhorando rastreabilidade dos sinais na tabela da aba.
+  - O comportamento para projeto específico foi preservado (continua retornando um único grupo de projeto).
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(patterns): detect systemic signals per project when all-projects filter is selected`
+
+## Current Task (One Page Completo: legenda com quantidade por situação)
+- [x] Localizar a montagem da legenda da Parte 3 na aba `One Page Completo`
+- [x] Incluir contagem de épicos por status nos chips da legenda (`Running/Planning/Done/Paused`)
+- [x] Validar sintaxe e revisar diff do `dashboard_full.py`
+
+## Review (One Page Completo: legenda com quantidade por situação)
+- What was validated:
+  - A legenda da visão `One Page Completo - Roadmap 2026` agora exibe contagem por status no formato `Status (n)`.
+  - O cálculo das contagens usa o dataframe já filtrado da própria visão (`df['RoadmapStatus']`), mantendo consistência com os épicos exibidos.
+  - O escopo foi mantido apenas na função `render_portfolio_roadmap_full_epics_view`, sem alterar outras abas.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py`
+  - `git status --short`
+- Suggested commit message:
+  - `feat(portfolio-one-page): show epic counts in status legend chips`
+
 ## Current Task (Filtro de projeto: opção global "Todos os projetos")
 - [x] Identificar ponto de montagem do dropdown `filter-projeto` no `dashboard_full.py`
 - [x] Incluir opção explícita "Todos os projetos" no filtro e normalizar valor sentinela para escopo global
@@ -3796,4 +3848,34 @@
   - `git diff -- dashboard_full.py tasks/todo.md tasks/lessons.md`
 - Suggested commit message:
   - `fix(process-mining): recompute chart datasets from date-filtered events/cases`
+
+## Current Task (Lead Time: respeitar filtros da tela em "Todos os projetos")
+- [x] Diagnosticar por que a aba `Lead Time` perdia amostra quando `Projeto = Todos`
+- [x] Ajustar `apply_selected_lead_time_metric(...)` para calcular lead time factual por projeto no escopo filtrado
+- [x] Manter fallback por linha para `LeadTime_Dias/DataBacklog` quando não houver downstream do projeto
+- [x] Validar sintaxe e revisar diff
+
+## Specification (Lead Time: respeitar filtros da tela em "Todos os projetos")
+- Objetivo: garantir que o gráfico da aba `Lead Time` reflita todas as demandas do recorte filtrado na tela quando `Todos os projetos` estiver selecionado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Com `Projeto = Todos os projetos`, o cálculo de `LeadTime_Selected_Dias` tenta usar downstream por projeto para os itens no recorte.
+  - Quando não houver mapa factual para um item/projeto, o valor cai para fallback do modelo (`LeadTime_Dias`/`DataBacklog`) sem excluir o item por erro de merge.
+  - Merge de mapa factual evita colisão de `ItemID` entre projetos distintos.
+  - Código válido em sintaxe.
+
+## Review (Lead Time: respeitar filtros da tela em "Todos os projetos")
+- What was validated:
+  - Causa raiz confirmada no código: `apply_selected_lead_time_metric(...)` fazia fallback imediato para `LeadTime_Dias` quando `projeto` era `None`, reduzindo amostra na aba `Lead Time`.
+  - Implementado cálculo factual multi-projeto no mesmo escopo filtrado, iterando projetos presentes em `df` e concatenando mapas de lead time por projeto.
+  - Merge ajustado para usar `Projeto + ItemID` quando possível, evitando colisão de IDs iguais entre projetos.
+  - `LeadTime_Selected_Dias` e `LeadStart_Selected` agora usam `combine_first(...)`, preservando fallback por item onde não houver dado factual.
+  - Metadado `label` foi adicionado no retorno de `leadtime_meta` para refletir origem do cálculo no subtítulo.
+- Evidence (tests/logs/diff):
+  - `git diff -- dashboard_full.py tasks/todo.md`
+  - Validação estática local do trecho alterado em `dashboard_full.py` (sem execução completa do app).
+- Suggested commit message:
+  - `fix(lead-time): compute selected lead time across all projects and preserve per-item fallback`
 
