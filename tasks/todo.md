@@ -1,5 +1,84 @@
 # Task Plan
 
+## Current Task (Segunda rodada: aderência Lead Time vs Estatística)
+- [x] Centralizar o cálculo-base de Lead Time em helper compartilhado entre as abas
+- [x] Aplicar a mesma base de cálculo em `tab-lead-time` e `tab-estatistica`
+- [x] Expor resumo comparável (Amostra, Média, P50, P85) nas duas abas para validação visual
+- [x] Validar sintaxe e validar igualdade numérica no mesmo recorte
+
+## Review (Segunda rodada: aderência Lead Time vs Estatística)
+- What was validated:
+  - Foi criado o helper `build_lead_time_comparable_scope(...)`, que padroniza elegibilidade, limpeza e estatísticas de Lead Time.
+  - A aba `Lead Time` passou a usar esse helper como fonte única para os números-base.
+  - A aba `Estatística Descritiva` passou a usar o mesmo helper para tabela e gráficos de Lead Time.
+  - As duas abas agora exibem e usam a mesma base comparável (`Amostra`, `Média`, `P50`, `P85`), reduzindo risco de divergência.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `python - <<'PY' ... lead_time_tab {'count': 183, 'mean': 13.3224..., 'p50': 10.0, 'p85': 24.0} ... estatistica_tab {'count': 183, 'mean': 13.3224..., 'p50': 10.0, 'p85': 24.0} ... match_* True ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(lead-time): unify comparable lead-time stats across Lead Time and Estatística tabs`
+
+## Current Task (Lead Time: explicar diferença entre finalizados e amostra válida)
+- [x] Verificar por que `LT válido` não igualava `Throughput` no recorte de fevereiro/2026
+- [x] Identificar itens finalizados sem base de cálculo de lead time
+- [x] Ajustar subtítulo da aba `Lead Time` para explicitar `Finalizados`, `LT válido` e `Sem base LT`
+- [x] Validar sintaxe e conferência numérica por projeto
+
+## Review (Lead Time: explicar diferença entre finalizados e amostra válida)
+- What was validated:
+  - Diferença confirmada no recorte (`2026-02-01` a `2026-02-28`, todos): `Finalizados=325`, `LT válido=239`, `Sem base LT=86`.
+  - Causa raiz dos 86: itens com `DataDone` preenchido, porém sem datas de início (`DataBacklog`/`DataInProgress`) e sem `LeadTime_Dias`, inviabilizando cálculo de LT.
+  - A UI da aba `Lead Time` foi ajustada para expor explicitamente essa decomposição e evitar leitura de inconsistência de contagem.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('dashboard_full.py ok')"`
+  - `python -c "import pandas as pd, dashboard_full as d; ...; print({'finalizados':..., 'lt_valido':..., 'sem_base_lt':...}); print(missing_by_project)"`
+    Resultado: `{'finalizados': 325, 'lt_valido': 239, 'sem_base_lt': 86}` e `{'DATA&ANALYTICS': 49, 'S1NC': 18, 'BEFINANCE': 14, 'W1NNER': 5}`.
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(lead-time): show finalized vs valid lead-time sample and missing-base count`
+
+## Current Task (CFD: alinhar visual/comportamento com produção)
+- [x] Diagnosticar divergências do CFD atual vs produção (granularidade temporal, forma da curva e linhas de tendência)
+- [x] Ajustar snapshots do CFD para base diária no recorte selecionado
+- [x] Ajustar traços para formato em degraus e incluir linhas-guia de taxa (`items/day`) no modo detalhado
+- [x] Validar sintaxe e revisar diff da alteração
+
+## Review (CFD: alinhar visual/comportamento com produção)
+- What was validated:
+  - O CFD passou a usar snapshots diários (`freq='D'`) no recorte selecionado, removendo o efeito de linhas semanais triangulares.
+  - As bandas do CFD (macro e detalhado) passaram a ser renderizadas em degraus (`line.shape='hv'`), alinhando a leitura visual com a referência de produção.
+  - No modo detalhado, foram adicionadas duas linhas-guia de taxa (Triagem e Itens concluídos), com anotações em `items/day`.
+- Evidence (tests/logs/diff):
+  - `python -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(cfd): align chart with production using daily snapshots, step rendering, and rate guide lines`
+
+## Current Task (Consistência de contagem: Entregues x Lead Time x Throughput)
+- [x] Rastrear a origem dos números divergentes nas abas `Performance`, `Lead Time` e `Throughput`
+- [x] Padronizar base de itens entregues no período (itens elegíveis e deduplicados por item/projeto)
+- [x] Aplicar base padronizada no card `Entregues` e no KPI `Throughput Total`
+- [x] Ajustar subtítulo de `Lead Time` para explicitar amostra válida sobre total de entregues
+- [x] Validar sintaxe e executar conferência numérica no recorte reportado
+
+## Review (Consistência de contagem: Entregues x Lead Time x Throughput)
+- What was validated:
+  - Causa raiz confirmada: cada aba usava critérios diferentes (linhas vs itens deduplicados, elegibilidade de concluído e amostra de lead time).
+  - Foi criada a base única `build_delivered_items_base(...)` para contar entregues com regra consistente:
+    - concluídos no recorte ativo,
+    - elegíveis (`done_time_eligible_mask`),
+    - deduplicados por `Projeto + ItemID` (ou `ItemID`).
+  - `Entregues` (Performance) e `Throughput Total` passaram a usar exatamente essa mesma base.
+  - `Lead Time` mantém a amostra válida de lead time, mas agora exibe claramente `Amostra Lead Time: X de Y entregues`.
+- Evidence (tests/logs/diff):
+  - `python -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('dashboard_full.py ok')"`
+  - `python -c "import pandas as pd, dashboard_full as d; ...; print({'delivered':..., 'throughput_total':..., 'leadtime_sample':...})"`
+    Resultado no recorte informado (2026-02-01 a 2026-02-28, Todos): `{'delivered': 325, 'throughput_total': 325, 'leadtime_sample': 239}`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(metrics): unify delivered and throughput counts and clarify lead-time sample base`
+
 ## Current Task (Estatística Descritiva: corrigir números com "Todos os projetos")
 - [x] Diagnosticar divergência da aba `tab-estatistica` no cenário `Projeto = Todos os projetos`
 - [x] Unificar base de dados da aba para aplicar mesmos filtros ativos antes dos cálculos por métrica

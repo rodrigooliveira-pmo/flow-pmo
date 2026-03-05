@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-05
+- Context: Usuário reportou que o gráfico de CFD não estava igual ao de produção.
+- User correction: Solicitou alinhamento visual/comportamental do CFD com referência de produção.
+- Root cause: O CFD estava com snapshots semanais e interpolação linear, reduzindo fidelidade visual (sem degraus e sem linhas-guia de taxa).
+- Prevention rule: Para CFD comparado com ferramenta de produção, usar snapshots diários e renderização em degrau (`line.shape='hv'`) como baseline.
+- Action added to workflow: Em qualquer ajuste de CFD, validar explicitamente granularidade temporal, forma da curva e presença de linhas de taxa esperadas.
+
 - Date: 2026-03-03
 - Context: Regressao apos deploy no CFD detalhado com mensagem de CSV downstream indisponivel.
 - User correction: Reportou que o dashboard passou a exibir erro de ausencia de `*-data.csv` para W1NNER apos deploy.

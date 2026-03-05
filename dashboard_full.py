@@ -338,6 +338,7 @@ fato['ClasseServico'] = fato.apply(lambda row: resolve_service_class(row.get('Cl
 # Semana padrão do sistema: semana ISO (segunda a domingo).
 WEEK_DATE_RANGE_FREQ = 'W-MON'
 WEEK_PERIOD = 'W-SUN'
+CFD_SNAPSHOT_FREQ = 'D'
 
 # App
 app = dash.Dash(
@@ -3312,6 +3313,85 @@ def time_metric_series(df, column, positive_only=False, non_negative=False):
     return s
 
 
+def build_lead_time_comparable_scope(df_source, lead_col='LeadTime_Selected_Dias'):
+    """
+    Build a canonical Lead Time scope used by both Lead Time and Estatística tabs.
+    Returns: (clean_df, lt_series, lt_stats)
+    """
+    if df_source is None or getattr(df_source, 'empty', True):
+        return pd.DataFrame(), pd.Series(dtype='float64'), {}
+    if lead_col not in df_source.columns or 'DataDone' not in df_source.columns:
+        return pd.DataFrame(), pd.Series(dtype='float64'), {}
+
+    df_lt = df_source.copy()
+    df_lt = df_lt[done_time_eligible_mask(df_lt)].copy()
+    if df_lt.empty:
+        return pd.DataFrame(), pd.Series(dtype='float64'), {}
+
+    df_lt[lead_col] = pd.to_numeric(df_lt[lead_col], errors='coerce')
+    df_lt['DataDone'] = pd.to_datetime(df_lt['DataDone'], errors='coerce')
+    df_lt = df_lt.dropna(subset=[lead_col, 'DataDone']).copy()
+    df_lt = df_lt[df_lt[lead_col] >= 0].sort_values('DataDone')
+    if df_lt.empty:
+        return pd.DataFrame(), pd.Series(dtype='float64'), {}
+
+    lt_series = time_metric_series(df_lt, lead_col, non_negative=True)
+    if lt_series.empty:
+        return pd.DataFrame(), pd.Series(dtype='float64'), {}
+
+    lt_stats = {
+        'count': int(len(lt_series)),
+        'mean': float(lt_series.mean()),
+        'p50': float(exact_empirical_percentile(lt_series, 0.50)),
+        'p75': float(exact_empirical_percentile(lt_series, 0.75)),
+        'p85': float(exact_empirical_percentile(lt_series, 0.85)),
+        'p95': float(exact_empirical_percentile(lt_series, 0.95)),
+    }
+    return df_lt, lt_series, lt_stats
+
+
+def unique_item_keys(df):
+    """Return deduplication keys preserving project context when available."""
+    keys = []
+    if df is not None and 'Projeto' in df.columns:
+        keys.append('Projeto')
+    if df is not None and 'ItemID' in df.columns:
+        keys.append('ItemID')
+    return keys
+
+
+def build_delivered_items_base(df_source, lead_time_col=None):
+    """
+    Standard delivered-items base used across tabs:
+    - done in current filtered scope (DataDone not null)
+    - eligible done items (no cancellation history)
+    - deduplicated by Projeto+ItemID (or ItemID)
+    - optional valid lead-time filter when lead_time_col is provided
+    """
+    if df_source is None or getattr(df_source, 'empty', True):
+        return pd.DataFrame(columns=getattr(df_source, 'columns', []))
+
+    out = df_source.dropna(subset=['DataDone']).copy() if 'DataDone' in df_source.columns else df_source.copy()
+    if out.empty:
+        return out
+
+    out = out[done_time_eligible_mask(out)].copy()
+    if out.empty:
+        return out
+
+    if lead_time_col and lead_time_col in out.columns:
+        out[lead_time_col] = pd.to_numeric(out[lead_time_col], errors='coerce')
+        out = out.dropna(subset=[lead_time_col])
+        out = out[out[lead_time_col] >= 0]
+        if out.empty:
+            return out
+
+    dedup_keys = unique_item_keys(out)
+    if dedup_keys:
+        out = out.drop_duplicates(subset=dedup_keys, keep='first')
+    return out
+
+
 def exact_empirical_percentile(values, q):
     """Nearest-rank empirical percentile (no interpolation)."""
     s = pd.Series(values).dropna()
@@ -3500,8 +3580,8 @@ def build_cfd_dataframe(df_source, start_ts=None, end_ts=None):
     if pd.isna(start_point) or pd.isna(end_point) or end_point < start_point:
         return pd.DataFrame(), ['Backlog', 'Em Progresso', 'Pronto']
 
-    weekly_points = pd.date_range(start=start_point, end=end_point, freq=WEEK_DATE_RANGE_FREQ)
-    snapshots = pd.DatetimeIndex(sorted(set([start_point, end_point, *list(weekly_points)])))
+    daily_points = pd.date_range(start=start_point, end=end_point, freq=CFD_SNAPSHOT_FREQ)
+    snapshots = pd.DatetimeIndex(sorted(set([start_point, end_point, *list(daily_points)])))
     if snapshots.empty:
         snapshots = pd.DatetimeIndex([start_point, end_point]).unique().sort_values()
 
@@ -3683,6 +3763,59 @@ def _cfd_stage_color(stage_name):
     return vivid_defaults[int(digest[:8], 16) % len(vivid_defaults)]
 
 
+def _compute_cfd_trend_line(dates, values):
+    if dates is None or values is None:
+        return None
+    x_dates = pd.to_datetime(pd.Series(dates), errors='coerce')
+    y_values = pd.to_numeric(pd.Series(values), errors='coerce')
+    mask = x_dates.notna() & y_values.notna()
+    x_dates = x_dates[mask]
+    y_values = y_values[mask]
+    if x_dates.empty or y_values.empty or len(x_dates) < 2:
+        return None
+
+    x_days = (x_dates - x_dates.min()).dt.total_seconds() / 86400.0
+    if len(np.unique(x_days.values)) < 2:
+        return None
+
+    slope, intercept = np.polyfit(x_days.values, y_values.values, 1)
+    if not np.isfinite(slope) or not np.isfinite(intercept):
+        return None
+    trend_y = intercept + slope * x_days.values
+    if not np.isfinite(trend_y).all():
+        return None
+
+    return {
+        'dates': x_dates.tolist(),
+        'trend': trend_y,
+        'slope': float(slope),
+    }
+
+
+def _select_cfd_rate_stages(stages):
+    if not stages:
+        return []
+
+    triagem_stage = None
+    done_stage = None
+    for stage in stages:
+        normalized = normalize_text(stage)
+        if triagem_stage is None and 'triag' in normalized:
+            triagem_stage = stage
+        if done_stage is None and any(token in normalized for token in ['done', 'conclu', 'pronto']):
+            done_stage = stage
+
+    if triagem_stage is None:
+        triagem_stage = stages[0]
+
+    selected = []
+    if triagem_stage:
+        selected.append(triagem_stage)
+    if done_stage and done_stage not in selected:
+        selected.append(done_stage)
+    return selected
+
+
 def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_ids=None):
     """Creates a CFD with macro mode and optional detailed stage mode (exact from downstream CSV)."""
     if df_cfd is None or df_cfd.empty:
@@ -3701,6 +3834,16 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
     }
 
     macro_trace_indices = []
+    macro_annotations = [{
+        'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
+        'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
+        'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
+    }]
+    detailed_annotations = [{
+        'text': 'Detalhado (exato): usa datas por etapa do CSV downstream do projeto.',
+        'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
+        'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
+    }]
     for stage in ['Pronto', 'Em Progresso', 'Backlog']:
         stage_color = macro_colors[stage]
         raw_col = macro_raw_map[stage]
@@ -3709,7 +3852,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
             y=df_cfd[raw_col],
             mode='lines',
             name=stage,
-            line=dict(width=1.8, color=stage_color),
+            line=dict(width=1.8, color=stage_color, shape='hv'),
             stackgroup='macro',
             fillcolor=_hex_to_rgba(stage_color, 0.82),
             customdata=df_cfd[[raw_col, stage]].values,
@@ -3749,7 +3892,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
                 y=detailed_df[raw_col],
                 mode='lines',
                 name=stage,
-                line=dict(width=1.35, color=line_color),
+                line=dict(width=1.35, color=line_color, shape='hv'),
                 stackgroup='detailed',
                 fillcolor=_hex_to_rgba(line_color, 0.86),
                 customdata=detailed_df[[total_col]].values,
@@ -3763,6 +3906,45 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
                 visible=False,
             ))
             detailed_trace_indices.append(len(fig.data) - 1)
+
+        for stage in _select_cfd_rate_stages(detailed_stages):
+            trend_info = _compute_cfd_trend_line(
+                detailed_df['Data'],
+                detailed_df.get(f'cum::{stage}')
+            )
+            if trend_info is None:
+                continue
+
+            fig.add_trace(go.Scatter(
+                x=trend_info['dates'],
+                y=trend_info['trend'],
+                mode='lines',
+                name=f'{stage} (tendência)',
+                line=dict(width=2.4, color='rgba(70,70,70,0.88)'),
+                hovertemplate=(
+                    f'{stage}: {trend_info["slope"]:.2f} (items/day)'
+                    '<extra></extra>'
+                ),
+                showlegend=False,
+                visible=False,
+            ))
+            detailed_trace_indices.append(len(fig.data) - 1)
+
+            label_idx = int(len(trend_info['dates']) * 0.45)
+            label_idx = max(0, min(label_idx, len(trend_info['dates']) - 1))
+            detailed_annotations.append({
+                'text': f'{stage}: {trend_info["slope"]:.2f} (items/day)',
+                'xref': 'x',
+                'yref': 'y',
+                'x': trend_info['dates'][label_idx],
+                'y': float(trend_info['trend'][label_idx]),
+                'showarrow': False,
+                'font': {'size': 11, 'color': '#ffffff'},
+                'bgcolor': 'rgba(0,0,0,0.92)',
+                'bordercolor': 'rgba(0,0,0,0.92)',
+                'borderpad': 4,
+                'align': 'left',
+            })
 
     fig.update_layout(
         title='Cumulative Flow Diagram (CFD)',
@@ -3824,11 +4006,7 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
                         'method': 'update',
                         'args': [
                             {'visible': macro_visible},
-                            {'annotations': [{
-                                'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
-                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
-                                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
-                            }]}
+                            {'annotations': macro_annotations}
                         ]
                     },
                     {
@@ -3836,20 +4014,12 @@ def create_cfd_figure(df_cfd, bottlenecks_df=None, projeto=None, filtered_item_i
                         'method': 'update',
                         'args': [
                             {'visible': detailed_visible},
-                            {'annotations': [{
-                                'text': 'Detalhado (exato): usa datas por etapa do CSV downstream do projeto.',
-                                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
-                                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
-                            }]}
+                            {'annotations': detailed_annotations}
                         ]
                     },
                 ],
             }],
-            annotations=[{
-                'text': 'Macro (exato): usa datas reais de Backlog / Em Progresso / Pronto.',
-                'xref': 'paper', 'yref': 'paper', 'x': 0, 'y': 1.15,
-                'showarrow': False, 'align': 'left', 'font': {'size': 11, 'color': '#555'}
-            }],
+            annotations=macro_annotations,
         )
     else:
         unavailable_reason = _get_cfd_detailed_unavailable_reason(
@@ -5986,7 +6156,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         done_period_mask = (data_done >= start_ts) & (data_done <= end_ts)
         df_done_period = df_scope[done_period_mask].copy()
-        df_done_period_eligible = df_done_period[done_time_eligible_mask(df_done_period)].copy()
+        df_done_period_eligible = build_delivered_items_base(df_done_period)
 
         planned_items = int(len(df_scope_period))
         delivered_items = int(len(df_done_period_eligible))
@@ -6101,8 +6271,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
             leadtime_selection_summary,
             html.Div(
-                f"Lead Time = primeira etapa selecionada (compromisso) até finalização | "
-                f"Amostra no período filtrado: {int(time_metric_series(df, 'LeadTime_Selected_Dias', non_negative=True).shape[0])}",
+                (
+                    "Lead Time = primeira etapa selecionada (compromisso) até finalização | "
+                    f"Entregues no período: {int(len(build_delivered_items_base(df)))} itens"
+                ),
                 style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px', 'fontSize': '13px'}
             ),
             consolidated_section,
@@ -6126,30 +6298,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
 
-        df_lt = df.copy()
-        if not df_lt.empty:
-            df_lt = df_lt[done_time_eligible_mask(df_lt)].copy()
-        if df_lt.empty or 'LeadTime_Selected_Dias' not in df_lt.columns:
-            return html.Div('Sem dados de Lead Time para o período e filtros selecionados.')
-
-        df_lt['LeadTime_Selected_Dias'] = pd.to_numeric(df_lt['LeadTime_Selected_Dias'], errors='coerce')
-        df_lt['DataDone'] = pd.to_datetime(df_lt['DataDone'], errors='coerce')
-        df_lt = df_lt.dropna(subset=['LeadTime_Selected_Dias', 'DataDone']).copy()
-        df_lt = df_lt[df_lt['LeadTime_Selected_Dias'] >= 0].sort_values('DataDone')
-        if df_lt.empty:
-            return html.Div('Sem dados válidos de Lead Time para o período e filtros selecionados.')
-
-        lt_series = time_metric_series(df_lt, 'LeadTime_Selected_Dias', non_negative=True)
+        delivered_scope = build_delivered_items_base(df)
+        delivered_total = int(len(delivered_scope))
+        df_lt, lt_series, lt_stats = build_lead_time_comparable_scope(df, lead_col='LeadTime_Selected_Dias')
         if lt_series.empty:
             return html.Div('Sem amostra válida de Lead Time para o período e filtros selecionados.')
 
-        lt_stats = {
-            'p50': exact_empirical_percentile(lt_series, 0.50),
-            'p75': exact_empirical_percentile(lt_series, 0.75),
-            'p85': exact_empirical_percentile(lt_series, 0.85),
-            'p95': exact_empirical_percentile(lt_series, 0.95),
-            'mean': float(lt_series.mean()),
-        }
         line_defs = [
             ('p50', 'P50', '#27AE60', 'dash'),
             ('p75', 'P75', '#2D9CDB', 'dash'),
@@ -6258,9 +6412,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         fig_lt_scatter.update_xaxes(title_text='Data de conclusão', tickformat='%d/%m/%Y', tickangle=-45)
         fig_lt_scatter.update_yaxes(title_text='Lead Time (dias)')
 
+        lt_valid_total = int(len(lt_series))
+        lt_missing_total = int(max(delivered_total - lt_valid_total, 0))
+        lt_mean = lt_stats.get('mean', np.nan)
+        lt_p50 = lt_stats.get('p50', np.nan)
+        lt_p85 = lt_stats.get('p85', np.nan)
         subtitle = (
             f"Projeto: {projeto or 'Todos'} | Período: {start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')} | "
-            f"Amostra: {int(len(lt_series))} itens | Início: {leadtime_meta.get('label', 'padrão')}"
+            f"Finalizados: {delivered_total} | LT válido: {lt_valid_total} | Sem base LT: {lt_missing_total} | "
+            f"Média: {lt_mean:.2f} | P50: {lt_p50:.2f} | P85: {lt_p85:.2f} | "
+            f"Início: {leadtime_meta.get('label', 'padrão')}"
         )
         return html.Div([
             html.H3("Lead Time", style={'textAlign': 'center'}),
@@ -8887,7 +9048,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         ])
 
     if tab == 'tab-throughput-breakdown':
-        tp_done = df.dropna(subset=['DataDone']).copy()
+        tp_done = build_delivered_items_base(df)
         if tp_done.empty:
             return html.Div('Sem dados de Throughput para exibir para o período e filtros selecionados.')
 
@@ -10171,10 +10332,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         df_done = df_base[done_period_mask].copy()
         df_done = df_done[done_time_eligible_mask(df_done)].copy()
 
-        # --- 1. Estatísticas de Lead Time ---
+        # --- 1. Estatísticas de Lead Time (base compartilhada com aba Lead Time) ---
         lead_time_stats = {}
         lead_col = 'LeadTime_Selected_Dias' if 'LeadTime_Selected_Dias' in df_done.columns else 'LeadTime_Dias'
-        lt = time_metric_series(df_done, lead_col, non_negative=True) if lead_col in df_done.columns else pd.Series(dtype='float64')
+        df_done_lt, lt, lt_comparable_stats = build_lead_time_comparable_scope(df_done, lead_col=lead_col)
         if not lt.empty:
             lt_exact = exact_percentile_map(lt, [0.25, 0.50, 0.75, 0.85, 0.95])
             lt_weibull = fit_weibull_linearized(lt)
@@ -10250,19 +10411,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # Gráficos de Lead Time
         fig_lt_hist = {}
         fig_lt_box = {}
-        if not df_done.empty and lead_col in df_done.columns and not df_done[lead_col].dropna().empty:
-            df_done_lt = df_done.copy()
-            df_done_lt[lead_col] = pd.to_numeric(df_done_lt[lead_col], errors='coerce')
-            df_done_lt = df_done_lt.dropna(subset=[lead_col])
-            df_done_lt = df_done_lt[df_done_lt[lead_col] >= 0]
+        if not df_done_lt.empty:
             fig_lt_hist = px.histogram(df_done_lt, x=lead_col, nbins=30,
                                        title='Distribuição do Lead Time (dias)',
                                        labels={lead_col: 'Lead Time (dias)', 'count': 'Frequência'},
                                        height=500)
-            lt_hist_series = time_metric_series(df_done_lt, lead_col, non_negative=True)
-            lt_mean_val = lt_hist_series.mean()
-            lt_median_val = exact_empirical_percentile(lt_hist_series, 0.50)
-            lt_p85_val = exact_empirical_percentile(lt_hist_series, 0.85)
+            lt_mean_val = lt_comparable_stats.get('mean', np.nan)
+            lt_median_val = lt_comparable_stats.get('p50', np.nan)
+            lt_p85_val = lt_comparable_stats.get('p85', np.nan)
             fig_lt_hist.add_vline(x=lt_mean_val, line_dash="dash", line_color="red", annotation_text=f"Média: {lt_mean_val:.1f}")
             fig_lt_hist.add_vline(x=lt_median_val, line_dash="dash", line_color="blue", annotation_text=f"Mediana: {lt_median_val:.1f}")
             fig_lt_hist.add_vline(x=lt_p85_val, line_dash="dash", line_color="orange", annotation_text=f"P85: {lt_p85_val:.1f}")
@@ -10372,10 +10528,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # --- Layout da aba ---
         filtro_info = f"Projeto: {projeto or 'Todos'} | Tipo: {tipo or 'Todos'}"
+        comparativo_lead_info = (
+            f"Lead Time comparável à aba 'Lead Time' | "
+            f"Amostra: {int(lt_comparable_stats.get('count', 0))} | "
+            f"Média: {float(lt_comparable_stats.get('mean', np.nan)):.2f} | "
+            f"P50: {float(lt_comparable_stats.get('p50', np.nan)):.2f} | "
+            f"P85: {float(lt_comparable_stats.get('p85', np.nan)):.2f}"
+            if lt_comparable_stats else
+            "Lead Time comparável à aba 'Lead Time' | Sem amostra válida no recorte."
+        )
 
         return html.Div([
             html.H3("Estatística Descritiva", style={'textAlign': 'center'}),
             html.P(filtro_info, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '30px'}),
+            html.P(comparativo_lead_info, style={'textAlign': 'center', 'color': '#666', 'marginTop': '-20px', 'marginBottom': '20px'}),
 
             # Cpk / Six Sigma
             html.H4("Capabilidade do Processo (Cpk e Nível Sigma)", style={'textAlign': 'center', 'marginTop': '20px', 'borderBottom': '2px solid #ddd', 'paddingBottom': '10px'}),
