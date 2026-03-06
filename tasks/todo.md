@@ -1,5 +1,20 @@
 # Task Plan
 
+## Current Task (Ignorar artefatos csv/xlsx/png no Git)
+- [x] Inspecionar o `.gitignore` atual e confirmar o impacto no worktree
+- [x] Adicionar regras para ignorar arquivos `.csv`, `.xlsx` e `.png`
+- [x] Validar o diff e registrar o resultado na seção de review
+
+## Review (Ignorar artefatos csv/xlsx/png no Git)
+- What was validated:
+  - [`/.gitignore`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/.gitignore) agora ignora globalmente `*.csv`, `*.xlsx` e `*.png`.
+  - O `git status` continua mostrando artefatos já versionados em `artifacts/process_mining`; o novo ignore evita novos arquivos não rastreados dessas extensões, mas não remove do índice arquivos já commitados.
+- Evidence (tests/logs/diff):
+  - `git diff -- .gitignore tasks/todo.md`
+  - `git status --short .gitignore tasks/todo.md artifacts/process_mining`
+- Suggested commit message:
+  - `chore(gitignore): ignore generated csv xlsx and png artifacts`
+
 ## Current Task (Expandir process mining e Bitbucket para S1NC, DATA&ANALITICS e BEFINANCE)
 - [x] Mapear os pontos hardcoded de projeto/prefixo no pipeline de process mining, na automação `run_all` e no consumo Bitbucket
 - [x] Generalizar `process_mining_jira.py` para aceitar aliases/prefixos por projeto além de W1NNER
@@ -4362,3 +4377,77 @@
   - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
 - Suggested commit message:
   - `fix(deploy): ignore cross-platform absolute paths in model and data env overrides`
+
+## Current Task (Deploy Vercel: excluir scripts operacionais do bundle Python)
+- [x] Confirmar que `FLOW_PMO_MODEL_FILE` não existe nas envs remotas da Vercel
+- [x] Restringir o bundle da função Python a arquivos necessários ao runtime do dashboard
+- [x] Validar sintaxe do `vercel.json`
+- [x] Registrar review e sugestão de commit
+
+## Specification (Deploy Vercel: excluir scripts operacionais do bundle Python)
+- Objetivo: evitar que o builder Python da Vercel analise/empacote scripts auxiliares de geração de artefatos, reduzindo falsos positivos de paths absolutos fora do projeto.
+- Escopo:
+  - `vercel.json`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `api/index.py` continua como entrypoint único da função Python.
+  - Scripts operacionais (`dash_board_metricas.py`, `process_mining_jira.py`, exportadores Jira e CSVs históricos) deixam de entrar no bundle da função.
+  - `vercel.json` permanece válido em sintaxe.
+
+## Review (Deploy Vercel: excluir scripts operacionais do bundle Python)
+- What was validated:
+  - `vercel env ls production` confirmou que o projeto remoto não possui `FLOW_PMO_MODEL_FILE`; a origem do path absoluto não é uma env remota atual.
+  - [`vercel.json`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/vercel.json) passou a usar `builds[0].config.excludeFiles` para remover do bundle scripts de geração/importação e CSVs históricos que não participam do runtime servido por [`api/index.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/api/index.py).
+  - [`/.vercelignore`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/.vercelignore) passou a excluir do upload artefatos locais, CSVs/XLSX, docs e scripts operacionais; o upload caiu de `32.1MB` para `340B` e o build remoto baixou `21 deployment files` em vez de `237`.
+  - Após reduzir o upload ao runtime real do dashboard, o deploy remoto concluiu sem o erro `absolute path: C:/Users/W1 TI/OneDrive - W1/Documentos/Dados/latest/PowerBI_Model_latest.xlsx`.
+- Evidence (tests/logs/diff):
+  - `./node_modules/.bin/vercel env ls production`
+  - `python3 - <<'PY' ... json.loads(Path("vercel.json").read_text()) ... print("vercel_json_ok") ... PY`
+  - `python3 deploy.py --no-link --yes`
+  - Deploy bem-sucedido:
+    - `Production: https://flow-4h1fymfq6-rodrigooliveira-pmos-projects.vercel.app`
+    - `Aliased: https://flow-pmo.vercel.app`
+  - `git diff -- vercel.json dashboard_full.py dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(vercel): ignore cross-platform path overrides and exclude local artifacts from deploy bundle`
+
+## Current Task (Diagnosticar por que artefatos latest pararam no run_all_projects)
+- [x] Mapear no código a ordem de execução entre exportação Jira, Bitbucket, portfólio e métricas no `run_all_projects_macos.sh`
+- [x] Comparar timestamps dos artefatos `latest` gerados em `~/Documents/Dados` e publicados em `~/Documents/dados/latest`
+- [x] Identificar o ponto exato onde a execução mais recente interrompeu o pipeline
+- [x] Registrar a causa raiz com evidências e sugestão de correção
+
+## Review (Diagnosticar por que artefatos latest pararam no run_all_projects)
+- What was validated:
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) executa Bitbucket dentro do loop de projetos e só roda portfólio/métricas depois disso; como o script usa `set -euo pipefail`, qualquer falha nessa etapa aborta o restante.
+  - Os quatro artefatos citados continuam existindo tanto em [`/Users/rodrigoalmeidadeoliveira/Documents/Dados`]( /Users/rodrigoalmeidadeoliveira/Documents/Dados) quanto em [`/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`]( /Users/rodrigoalmeidadeoliveira/Documents/dados/latest), mas ficaram parados no timestamp `2026-03-06 08:49`, mostrando que não deixaram de ser gerados historicamente; a execução mais recente apenas não chegou nessa etapa.
+  - A evidência de interrupção está em [`/Users/rodrigoalmeidadeoliveira/Documents/Dados/w1nner_pipelines.csv.tmp`](/Users/rodrigoalmeidadeoliveira/Documents/Dados/w1nner_pipelines.csv.tmp), atualizado às `12:04` sem promoção para `w1nner_pipelines.csv`; isso combina com o fluxo de [`bitbucket_export.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py), que grava em `.tmp` e só faz `replace()` no arquivo final se a exportação terminar sem exceção.
+  - Conclusão: o `run_all_projects` passou a parar antes de `portfolio` e `dash_board_metricas.py` porque a exportação de pipelines do Bitbucket para `W1NNER` falhou/interrompeu; por isso `dashboard_output_latest.xlsx`, `bottlenecks_consolidado_latest.xlsx`, `PowerBI_Model_latest.xlsx` e `portfolio-bt-ns-latest-data.csv` não foram atualizados após `08:49`.
+- Evidence (tests/logs/diff):
+  - `rg -n "RUN_BITBUCKET_EXPORT|RUN_PORTFOLIO_EXPORT|RUN_METRICS|set -euo pipefail|publish_latest_artifact|sync_latest_artifacts_from_out_dir" run_all_projects_macos.sh`
+  - `find "$HOME/Documents/Dados" -maxdepth 1 -type f \( -name 'dashboard_output_latest.xlsx' -o -name 'bottlenecks_consolidado_latest.xlsx' -o -name 'PowerBI_Model_latest.xlsx' -o -name 'portfolio-bt-ns-latest-data.csv' \) | sort`
+  - `find "$HOME/Documents/dados/latest" -maxdepth 1 -type f \( -name 'dashboard_output_latest.xlsx' -o -name 'bottlenecks_consolidado_latest.xlsx' -o -name 'PowerBI_Model_latest.xlsx' -o -name 'portfolio-bt-ns-latest-data.csv' \) | sort`
+  - `ls -lt "$HOME/Documents/Dados" | sed -n '1,40p'`
+  - `python3 - <<'PY' ... Path.home()/Documents/Dados/w1nner_pipelines.csv.tmp ... print(first_bytes) ... PY`
+- Suggested commit message:
+  - `fix(run-all): prevent bitbucket pipeline export failures from blocking metrics artifacts`
+
+## Current Task (Permitir que run_all continue após falha no Bitbucket)
+- [x] Revisar a orquestração Bitbucket nos scripts macOS e Windows
+- [x] Tornar a exportação Bitbucket não bloqueante para preservar portfólio e métricas
+- [x] Validar sintaxe/comportamento possível no ambiente atual
+- [x] Registrar review com evidências e sugestão de commit
+
+## Review (Permitir que run_all continue após falha no Bitbucket)
+- What was validated:
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) agora captura falha do `bitbucket_export.py` por projeto, emite aviso em `stderr`, acumula um resumo em `BITBUCKET_FAILURES` e segue para as etapas de portfólio e métricas.
+  - [`run_all_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects.ps1) recebeu a mesma proteção: falhas de Bitbucket agora viram `Write-Warning` e não mais `throw`, preservando o restante do pipeline.
+  - A publicação dos CSVs Bitbucket em `latest` continua ocorrendo apenas quando a exportação daquele projeto termina com sucesso; em caso de falha, o comportamento muda só no ponto certo: não bloquear os quatro artefatos principais (`portfolio-bt-ns-latest-data.csv`, `dashboard_output_latest.xlsx`, `bottlenecks_consolidado_latest.xlsx`, `PowerBI_Model_latest.xlsx`).
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `python3 - <<'PY' ... assert needles no run_all_projects_macos.sh ... PY`
+  - `python3 - <<'PY' ... assert needles no run_all_projects.ps1 ... PY`
+  - Limitação: `pwsh` não está instalado neste ambiente, então não foi possível fazer parse/smoke test automatizado do `.ps1`.
+  - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 tasks/todo.md`
+- Suggested commit message:
+  - `fix(run-all): keep portfolio and metrics generation running when bitbucket export fails`

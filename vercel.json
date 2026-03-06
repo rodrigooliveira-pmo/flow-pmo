@@ -4,7 +4,10 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "excludeFiles": "{dash_board_metricas.py,process_mining_jira.py,deploy.py,gerar_powerbi_pbix.py,inspect_csvs.py,run_import_check.py,jira_portfolio_to_csv.py,jira_to_businessmap_xlsx.py,jira_to_pipeline_csv.py,run_all_projects.ps1,run_all_projects_macos.sh,*_commits.csv,*_pullrequests.csv,w1nner_commits.csv,w1nner_pullrequests.csv}"
+      }
     }
   ],
   "routes": [

@@ -15,6 +15,7 @@ OPEN_DASHBOARD=true
 RUN_DETAILED_CHANGELOG_EXPORT=false
 RUN_PROCESS_MINING=true
 RUN_BITBUCKET_EXPORT=true
+BITBUCKET_FAILURES=()
 
 usage() {
     cat <<'EOF_HELP'
@@ -277,13 +278,18 @@ for i in "${!PROJECT_KEYS[@]}"; do
     if [[ "$RUN_BITBUCKET_EXPORT" == true ]]; then
         [[ -f "$BITBUCKET_SCRIPT" ]] || { echo "Arquivo nao encontrado: $BITBUCKET_SCRIPT"; exit 1; }
         echo "Exportando Bitbucket para ${bitbucket_project}..."
-        "$PYTHON_BIN" "$BITBUCKET_SCRIPT" --project "$bitbucket_project" --out-dir "$OUT_DIR"
-        for suffix in commits pullrequests pipelines; do
-            bitbucket_file="${OUT_DIR}/${prefix%-downstream}_${suffix}.csv"
-            if [[ -f "$bitbucket_file" ]]; then
-                publish_latest_artifact "$bitbucket_file" "$LATEST_DIR"
-            fi
-        done
+        if "$PYTHON_BIN" "$BITBUCKET_SCRIPT" --project "$bitbucket_project" --out-dir "$OUT_DIR"; then
+            for suffix in commits pullrequests pipelines; do
+                bitbucket_file="${OUT_DIR}/${prefix%-downstream}_${suffix}.csv"
+                if [[ -f "$bitbucket_file" ]]; then
+                    publish_latest_artifact "$bitbucket_file" "$LATEST_DIR"
+                fi
+            done
+        else
+            status=$?
+            echo "Aviso: exportacao Bitbucket falhou para ${bitbucket_project} (exit ${status}). O pipeline seguira para portfolio e metricas." >&2
+            BITBUCKET_FAILURES+=("${bitbucket_project}:exit-${status}")
+        fi
     fi
 done
 
@@ -294,6 +300,9 @@ unset JIRA_IGNORE_STATUS_MAP
 
 echo
 echo "Exportacoes concluidas com sucesso."
+if [[ ${#BITBUCKET_FAILURES[@]} -gt 0 ]]; then
+    echo "Avisos Bitbucket: ${BITBUCKET_FAILURES[*]}" >&2
+fi
 
 if [[ "$RUN_PORTFOLIO_EXPORT" == true ]]; then
     [[ -f "$PORTFOLIO_SCRIPT" ]] || { echo "Arquivo nao encontrado: $PORTFOLIO_SCRIPT"; exit 1; }

@@ -8,3 +8,6 @@ jira_env.txt
 .vercel
 .env*.local
 .env
+*.csv
+*.xlsx
+*.png

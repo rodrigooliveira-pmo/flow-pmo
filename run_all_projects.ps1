@@ -56,6 +56,7 @@ $metricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
 $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
 $latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
+$bitbucketFailures = New-Object System.Collections.Generic.List[string]
 $processMiningOutDir = Join-Path $PSScriptRoot 'artifacts\process_mining'
 
 function Publish-LatestArtifact {
@@ -186,13 +187,16 @@ foreach ($p in $projects) {
         Write-Host "Exportando Bitbucket para $($p.BitbucketProject)..." -ForegroundColor Cyan
         & python $bitbucketScript --project $p.BitbucketProject --out-dir $OutDir
         if ($LASTEXITCODE -ne 0) {
-            throw "Falha na extração Bitbucket do projeto $($p.BitbucketProject)."
+            $status = $LASTEXITCODE
+            Write-Warning "Falha na extração Bitbucket do projeto $($p.BitbucketProject) (exit $status). O pipeline seguirá para portfólio e métricas."
+            [void]$bitbucketFailures.Add("$($p.BitbucketProject):exit-$status")
         }
-
-        foreach ($suffix in @('commits', 'pullrequests', 'pipelines')) {
-            $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p.FilePrefix.Replace('-downstream', ''), $suffix)
-            if (Test-Path $bitbucketFile) {
-                Publish-LatestArtifact -SourcePath $bitbucketFile -LatestDir $latestDir
+        else {
+            foreach ($suffix in @('commits', 'pullrequests', 'pipelines')) {
+                $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p.FilePrefix.Replace('-downstream', ''), $suffix)
+                if (Test-Path $bitbucketFile) {
+                    Publish-LatestArtifact -SourcePath $bitbucketFile -LatestDir $latestDir
+                }
             }
         }
     }
@@ -204,6 +208,9 @@ if ($null -ne $originalJiraStatusMap -and $originalJiraStatusMap -ne '') {
 Remove-Item -Path Env:JIRA_IGNORE_STATUS_MAP -ErrorAction SilentlyContinue
 
 Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
+if ($bitbucketFailures.Count -gt 0) {
+    Write-Warning ("Avisos Bitbucket: " + ($bitbucketFailures -join ", "))
+}
 
 if ($RunPortfolioExport) {
     if (-not (Test-Path $portfolioScript)) {
