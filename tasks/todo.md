@@ -1,5 +1,33 @@
 # Task Plan
 
+## Current Task (Eliminar warning pandas e conflito de porta do dashboard)
+- [x] Localizar a origem do `FutureWarning` em `dashboard_full.py`
+- [x] Ajustar a normalização numérica para evitar downcast implícito após `fillna`
+- [x] Ajustar bootstrap do Dash para usar `serve_locally=True` e procurar porta livre a partir da porta preferida
+- [x] Validar sintaxe, comportamento do fallback de porta e diff
+
+## Review (Eliminar warning pandas e conflito de porta do dashboard)
+- What was validated:
+  - O `FutureWarning` em `quality_por_team` vinha do padrão `Series[object].fillna(0).astype(int)` após `merge`; a coluna passou a ser normalizada com `pd.to_numeric(..., errors='coerce').fillna(0).astype(int)`.
+  - O warning do Dash sobre `serve_locally=False` foi eliminado ao inicializar a aplicação com `serve_locally=True`, compatível com execução local em debug.
+  - O bootstrap do servidor deixou de depender fixamente da porta `8050`: agora lê `FLOW_PMO_DASH_PORT` ou `PORT`, testa disponibilidade e sobe na próxima porta livre dentro de uma janela de 20 portas.
+  - A lógica de fallback foi validada por simulação controlada de `_is_port_available`, já que o sandbox bloqueia `bind()` real em socket de teste.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import warnings, pandas as pd; s=pd.Series([1, None, '3'], dtype='object'); warnings.simplefilter('error', FutureWarning); out=pd.to_numeric(s, errors='coerce').fillna(0).astype(int); print(out.tolist())"`
+    - Resultado: `[1, 0, 3]`
+  - `python3 -c "import os, dashboard_full as d; os.environ['FLOW_PMO_DASH_PORT']='8050'; seq=iter([False, True]); d._is_port_available=lambda port, host='127.0.0.1': next(seq); print(d._resolve_dash_runtime_options())"`
+    - Resultado: `Porta 8050 ocupada; iniciando Dash em http://127.0.0.1:8051/` e `{'host': '127.0.0.1', 'port': 8051, 'debug': True}`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dashboard): avoid pandas fillna downcast warning and auto-select a free Dash port`
+
+## Current Task (Corrigir destino `latest` no macOS)
+- [x] Diagnosticar por que artefatos `.xlsx` estavam sendo publicados com caminho híbrido macOS + Windows
+- [x] Ajustar resolução de `FLOW_PMO_LATEST_DIR` para ignorar path Windows quando executando no macOS
+- [x] Padronizar fallback do macOS para `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest` sem alterar o default do Windows
+- [x] Validar sintaxe, diff e caminho resolvido
+
 ## Current Task (Unificar regra de pressão de fluxo entre telas)
 - [x] Confirmar diferenças de regra entre One Page e Capacidade de Fila
 - [x] Ajustar Capacidade de Fila para usar `LeadStart_Selected` como chegada e `done_time_eligible_mask` como vazão
@@ -4165,3 +4193,35 @@
 - Suggested commit message:
   - `fix(portfolio): ignore global service-class filter in portfolio one-page roadmap`
 
+## Current Task (Dashboard Full: KeyError no bucket 31-60 na fila de decisão)
+- [x] Confirmar a causa raiz do `KeyError: '31-60'` em `render_decision_queue`
+- [x] Ajustar a ordenação dos buckets para considerar apenas categorias presentes no recorte
+- [x] Validar sintaxe e executar smoke test do gráfico com buckets ausentes
+- [x] Registrar review e sugestão de commit
+
+## Review (Dashboard Full: KeyError no bucket 31-60 na fila de decisão)
+- What was validated:
+  - A causa raiz foi confirmada em `render_decision_queue`: o código fixava a ordem categórica completa (`0-7` a `60+`) mesmo quando o dataframe filtrado não continha todos os buckets.
+  - O Plotly Express fazia agrupamento interno por categoria e disparava `KeyError` ao tentar resolver bucket ausente como `31-60`.
+  - A função passou a normalizar `AgingBucketDecision`, calcular `present_buckets` na ordem canônica e enviar essa ordem via `category_orders`, sem forçar categorias inexistentes.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... smoke test com df sem bucket 31-60 ... px.bar(..., category_orders={'AgingBucketDecision': ['0-7','8-15']}) ... print('smoke_ok') ... PY`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(dashboard): avoid plotly keyerror when decision-queue aging buckets are missing`
+
+## Review (Corrigir destino `latest` no macOS)
+- What was validated:
+  - A causa raiz do caminho híbrido foi confirmada em `dash_board_metricas.py`: `FLOW_PMO_LATEST_DIR` era aceito sem validar compatibilidade com o SO atual.
+  - `run_all_projects_macos.sh` agora usa como fallback `~/Documents/dados/latest` e descarta override em formato Windows quando executado no macOS.
+  - `dash_board_metricas.py` e `process_mining_jira.py` passaram a aplicar a mesma proteção: no macOS, se `FLOW_PMO_LATEST_DIR` vier como `C:\...`, o código ignora esse valor e usa o diretório nativo do Mac.
+  - O default do Windows (`C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest`) foi preservado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dash_board_metricas.py process_mining_jira.py`
+  - `bash -n run_all_projects_macos.sh`
+  - `/bin/bash -lc 'LATEST_DIR="C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"; if [[ "$LATEST_DIR" =~ ^[A-Za-z]:[\\/].* ]]; then echo "$HOME/Documents/dados/latest"; else echo "$LATEST_DIR"; fi'`
+    - Resultado: `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`
+  - `git diff -- dash_board_metricas.py process_mining_jira.py run_all_projects_macos.sh tasks/todo.md tasks/lessons.md`
+- Suggested commit message:
+  - `fix(latest-paths): ignore windows latest dir overrides on macos and default to Documents/dados/latest`

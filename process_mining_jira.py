@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import platform
+import re
 import shutil
 import glob
 import unicodedata
@@ -58,6 +60,12 @@ ISSUE_TYPE_ALIASES = {
 }
 
 WINDOWS_DEFAULT_LATEST_DIR = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
+MACOS_DEFAULT_LATEST_DIR = os.path.expanduser("~/Documents/dados/latest")
+
+
+def _looks_like_windows_path(path_value: str) -> bool:
+    value = str(path_value or "").strip()
+    return bool(re.match(r"^[A-Za-z]:[\\/]", value))
 
 
 def normalize_text(value: Any) -> str:
@@ -825,10 +833,14 @@ def _copy_latest_artifact(source: Path, target: Path) -> bool:
 
 def _resolve_central_latest_dir(out_dir: Path) -> Path:
     env_latest_dir = str(os.getenv("FLOW_PMO_LATEST_DIR", "")).strip()
+    if env_latest_dir and os.name != "nt" and _looks_like_windows_path(env_latest_dir):
+        env_latest_dir = ""
     if env_latest_dir:
         return Path(env_latest_dir)
     if os.name == "nt":
         return Path(WINDOWS_DEFAULT_LATEST_DIR)
+    if platform.system() == "Darwin":
+        return Path(MACOS_DEFAULT_LATEST_DIR)
     return out_dir / "latest"
 
 

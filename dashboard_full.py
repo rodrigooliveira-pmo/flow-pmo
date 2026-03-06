@@ -14,6 +14,7 @@ import json
 import numpy as np
 import math
 import hashlib
+import socket
 import urllib.request
 import urllib.parse
 import re
@@ -345,7 +346,7 @@ app = dash.Dash(
     __name__,
     external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'],
     suppress_callback_exceptions=True,
-    serve_locally=False,
+    serve_locally=True,
 )
 app.title = 'Dashboard de Métricas (Full)'
 
@@ -2105,7 +2106,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
     for col in ['ComTeamOriginal', 'StatusNaoMapeado', 'FeaturesTotal', 'FeaturesComEpic', 'FeaturesComEffort']:
         if col not in quality_por_team.columns:
             quality_por_team[col] = 0
-        quality_por_team[col] = quality_por_team[col].fillna(0).astype(int)
+        quality_por_team[col] = pd.to_numeric(quality_por_team[col], errors='coerce').fillna(0).astype(int)
     denom_items = quality_por_team['TotalItems'].replace(0, np.nan) if 'TotalItems' in quality_por_team.columns else pd.Series(dtype='float64')
     denom_features = quality_por_team['FeaturesTotal'].replace(0, np.nan) if 'FeaturesTotal' in quality_por_team.columns else pd.Series(dtype='float64')
     quality_por_team['% com TEAM'] = (quality_por_team['ComTeamOriginal'] / denom_items * 100).fillna(0).round(1)
@@ -7306,8 +7307,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if df_dq is not None and not df_dq.empty:
                 bucket_order = ['0-7', '8-15', '16-30', '31-60', '60+']
                 df_plot = df_dq.copy()
-                df_plot['AgingBucketDecision'] = pd.Categorical(df_plot['AgingBucketDecision'], categories=bucket_order, ordered=True)
-                fig = px.bar(df_plot, x='Status', y='WorkItems', color='AgingBucketDecision', barmode='stack', template='plotly_white', title='Fila de decisão por status e aging')
+                df_plot['AgingBucketDecision'] = (
+                    df_plot['AgingBucketDecision']
+                    .fillna('0-7')
+                    .astype(str)
+                    .str.strip()
+                )
+                present_buckets = [bucket for bucket in bucket_order if (df_plot['AgingBucketDecision'] == bucket).any()]
+                if not present_buckets:
+                    present_buckets = bucket_order[:1]
+                fig = px.bar(
+                    df_plot,
+                    x='Status',
+                    y='WorkItems',
+                    color='AgingBucketDecision',
+                    barmode='stack',
+                    template='plotly_white',
+                    title='Fila de decisão por status e aging',
+                    category_orders={'AgingBucketDecision': present_buckets},
+                )
                 fig.update_layout(height=360, margin=dict(t=60, b=80), xaxis_tickangle=-20)
                 parts.append(dcc.Graph(figure=fig))
                 parts.append(portfolio_table_component(df_dq.copy(), 'Fila de decisão (detalhe por TEAM/status/bucket)', 'table-portfolio-decision-queue-aging'))
@@ -11054,6 +11072,38 @@ def create_generic_datatable(df, table_id, title):
     return create_table(df, table_id=table_id, title=title)
 
 
+def _is_port_available(port, host='127.0.0.1'):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def _resolve_dash_runtime_options():
+    host = os.getenv('FLOW_PMO_DASH_HOST', '127.0.0.1').strip() or '127.0.0.1'
+    raw_port = os.getenv('FLOW_PMO_DASH_PORT', os.getenv('PORT', '8050')).strip()
+    try:
+        preferred_port = int(raw_port)
+    except (TypeError, ValueError):
+        preferred_port = 8050
+    debug_raw = os.getenv('FLOW_PMO_DASH_DEBUG', '1').strip().lower()
+    debug = debug_raw not in {'0', 'false', 'no', 'off'}
+
+    port = preferred_port
+    while port < preferred_port + 20 and not _is_port_available(port, host=host):
+        port += 1
+    if port >= preferred_port + 20:
+        raise RuntimeError(
+            f'Nenhuma porta livre encontrada entre {preferred_port} e {preferred_port + 19} para iniciar o Dash.'
+        )
+    if port != preferred_port:
+        print(f'Porta {preferred_port} ocupada; iniciando Dash em http://{host}:{port}/')
+    return {'host': host, 'port': port, 'debug': debug}
+
+
 @app.callback(
     Output('cfd-summary-panel', 'children'),
     optional_input('cfd-graph', 'clickData'),
@@ -11076,4 +11126,4 @@ def update_cfd_summary_panel(click_data, hover_data, summary_payload):
     return create_cfd_summary_panel(summary_payload, selected_date=selected_date)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(**_resolve_dash_runtime_options())

@@ -39,6 +39,31 @@ DEFAULT_PATTERN_RULES = {
 }
 
 WINDOWS_DEFAULT_LATEST_DIR = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
+MACOS_DEFAULT_LATEST_DIR = os.path.expanduser("~/Documents/dados/latest")
+
+
+def _looks_like_windows_path(path_value):
+    value = str(path_value or "").strip()
+    return bool(re.match(r"^[A-Za-z]:[\\/]", value))
+
+
+def resolve_latest_dir(target_file):
+    latest_dir = os.getenv("FLOW_PMO_LATEST_DIR", "").strip()
+    current_system = platform.system()
+
+    if latest_dir:
+        if current_system != 'Windows' and _looks_like_windows_path(latest_dir):
+            latest_dir = ""
+
+    if not latest_dir:
+        if current_system == 'Windows':
+            latest_dir = WINDOWS_DEFAULT_LATEST_DIR
+        elif current_system == 'Darwin':
+            latest_dir = MACOS_DEFAULT_LATEST_DIR
+        else:
+            latest_dir = os.path.join(os.path.dirname(os.path.abspath(target_file)), "latest")
+
+    return latest_dir
 
 
 def load_env_file(env_file):
@@ -91,12 +116,7 @@ def copy_latest_artifact(source_file, target_file):
     try:
         shutil.copy2(source_file, target_file)
         print(f"Arquivo latest atualizado: {target_file}")
-        latest_dir = os.getenv("FLOW_PMO_LATEST_DIR", "").strip()
-        if not latest_dir:
-            if platform.system() == 'Windows':
-                latest_dir = WINDOWS_DEFAULT_LATEST_DIR
-            else:
-                latest_dir = os.path.join(os.path.dirname(os.path.abspath(target_file)), "latest")
+        latest_dir = resolve_latest_dir(target_file)
         source_abs = os.path.abspath(target_file)
         target_abs = os.path.abspath(os.path.join(latest_dir, os.path.basename(target_file)))
         if source_abs != target_abs:

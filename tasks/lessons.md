@@ -11,6 +11,12 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-06
+- Context: Correção de publicação de artefatos `latest` no macOS após log com caminho híbrido `.../flow-pmo/C:\Users\...`.
+- User correction: Pediu que no macOS os aliases fossem gerados em `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`, sem impactar o fluxo já funcional no Windows.
+- Root cause: A resolução de `FLOW_PMO_LATEST_DIR` aceitava cegamente um valor Windows mesmo em runtime macOS, produzindo caminho inválido; além disso o fallback do script macOS apontava para a pasta do projeto em vez de `~/Documents/dados/latest`.
+- Prevention rule: Em variáveis de diretório cross-platform, validar se o formato do path é compatível com o SO atual antes de usá-lo; no macOS, nunca reutilizar caminho Windows como override válido.
+- Action added to workflow: Sempre testar resolução de diretório com três casos ao mexer em publicação de artefatos: sem env, env nativo válido e env de outro SO.
 - Date: 2026-03-05
 - Context: Usuário reportou que o gráfico de CFD não estava igual ao de produção.
 - User correction: Solicitou alinhamento visual/comportamental do CFD com referência de produção.

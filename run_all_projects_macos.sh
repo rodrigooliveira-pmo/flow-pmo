@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${HOME}/Documents/Dados"
-LATEST_DIR_DEFAULT="$(cd "${SCRIPT_DIR}/.." && pwd)/dados/latest"
+LATEST_DIR_DEFAULT="${HOME}/Documents/dados/latest"
 LATEST_DIR="${FLOW_PMO_LATEST_DIR:-$LATEST_DIR_DEFAULT}"
 DATE_TAG="$(date +%Y%m%d)"
 ENV_FILE="${SCRIPT_DIR}/jira_env.txt"
@@ -124,6 +124,14 @@ import_env_file() {
 }
 
 import_env_file "$ENV_FILE"
+
+looks_like_windows_path() {
+    [[ "$1" =~ ^[A-Za-z]:[\\/].* ]]
+}
+
+if looks_like_windows_path "$LATEST_DIR"; then
+    LATEST_DIR="$LATEST_DIR_DEFAULT"
+fi
 
 publish_latest_artifact() {
     local source_file="$1"
