@@ -45,12 +45,12 @@ QA Approved,Done,11
 In Staging,Prioritized,11
 Backlog,In Staging,11
 Ready To Staging,Homologation,10
+Backlog,Triagem,10
 Ready To Staging,Done,10
 Staging,In Staging,9
 QA Approved,QA Approved Hml,8
 Approval,Backlog,7
 Ready To Staging,Ready to Homologation,6
-Backlog,Triagem,6
 In Progress,In Staging,6
 Triagem,Backlog,6
 Ready to Analytics,Backlog,5

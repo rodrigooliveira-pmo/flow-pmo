@@ -1,5 +1,139 @@
 # Task Plan
 
+## Current Task (Implementar fase 1 de alertas de portfólio)
+- [x] Mapear o encaixe da nova seção na aba de portfólio do `dashboard_full.py`
+- [ ] Adicionar cálculos no snapshot para alertas de integridade estrutural, estagnação e prazo
+- [ ] Adicionar aba/seção visual `Alertas` no módulo de portfólio
+- [ ] Exibir backlog explícito de prontidão técnica como pendência de contrato de dados
+- [ ] Validar sintaxe, smoke test local e revisar diff
+
+## Specification (Implementar fase 1 de alertas de portfólio)
+- Objetivo: materializar a primeira fase da [`ESPECIFICACAO_ALERTAS_PORTFOLIO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ESPECIFICACAO_ALERTAS_PORTFOLIO.md) usando apenas o snapshot atual do portfólio.
+- Escopo de implementação:
+  - `Épicos sem feature`
+  - `Features sem story/task`
+  - `Stories/Tasks órfãos`
+  - estagnação de épicos e features em `>10`, `>20` e `>30` dias
+  - itens vencidos e vencendo em `7`, `14` e `30` dias
+  - alertas combinados de prazo + falta de decomposição
+- Fora do escopo desta implementação:
+  - custos
+  - cálculo factual de prontidão técnica por arquitetura/infra/segurança
+  - dependências tipadas sem enriquecimento do exportador
+
+## Current Task (Especificar indicadores e alertas de portfólio)
+- [x] Consolidar regras objetivas para integridade estrutural, estagnação e risco de prazo
+- [x] Separar o que é implementável com snapshot atual do que exige enriquecer o exportador
+- [x] Deixar custos explicitamente fora da primeira fase por ausência de método e campos
+- [x] Registrar a especificação em documento dedicado e referenciar no backlog
+
+## Review (Especificar indicadores e alertas de portfólio)
+- What was defined:
+  - Foi criada a especificação [`ESPECIFICACAO_ALERTAS_PORTFOLIO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ESPECIFICACAO_ALERTAS_PORTFOLIO.md) com definição objetiva de indicadores, regras de severidade e backlog técnico.
+  - A fase inicial ficou limitada a alertas implementáveis com o snapshot atual: épicos sem feature, features sem story/task, órfãos, itens parados (>10/>20/>30 dias), itens vencidos/próximos do vencimento e alertas combinados de prazo + falta de decomposição.
+  - A trilha de `Prontidão Técnica` foi dividida em duas fases: proxy com sinais já disponíveis no dataset e versão factual após enriquecimento do contrato de dados e cruzamento com downstream.
+  - Custos foram explicitamente deixados por último, fora da primeira fase, até existir método e campos confiáveis no portfólio.
+- Evidence (artifacts reviewed/created):
+  - [`ESPECIFICACAO_ALERTAS_PORTFOLIO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ESPECIFICACAO_ALERTAS_PORTFOLIO.md)
+  - `rg -n "alerta|alertas|portf[oó]lio|especifica|integridade|estagna|vencimento|target date|custo" -g '!node_modules/**' -g '!artifacts/**' *.md tasks/todo.md tasks/lessons.md`
+  - `ls *.md`
+- Suggested commit message:
+  - `docs(portfolio): specify alert indicators and implementation rules`
+
+## Current Task (Diagnosticar painel de observabilidade do fluxo para portfólio e downstream)
+- [x] Revisar memória do projeto e documentação central sobre pipeline, dashboards e fontes de dados
+- [x] Confirmar no código como o dashboard principal consome downstream, portfólio, gargalos e process mining
+- [x] Mapear o que já existe para observabilidade de fluxo e o que ainda está bloqueado por contrato de dados
+- [x] Consolidar proposta de abordagem e lista objetiva de pendências
+
+## Review (Diagnosticar painel de observabilidade do fluxo para portfólio e downstream)
+- What was validated:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) já opera como ponto central de observabilidade, combinando `Fato_Items`/`Fato_Gargalos` do `PowerBI_Model_*.xlsx`, CSV snapshot de portfólio e fallbacks para CSV downstream detalhado por projeto.
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) confirma o pipeline operacional atual: exportação downstream por projeto, exportação de portfólio, geração de métricas e publicação de artefatos `latest`.
+  - [`jira_to_pipeline_csv.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_to_pipeline_csv.py) fornece granularidade temporal suficiente para observabilidade operacional de downstream, incluindo datas por etapa e vínculos hierárquicos.
+  - [`jira_portfolio_to_csv.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_portfolio_to_csv.py) ainda exporta apenas snapshot com `UpdatedAt`, `StatusChangedAt` e `DueDate`; isso sustenta aging/governança, mas não throughput histórico, CFD real ou lead time de portfólio.
+  - [`ROADMAP_INDICADORES_PORTFOLIO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ROADMAP_INDICADORES_PORTFOLIO.md) continua coerente com o código: boa parte do portfólio snapshot já está implementada, e os gaps mais relevantes continuam ligados à ausência de histórico/eventos no exportador.
+- Evidence (docs/code inspected):
+  - `sed -n '1,220p' tasks/lessons.md`
+  - `sed -n '1,220p' tasks/todo.md`
+  - `sed -n '1,260p' ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`
+  - `sed -n '1,260p' ROADMAP_INDICADORES_PORTFOLIO.md`
+  - `sed -n '1,260p' dashboard_full.py`
+  - `sed -n '340,1320p' dashboard_full.py`
+  - `sed -n '1848,2525p' dashboard_full.py`
+  - `sed -n '4564,5055p' dashboard_full.py`
+  - `sed -n '1,260p' run_all_projects_macos.sh`
+  - `sed -n '1,260p' dash_board_metricas.py`
+  - `sed -n '1,260p' jira_portfolio_to_csv.py`
+  - `sed -n '1,260p' jira_to_pipeline_csv.py`
+  - `rg -n "portfolio|downstream|observab|fluxo|Painel de Fluxo|dashboard_full|dash_board_metricas|PowerBI|process mining" -g '!node_modules/**' -g '!artifacts/**'`
+- Suggested commit message:
+  - `docs(tasks): record observability assessment for portfolio and downstream`
+
+## Current Task (Detalhar pendências de portfólio)
+- [x] Inspecionar a regra atual do indicador `Q Pendências por TEAM` no snapshot de portfólio
+- [x] Expor na UI a definição operacional de pendência e dos quadrantes Q1/Q2/Q3
+- [x] Adicionar detalhamento das pendências por composição e lista de itens
+- [x] Validar sintaxe, revisar diff e registrar evidências
+
+## Review (Detalhar pendências de portfólio)
+- What was validated:
+  - O indicador agora explica na própria UI a regra operacional: pendência é item aberto no snapshot de portfólio e os quadrantes representam faixas de dias sem alteração (`Q1 <= 15`, `Q2 = 16-30`, `Q3 > 30`).
+  - Além dos cards por TEAM, a tela passou a mostrar uma tabela de composição das pendências por `Quadrante`, `Tipo` e `StatusCategoria`.
+  - A tela também passou a listar os itens que compõem cada pendência, com `Team`, `Projeto`, `Tipo`, `ItemID`, `Título`, `Status`, `DiasSemAlteracao`, `ParentID` e `Link`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_portfolio_snapshot(...) ... PY`
+    - Resultados: `pendencias_q_por_time 16 ['Quadrante', 'Team', 'WorkItems']`, `pendencias_breakdown 12 ['Quadrante', 'Tipo', 'StatusCategoria', 'WorkItems']`, `pendencias_detalhe 213 ['Quadrante', 'Team', 'Projeto', 'Tipo', 'ItemID', 'Titulo', 'Status', 'StatusCategoria', 'DiasSemAlteracao', 'ParentID', 'Link']`
+  - `git diff --stat -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `feat(portfolio): explain and detail pending items by quadrant`
+
+## Current Task (Mover Bitbucket de run_all_projects para run_process_mining_projects)
+- [x] Remover Bitbucket dos scripts `run_all_projects`
+- [x] Incluir exportação Bitbucket nos scripts dedicados de process mining
+- [x] Validar sintaxe, revisar diff e registrar o novo ponto de execução
+
+## Review (Mover Bitbucket de run_all_projects para run_process_mining_projects)
+- What was validated:
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) e [`run_all_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects.ps1) não têm mais flags, arrays, funções ou etapas de exportação Bitbucket.
+  - [`run_process_mining_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects_macos.sh) agora exporta Bitbucket logo após cada projeto de process mining e publica `commits`, `pullrequests` e `pipelines` no `LATEST_DIR`.
+  - [`run_process_mining_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects.ps1) recebeu a mesma responsabilidade no fluxo Windows.
+  - O ponto de execução de Bitbucket passou a ser:
+    - macOS: `./run_process_mining_projects_macos.sh`
+    - Windows PowerShell: `.\run_process_mining_projects.ps1`
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `bash -n run_process_mining_projects_macos.sh`
+  - `rg -n "Bitbucket|bitbucket|RUN_BITBUCKET_EXPORT|RunBitbucketExport" run_all_projects_macos.sh run_all_projects.ps1 run_process_mining_projects_macos.sh run_process_mining_projects.ps1`
+  - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 run_process_mining_projects_macos.sh run_process_mining_projects.ps1 tasks/todo.md`
+- Suggested commit message:
+  - `refactor(run-all): move bitbucket export into process mining scripts`
+
+## Current Task (Separar process mining de run_all_projects)
+- [x] Mapear onde `run_all_projects` ainda embutia exportação de process mining
+- [x] Remover process mining dos scripts `run_all_projects` sem afetar downstream, Bitbucket, portfólio e métricas
+- [x] Criar scripts dedicados para process mining em macOS e Windows
+- [x] Validar sintaxe, revisar diff e registrar como executar o fluxo separado
+
+## Review (Separar process mining de run_all_projects)
+- What was validated:
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) e [`run_all_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects.ps1) não executam mais process mining nem expõem flags dedicadas a essa etapa.
+  - O `run_all_projects` voltou a cuidar apenas de downstream, Bitbucket, portfólio, métricas e abertura do dashboard; o changelog detalhado só é gerado quando `RunDetailedChangelogExport` for explicitamente habilitado.
+  - Foram criados [`run_process_mining_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects_macos.sh) e [`run_process_mining_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects.ps1), que exportam changelog detalhado por projeto, executam `process_mining_jira.py`, publicam os `*latest*` gerados e seguem adiante quando um projeto não tiver eventos.
+  - Uso registrado:
+    - macOS: `./run_process_mining_projects_macos.sh`
+    - Windows PowerShell: `.\run_process_mining_projects.ps1`
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `bash -n run_process_mining_projects_macos.sh`
+  - `command -v pwsh >/dev/null 2>&1 && pwsh ... || echo 'pwsh-unavailable'`
+    - Resultado no ambiente atual: `pwsh-unavailable`
+  - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 run_process_mining_projects_macos.sh run_process_mining_projects.ps1 tasks/todo.md`
+  - `git diff --stat -- run_all_projects_macos.sh run_all_projects.ps1 run_process_mining_projects_macos.sh run_process_mining_projects.ps1 tasks/todo.md`
+- Suggested commit message:
+  - `refactor(run-all): move process mining export into dedicated scripts`
+
 ## Current Task (Evitar que process mining bloqueie os latest do dashboard no macOS)
 - [x] Confirmar por que `dashboard_output_latest.xlsx`, `bottlenecks_consolidado_latest.xlsx` e `PowerBI_Model_latest.xlsx` não estavam sendo publicados
 - [x] Ajustar `run_all_projects_macos.sh` para não abortar o pipeline de métricas quando process mining falhar ou não tiver eventos

@@ -55,6 +55,7 @@ W1NNR-617,Tarefa,2,0,0,0,2,0.75,Nao,107.0891,Lorraine Caribe,2025-06-22 23:32:59
 W1NNR-771,Tarefa,2,0,0,0,2,0.75,Nao,88.4555,Lorraine Caribe,2025-06-22 23:32:56,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-800,Tarefa,2,0,0,0,2,0.75,Nao,82.1225,Lorraine Caribe,2025-06-22 23:33:05,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-863,Tarefa,2,0,0,0,2,0.75,Nao,66.337,Lorraine Caribe,2025-06-22 23:38:22,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
+W1NNR-866,Problema,1,0,0,0,1,0.0,Nao,15.1372,Sem Autor,,Triagem > Backlog > Triagem
 W1NNR-13,Tarefa,1,0,0,0,1,0.1667,Nao,682.0353,Lorraine Caribe,2026-03-06 15:58:16,To Do > Backlog > Triagem > Backlog > Cancelled > Done
 W1NNR-2116,Tarefa,1,0,0,0,1,0.3333,Nao,25.9028,Lara Junqueira Alvarenga,2026-03-03 18:41:22,Approval > Staging > Homolog > Staging > Ready for Production > Done
 W1NNR-2110,Tarefa,1,0,0,0,1,0.5,Nao,19.7332,Lara Junqueira Alvarenga,2026-02-24 12:51:33,Approval > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done
@@ -110,18 +111,17 @@ W1NNR-2051,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
 W1NNR-2052,Tarefa,0,0,0,0,0,0.0,Nao,2.2405,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW
 W1NNR-2099,Problema,0,0,0,0,0,0.0,Nao,0.9286,Sem Autor,,Triagem > Backlog > READY FOR DEVELOPMENT
 W1NNR-2124,Tarefa,0,0,0,0,0,0.0,Nao,20.0445,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
-W1NNR-2162,Problema,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2162,Problema,0,0,0,0,0,0.0,Nao,0.054,Sem Autor,,Backlog > Triagem
 W1NNR-2174,Tarefa,0,0,0,0,0,0.0,Nao,7.7564,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review
 W1NNR-2181,Tarefa,0,0,0,0,0,0.0,Nao,3.2688,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW
 W1NNR-2182,Tarefa,0,0,0,0,0,0.0,Nao,0.2829,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
 W1NNR-2183,Tarefa,0,0,0,0,0,0.0,Nao,1.0807,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
-W1NNR-2188,Problema,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Backlog
-W1NNR-2192,Problema,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2188,Problema,0,0,0,0,0,0.0,Nao,0.0742,Sem Autor,,Backlog > Triagem
+W1NNR-2192,Problema,0,0,0,0,0,0.0,Nao,0.0735,Sem Autor,,Backlog > Triagem
 W1NNR-2199,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
 W1NNR-2200,Tarefa,0,0,0,0,0,0.0,Nao,0.2284,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW
 W1NNR-2201,Tarefa,0,0,0,0,0,0.0,Nao,0.0,Sem Autor,,Backlog > READY FOR DEVELOPMENT
 W1NNR-766,Tarefa,0,0,0,0,0,0.0,Nao,323.8972,Sem Autor,,Backlog > Triagem
-W1NNR-866,Problema,0,0,0,0,0,0.0,Nao,15.0661,Sem Autor,,Triagem > Backlog
 W1NNR-2042,Tarefa,0,0,0,0,0,0.1111,Nao,23.8906,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging
 W1NNR-2044,Tarefa,0,0,0,0,0,0.1111,Nao,26.9413,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging
 W1NNR-2027,Tarefa,0,0,0,0,0,0.125,Nao,14.3295,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging

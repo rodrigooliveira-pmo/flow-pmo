@@ -4,8 +4,6 @@ param(
     [string]$EnvFile = $(Join-Path $PSScriptRoot 'jira_env.txt'),
     [int]$Workers = 8,
     [bool]$RunDetailedChangelogExport = $false,
-    [bool]$RunProcessMining = $true,
-    [bool]$RunBitbucketExport = $true,
     [bool]$RunPortfolioExport = $true,
     [bool]$RunMetrics = $true,
     [bool]$OpenDashboard = $true
@@ -47,8 +45,6 @@ if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKE
 
 $scriptPath = Join-Path $PSScriptRoot 'jira_to_pipeline_csv.py'
 $portfolioScript = Join-Path $PSScriptRoot 'jira_portfolio_to_csv.py'
-$bitbucketScript = Join-Path $PSScriptRoot 'bitbucket_export.py'
-$processMiningScript = Join-Path $PSScriptRoot 'process_mining_jira.py'
 if (-not (Test-Path $scriptPath)) {
     throw "Arquivo não encontrado: $scriptPath"
 }
@@ -56,8 +52,6 @@ $metricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
 $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
 $latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
-$bitbucketFailures = New-Object System.Collections.Generic.List[string]
-$processMiningOutDir = Join-Path $PSScriptRoot 'artifacts\process_mining'
 
 function Publish-LatestArtifact {
     param(
@@ -92,16 +86,13 @@ if (-not (Test-Path $OutDir)) {
 if (-not (Test-Path $latestDir)) {
     New-Item -ItemType Directory -Path $latestDir -Force | Out-Null
 }
-if ($RunProcessMining -and -not (Test-Path $processMiningOutDir)) {
-    New-Item -ItemType Directory -Path $processMiningOutDir -Force | Out-Null
-}
 
 # Ajuste as chaves Jira se necessário.
 $projects = @(
-    @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream'; ProcessMiningPrefix = 'w1nner-process-mining'; BitbucketProject = 'W1NNR' },
-    @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream'; ProcessMiningPrefix = 's1nc-process-mining'; BitbucketProject = 'S1NC' },
-    @{ Key = 'BF'; FilePrefix = 'befinance-downstream'; ProcessMiningPrefix = 'befinance-process-mining'; BitbucketProject = 'BF' },
-    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream'; ProcessMiningPrefix = 'dataanalytics-process-mining'; BitbucketProject = 'DT' }
+    @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream' },
+    @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream' },
+    @{ Key = 'BF'; FilePrefix = 'befinance-downstream' },
+    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream' }
 )
 
 Write-Host "Iniciando exportação Jira -> CSV..." -ForegroundColor Cyan
@@ -132,7 +123,7 @@ foreach ($p in $projects) {
         '--env-file', $EnvFile,
         '--workers', $Workers
     )
-    if ($RunDetailedChangelogExport -or $RunProcessMining) {
+    if ($RunDetailedChangelogExport) {
         $exportArgs += @('--detailed-changelog-out', $detailedChangelogOut)
         Write-Host "Changelog detalhado: $detailedChangelogOut"
     }
@@ -157,48 +148,11 @@ foreach ($p in $projects) {
         Publish-LatestArtifact -SourcePath $bottleneckLatest -LatestDir $latestDir
     }
 
-    if (($RunDetailedChangelogExport -or $RunProcessMining) -and (Test-Path $detailedChangelogOut)) {
+    if ($RunDetailedChangelogExport -and (Test-Path $detailedChangelogOut)) {
         $detailedChangelogLatest = Join-Path $OutDir ("{0}-latest-data_detailed_changelog.csv" -f $p.FilePrefix)
         Copy-Item -Path $detailedChangelogOut -Destination $detailedChangelogLatest -Force
         Write-Host "Arquivo latest atualizado: $detailedChangelogLatest" -ForegroundColor Green
         Publish-LatestArtifact -SourcePath $detailedChangelogLatest -LatestDir $latestDir
-    }
-
-    if ($RunProcessMining) {
-        if (-not (Test-Path $processMiningScript)) {
-            throw "Arquivo não encontrado: $processMiningScript"
-        }
-        if (-not (Test-Path $detailedChangelogOut)) {
-            throw "Changelog detalhado ausente para process mining: $detailedChangelogOut"
-        }
-
-        Write-Host "Gerando process mining para $($p.Key)..." -ForegroundColor Cyan
-        & python $processMiningScript --input $detailedChangelogOut --out-dir $processMiningOutDir --project $p.Key --prefix $p.ProcessMiningPrefix
-        if ($LASTEXITCODE -ne 0) {
-            throw "Falha ao gerar process mining do projeto $($p.Key)."
-        }
-    }
-
-    if ($RunBitbucketExport) {
-        if (-not (Test-Path $bitbucketScript)) {
-            throw "Arquivo não encontrado: $bitbucketScript"
-        }
-
-        Write-Host "Exportando Bitbucket para $($p.BitbucketProject)..." -ForegroundColor Cyan
-        & python $bitbucketScript --project $p.BitbucketProject --out-dir $OutDir
-        if ($LASTEXITCODE -ne 0) {
-            $status = $LASTEXITCODE
-            Write-Warning "Falha na extração Bitbucket do projeto $($p.BitbucketProject) (exit $status). O pipeline seguirá para portfólio e métricas."
-            [void]$bitbucketFailures.Add("$($p.BitbucketProject):exit-$status")
-        }
-        else {
-            foreach ($suffix in @('commits', 'pullrequests', 'pipelines')) {
-                $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p.FilePrefix.Replace('-downstream', ''), $suffix)
-                if (Test-Path $bitbucketFile) {
-                    Publish-LatestArtifact -SourcePath $bitbucketFile -LatestDir $latestDir
-                }
-            }
-        }
     }
 }
 
@@ -208,9 +162,6 @@ if ($null -ne $originalJiraStatusMap -and $originalJiraStatusMap -ne '') {
 Remove-Item -Path Env:JIRA_IGNORE_STATUS_MAP -ErrorAction SilentlyContinue
 
 Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
-if ($bitbucketFailures.Count -gt 0) {
-    Write-Warning ("Avisos Bitbucket: " + ($bitbucketFailures -join ", "))
-}
 
 if ($RunPortfolioExport) {
     if (-not (Test-Path $portfolioScript)) {

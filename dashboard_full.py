@@ -1910,6 +1910,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'epicos_por_team_total': pd.DataFrame(),
                 'features_por_team_total': pd.DataFrame(),
                 'pendencias_q_por_time': pd.DataFrame(),
+                'pendencias_breakdown': pd.DataFrame(),
+                'pendencias_detalhe': pd.DataFrame(),
                 'aging_us_20': pd.DataFrame(),
                 'aging_features_40': pd.DataFrame(),
                 'aging_us_comp_20': pd.DataFrame(),
@@ -2372,6 +2374,35 @@ def compute_portfolio_snapshot(df, updated_at_label):
         group_count(pendencias, ['Quadrante', 'TeamDisplay'], 'WorkItems')
         .rename(columns={'TeamDisplay': 'Team'})
     )
+    pendencias_breakdown = (
+        group_count(pendencias, ['Quadrante', 'Tipo', 'StatusCategoria'], 'WorkItems')
+        if not pendencias.empty else
+        pd.DataFrame(columns=['Quadrante', 'Tipo', 'StatusCategoria', 'WorkItems'])
+    )
+    pendencias_detalhe_cols = [
+        'Quadrante', 'TeamDisplay', 'Projeto', 'Tipo', 'ID', 'Titulo', 'Status',
+        'StatusCategoria', 'AgingDiasSemAlteracao', 'ParentID', 'Link'
+    ]
+    if not pendencias.empty:
+        pendencias_detalhe = (
+            pendencias[pendencias_detalhe_cols]
+            .rename(columns={
+                'TeamDisplay': 'Team',
+                'ID': 'ItemID',
+                'AgingDiasSemAlteracao': 'DiasSemAlteracao',
+                'ParentID': 'ParentID',
+            })
+            .sort_values(
+                ['Quadrante', 'DiasSemAlteracao', 'Team', 'Tipo', 'ItemID'],
+                ascending=[True, False, True, True, True],
+                ignore_index=True,
+            )
+        )
+    else:
+        pendencias_detalhe = pd.DataFrame(columns=[
+            'Quadrante', 'Team', 'Projeto', 'Tipo', 'ItemID', 'Titulo', 'Status',
+            'StatusCategoria', 'DiasSemAlteracao', 'ParentID', 'Link'
+        ])
 
     # Aging WIP - quatro indicadores no padrão dos exemplos.
     has_us_items = bool(df['IsUS'].any())
@@ -2711,6 +2742,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'epicos_por_team_total': epicos_por_team_total,
             'features_por_team_total': features_por_team_total,
             'pendencias_q_por_time': pendencias_q_por_time,
+            'pendencias_breakdown': pendencias_breakdown,
+            'pendencias_detalhe': pendencias_detalhe,
             'aging_us_20': aging_us_20,
             'aging_features_40': aging_features_40,
             'aging_us_comp_20': aging_us_comp_20,
@@ -6727,6 +6760,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_complexidade = groups.get('features_por_complexidade', pd.DataFrame())
         epicos_fluxo_etapas = groups.get('epicos_fluxo_etapas', pd.DataFrame())
         pendencias_q_por_time = groups.get('pendencias_q_por_time', pd.DataFrame())
+        pendencias_breakdown = groups.get('pendencias_breakdown', pd.DataFrame())
+        pendencias_detalhe = groups.get('pendencias_detalhe', pd.DataFrame())
         aging_us_20 = groups.get('aging_us_20', pd.DataFrame())
         aging_features_40 = groups.get('aging_features_40', pd.DataFrame())
         aging_us_comp_20 = groups.get('aging_us_comp_20', pd.DataFrame())
@@ -6782,6 +6817,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_complexidade = filter_by_team(features_complexidade)
         epicos_fluxo_etapas = filter_by_team(epicos_fluxo_etapas)
         pendencias_q_por_time = filter_by_team(pendencias_q_por_time)
+        pendencias_breakdown = filter_by_team(pendencias_breakdown)
+        pendencias_detalhe = filter_by_team(pendencias_detalhe)
         aging_us_20 = filter_by_team(aging_us_20)
         aging_features_40 = filter_by_team(aging_features_40)
         aging_us_comp_20 = filter_by_team(aging_us_comp_20)
@@ -6934,7 +6971,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 })
             ], style={'marginTop': '16px'})
 
-        def render_q_pendencias_grid(df_q):
+        def render_q_pendencias_grid(df_q, df_breakdown, df_detail):
             if df_q is None or df_q.empty:
                 return html.Div([html.H4('Q Pendências por TEAM'), html.P('Sem dados para exibição.')])
             quadrantes = ['Q1 Pendências', 'Q2 Pendências', 'Q3 Pendências']
@@ -6956,10 +6993,37 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                         'width': '100%'
                     })
                 ], style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-start', 'marginBottom': '14px'}))
-            return html.Div([
+            notes = html.Div([
+                html.P('Pendência = item aberto no snapshot de portfólio (status não concluído).', style={'margin': '0 0 6px 0'}),
+                html.P('Q1: até 15 dias sem alteração | Q2: 16 a 30 dias | Q3: acima de 30 dias.', style={'margin': '0'}),
+            ], style={
+                'backgroundColor': '#f5f5f5',
+                'borderLeft': '4px solid #616161',
+                'padding': '10px 12px',
+                'marginBottom': '14px',
+            })
+            sections = [
                 html.H3('Indicador 1 - Q Pendências por TEAM', style={'textAlign': 'left'}),
-                *blocks
-            ], style={'marginTop': '24px'})
+                notes,
+                *blocks,
+            ]
+            if df_breakdown is not None and not df_breakdown.empty:
+                sections.append(
+                    portfolio_table_component(
+                        df_breakdown.copy(),
+                        'Composição das pendências por quadrante, tipo e categoria de status',
+                        'table-portfolio-pendencias-breakdown'
+                    )
+                )
+            if df_detail is not None and not df_detail.empty:
+                sections.append(
+                    portfolio_table_component(
+                        df_detail.copy(),
+                        'Itens que compõem as pendências de portfólio',
+                        'table-portfolio-pendencias-detalhe'
+                    )
+                )
+            return html.Div(sections, style={'marginTop': '24px'})
 
         def render_executive_tiles(df_exec):
             if df_exec is None or df_exec.empty:
@@ -7920,7 +7984,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         aging_fluxo_section = html.Div([
             render_flow_health_dynamic(items_base_scope),
-            render_q_pendencias_grid(pendencias_q_por_time),
+            render_q_pendencias_grid(pendencias_q_por_time, pendencias_breakdown, pendencias_detalhe),
             html.Div([
                 html.H3('Indicador 2 - Aging WIP por TEAM', style={'textAlign': 'left'}),
                 html.Div([
