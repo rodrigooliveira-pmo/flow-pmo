@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 jira_env.txt
 output.log
-
 jira_env.txt
 .vercel
 .env*.local

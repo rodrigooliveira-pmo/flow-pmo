@@ -55,6 +55,7 @@ W1NNR-617,W1NNR,Tarefa,10,8,2,0,0,1,0,0,2,Nao,0.75,Sim,2025-03-07 21:24:42,2025-
 W1NNR-771,W1NNR,Tarefa,10,8,2,0,0,1,0,0,2,Nao,0.75,Sim,2025-03-26 12:37:04,2025-06-22 23:32:56,88.4555,Lorraine Caribe,2025-06-22 23:32:56,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,2
 W1NNR-800,W1NNR,Tarefa,10,8,2,0,0,1,0,0,2,Nao,0.75,Sim,2025-04-01 20:36:43,2025-06-22 23:33:05,82.1225,Lorraine Caribe,2025-06-22 23:33:05,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,2
 W1NNR-863,W1NNR,Tarefa,10,8,2,0,0,1,0,0,2,Nao,0.75,Sim,2025-04-17 15:33:05,2025-06-22 23:38:22,66.337,Lorraine Caribe,2025-06-22 23:38:22,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,2
+W1NNR-13,W1NNR,Tarefa,6,5,1,0,0,0,0,0,5,Nao,0.1667,Sim,2024-04-23 15:07:30,2026-03-06 15:58:16,682.0353,Lorraine Caribe,2026-03-06 15:58:16,To Do > Backlog > Triagem > Backlog > Cancelled > Done,1
 W1NNR-2116,W1NNR,Tarefa,6,5,1,0,0,0,0,0,4,Nao,0.3333,Sim,2026-02-05 21:01:23,2026-03-03 18:41:22,25.9028,Lara Junqueira Alvarenga,2026-03-03 18:41:22,Approval > Staging > Homolog > Staging > Ready for Production > Done,1
 W1NNR-2110,W1NNR,Tarefa,10,9,1,0,0,0,0,0,5,Nao,0.5,Sim,2026-02-04 19:15:43,2026-02-24 12:51:33,19.7332,Lara Junqueira Alvarenga,2026-02-24 12:51:33,Approval > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done,1
 W1NNR-575,W1NNR,Tarefa,9,8,1,0,0,1,0,0,4,Nao,0.5,Sim,2025-02-21 20:26:23,2025-04-02 13:00:07,39.6901,Lorraine Caribe,2025-04-02 13:00:07,In Progress > In Backlog > Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done,1
@@ -91,14 +92,6 @@ W1NNR-844,W1NNR,Tarefa,9,8,1,0,0,0,0,0,2,Nao,0.7778,Sim,2025-04-24 13:49:09,2025
 W1NNR-845,W1NNR,Tarefa,9,8,1,0,0,0,0,0,2,Nao,0.7778,Sim,2025-04-28 19:45:46,2025-05-27 15:41:21,28.8303,Thaís Cabral,2025-05-27 15:41:21,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,1
 W1NNR-849,W1NNR,Tarefa,9,8,1,0,0,0,0,0,2,Nao,0.7778,Sim,2025-04-30 13:24:17,2025-05-27 15:41:24,27.0952,Thaís Cabral,2025-05-27 15:41:24,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,1
 W1NNR-852,W1NNR,Tarefa,9,8,1,0,0,0,0,0,2,Nao,0.7778,Sim,2025-04-30 18:20:12,2025-05-27 15:41:26,26.8897,Thaís Cabral,2025-05-27 15:41:26,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,1
-W1NNR-1042,W1NNR,Tarefa,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2025-06-08 23:28:43,2026-02-19 13:58:25,255.604,Sem Autor,,Backlog > Triagem,0
-W1NNR-109,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:00,2026-02-19 13:58:00,0.0,Sem Autor,,Triagem,0
-W1NNR-110,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:00,2026-02-19 13:58:00,0.0,Sem Autor,,Triagem,0
-W1NNR-1232,W1NNR,Tarefa,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2026-01-19 14:08:17,2026-02-19 13:58:27,30.9932,Sem Autor,,Backlog > Triagem,0
-W1NNR-1278,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:26,2026-02-19 13:58:26,0.0,Sem Autor,,Triagem,0
-W1NNR-13,W1NNR,Tarefa,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2024-04-23 15:07:30,2026-02-19 13:57:56,666.9517,Sem Autor,,To Do > Backlog > Triagem,0
-W1NNR-14,W1NNR,Tarefa,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2024-04-23 15:07:30,2026-02-19 13:57:57,666.9517,Sem Autor,,To Do > Backlog > Triagem,0
-W1NNR-15,W1NNR,Tarefa,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2024-04-23 15:07:30,2026-02-19 13:57:58,666.9517,Sem Autor,,To Do > Backlog > Triagem,0
 W1NNR-1937,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 14:02:22,2026-02-19 14:02:22,0.0,Sem Autor,,READY FOR DEVELOPMENT,0
 W1NNR-2007,W1NNR,Tarefa,5,5,0,0,0,0,0,0,5,Nao,0.0,Nao,2026-02-19 14:02:20,2026-03-04 21:21:16,13.3048,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA,0
 W1NNR-2008,W1NNR,Tarefa,4,4,0,0,0,0,0,0,4,Nao,0.0,Nao,2026-02-11 18:14:11,2026-03-04 17:11:01,20.9561,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess,0
@@ -117,53 +110,18 @@ W1NNR-2051,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-03-02 13:37:24,2026-0
 W1NNR-2052,W1NNR,Tarefa,4,4,0,0,0,0,0,0,4,Nao,0.0,Nao,2026-03-02 13:37:26,2026-03-04 19:23:43,2.2405,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW,0
 W1NNR-2099,W1NNR,Problema,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2026-02-18 15:42:59,2026-02-19 14:00:09,0.9286,Sem Autor,,Triagem > Backlog > READY FOR DEVELOPMENT,0
 W1NNR-2124,W1NNR,Tarefa,7,7,0,0,0,0,0,0,7,Nao,0.0,Nao,2026-02-11 12:51:41,2026-03-03 13:55:44,20.0445,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA,0
+W1NNR-2162,W1NNR,Problema,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-03-06 15:57:51,2026-03-06 15:57:51,0.0,Sem Autor,,Backlog,0
 W1NNR-2174,W1NNR,Tarefa,4,4,0,0,0,0,0,0,4,Nao,0.0,Nao,2026-02-25 19:28:37,2026-03-05 13:37:46,7.7564,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review,0
 W1NNR-2181,W1NNR,Tarefa,5,5,0,0,0,0,0,0,5,Nao,0.0,Nao,2026-03-02 12:53:19,2026-03-05 19:20:26,3.2688,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW,0
 W1NNR-2182,W1NNR,Tarefa,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2026-03-02 12:56:45,2026-03-02 19:44:09,0.2829,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess,0
 W1NNR-2183,W1NNR,Tarefa,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2026-03-02 13:00:16,2026-03-03 14:56:25,1.0807,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess,0
+W1NNR-2188,W1NNR,Problema,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-03-06 15:28:04,2026-03-06 15:28:04,0.0,Sem Autor,,Backlog,0
+W1NNR-2192,W1NNR,Problema,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-03-06 15:29:04,2026-03-06 15:29:04,0.0,Sem Autor,,Backlog,0
 W1NNR-2199,W1NNR,Tarefa,3,3,0,0,0,0,0,0,3,Nao,0.0,Nao,2026-03-04 23:22:23,2026-03-04 23:22:26,0.0,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess,0
-W1NNR-22,W1NNR,História,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2024-07-24 20:13:35,2026-03-02 14:03:59,585.7433,Sem Autor,,Backlog > Triagem,0
 W1NNR-2200,W1NNR,Tarefa,5,5,0,0,0,0,0,0,5,Nao,0.0,Nao,2026-03-05 13:51:34,2026-03-05 19:20:31,0.2284,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW,0
 W1NNR-2201,W1NNR,Tarefa,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2026-03-05 13:56:54,2026-03-05 13:56:56,0.0,Sem Autor,,Backlog > READY FOR DEVELOPMENT,0
-W1NNR-406,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:01,2026-02-19 13:58:01,0.0,Sem Autor,,Triagem,0
-W1NNR-407,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:02,2026-02-19 13:58:02,0.0,Sem Autor,,Triagem,0
-W1NNR-408,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:02,2026-02-19 13:58:02,0.0,Sem Autor,,Triagem,0
-W1NNR-409,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:03,2026-02-19 13:58:03,0.0,Sem Autor,,Triagem,0
-W1NNR-410,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:04,2026-02-19 13:58:04,0.0,Sem Autor,,Triagem,0
-W1NNR-411,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:05,2026-02-19 13:58:05,0.0,Sem Autor,,Triagem,0
-W1NNR-412,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:05,2026-02-19 13:58:05,0.0,Sem Autor,,Triagem,0
-W1NNR-413,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:06,2026-02-19 13:58:06,0.0,Sem Autor,,Triagem,0
-W1NNR-414,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:06,2026-02-19 13:58:06,0.0,Sem Autor,,Triagem,0
-W1NNR-415,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:07,2026-02-19 13:58:07,0.0,Sem Autor,,Triagem,0
-W1NNR-416,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:08,2026-02-19 13:58:08,0.0,Sem Autor,,Triagem,0
-W1NNR-417,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:08,2026-02-19 13:58:08,0.0,Sem Autor,,Triagem,0
-W1NNR-418,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:09,2026-02-19 13:58:09,0.0,Sem Autor,,Triagem,0
-W1NNR-419,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:09,2026-02-19 13:58:09,0.0,Sem Autor,,Triagem,0
-W1NNR-420,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:10,2026-02-19 13:58:10,0.0,Sem Autor,,Triagem,0
-W1NNR-421,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:11,2026-02-19 13:58:11,0.0,Sem Autor,,Triagem,0
-W1NNR-422,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:11,2026-02-19 13:58:11,0.0,Sem Autor,,Triagem,0
-W1NNR-423,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:12,2026-02-19 13:58:12,0.0,Sem Autor,,Triagem,0
-W1NNR-424,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:12,2026-02-19 13:58:12,0.0,Sem Autor,,Triagem,0
-W1NNR-425,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:13,2026-02-19 13:58:13,0.0,Sem Autor,,Triagem,0
-W1NNR-426,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:13,2026-02-19 13:58:13,0.0,Sem Autor,,Triagem,0
-W1NNR-427,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:14,2026-02-19 13:58:14,0.0,Sem Autor,,Triagem,0
-W1NNR-428,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:15,2026-02-19 13:58:15,0.0,Sem Autor,,Triagem,0
-W1NNR-429,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:15,2026-02-19 13:58:15,0.0,Sem Autor,,Triagem,0
-W1NNR-430,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:19,2026-02-19 13:58:19,0.0,Sem Autor,,Triagem,0
-W1NNR-431,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:20,2026-02-19 13:58:20,0.0,Sem Autor,,Triagem,0
-W1NNR-432,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:20,2026-02-19 13:58:20,0.0,Sem Autor,,Triagem,0
-W1NNR-437,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:21,2026-02-19 13:58:21,0.0,Sem Autor,,Triagem,0
-W1NNR-438,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:21,2026-02-19 13:58:21,0.0,Sem Autor,,Triagem,0
-W1NNR-439,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:22,2026-02-19 13:58:22,0.0,Sem Autor,,Triagem,0
-W1NNR-440,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:23,2026-02-19 13:58:23,0.0,Sem Autor,,Triagem,0
-W1NNR-441,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:23,2026-02-19 13:58:23,0.0,Sem Autor,,Triagem,0
-W1NNR-442,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:24,2026-02-19 13:58:24,0.0,Sem Autor,,Triagem,0
-W1NNR-56,W1NNR,Tarefa,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2024-07-24 20:13:35,2026-02-19 13:57:59,574.7392,Sem Autor,,Backlog > Triagem,0
-W1NNR-759,W1NNR,Tarefa,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2025-04-01 16:16:28,2026-02-19 13:57:53,323.9038,Sem Autor,,Backlog > Triagem,0
 W1NNR-766,W1NNR,Tarefa,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2025-04-01 16:25:53,2026-02-19 13:57:52,323.8972,Sem Autor,,Backlog > Triagem,0
-W1NNR-8,W1NNR,Tarefa,4,4,0,0,0,0,0,0,4,Nao,0.0,Nao,2024-04-23 14:25:26,2026-02-19 13:57:54,666.9809,Sem Autor,,To Do > Ready to Analytics > Backlog > Triagem,0
-W1NNR-866,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:57:54,2026-02-19 13:57:54,0.0,Sem Autor,,Triagem,0
-W1NNR-894,W1NNR,Tarefa,1,1,0,0,0,0,0,0,1,Nao,0.0,Nao,2026-02-19 13:58:24,2026-02-19 13:58:24,0.0,Sem Autor,,Triagem,0
+W1NNR-866,W1NNR,Problema,2,2,0,0,0,0,0,0,2,Nao,0.0,Nao,2026-02-19 13:57:54,2026-03-06 15:33:03,15.0661,Sem Autor,,Triagem > Backlog,0
 W1NNR-2042,W1NNR,Tarefa,9,9,0,0,0,0,0,0,8,Nao,0.1111,Nao,2026-02-09 20:50:09,2026-03-05 18:12:40,23.8906,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging,0
 W1NNR-2044,W1NNR,Tarefa,9,9,0,0,0,0,0,0,8,Nao,0.1111,Nao,2026-02-06 19:37:11,2026-03-05 18:12:35,26.9413,Sem Autor,,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging,0
 W1NNR-2027,W1NNR,Tarefa,8,8,0,0,0,0,0,0,7,Nao,0.125,Nao,2026-02-19 14:02:23,2026-03-05 21:56:48,14.3295,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging,0
@@ -171,6 +129,8 @@ W1NNR-2028,W1NNR,Tarefa,8,8,0,0,0,0,0,0,7,Nao,0.125,Nao,2026-02-19 14:02:24,2026
 W1NNR-2172,W1NNR,Tarefa,8,8,0,0,0,0,0,0,7,Nao,0.125,Nao,2026-02-25 18:51:22,2026-03-05 18:12:42,7.9732,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging,0
 W1NNR-2173,W1NNR,Tarefa,8,8,0,0,0,0,0,0,7,Nao,0.125,Nao,2026-02-25 19:19:51,2026-03-05 18:12:43,7.9534,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging,0
 W1NNR-127,W1NNR,Problema,5,5,0,0,0,0,0,0,4,Nao,0.2,Sim,2024-08-14 01:15:54,2024-08-26 17:39:43,12.6832,Lara Junqueira Alvarenga,2024-08-26 17:39:43,in analytics > In Development > In Validation > Tech Review > Done,0
+W1NNR-14,W1NNR,Tarefa,5,5,0,0,0,0,0,0,4,Nao,0.2,Sim,2024-04-23 15:07:30,2026-03-06 15:58:16,682.0353,Lorraine Caribe,2026-03-06 15:58:16,To Do > Backlog > Triagem > Cancelled > Done,0
+W1NNR-15,W1NNR,Tarefa,5,5,0,0,0,0,0,0,4,Nao,0.2,Sim,2024-04-23 15:07:30,2026-03-06 15:58:16,682.0353,Lorraine Caribe,2026-03-06 15:58:16,To Do > Backlog > Triagem > Cancelled > Done,0
 W1NNR-1500,W1NNR,Tarefa,5,5,0,0,0,0,0,0,4,Nao,0.2,Sim,2025-09-23 18:19:12,2026-02-18 15:42:53,147.8915,Lara Junqueira Alvarenga,2026-02-18 15:42:53,in analytics > In Development > Backlog > Cancelled > Done,0
 W1NNR-2038,W1NNR,Tarefa,5,5,0,0,0,0,0,0,4,Nao,0.2,Nao,2026-02-04 18:39:32,2026-03-05 18:12:34,28.9813,Sem Autor,,Approval > Ready to Homolog > READY FOR TESTING/QA > Testing / QA > Ready To Staging,0
 W1NNR-2136,W1NNR,Tarefa,5,5,0,0,0,0,0,0,4,Nao,0.2,Nao,2026-02-12 13:39:29,2026-03-05 18:12:41,21.1897,Sem Autor,,Approval > Ready to Homolog > READY FOR TESTING/QA > Testing / QA > Ready To Staging,0
@@ -189,17 +149,20 @@ W1NNR-1408,W1NNR,Problema,6,6,0,0,0,1,0,0,4,Nao,0.25,Sim,2025-09-01 19:38:27,202
 W1NNR-20,W1NNR,Tarefa,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-04-24 13:14:11,2026-02-18 15:42:53,665.1033,Lara Junqueira Alvarenga,2026-02-18 15:42:53,To Do > Backlog > Cancelled > Done,0
 W1NNR-201,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-09-02 13:29:44,2026-02-18 15:42:58,534.0925,Lara Junqueira Alvarenga,2026-02-18 15:42:58,In Validation > in analytics > Cancelled > Done,0
 W1NNR-2147,W1NNR,Tarefa,12,12,0,0,0,0,0,0,9,Nao,0.25,Sim,2026-02-18 17:38:14,2026-02-20 20:59:48,2.14,Lara Junqueira Alvarenga,2026-02-20 20:59:48,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,0
+W1NNR-22,W1NNR,História,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-07-24 20:13:35,2026-03-06 15:58:18,589.8227,Lorraine Caribe,2026-03-06 15:58:18,Backlog > Triagem > Cancelled > Done,0
 W1NNR-262,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-10-18 19:00:10,2024-10-31 13:09:44,12.7566,Lara Junqueira Alvarenga,2024-10-31 13:09:44,in analytics > In Development > In Validation > Done,0
 W1NNR-310,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-10-18 20:07:02,2024-11-06 12:46:07,18.6938,Lara Junqueira Alvarenga,2024-11-06 12:46:07,in analytics > In Development > In Validation > Done,0
 W1NNR-353,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-10-31 19:38:37,2024-10-31 20:04:38,0.0181,Lara Junqueira Alvarenga,2024-10-31 20:04:38,in analytics > In Development > In Validation > Done,0
 W1NNR-358,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-11-01 16:01:05,2024-11-01 16:05:22,0.003,Danilo Monreal,2024-11-01 16:05:22,in analytics > In Development > In Validation > Done,0
 W1NNR-376,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-11-19 14:14:24,2025-01-21 20:20:43,63.2544,Danilo Monreal,2025-01-21 20:20:43,in analytics > In Development > In Validation > Done,0
 W1NNR-400,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-12-19 18:28:02,2025-01-02 13:09:03,13.7785,Lara Junqueira Alvarenga,2025-01-02 13:09:03,in analytics > In Development > In Validation > Done,0
+W1NNR-422,W1NNR,Tarefa,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2026-02-19 13:58:11,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Backlog > Cancelled > Done,0
 W1NNR-466,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2025-01-03 22:46:11,2025-01-03 22:54:56,0.0061,Danilo Monreal,2025-01-03 22:54:56,in analytics > In Development > In Validation > Done,0
 W1NNR-481,W1NNR,Tarefa,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2025-01-13 17:33:31,2026-02-18 15:42:53,400.9232,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Prioritized > Backlog > Cancelled > Done,0
 W1NNR-484,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2025-01-13 20:02:27,2025-01-14 17:48:59,0.9073,Barbara Rossi,2025-01-14 17:48:59,in analytics > In Development > In Validation > Done,0
 W1NNR-485,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2025-01-13 21:57:59,2025-01-14 17:48:21,0.8266,Barbara Rossi,2025-01-14 17:48:21,in analytics > In Development > In Validation > Done,0
 W1NNR-5,W1NNR,Problema,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-04-23 14:25:26,2026-02-18 15:42:58,666.0538,Lara Junqueira Alvarenga,2026-02-18 15:42:58,To Do > Ready to Analytics > Cancelled > Done,0
+W1NNR-56,W1NNR,Tarefa,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2024-07-24 20:13:35,2026-03-06 15:58:16,589.8227,Lorraine Caribe,2026-03-06 15:58:16,Backlog > Triagem > Cancelled > Done,0
 W1NNR-680,W1NNR,Tarefa,4,4,0,0,0,0,0,0,3,Nao,0.25,Sim,2025-03-19 13:53:03,2026-02-18 15:42:53,336.0763,Lara Junqueira Alvarenga,2026-02-18 15:42:53,in analytics > Backlog > Cancelled > Done,0
 W1NNR-2157,W1NNR,Problema,11,11,0,0,0,0,0,0,8,Nao,0.2727,Sim,2026-02-22 22:41:09,2026-02-23 20:01:09,0.8889,Lara Junqueira Alvarenga,2026-02-23 20:01:09,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,0
 W1NNR-2161,W1NNR,Problema,11,11,0,0,0,0,0,0,8,Nao,0.2727,Sim,2026-02-23 20:51:42,2026-03-03 18:41:20,7.9095,Lara Junqueira Alvarenga,2026-03-03 18:41:20,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,0
@@ -209,11 +172,45 @@ W1NNR-1697,W1NNR,Problema,5,5,0,0,0,1,0,0,3,Nao,0.3,Sim,2025-10-23 14:08:39,2025
 W1NNR-1698,W1NNR,Problema,5,5,0,0,0,1,0,0,3,Nao,0.3,Sim,2025-10-23 14:59:18,2025-10-27 17:28:43,4.1038,Lara Junqueira Alvarenga,2025-10-27 17:28:43,in analytics > In Development > In Validation > QA Approved Staging > Done,0
 W1NNR-2111,W1NNR,Tarefa,10,10,0,0,0,0,0,0,7,Nao,0.3,Sim,2026-02-19 14:00:06,2026-02-19 18:33:06,0.1896,Lara Junqueira Alvarenga,2026-02-19 18:33:06,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,0
 W1NNR-2112,W1NNR,Tarefa,10,10,0,0,0,0,0,0,7,Nao,0.3,Sim,2026-02-19 14:00:05,2026-02-20 20:59:48,1.2915,Lara Junqueira Alvarenga,2026-02-20 20:59:48,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,0
+W1NNR-109,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:00,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-110,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:00,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
 W1NNR-217,W1NNR,Problema,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-09-04 22:46:21,2024-09-06 10:32:48,1.4906,Lara Junqueira Alvarenga,2024-09-06 10:32:48,In Development > In Validation > Done,0
 W1NNR-220,W1NNR,Problema,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-09-20 13:21:09,2024-09-24 15:24:17,4.0855,Lorraine Caribe,2024-09-24 15:24:17,in analytics > In Validation > Done,0
 W1NNR-24,W1NNR,História,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-07-24 20:13:35,2026-02-18 15:42:52,573.812,Lara Junqueira Alvarenga,2026-02-18 15:42:52,Backlog > Cancelled > Done,0
 W1NNR-258,W1NNR,Problema,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-09-16 14:39:24,2024-09-20 15:31:49,4.0364,Lorraine Caribe,2024-09-20 15:31:49,in analytics > In Validation > Done,0
+W1NNR-406,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:01,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-407,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:02,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-408,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:02,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-409,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:03,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-410,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:04,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-411,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:05,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-412,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:05,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-413,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:06,2026-03-06 15:58:16,15.0835,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-414,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:06,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-415,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:07,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-416,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:08,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-417,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:08,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-418,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:09,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-419,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:09,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-420,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:10,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-421,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:11,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-423,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:12,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-424,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:12,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-425,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:13,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-426,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:13,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-427,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:14,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-428,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:15,2026-03-06 15:58:16,15.0834,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-429,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:15,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
 W1NNR-43,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-06-03 20:02:08,2024-06-04 13:26:39,0.7254,Barbara Rossi,2024-06-04 13:26:39,Staging > Production > Done,0
+W1NNR-430,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:19,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-431,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:20,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-432,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:20,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-437,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:21,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-438,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:21,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-439,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:22,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-440,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:23,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-441,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:23,2026-03-06 15:58:16,15.0833,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
+W1NNR-442,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2026-02-19 13:58:24,2026-03-06 15:58:16,15.0832,Lorraine Caribe,2026-03-06 15:58:16,Triagem > Cancelled > Done,0
 W1NNR-524,W1NNR,Problema,6,6,0,0,0,0,0,0,4,Nao,0.3333,Sim,2025-01-30 14:18:15,2025-02-19 19:58:39,20.2364,Thaís Cabral,2025-02-19 19:58:39,in analytics > In Development > Staging > QA Approved > Ready for Production > Done,0
 W1NNR-57,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-07-24 20:13:35,2026-02-18 15:42:53,573.812,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Backlog > Cancelled > Done,0
 W1NNR-61,W1NNR,Tarefa,3,3,0,0,0,0,0,0,2,Nao,0.3333,Sim,2024-07-24 20:13:35,2026-02-18 15:42:53,573.812,Lara Junqueira Alvarenga,2026-02-18 15:42:53,Backlog > Cancelled > Done,0
