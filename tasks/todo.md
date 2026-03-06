@@ -1,5 +1,27 @@
 # Task Plan
 
+## Current Task (Corrigir filtros na tela de Portfólio)
+- [x] Confirmar quais filtros globais devem afetar o CSV de portfólio e quais colunas/dados estão disponíveis para isso
+- [x] Ajustar a montagem do escopo do módulo Portfólio para aplicar projeto, tipo e classe de serviço sem ignorar seleções válidas
+- [x] Definir comportamento explícito para filtros sem suporte nativo no CSV de portfólio, evitando fallback silencioso para "Todos"
+- [x] Validar sintaxe e executar smoke test local da lógica de filtros do portfólio
+
+## Review (Corrigir filtros na tela de Portfólio)
+- What was validated:
+  - O módulo Portfólio passou a aplicar o filtro global de `Projeto` sobre a coluna `Team` do CSV de portfólio, por correspondência textual do team.
+  - O dropdown específico `TEAM (Portfólio)` passou a listar os valores reais da coluna `Team` e faz recorte exato quando selecionado.
+  - `ClasseServico` agora é derivada de `Prioridade` quando o CSV não traz a coluna pronta, permitindo que opções como `Highest` filtrem de fato a tela.
+  - O filtro global de `Tipo` agora usa uma canonização própria para o portfólio (`Épico`/`Feature`/`História` -> `Desenvolvimento`, `Support` -> `Suporte`, etc.).
+  - Filtros sem suporte no CSV atual, como `Responsável`, deixaram de cair silenciosamente em "Todos os projetos": a tela mostra escopo vazio e um aviso explícito.
+  - No snapshot atual, `Projeto=S1NC` retorna os teams `Squad | S1NC` e `TECH S1NC`, enquanto `TEAM (Portfólio)=TECH S1NC` recorta apenas esse team.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... d.apply_portfolio_module_filters(...) ... PY`
+    - Resultados: `projeto_S1NC_len 29`, `teams ['Squad | S1NC', 'TECH S1NC']`, `team_exact_len 28`, `team_exact_teams ['TECH S1NC']`, `class_Highest 25 ['Highest'] []`, `responsavel 0 ['O CSV atual de portfólio não possui informação de responsável.']`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(portfolio): filter portfolio by team semantics instead of project column`
+
 ## Current Task (Eliminar warning pandas e conflito de porta do dashboard)
 - [x] Localizar a origem do `FutureWarning` em `dashboard_full.py`
 - [x] Ajustar a normalização numérica para evitar downcast implícito após `fillna`

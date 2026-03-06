@@ -321,6 +321,136 @@ def resolve_service_class(classe_servico, prioridade):
     if classe_text and classe_text.lower() != 'nan':
         return classe_text
     return 'Standard'
+
+
+def portfolio_type_to_demand_type(tipo):
+    tipo_norm = normalize_text(tipo)
+    if tipo_norm in {'epico', 'epic', 'feature', 'funcionalidade', 'historia', 'story', 'task', 'tarefa', 'spike'}:
+        return TYPE_DEV
+    if tipo_norm in {'support', 'suporte'}:
+        return TYPE_SUPPORT
+    if tipo_norm in {'bug', 'defeito', 'defeitos', 'issue', 'issues', 'problema', 'problemas'}:
+        return TYPE_ISSUES
+    return canonicalize_demand_type(tipo)
+
+
+def portfolio_project_team_aliases(project_value):
+    project_text = str(project_value or '').strip()
+    if not project_text:
+        return []
+
+    aliases = [project_text]
+    alias_map = {
+        'DATA&ANALYTICS': ['TECH DATA', 'DATA ANALYTICS', 'DATA&ANALYTICS'],
+        'BEFINANCE': ['TECH BEFINANCE', 'BEFINANCE', 'BF'],
+        'S1NC': ['TECH S1NC', 'SQUAD | S1NC', 'S1NC'],
+        'W1NNER': ['TECH W1NNER', 'SQUAD | W1NNER', 'W1NNER', 'W1NNR'],
+    }
+    aliases.extend(alias_map.get(project_text.upper(), []))
+
+    out = []
+    seen = set()
+    for alias in aliases:
+        norm = normalize_text(alias)
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(alias)
+    return out
+
+
+def apply_portfolio_module_filters(df_portfolio, projeto=None, tipo=None, classe_servico=None, responsavel=None,
+                                   portfolio_project=None, portfolio_quarter='ALL'):
+    df_filtered = df_portfolio.copy() if df_portfolio is not None else pd.DataFrame()
+    notes = []
+
+    if df_filtered.empty:
+        return df_filtered, None, notes
+
+    if 'Prioridade' not in df_filtered.columns:
+        df_filtered['Prioridade'] = ''
+    if 'ClasseServico' not in df_filtered.columns:
+        df_filtered['ClasseServico'] = ''
+    df_filtered['ClasseServico'] = [
+        resolve_service_class(classe, prioridade)
+        for classe, prioridade in zip(df_filtered['ClasseServico'], df_filtered['Prioridade'])
+    ]
+
+    if 'Tipo' not in df_filtered.columns:
+        df_filtered['Tipo'] = ''
+    df_filtered['PortfolioTipoDemanda'] = df_filtered['Tipo'].apply(portfolio_type_to_demand_type)
+
+    if portfolio_quarter != 'ALL':
+        quarter_dates = {
+            'Q1-2026': ('2026-01-01', '2026-03-31'),
+            'Q2-2026': ('2026-04-01', '2026-06-30'),
+            'Q3-2026': ('2026-07-01', '2026-09-30'),
+            'Q4-2026': ('2026-10-01', '2026-12-31'),
+        }
+        if portfolio_quarter in quarter_dates and 'DueDate' in df_filtered.columns:
+            q_start, q_end = quarter_dates[portfolio_quarter]
+            q_start_ts = pd.to_datetime(q_start)
+            q_end_ts = pd.to_datetime(q_end)
+            df_filtered = df_filtered[
+                (df_filtered['DueDate'] >= q_start_ts) &
+                (df_filtered['DueDate'] <= q_end_ts)
+            ].copy()
+
+    effective_portfolio_project = None
+    team_col = 'Team' if 'Team' in df_filtered.columns else None
+    explicit_team = normalize_project_filter_value(portfolio_project)
+    project_team_hint = normalize_project_filter_value(projeto)
+    if explicit_team:
+        effective_portfolio_project = explicit_team
+        if team_col:
+            explicit_team_norm = normalize_text(explicit_team)
+            df_filtered = df_filtered[
+                df_filtered[team_col].fillna('').astype(str).map(normalize_text) == explicit_team_norm
+            ].copy()
+            if df_filtered.empty:
+                notes.append(f'TEAM "{explicit_team}" não possui itens no CSV atual de portfólio.')
+        else:
+            notes.append('O CSV atual de portfólio não possui a coluna Team.')
+            df_filtered = df_filtered.iloc[0:0].copy()
+    elif project_team_hint:
+        effective_portfolio_project = project_team_hint
+        if team_col:
+            team_series = df_filtered[team_col].fillna('').astype(str)
+            team_norm = team_series.map(normalize_text)
+            aliases = portfolio_project_team_aliases(project_team_hint)
+            alias_norms = [normalize_text(alias) for alias in aliases if normalize_text(alias)]
+            mask = pd.Series(False, index=df_filtered.index)
+            for alias_norm in alias_norms:
+                mask = mask | team_norm.str.contains(alias_norm, regex=False, na=False)
+            df_filtered = df_filtered[mask].copy()
+            if df_filtered.empty:
+                notes.append(f'Nenhum TEAM do portfólio corresponde ao filtro de projeto "{project_team_hint}".')
+        else:
+            notes.append('O CSV atual de portfólio não possui a coluna Team.')
+            df_filtered = df_filtered.iloc[0:0].copy()
+
+    if tipo:
+        df_filtered = df_filtered[df_filtered['PortfolioTipoDemanda'] == tipo].copy()
+        if df_filtered.empty:
+            notes.append(f'Tipo "{tipo}" sem itens no escopo atual do portfólio.')
+
+    if classe_servico:
+        df_filtered = df_filtered[df_filtered['ClasseServico'] == classe_servico].copy()
+        if df_filtered.empty:
+            notes.append(f'Classe de serviço "{classe_servico}" sem itens no escopo atual do portfólio.')
+
+    if responsavel:
+        responsavel_col = next((col for col in ['Responsavel', 'Responsável'] if col in df_filtered.columns), None)
+        if responsavel_col:
+            df_filtered = df_filtered[df_filtered[responsavel_col].fillna('').astype(str) == str(responsavel)].copy()
+            if df_filtered.empty:
+                notes.append(f'Responsável "{responsavel}" sem itens no escopo atual do portfólio.')
+        else:
+            notes.append('O CSV atual de portfólio não possui informação de responsável.')
+            df_filtered = df_filtered.iloc[0:0].copy()
+
+    return df_filtered, effective_portfolio_project, notes
+
+
 # Friendly column names
 rename_map = {
     'NomeProjeto': 'Projeto',
@@ -2700,23 +2830,17 @@ def get_portfolio_snapshot():
 
 def get_portfolio_project_filter_options():
     options = [{'label': PROJECT_FILTER_ALL_LABEL, 'value': PROJECT_FILTER_ALL_VALUE}]
-    projects = set()
-
-    if 'Projeto' in fato.columns:
-        for project in unique_sorted(fato['Projeto']):
-            p = str(project).strip()
-            if p:
-                projects.add(p)
+    teams = set()
 
     _, df_portfolio, error = get_portfolio_snapshot()
-    if not error and df_portfolio is not None and not df_portfolio.empty and 'Projeto' in df_portfolio.columns:
-        for project in df_portfolio['Projeto'].dropna().astype(str):
-            p = project.strip()
-            if p:
-                projects.add(p)
+    if not error and df_portfolio is not None and not df_portfolio.empty and 'Team' in df_portfolio.columns:
+        for team in df_portfolio['Team'].dropna().astype(str):
+            t = team.strip()
+            if t:
+                teams.add(t)
 
-    for project in sorted(projects):
-        options.append({'label': project, 'value': project})
+    for team in sorted(teams):
+        options.append({'label': team, 'value': team})
     return options
 
 
@@ -5884,7 +6008,7 @@ app.layout = html.Div([
             )
         ], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'220px'}),
         html.Div([
-            html.Label('Projeto (Portfólio):'),
+            html.Label('TEAM (Portfólio):'),
             dcc.Dropdown(
                 id='filter-portfolio-team',
                 options=get_portfolio_project_filter_options(),
@@ -6055,11 +6179,6 @@ def update_leadtime_stage_filter_options(projeto, current_value):
 def sync_portfolio_project_filter(projeto, current_portfolio_project):
     options = get_portfolio_project_filter_options()
     allowed_values = {opt.get('value') for opt in options}
-    primary_project = projeto if projeto in allowed_values else PROJECT_FILTER_ALL_VALUE
-
-    if primary_project != PROJECT_FILTER_ALL_VALUE:
-        return options, primary_project
-
     if current_portfolio_project in allowed_values:
         return options, current_portfolio_project
 
@@ -6558,51 +6677,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ),
             ], style={'padding': '20px'})
 
-        df_portfolio_filtered = df_portfolio.copy()
-        if 'Prioridade' not in df_portfolio_filtered.columns:
-            df_portfolio_filtered['Prioridade'] = ''
-        if 'ClasseServico' not in df_portfolio_filtered.columns:
-            df_portfolio_filtered['ClasseServico'] = df_portfolio_filtered['Prioridade'].apply(
-                lambda v: resolve_service_class('', v)
-            )
-        # O Portfólio usa taxonomia própria e não deve ser impactado pelo
-        # filtro global de Classe de Serviço do módulo de Serviços.
-        if portfolio_quarter != 'ALL':
-            quarter_dates = {
-                'Q1-2026': ('2026-01-01', '2026-03-31'),
-                'Q2-2026': ('2026-04-01', '2026-06-30'),
-                'Q3-2026': ('2026-07-01', '2026-09-30'),
-                'Q4-2026': ('2026-10-01', '2026-12-31'),
-            }
-            if portfolio_quarter in quarter_dates:
-                q_start, q_end = quarter_dates[portfolio_quarter]
-                q_start_ts = pd.to_datetime(q_start)
-                q_end_ts = pd.to_datetime(q_end)
-                df_portfolio_filtered = df_portfolio_filtered[
-                    (df_portfolio_filtered['DueDate'] >= q_start_ts) &
-                    (df_portfolio_filtered['DueDate'] <= q_end_ts)
-                ].copy()
-        # Prioriza o filtro nativo da aba Portfólio e só herda o filtro global
-        # quando ele existe no escopo de projetos do CSV de portfólio.
-        effective_portfolio_project = None
-        if 'Projeto' in df_portfolio_filtered.columns:
-            available_portfolio_projects = {
-                normalize_text(p)
-                for p in df_portfolio_filtered['Projeto'].dropna().astype(str).str.strip().unique()
-                if str(p).strip()
-            }
-            portfolio_project_norm = normalize_text(normalize_project_filter_value(portfolio_project) or '')
-            projeto_norm = normalize_text(normalize_project_filter_value(projeto) or '')
-            if portfolio_project_norm and portfolio_project_norm in available_portfolio_projects:
-                effective_portfolio_project = portfolio_project
-            elif projeto_norm and projeto_norm in available_portfolio_projects:
-                effective_portfolio_project = projeto
-
-        if effective_portfolio_project and 'Projeto' in df_portfolio_filtered.columns:
-            project_norm = normalize_text(effective_portfolio_project)
-            df_portfolio_filtered = df_portfolio_filtered[
-                df_portfolio_filtered['Projeto'].fillna('').astype(str).map(normalize_text) == project_norm
-            ].copy()
+        df_portfolio_filtered, effective_portfolio_project, portfolio_filter_notes = apply_portfolio_module_filters(
+            df_portfolio,
+            projeto=projeto,
+            tipo=tipo,
+            classe_servico=classe_servico,
+            responsavel=responsavel,
+            portfolio_project=portfolio_project,
+            portfolio_quarter=portfolio_quarter,
+        )
 
         # Re-compute snapshot with filtered data
         snapshot = compute_portfolio_snapshot(df_portfolio_filtered, snapshot['updated_at'])
@@ -7669,7 +7752,36 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_sem_mov_15_visao = int((features_detalhe['DiasSemMovimentacao'] > 15).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
         features_sem_mov_30_visao = int((features_detalhe['DiasSemMovimentacao'] > 30).sum()) if features_detalhe is not None and not features_detalhe.empty else 0
         hist_tasks_sem_feature_visao = int(hist_tasks_sem_feature_por_team['WorkItems'].sum()) if hist_tasks_sem_feature_por_team is not None and not hist_tasks_sem_feature_por_team.empty else 0
-        scope_label = f"Projeto: {effective_portfolio_project}" if effective_portfolio_project else 'Todos os projetos'
+        scope_parts = []
+        if portfolio_project and portfolio_project != PROJECT_FILTER_ALL_VALUE:
+            scope_parts.append(f'TEAM: {portfolio_project}')
+        elif effective_portfolio_project:
+            scope_parts.append(f'TEAM contém: {effective_portfolio_project}')
+        else:
+            scope_parts.append('Todos os TEAMs')
+        if tipo:
+            scope_parts.append(f'Tipo: {tipo}')
+        if classe_servico:
+            scope_parts.append(f'Classe: {classe_servico}')
+        if responsavel:
+            scope_parts.append(f'Responsável: {responsavel}')
+        if portfolio_quarter and portfolio_quarter != 'ALL':
+            scope_parts.append(f'Quarter: {portfolio_quarter}')
+        scope_label = ' | '.join(scope_parts)
+        portfolio_filter_alert = html.Div()
+        if portfolio_filter_notes:
+            portfolio_filter_alert = html.Div(
+                [html.P(note, style={'margin': '0'}) for note in portfolio_filter_notes],
+                style={
+                    'margin': '12px auto 0 auto',
+                    'maxWidth': '960px',
+                    'padding': '10px 12px',
+                    'border': '1px solid #f5c2c7',
+                    'borderRadius': '8px',
+                    'backgroundColor': '#fff5f5',
+                    'color': '#842029'
+                }
+            )
         aging_label_us_20 = (
             'US com mais de 20 dias em processo sem alteração'
             if has_us_items else
@@ -7915,6 +8027,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 f"Atualizado em: {snapshot['updated_at']} | Escopo: {scope_label} | Fonte: CSV local de portfólio",
                 style={'textAlign': 'center', 'color': '#666'}
             ),
+            portfolio_filter_alert,
             dcc.Tabs(
                 id='tabs-portfolio-tematicas',
                 value='portfolio-resumo-executivo',

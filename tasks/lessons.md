@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-06
+- Context: Correção dos filtros da tela de Portfólio após regressão em que só `Quarter` filtrava corretamente.
+- User correction: Esclareceu que o filtro da tela deve ser aplicado sobre a coluna `Team` da base de portfólio, não sobre a coluna `Projeto`.
+- Root cause: Eu assumi que o filtro global `Projeto` do dashboard deveria casar com `Projeto` também no CSV de portfólio, sem validar a semântica real usada nessa tela.
+- Prevention rule: Em telas que usam uma base diferente da base principal, validar no dataset real qual coluna sustenta cada filtro visível antes de implementar o recorte.
+- Action added to workflow: Em bugs de filtro, sempre conferir o par `controle da UI -> coluna real da fonte` com uma amostra concreta do CSV/planilha antes de fechar a correção.
+- Date: 2026-03-06
 - Context: Correção de publicação de artefatos `latest` no macOS após log com caminho híbrido `.../flow-pmo/C:\Users\...`.
 - User correction: Pediu que no macOS os aliases fossem gerados em `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`, sem impactar o fluxo já funcional no Windows.
 - Root cause: A resolução de `FLOW_PMO_LATEST_DIR` aceitava cegamente um valor Windows mesmo em runtime macOS, produzindo caminho inválido; além disso o fallback do script macOS apontava para a pasta do projeto em vez de `~/Documents/dados/latest`.
