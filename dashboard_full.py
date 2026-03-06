@@ -9547,6 +9547,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         end_eff_ts = pd.to_datetime(end_date)
         weeks_eff = pd.date_range(start=start_eff_ts, end=end_eff_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
         weekly_eff_map = {}
+        weekly_eff_rows = []
         for i in range(len(weeks_eff) - 1):
             week_start = weeks_eff[i]
             week_end = weeks_eff[i + 1]
@@ -9560,6 +9561,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ])
             _, efficiency_w = calculate_flow_efficiency(arrivals_w, throughput_w)
             weekly_eff_map[pd.Timestamp(week_start).normalize()] = efficiency_w
+            weekly_eff_rows.append({
+                'SemanaReferencia': pd.Timestamp(week_start).normalize(),
+                'Chegadas': arrivals_w,
+                'Throughput': throughput_w,
+                'Eficiencia': efficiency_w,
+            })
+
+        df_eff_weekly = pd.DataFrame(weekly_eff_rows)
+        if not df_eff_weekly.empty:
+            df_eff_weekly['SemanaLabel'] = df_eff_weekly['SemanaReferencia'].dt.strftime('%d/%m/%Y')
 
         if 'DataDone' in df_eff.columns:
             df_eff['SemanaReferencia'] = weekly_bucket_start(df_eff['DataDone'].fillna(effective_start))
@@ -9594,20 +9605,144 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Outros': df_eff.get('Outros Tempos (dias)', pd.Series(0)).mean()
         }
         df_breakdown = pd.DataFrame(breakdown_components.items(), columns=['Componente', 'Dias'])
-        df_breakdown['dummy'] = 'Lead Time Médio'
-        fig_breakdown = px.bar(df_breakdown, x='Dias', y='dummy', orientation='h', color='Componente',
-                               title='Breakdown do Lead Time Médio por Componente', labels={'Dias': 'Dias Médios', 'dummy': ''},
-                               height=400, template='plotly_white')
-        fig_breakdown.update_layout(barmode='stack', yaxis_title=None, yaxis_showticklabels=False, legend_title_text='Componente')
+        df_breakdown['Dias'] = pd.to_numeric(df_breakdown['Dias'], errors='coerce').fillna(0)
+        df_breakdown = df_breakdown[df_breakdown['Dias'] > 0].sort_values('Dias', ascending=True)
+        total_breakdown_days = float(df_breakdown['Dias'].sum())
+        df_breakdown['Participacao'] = (
+            df_breakdown['Dias'] / total_breakdown_days if total_breakdown_days > 0 else 0.0
+        )
+        df_breakdown['ParticipacaoLabel'] = df_breakdown['Participacao'].map(lambda x: f'{x:.0%}')
+        df_breakdown['DiasLabel'] = df_breakdown['Dias'].map(lambda x: f'{x:.1f} d')
+        breakdown_color_map = {
+            'Backlog': '#5b6cff',
+            'Execução': '#f25535',
+            'Bloqueio': '#38c786',
+            'Espera Intermediária': '#a14cf0',
+            'Outros': '#f3a15d',
+        }
+        bar_colors = [breakdown_color_map.get(comp, '#9aa5b1') for comp in df_breakdown['Componente']]
+        fig_breakdown = make_subplots(
+            rows=1,
+            cols=2,
+            specs=[[{"type": "xy"}, {"type": "domain"}]],
+            column_widths=[0.68, 0.32],
+            subplot_titles=('Dias médios por componente', 'Participação no lead time'),
+        )
+        fig_breakdown.add_trace(
+            go.Bar(
+                x=df_breakdown['Dias'],
+                y=df_breakdown['Componente'],
+                orientation='h',
+                marker_color=bar_colors,
+                text=[f'{days} ({share})' for days, share in zip(df_breakdown['DiasLabel'], df_breakdown['ParticipacaoLabel'])],
+                textposition='outside',
+                customdata=np.stack(
+                    [df_breakdown['DiasLabel'].to_numpy(), df_breakdown['ParticipacaoLabel'].to_numpy()],
+                    axis=-1,
+                ),
+                hovertemplate='%{y}<br>Dias médios: %{customdata[0]}<br>Participação: %{customdata[1]}<extra></extra>',
+                showlegend=False,
+                name='Dias médios',
+            ),
+            row=1,
+            col=1,
+        )
+        fig_breakdown.add_trace(
+            go.Pie(
+                labels=df_breakdown['Componente'],
+                values=df_breakdown['Dias'],
+                hole=0.55,
+                marker=dict(colors=bar_colors),
+                textinfo='label+percent',
+                hovertemplate='%{label}<br>Dias médios: %{value:.1f}<br>Participação: %{percent}<extra></extra>',
+                sort=False,
+                showlegend=False,
+                name='Participação',
+            ),
+            row=1,
+            col=2,
+        )
+        fig_breakdown.update_xaxes(title_text='Dias médios', row=1, col=1, rangemode='tozero')
+        fig_breakdown.update_yaxes(title_text=None, row=1, col=1)
+        fig_breakdown.update_layout(
+            title='Breakdown do Lead Time Médio por Componente',
+            height=470,
+            template='plotly_white',
+            margin=dict(l=40, r=40, t=80, b=40),
+        )
+        if total_breakdown_days > 0:
+            fig_breakdown.add_annotation(
+                x=0.84,
+                y=0.5,
+                xref='paper',
+                yref='paper',
+                text=f'Lead time médio<br><b>{total_breakdown_days:.1f} dias</b>',
+                showarrow=False,
+                font=dict(size=14),
+            )
 
-        fig_scatter_eff = px.scatter(df_eff, x='Eficiencia', y='EficienciaAjustada',
-                                     color='TipoDemanda', hover_data=['ItemID'], title='Eficiência de Fluxo (1-ρ) por Semana de Referência',
-                                     labels={'Eficiencia': 'Eficiência de Fluxo (1-ρ)', 'EficienciaAjustada': 'Eficiência de Fluxo (1-ρ)'}, color_discrete_map=color_map)
-        fig_scatter_eff.update_layout(height=550)
-        fig_scatter_eff.add_shape(type='line', x0=0, y0=0, x1=1, y1=1, line=dict(color='grey', width=2, dash='dash'))
+        fig_scatter_eff = make_subplots(specs=[[{"secondary_y": True}]])
+        if not df_eff_weekly.empty:
+            fig_scatter_eff.add_trace(
+                go.Bar(
+                    x=df_eff_weekly['SemanaReferencia'],
+                    y=df_eff_weekly['Chegadas'],
+                    name='Chegadas',
+                    marker_color='#9aa5b1',
+                    opacity=0.45,
+                    hovertemplate='Semana %{x|%d/%m/%Y}<br>Chegadas: %{y}<extra></extra>',
+                ),
+                secondary_y=False,
+            )
+            fig_scatter_eff.add_trace(
+                go.Bar(
+                    x=df_eff_weekly['SemanaReferencia'],
+                    y=df_eff_weekly['Throughput'],
+                    name='Throughput',
+                    marker_color='#2f6bff',
+                    opacity=0.7,
+                    hovertemplate='Semana %{x|%d/%m/%Y}<br>Throughput: %{y}<extra></extra>',
+                ),
+                secondary_y=False,
+            )
+            fig_scatter_eff.add_trace(
+                go.Scatter(
+                    x=df_eff_weekly['SemanaReferencia'],
+                    y=df_eff_weekly['Eficiencia'],
+                    name='Eficiência de Fluxo (1-ρ)',
+                    mode='lines+markers',
+                    line=dict(color='#d94841', width=3),
+                    marker=dict(size=8),
+                    hovertemplate=(
+                        'Semana %{x|%d/%m/%Y}'
+                        '<br>Eficiência: %{y:.2f}'
+                        '<br>Chegadas: %{customdata[0]}'
+                        '<br>Throughput: %{customdata[1]}<extra></extra>'
+                    ),
+                    customdata=df_eff_weekly[['Chegadas', 'Throughput']].to_numpy(),
+                ),
+                secondary_y=True,
+            )
+        fig_scatter_eff.update_layout(
+            title='Eficiência de Fluxo (1-ρ) por Semana de Referência',
+            height=550,
+            template='plotly_white',
+            barmode='group',
+            hovermode='x unified',
+            legend_title_text='Métrica',
+        )
+        fig_scatter_eff.update_xaxes(title_text='Semana de Referência')
+        fig_scatter_eff.update_yaxes(title_text='Itens por semana', secondary_y=False, rangemode='tozero')
+        fig_scatter_eff.update_yaxes(
+            title_text='Eficiência de Fluxo (1-ρ)',
+            secondary_y=True,
+            range=[-1, 1],
+            tickformat='.0%',
+        )
+        fig_scatter_eff.add_hline(y=0, line_dash='dash', line_color='grey', secondary_y=True)
 
         # --- 3. Criar Tabela Detalhada ---
-        table_cols = ['ItemID', 'Projeto', 'TipoDemanda', 'LeadTime_Dias', 'TempoBacklog_Dias', 'TempoExecucao_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias', 'Outros Tempos (dias)', 'Eficiencia', 'EficienciaAjustada', 'Diferença Eficiência']
+        table_cols = ['ItemID', 'Projeto', 'TipoDemanda', 'SemanaReferencia', 'LeadTime_Dias', 'TempoBacklog_Dias', 'TempoExecucao_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias', 'Outros Tempos (dias)', 'Eficiencia']
         available_cols = [c for c in table_cols if c in df_eff.columns]
         detail_table = dash_table.DataTable(id='table-eficiencia-detalhada', columns=[{"name": i, "id": i} for i in available_cols], data=df_eff[available_cols].to_dict('records'), page_size=15, filter_action="native", sort_action="native", style_table={'overflowX': 'auto'}, style_cell={'minWidth': '100px', 'width': '150px', 'maxWidth': '180px', 'textAlign': 'center'})
 

@@ -1,5 +1,37 @@
 # Task Plan
 
+## Current Task (Refazer breakdown de componentes do Lead Time)
+- [x] Inspecionar o gráfico atual de breakdown e confirmar quais métricas por componente já estão disponíveis no dataframe
+- [x] Atualizar a visualização para destacar ranking por dias médios e participação relativa de cada componente
+- [x] Validar sintaxe, revisar diff e registrar evidências da melhoria
+
+## Review (Refazer breakdown de componentes do Lead Time)
+- What was validated:
+  - O gráfico anterior condensava toda a decomposição em uma única barra empilhada, o que escondia ranking, magnitude relativa e participação de cada componente.
+  - A visualização foi substituída por um painel duplo: barras horizontais ordenadas por `Dias médios por componente` e um donut com `Participação no lead time`.
+  - Cada componente agora exibe rótulo direto com dias médios e percentual, além de anotação com o `Lead time médio` consolidado.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `improve(flow-efficiency): replace stacked lead-time breakdown with ranked component view`
+
+## Current Task (Refazer gráfico de Eficiência de Fluxo)
+- [x] Diagnosticar a inconsistência entre o título do gráfico e os eixos atualmente plotados
+- [x] Reestruturar o gráfico para usar semana de referência no eixo temporal e agregação coerente da eficiência de fluxo
+- [x] Validar sintaxe, revisar diff e registrar a evidência da correção
+
+## Review (Refazer gráfico de Eficiência de Fluxo)
+- What was validated:
+  - O gráfico anterior comparava `Eficiencia` com `EficienciaAjustada`, mas ambas tinham exatamente o mesmo valor semanal; por isso a visualização colapsava na diagonal `y=x` e não comunicava evolução por semana.
+  - O gráfico foi refeito como combinação semanal: barras para `Chegadas` e `Throughput`, com linha no eixo secundário para `Eficiência de Fluxo (1-ρ)`.
+  - A tabela detalhada deixou de expor colunas redundantes (`EficienciaAjustada` e `Diferença Eficiência`) e passou a incluir `SemanaReferencia`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(flow-efficiency): replace meaningless scatter with weekly efficiency time series`
+
 ## Current Task (Corrigir filtros na tela de Portfólio)
 - [x] Confirmar quais filtros globais devem afetar o CSV de portfólio e quais colunas/dados estão disponíveis para isso
 - [x] Ajustar a montagem do escopo do módulo Portfólio para aplicar projeto, tipo e classe de serviço sem ignorar seleções válidas
