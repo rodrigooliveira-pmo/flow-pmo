@@ -23,8 +23,7 @@ except Exception:
     pm4py = None  # type: ignore
     PM4PY_AVAILABLE = False
 
-W1NNER_PROJECT_ALIASES = {"w1nner", "w1nnr"}
-DEFAULT_EXPECTED_FLOW = [
+LEGACY_PRODUCTS_EXPECTED_FLOW = [
     "Sprint Backlog",
     "In Progress",
     "Ready to Homologation",
@@ -36,9 +35,41 @@ DEFAULT_EXPECTED_FLOW = [
     "Ready for production",
     "Done",
 ]
+DATA_ANALYTICS_EXPECTED_FLOW = [
+    "To Do",
+    "Discovery",
+    "Development",
+    "Tech Review",
+    "In Validation",
+    "Improvement",
+    "Done",
+]
 DEFAULT_DONE_STATUSES = {"itens concluidos", "itens concluídos", "done", "concluido", "concluído"}
 QA_HINTS = ("qa", "test", "homolog", "valid")
 DEV_HINTS = ("progress", "develop", "desenvol", "code review")
+
+PROJECT_PROCESS_MINING_CONFIG = {
+    "W1NNER": {
+        "aliases": {"w1nner", "w1nnr"},
+        "default_prefix": "w1nner-process-mining",
+        "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
+    },
+    "S1NC": {
+        "aliases": {"s1nc", "w1sft"},
+        "default_prefix": "s1nc-process-mining",
+        "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
+    },
+    "BEFINANCE": {
+        "aliases": {"befinance", "bf"},
+        "default_prefix": "befinance-process-mining",
+        "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
+    },
+    "DATA&ANALYTICS": {
+        "aliases": {"data analytics", "data&analytics", "data analitics", "data&analitics", "dt", "da"},
+        "default_prefix": "dataanalytics-process-mining",
+        "expected_flow": DATA_ANALYTICS_EXPECTED_FLOW,
+    },
+}
 
 REQUIRED_COLS = {
     "Projeto",
@@ -75,15 +106,33 @@ def normalize_text(value: Any) -> str:
     return " ".join(no_accents.replace("_", " ").replace("-", " ").split())
 
 
+def resolve_project_process_mining_config(project: str) -> dict[str, Any]:
+    normalized_project = normalize_text(project)
+    for canonical_project, config in PROJECT_PROCESS_MINING_CONFIG.items():
+        aliases = {normalize_text(alias) for alias in config.get("aliases", set())}
+        if normalized_project == normalize_text(canonical_project) or normalized_project in aliases:
+            resolved = dict(config)
+            resolved["canonical_project"] = canonical_project
+            resolved["aliases"] = aliases | {normalize_text(canonical_project)}
+            return resolved
+    fallback_prefix = f"{re.sub(r'[^a-z0-9]+', '', normalized_project) or 'project'}-process-mining"
+    return {
+        "canonical_project": str(project or "").strip() or "PROJECT",
+        "aliases": {normalized_project} if normalized_project else set(),
+        "default_prefix": fallback_prefix,
+        "expected_flow": list(LEGACY_PRODUCTS_EXPECTED_FLOW),
+    }
+
+
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Process mining Jira (W1NNER) com saída CSV/Excel.")
+    p = argparse.ArgumentParser(description="Process mining Jira com saída CSV/Excel por projeto.")
     p.add_argument("--input", required=True, help="CSV de changelog detalhado do Jira")
     p.add_argument("--out-dir", default="", help="Diretório de saída (default: pasta do input)")
-    p.add_argument("--project", default="W1NNR", help="Projeto alvo (W1NNR/W1NNER)")
+    p.add_argument("--project", default="W1NNR", help="Projeto alvo (ex.: W1NNR, S1NC, BF, DT)")
     p.add_argument("--issue-types", nargs="*", default=["História", "Task", "Bug"])
-    p.add_argument("--expected-flow", nargs="*", default=DEFAULT_EXPECTED_FLOW)
-    p.add_argument("--done-status", nargs="*", default=["Done", "Itens concluídos", "Concluído"])
-    p.add_argument("--prefix", default="w1nner-process-mining")
+    p.add_argument("--expected-flow", nargs="*", default=None)
+    p.add_argument("--done-status", nargs="*", default=None)
+    p.add_argument("--prefix", default="")
     p.add_argument("--max-top", type=int, default=25)
     p.add_argument("--pm4py-align-max-cases", type=int, default=0, help="Limite de casos para alignments PM4Py (0=desabilita; default rápido)")
     return p.parse_args()
@@ -115,7 +164,8 @@ def load_events(path: str, project: str, issue_types: Sequence[str]) -> pd.DataF
         df[c] = df[c].fillna("").astype(str)
     df["History Created"] = pd.to_datetime(df["History Created"], utc=True, errors="coerce")
     df = df.dropna(subset=["History Created"]).copy()
-    allowed_projects = set(W1NNER_PROJECT_ALIASES)
+    project_config = resolve_project_process_mining_config(project)
+    allowed_projects = set(project_config.get("aliases", set()))
     allowed_projects.add(normalize_text(project))
     df = df[df["Projeto"].map(normalize_text).isin(allowed_projects)].copy()
     allowed_types = expand_issue_type_filters(issue_types) or {"historia", "story", "task", "tarefa", "bug", "problema"}
@@ -955,11 +1005,16 @@ def main() -> int:
         raise FileNotFoundError(f"Arquivo não encontrado: {in_path}")
     out_dir = Path(args.out_dir) if str(args.out_dir).strip() else in_path.parent
 
+    project_config = resolve_project_process_mining_config(args.project)
+    expected_flow = list(args.expected_flow) if args.expected_flow else list(project_config.get("expected_flow", LEGACY_PRODUCTS_EXPECTED_FLOW))
+    done_status = list(args.done_status) if args.done_status else ["Done", "Itens concluídos", "Concluído"]
+    prefix = str(args.prefix).strip() or str(project_config.get("default_prefix") or "process-mining")
+
     events = load_events(str(in_path), args.project, args.issue_types)
     if events.empty:
-        print("Nenhum evento após filtros (W1NNER/W1NNR + História/Task/Bug).")
+        print(f"Nenhum evento após filtros ({project_config['canonical_project']} + tipos selecionados).")
         return 1
-    events_feat, _, done_norm = enrich_events(events, args.expected_flow, args.done_status)
+    events_feat, _, done_norm = enrich_events(events, expected_flow, done_status)
     case_df, conf_sum = summarize_cases(events_feat, done_norm)
     rework_df = case_df[[
         c for c in [
@@ -993,7 +1048,7 @@ def main() -> int:
         "variantes_top": variantes,
         "eventos_filtrados": export_events,
     }
-    paths = write_outputs(out_dir, args.prefix, datasets, pm4py_align_max_cases=args.pm4py_align_max_cases)
+    paths = write_outputs(out_dir, prefix, datasets, pm4py_align_max_cases=args.pm4py_align_max_cases)
     print("Relatórios gerados:")
     for k, v in paths.items():
         print(f"- {k}: {v}")

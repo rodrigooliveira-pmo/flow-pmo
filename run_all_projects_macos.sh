@@ -13,6 +13,8 @@ RUN_PORTFOLIO_EXPORT=true
 RUN_METRICS=true
 OPEN_DASHBOARD=true
 RUN_DETAILED_CHANGELOG_EXPORT=false
+RUN_PROCESS_MINING=true
+RUN_BITBUCKET_EXPORT=true
 
 usage() {
     cat <<'EOF_HELP'
@@ -31,6 +33,10 @@ Opcoes:
   --no-open-dashboard       Nao abre dashboard
   --run-detailed-changelog-export    Gera CSV de changelog detalhado real por projeto
   --no-run-detailed-changelog-export Nao gera CSV de changelog detalhado (padrao)
+  --run-process-mining               Gera artefatos de process mining por projeto (padrao)
+  --no-run-process-mining            Nao gera artefatos de process mining
+  --run-bitbucket-export             Exporta commits/PRs/pipelines Bitbucket por projeto (padrao)
+  --no-run-bitbucket-export          Nao exporta dados Bitbucket
   -h, --help                Mostra esta ajuda
 EOF_HELP
 }
@@ -83,6 +89,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-run-detailed-changelog-export)
             RUN_DETAILED_CHANGELOG_EXPORT=false
+            shift
+            ;;
+        --run-process-mining)
+            RUN_PROCESS_MINING=true
+            shift
+            ;;
+        --no-run-process-mining)
+            RUN_PROCESS_MINING=false
+            shift
+            ;;
+        --run-bitbucket-export)
+            RUN_BITBUCKET_EXPORT=true
+            shift
+            ;;
+        --no-run-bitbucket-export)
+            RUN_BITBUCKET_EXPORT=false
             shift
             ;;
         -h|--help)
@@ -164,13 +186,21 @@ SCRIPT_PATH="${SCRIPT_DIR}/jira_to_pipeline_csv.py"
 PORTFOLIO_SCRIPT="${SCRIPT_DIR}/jira_portfolio_to_csv.py"
 METRICS_SCRIPT="${SCRIPT_DIR}/dash_board_metricas.py"
 DASHBOARD_SCRIPT="${SCRIPT_DIR}/dashboard_full.py"
+BITBUCKET_SCRIPT="${SCRIPT_DIR}/bitbucket_export.py"
+PROCESS_MINING_SCRIPT="${SCRIPT_DIR}/process_mining_jira.py"
+PROCESS_MINING_OUT_DIR="${SCRIPT_DIR}/artifacts/process_mining"
 
 [[ -f "$SCRIPT_PATH" ]] || { echo "Arquivo nao encontrado: $SCRIPT_PATH"; exit 1; }
 mkdir -p "$OUT_DIR"
 mkdir -p "$LATEST_DIR"
+if [[ "$RUN_PROCESS_MINING" == true ]]; then
+    mkdir -p "$PROCESS_MINING_OUT_DIR"
+fi
 
 PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
 PROJECT_PREFIXES=("w1nner-downstream" "s1nc-downstream" "befinance-downstream" "dataanalytics-downstream")
+PROCESS_MINING_PREFIXES=("w1nner-process-mining" "s1nc-process-mining" "befinance-process-mining" "dataanalytics-process-mining")
+BITBUCKET_PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
 
 echo "Iniciando exportacao Jira -> CSV..."
 echo "Base URL: ${JIRA_BASE_URL}"
@@ -189,7 +219,10 @@ export JIRA_IGNORE_STATUS_MAP=1
 for i in "${!PROJECT_KEYS[@]}"; do
     key="${PROJECT_KEYS[$i]}"
     prefix="${PROJECT_PREFIXES[$i]}"
+    process_mining_prefix="${PROCESS_MINING_PREFIXES[$i]}"
+    bitbucket_project="${BITBUCKET_PROJECT_KEYS[$i]}"
     out_file="${OUT_DIR}/${prefix}-${DATE_TAG}-data.csv"
+    detailed_changelog_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_detailed_changelog.csv"
 
     echo
     echo "Projeto: ${key}"
@@ -203,8 +236,7 @@ for i in "${!PROJECT_KEYS[@]}"; do
         --workers "$WORKERS"
     )
 
-    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
-        detailed_changelog_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_detailed_changelog.csv"
+    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true || "$RUN_PROCESS_MINING" == true ]]; then
         export_cmd+=(--detailed-changelog-out "$detailed_changelog_out")
         echo "Changelog detalhado: ${detailed_changelog_out}"
     fi
@@ -226,13 +258,32 @@ for i in "${!PROJECT_KEYS[@]}"; do
         publish_latest_artifact "$bottleneck_latest" "$LATEST_DIR"
     fi
 
-    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
+    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true || "$RUN_PROCESS_MINING" == true ]]; then
         detailed_changelog_latest="${OUT_DIR}/${prefix}-latest-data_detailed_changelog.csv"
         if [[ -f "${detailed_changelog_out}" ]]; then
             cp -f "${detailed_changelog_out}" "${detailed_changelog_latest}"
             echo "Arquivo latest atualizado: ${detailed_changelog_latest}"
             publish_latest_artifact "$detailed_changelog_latest" "$LATEST_DIR"
         fi
+    fi
+
+    if [[ "$RUN_PROCESS_MINING" == true ]]; then
+        [[ -f "$PROCESS_MINING_SCRIPT" ]] || { echo "Arquivo nao encontrado: $PROCESS_MINING_SCRIPT"; exit 1; }
+        [[ -f "$detailed_changelog_out" ]] || { echo "Changelog detalhado ausente para process mining: $detailed_changelog_out"; exit 1; }
+        echo "Gerando process mining para ${key}..."
+        "$PYTHON_BIN" "$PROCESS_MINING_SCRIPT" --input "$detailed_changelog_out" --out-dir "$PROCESS_MINING_OUT_DIR" --project "$key" --prefix "$process_mining_prefix"
+    fi
+
+    if [[ "$RUN_BITBUCKET_EXPORT" == true ]]; then
+        [[ -f "$BITBUCKET_SCRIPT" ]] || { echo "Arquivo nao encontrado: $BITBUCKET_SCRIPT"; exit 1; }
+        echo "Exportando Bitbucket para ${bitbucket_project}..."
+        "$PYTHON_BIN" "$BITBUCKET_SCRIPT" --project "$bitbucket_project" --out-dir "$OUT_DIR"
+        for suffix in commits pullrequests pipelines; do
+            bitbucket_file="${OUT_DIR}/${prefix%-downstream}_${suffix}.csv"
+            if [[ -f "$bitbucket_file" ]]; then
+                publish_latest_artifact "$bitbucket_file" "$LATEST_DIR"
+            fi
+        done
     fi
 done
 

@@ -130,7 +130,15 @@ COMMITTED_WORK_AREA_COLORS = {
 WORKDAY_START_HOUR = 9
 WORKDAY_END_HOUR = 18
 WORKDAY_DAILY_CAP_HOURS = 8.0
-PROJECT_BITBUCKET_PREFIX = {"W1NNER": "w1nner"}
+PROJECT_BITBUCKET_PREFIX = {
+    "W1NNER": "w1nner",
+    "S1NC": "s1nc",
+    "BF": "befinance",
+    "BEFINANCE": "befinance",
+    "DT": "dataanalytics",
+    "DATA&ANALYTICS": "dataanalytics",
+    "DATA&ANALITICS": "dataanalytics",
+}
 
 
 def _download_process_mining_report_from_url(url):

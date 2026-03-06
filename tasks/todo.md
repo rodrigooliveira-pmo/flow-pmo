@@ -1,5 +1,37 @@
 # Task Plan
 
+## Current Task (Expandir process mining e Bitbucket para S1NC, DATA&ANALITICS e BEFINANCE)
+- [x] Mapear os pontos hardcoded de projeto/prefixo no pipeline de process mining, na automação `run_all` e no consumo Bitbucket
+- [x] Generalizar `process_mining_jira.py` para aceitar aliases/prefixos por projeto além de W1NNER
+- [x] Estender a automação principal para gerar changelog detalhado e artefatos de process mining para S1NC, DATA&ANALITICS e BEFINANCE
+- [x] Ajustar a extração Bitbucket para suportar múltiplos projetos, incluindo o caso em que W1NNER e S1NC compartilham o mesmo repositório
+- [x] Validar sintaxe, revisar diff e registrar evidências na seção de review
+
+## Review (Expandir process mining e Bitbucket para S1NC, DATA&ANALITICS e BEFINANCE)
+- What was validated:
+  - `process_mining_jira.py` deixou de assumir W1NNER como único projeto e agora resolve aliases, prefixo de saída e fluxo padrão por projeto para `W1NNR/W1NNER`, `S1NC`, `BF/BEFINANCE` e `DT/DATA&ANALITICS`, incluindo a grafia `DATA&ANALITICS`.
+  - `run_all_projects.ps1` e `run_all_projects_macos.sh` passaram a gerar changelog detalhado quando necessário, produzir artefatos de process mining por projeto em `artifacts/process_mining` e disparar exportação Bitbucket por projeto.
+  - `bitbucket_export.py` agora aceita `--project`, resolve repo/prefixo por projeto, suporta overrides por env e filtra commits/PRs/pipelines pelos prefixes Jira do projeto; isso separa corretamente `S1NC` de `W1NNER` mesmo compartilhando o repositório `w1nner`.
+  - Os consumers de prefixo Bitbucket foram alinhados para `S1NC`, `BEFINANCE` e `DATA&ANALITICS` também no dashboard dedicado e no dashboard principal.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile process_mining_jira.py bitbucket_export.py dashboard_process_mining.py dashboard_full.py`
+  - `python3 process_mining_jira.py --help`
+  - `python3 bitbucket_export.py --help`
+  - `bash -n run_all_projects_macos.sh`
+  - `python3 - <<'PY' ... resolve_project_process_mining_config(...) ... PY`
+    - Resultados: `W1NNR -> w1nner-process-mining`, `S1NC -> s1nc-process-mining`, `BF -> befinance-process-mining`, `DT/DATA&ANALITICS/DATA&ANALITICS -> dataanalytics-process-mining`
+  - `python3 bitbucket_export.py --project S1NC --dry-run`
+    - Resultado: `repo=w1nner`, `prefix=s1nc`, `issue_key_prefixes=W1SFT,S1NC`
+  - `python3 bitbucket_export.py --project BF --dry-run`
+    - Resultado: `repo=befinance`, `prefix=befinance`, `issue_key_prefixes=BF,BEFINANCE`
+  - `python3 bitbucket_export.py --project DATA\&ANALITICS --dry-run`
+    - Resultado: `repo=dataanalytics`, `prefix=dataanalytics`, `issue_key_prefixes=DT,DA`
+  - `python3 - <<'PY' ... work_item_keys_match_project(...) ... PY`
+    - Resultados: `S1NC-10` casa com `S1NC/W1SFT`, `W1NNR-10` não casa com `S1NC/W1SFT`, `DA-99` casa com `DT/DA`
+  - `git diff -- process_mining_jira.py bitbucket_export.py run_all_projects.ps1 run_all_projects_macos.sh dashboard_process_mining.py dashboard_full.py .env.example tasks/todo.md`
+- Suggested commit message:
+  - `feat(process-mining): expand jira and bitbucket extraction to s1nc befinance and dataanalytics`
+
 ## Current Task (Fixar latest do process mining no macOS)
 - [x] Inspecionar a resolução atual do diretório `latest` em `process_mining_jira.py`
 - [x] Ajustar o pipeline para publicar aliases `latest` no macOS sempre em `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`

@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import random
 import re
 import sys
 import time
 import urllib.parse
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +24,33 @@ LAST_REQUEST_AT = 0.0
 MIN_REQUEST_INTERVAL_SECONDS = 0.35
 MAX_REQUEST_INTERVAL_SECONDS = 3.0
 CURRENT_REQUEST_INTERVAL_SECONDS = 0.35
+
+PROJECT_BITBUCKET_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "W1NNER": {
+        "aliases": {"W1NNR", "W1NNER"},
+        "issue_key_prefixes": {"W1NNR", "W1NNER"},
+        "repo": "w1nner",
+        "prefix": "w1nner",
+    },
+    "S1NC": {
+        "aliases": {"S1NC", "W1SFT"},
+        "issue_key_prefixes": {"S1NC", "W1SFT"},
+        "repo": "w1nner",
+        "prefix": "s1nc",
+    },
+    "BEFINANCE": {
+        "aliases": {"BF", "BEFINANCE"},
+        "issue_key_prefixes": {"BF", "BEFINANCE"},
+        "repo": "befinance",
+        "prefix": "befinance",
+    },
+    "DATA&ANALYTICS": {
+        "aliases": {"DT", "DA", "DATA&ANALYTICS", "DATA&ANALITICS"},
+        "issue_key_prefixes": {"DT", "DA"},
+        "repo": "dataanalytics",
+        "prefix": "dataanalytics",
+    },
+}
 
 
 def _line_count(path: Path) -> int:
@@ -65,6 +94,119 @@ def require_env(name: str) -> str:
     if not value:
         raise ValueError(f"Variável obrigatória ausente: {name}")
     return value
+
+
+def normalize_text(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    nfkd = unicodedata.normalize("NFKD", raw)
+    no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    return " ".join(no_accents.replace("_", " ").replace("-", " ").split())
+
+
+def normalize_project_key(project: str) -> str:
+    norm = normalize_text(project).upper().replace(" ", "")
+    aliases = {
+        "W1NNRI": "W1NNER",
+        "W1NNR": "W1NNER",
+        "W1NNER": "W1NNER",
+        "W1SFT": "S1NC",
+        "S1NC": "S1NC",
+        "BF": "BEFINANCE",
+        "BEFINANCE": "BEFINANCE",
+        "DT": "DATA&ANALYTICS",
+        "DA": "DATA&ANALYTICS",
+        "DATA&ANALYTICS": "DATA&ANALYTICS",
+        "DATA&ANALITICS": "DATA&ANALYTICS",
+        "DATAANALYTICS": "DATA&ANALYTICS",
+        "DATAANALITICS": "DATA&ANALYTICS",
+    }
+    return aliases.get(norm, str(project or "").strip().upper())
+
+
+def parse_json_env(name: str) -> Dict[str, Any]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_issue_key_prefixes(values: Iterable[str]) -> list[str]:
+    prefixes = []
+    seen = set()
+    for value in values:
+        prefix = str(value or "").strip().upper()
+        if not prefix or prefix in seen:
+            continue
+        seen.add(prefix)
+        prefixes.append(prefix)
+    return prefixes
+
+
+def resolve_project_bitbucket_config(project: str) -> Dict[str, Any]:
+    canonical_project = normalize_project_key(project)
+    config = dict(PROJECT_BITBUCKET_DEFAULTS.get(canonical_project, {}))
+    aliases = {str(alias).strip().upper() for alias in config.get("aliases", set()) if str(alias).strip()}
+    if canonical_project:
+        aliases.add(canonical_project)
+
+    repo_map = parse_json_env("FLOW_PMO_BITBUCKET_REPO_MAP")
+    repo_override = repo_map.get(canonical_project)
+    if repo_override is None:
+        for alias in aliases:
+            if alias in repo_map:
+                repo_override = repo_map[alias]
+                break
+    if isinstance(repo_override, str):
+        config["repo"] = repo_override.strip()
+    elif isinstance(repo_override, dict):
+        for key in ("workspace", "repo", "prefix"):
+            value = str(repo_override.get(key) or "").strip()
+            if value:
+                config[key] = value
+        override_prefixes = repo_override.get("issue_key_prefixes")
+        if isinstance(override_prefixes, list):
+            config["issue_key_prefixes"] = [str(item).strip().upper() for item in override_prefixes if str(item).strip()]
+
+    prefix_map = parse_json_env("FLOW_PMO_BITBUCKET_PREFIX_MAP")
+    prefix_override = prefix_map.get(canonical_project)
+    if prefix_override is None:
+        for alias in aliases:
+            if alias in prefix_map:
+                prefix_override = prefix_map[alias]
+                break
+    if str(prefix_override or "").strip():
+        config["prefix"] = str(prefix_override).strip()
+
+    issue_key_prefix_map = parse_json_env("FLOW_PMO_BITBUCKET_ISSUE_KEY_PREFIX_MAP")
+    issue_prefix_override = issue_key_prefix_map.get(canonical_project)
+    if issue_prefix_override is None:
+        for alias in aliases:
+            if alias in issue_key_prefix_map:
+                issue_prefix_override = issue_key_prefix_map[alias]
+                break
+    if isinstance(issue_prefix_override, list):
+        config["issue_key_prefixes"] = [str(item).strip().upper() for item in issue_prefix_override if str(item).strip()]
+    elif str(issue_prefix_override or "").strip():
+        config["issue_key_prefixes"] = [str(issue_prefix_override).strip().upper()]
+
+    config["canonical_project"] = canonical_project or str(project or "").strip().upper()
+    config["issue_key_prefixes"] = _normalize_issue_key_prefixes(config.get("issue_key_prefixes", []))
+    return config
+
+
+def work_item_keys_match_project(work_item_keys: Iterable[str], allowed_prefixes: Iterable[str]) -> bool:
+    allowed = {str(prefix or "").strip().upper() for prefix in allowed_prefixes if str(prefix or "").strip()}
+    if not allowed:
+        return True
+    for key in work_item_keys:
+        prefix = str(key or "").split("-", 1)[0].strip().upper()
+        if prefix in allowed:
+            return True
+    return False
 
 
 def extract_work_item_keys(*texts: str) -> list[str]:
@@ -497,12 +639,19 @@ def parse_args() -> argparse.Namespace:
         description="Exporta commits, pull requests e pipelines do Bitbucket para CSV lendo credenciais do .env."
     )
     parser.add_argument("--env-file", default=".env", help="Arquivo .env com BB_EMAIL/BB_TOKEN/BB_WORKSPACE/BB_REPO.")
+    parser.add_argument("--project", default="", help="Projeto lógico para resolver repo/prefixo/filtros (ex.: W1NNR, S1NC, BF, DT).")
     parser.add_argument("--workspace", default="", help="Workspace slug (override de BB_WORKSPACE).")
     parser.add_argument("--repo", default="", help="Repository slug (override de BB_REPO).")
     parser.add_argument("--email", default="", help="Email da conta Atlassian (override de BB_EMAIL).")
     parser.add_argument("--token", default="", help="Token da API Atlassian (override de BB_TOKEN).")
     parser.add_argument("--out-dir", default=".", help="Diretório de saída dos CSVs.")
     parser.add_argument("--prefix", default="bitbucket", help="Prefixo dos arquivos CSV de saída.")
+    parser.add_argument(
+        "--issue-key-prefixes",
+        nargs="*",
+        default=None,
+        help="Prefixos Jira usados para filtrar itens no repositório (ex.: S1NC W1SFT).",
+    )
     parser.add_argument("--pagelen", type=int, default=50, help="Pagelen da API Bitbucket (recomendado até 50).")
     parser.add_argument("--max-pages", type=int, default=0, help="Limite de páginas por endpoint (0 = sem limite).")
     parser.add_argument("--workers", type=int, default=3, help="Workers paralelos por endpoint (1 = sequencial).")
@@ -545,6 +694,19 @@ def main() -> int:
     if args.repo:
         os.environ["BB_REPO"] = args.repo
 
+    project_config: Dict[str, Any] = {}
+    if args.project:
+        project_config = resolve_project_bitbucket_config(args.project)
+        workspace_override = str(project_config.get("workspace") or "").strip()
+        repo_override = str(project_config.get("repo") or "").strip()
+        prefix_override = str(project_config.get("prefix") or "").strip()
+        if workspace_override and not args.workspace:
+            os.environ["BB_WORKSPACE"] = workspace_override
+        if repo_override and not args.repo:
+            os.environ["BB_REPO"] = repo_override
+        if prefix_override and args.prefix == "bitbucket":
+            args.prefix = prefix_override
+
     try:
         email = require_env("BB_EMAIL")
         token = require_env("BB_TOKEN")
@@ -554,10 +716,20 @@ def main() -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
 
+    issue_key_prefixes = _normalize_issue_key_prefixes(
+        args.issue_key_prefixes
+        if args.issue_key_prefixes is not None
+        else project_config.get("issue_key_prefixes", [])
+    )
+
     if args.dry_run:
         print("Dry run OK: configuração carregada.")
+        if project_config:
+            print(f"project={project_config.get('canonical_project')}")
         print(f"workspace={workspace}")
         print(f"repo={repo}")
+        print(f"prefix={args.prefix}")
+        print(f"issue_key_prefixes={','.join(issue_key_prefixes)}")
         print(f"email={email}")
         return 0
 
@@ -590,6 +762,11 @@ def main() -> int:
             ts = ts.replace(tzinfo=timezone.utc)
         return ts < since_cutoff
 
+    def row_matches_project(row: Dict[str, Any], *texts: str) -> bool:
+        if not issue_key_prefixes:
+            return True
+        return work_item_keys_match_project(extract_work_item_keys(*texts), issue_key_prefixes)
+
     base_url = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}"
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -615,7 +792,12 @@ def main() -> int:
                 },
                 stop_on_row=lambda row: row_older_than_cutoff(row, ("date",)),
             )
-            return _safe_export(commits_csv, export_commits, rows)
+            filtered_rows = (
+                row
+                for row in rows
+                if row_matches_project(row, str(row.get("message") or ""))
+            )
+            return _safe_export(commits_csv, export_commits, filtered_rows)
 
     def run_pullrequests() -> int:
         if args.skip_pullrequests:
@@ -639,6 +821,15 @@ def main() -> int:
                     ),
                 },
                 stop_on_row=lambda row: row_older_than_cutoff(row, ("updated_on", "created_on")),
+            )
+            rows = (
+                row for row in rows
+                if row_matches_project(
+                    row,
+                    str(row.get("title") or ""),
+                    str((((row.get("source") or {}).get("branch") or {}).get("name")) if isinstance(row.get("source"), dict) else ""),
+                    str((((row.get("destination") or {}).get("branch") or {}).get("name")) if isinstance(row.get("destination"), dict) else ""),
+                )
             )
             if args.skip_pr_volume:
                 return _safe_export(prs_csv, export_pullrequests, rows)
@@ -699,7 +890,15 @@ def main() -> int:
                 },
                 stop_on_row=lambda row: row_older_than_cutoff(row, ("completed_on", "created_on")),
             )
-            return _safe_export(pipelines_csv, export_pipelines, rows)
+            filtered_rows = (
+                row
+                for row in rows
+                if row_matches_project(
+                    row,
+                    str(((row.get("target") or {}).get("ref_name")) if isinstance(row.get("target"), dict) else ""),
+                )
+            )
+            return _safe_export(pipelines_csv, export_pipelines, filtered_rows)
 
     try:
         workers = min(max(args.workers, 1), 3)

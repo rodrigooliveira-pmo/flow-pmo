@@ -487,6 +487,7 @@ PROJECT_BOTTLENECK_PREFIX = {
     'BEFINANCE': 'befinance-downstream',
     'DT': 'dataanalytics-downstream',
     'DATA&ANALYTICS': 'dataanalytics-downstream',
+    'DATA&ANALITICS': 'dataanalytics-downstream',
 }
 
 PROJECT_BITBUCKET_PREFIX = {
@@ -496,6 +497,7 @@ PROJECT_BITBUCKET_PREFIX = {
     'BEFINANCE': 'befinance',
     'DT': 'dataanalytics',
     'DATA&ANALYTICS': 'dataanalytics',
+    'DATA&ANALITICS': 'dataanalytics',
 }
 
 DOWNSTREAM_METADATA_COLUMNS = {
