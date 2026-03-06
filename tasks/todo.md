@@ -1,5 +1,24 @@
 # Task Plan
 
+## Current Task (Fixar latest do process mining no macOS)
+- [x] Inspecionar a resolução atual do diretório `latest` em `process_mining_jira.py`
+- [x] Ajustar o pipeline para publicar aliases `latest` no macOS sempre em `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`
+- [x] Preservar o destino atual quando a execução ocorrer em Windows
+- [x] Validar a resolução do caminho e registrar evidências
+
+## Review (Fixar latest do process mining no macOS)
+- What was validated:
+  - `process_mining_jira.py` passou a usar o path fixo `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest` como destino central de aliases `latest` quando executado no macOS.
+  - Em macOS, o pipeline de process mining agora ignora `FLOW_PMO_LATEST_DIR` para evitar que overrides desviem a publicação para outro diretório.
+  - O comportamento de Windows foi preservado, mantendo o default `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest`.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile process_mining_jira.py`
+  - `python3 - <<'PY' ... os.environ['FLOW_PMO_LATEST_DIR']='/tmp/nao-deve-ser-usado'; print(pm._resolve_central_latest_dir(Path('artifacts/process_mining'))) ... PY`
+    - Resultado: `/Users/rodrigoalmeidadeoliveira/Documents/dados/latest`
+  - `git diff -- process_mining_jira.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(process-mining): force macos latest artifacts into documents dados latest`
+
 ## Current Task (Refazer breakdown de componentes do Lead Time)
 - [x] Inspecionar o gráfico atual de breakdown e confirmar quais métricas por componente já estão disponíveis no dataframe
 - [x] Atualizar a visualização para destacar ranking por dias médios e participação relativa de cada componente

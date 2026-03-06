@@ -60,7 +60,7 @@ ISSUE_TYPE_ALIASES = {
 }
 
 WINDOWS_DEFAULT_LATEST_DIR = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
-MACOS_DEFAULT_LATEST_DIR = os.path.expanduser("~/Documents/dados/latest")
+MACOS_DEFAULT_LATEST_DIR = "/Users/rodrigoalmeidadeoliveira/Documents/dados/latest"
 
 
 def _looks_like_windows_path(path_value: str) -> bool:
@@ -832,6 +832,9 @@ def _copy_latest_artifact(source: Path, target: Path) -> bool:
 
 
 def _resolve_central_latest_dir(out_dir: Path) -> Path:
+    if platform.system() == "Darwin":
+        return Path(MACOS_DEFAULT_LATEST_DIR)
+
     env_latest_dir = str(os.getenv("FLOW_PMO_LATEST_DIR", "")).strip()
     if env_latest_dir and os.name != "nt" and _looks_like_windows_path(env_latest_dir):
         env_latest_dir = ""
