@@ -1,5 +1,19 @@
 # Task Plan
 
+## Current Task (Recalibrar diagnóstico de hierarquia do portfólio BT)
+- [x] Registrar a correção do usuário sobre features no mesmo projeto `BT`
+- [x] Reavaliar a hipótese principal para vínculos vazios no snapshot
+- [x] Atualizar review com próximo foco técnico para exportador/validação
+
+## Review (Recalibrar diagnóstico de hierarquia do portfólio BT)
+- O contexto foi corrigido: as `features` agora ficam no mesmo space de portfólio, no mesmo projeto `BT`. Portanto, a ausência de `ParentID`, `FeatureLinkID` e `EpicLinkID` no CSV não deve mais ser interpretada como efeito natural de separação entre projetos/spaces.
+- A implicação prática é mais objetiva:
+  - o exportador já está lendo o projeto certo, mas o snapshot publicado ainda não está materializando os vínculos esperados dentro do próprio `BT`
+  - o próximo diagnóstico deve focar em como os relacionamentos estão representados no Jira atual (`parent`, custom fields como `Principal`/`Epic Name`, ou `issue links`) e se esses campos estão realmente retornando para os tipos `Epic` e `Feature` no projeto `BT`
+- Com essa correção, o próximo passo técnico prioritário deixa de ser “conciliar spaces” e passa a ser “descobrir por que os vínculos internos do `BT` não estão chegando ao CSV”.
+- Suggested commit message:
+  - `docs(tasks): recalibrate portfolio hierarchy diagnosis after BT feature model update`
+
 ## Current Task (Avaliar aderência do projeto a Flight Levels)
 - [x] Ler o whitepaper e extrair os critérios operacionais de FL1, FL2 e FL3
 - [x] Inspecionar os dados e exportadores de portfólio/downstream realmente usados no projeto

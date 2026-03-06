@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-06
+- Context: Diagnóstico do snapshot de portfólio após validar ausência de `ParentID`/`EpicLinkID` no CSV gerado.
+- User correction: Esclareceu que as `features` agora estão no mesmo space de portfólio, no mesmo projeto `BT`.
+- Root cause: Eu mantive como hipótese principal um problema de relacionamento entre spaces/projetos, sem considerar que a estrutura já havia sido consolidada no mesmo projeto `BT`.
+- Prevention rule: Antes de atribuir ausência de hierarquia a fronteiras entre projetos/spaces, confirmar com o usuário ou com a configuração atual do Jira se os níveis já foram unificados no mesmo projeto.
+- Action added to workflow: Em diagnósticos de portfólio, validar primeiro a topologia real (`epics/features` no mesmo projeto ou não) e só depois inferir causa para campos de vínculo vazios.
+- Date: 2026-03-06
 - Context: Ajuste de nomenclatura do indicador de pendências na aba de Portfólio.
 - User correction: Apontou que `Q1/Q2/Q3 Pendências` conflita semanticamente com `Quarter`, gerando leitura ambígua na mesma tela.
 - Root cause: Reusei a letra `Q` para buckets de aging sem considerar que o módulo já usa `Q1/Q2/Q3/Q4` para quarter do roadmap.
