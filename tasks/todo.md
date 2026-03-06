@@ -1,5 +1,22 @@
 # Task Plan
 
+## Current Task (Separar extração de process mining no run_all macOS)
+- [x] Confirmar onde `run_all_projects_macos.sh` mistura export downstream, changelog, process mining e Bitbucket no mesmo loop
+- [x] Refatorar o script para executar process mining em etapa separada dos demais artefatos do dashboard
+- [x] Validar sintaxe, revisar diff e registrar a nova orquestração
+
+## Review (Separar extração de process mining no run_all macOS)
+- What was validated:
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) deixou de misturar downstream, process mining e Bitbucket no mesmo loop por projeto.
+  - A exportação dos artefatos do dashboard ficou isolada em `export_project_dashboard_artifacts`, enquanto process mining roda depois em `run_project_process_mining` usando o changelog detalhado já gerado.
+  - A exportação Bitbucket também passou para uma fase separada, então o fluxo ficou sequenciado em: downstream/gargalos/changelog, depois process mining, depois Bitbucket.
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `rg -n "Iniciando etapa separada|export_project_dashboard_artifacts|run_project_process_mining|export_project_bitbucket_artifacts" run_all_projects_macos.sh`
+  - `git diff -- run_all_projects_macos.sh tasks/todo.md`
+- Suggested commit message:
+  - `refactor(run-all): split process mining extraction from dashboard artifact export on macos`
+
 ## Current Task (Ignorar artefatos csv/xlsx/png no Git)
 - [x] Inspecionar o `.gitignore` atual e confirmar o impacto no worktree
 - [x] Adicionar regras para ignorar arquivos `.csv`, `.xlsx` e `.png`

@@ -203,6 +203,93 @@ PROJECT_PREFIXES=("w1nner-downstream" "s1nc-downstream" "befinance-downstream" "
 PROCESS_MINING_PREFIXES=("w1nner-process-mining" "s1nc-process-mining" "befinance-process-mining" "dataanalytics-process-mining")
 BITBUCKET_PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
 
+export_project_dashboard_artifacts() {
+    local key="$1"
+    local prefix="$2"
+    local out_file="${OUT_DIR}/${prefix}-${DATE_TAG}-data.csv"
+    local detailed_changelog_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_detailed_changelog.csv"
+
+    echo
+    echo "Projeto: ${key}"
+    echo "Arquivo: ${out_file}"
+
+    local export_cmd=(
+        "$PYTHON_BIN" "$SCRIPT_PATH"
+        --projects "$key"
+        --out "$out_file"
+        --env-file "$ENV_FILE"
+        --workers "$WORKERS"
+    )
+
+    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true || "$RUN_PROCESS_MINING" == true ]]; then
+        export_cmd+=(--detailed-changelog-out "$detailed_changelog_out")
+        echo "Changelog detalhado: ${detailed_changelog_out}"
+    fi
+
+    "${export_cmd[@]}"
+
+    local downstream_latest="${OUT_DIR}/${prefix}-latest-data.csv"
+    if [[ -f "$out_file" ]]; then
+        cp -f "$out_file" "$downstream_latest"
+        echo "Arquivo latest atualizado: ${downstream_latest}"
+        publish_latest_artifact "$downstream_latest" "$LATEST_DIR"
+    fi
+
+    local bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"
+    local bottleneck_latest="${OUT_DIR}/${prefix}-latest-data_bottlenecks.csv"
+    if [[ -f "$bottleneck_out" ]]; then
+        cp -f "$bottleneck_out" "$bottleneck_latest"
+        echo "Arquivo latest atualizado: ${bottleneck_latest}"
+        publish_latest_artifact "$bottleneck_latest" "$LATEST_DIR"
+    fi
+
+    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true || "$RUN_PROCESS_MINING" == true ]]; then
+        local detailed_changelog_latest="${OUT_DIR}/${prefix}-latest-data_detailed_changelog.csv"
+        if [[ -f "$detailed_changelog_out" ]]; then
+            cp -f "$detailed_changelog_out" "$detailed_changelog_latest"
+            echo "Arquivo latest atualizado: ${detailed_changelog_latest}"
+            publish_latest_artifact "$detailed_changelog_latest" "$LATEST_DIR"
+        fi
+    fi
+}
+
+run_project_process_mining() {
+    local key="$1"
+    local prefix="$2"
+    local process_mining_prefix="$3"
+    local detailed_changelog_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_detailed_changelog.csv"
+
+    [[ -f "$PROCESS_MINING_SCRIPT" ]] || { echo "Arquivo nao encontrado: $PROCESS_MINING_SCRIPT"; exit 1; }
+    [[ -f "$detailed_changelog_out" ]] || { echo "Changelog detalhado ausente para process mining: $detailed_changelog_out"; exit 1; }
+
+    echo
+    echo "Gerando process mining para ${key}..."
+    "$PYTHON_BIN" "$PROCESS_MINING_SCRIPT" --input "$detailed_changelog_out" --out-dir "$PROCESS_MINING_OUT_DIR" --project "$key" --prefix "$process_mining_prefix"
+}
+
+export_project_bitbucket_artifacts() {
+    local prefix="$1"
+    local bitbucket_project="$2"
+
+    [[ -f "$BITBUCKET_SCRIPT" ]] || { echo "Arquivo nao encontrado: $BITBUCKET_SCRIPT"; exit 1; }
+
+    echo
+    echo "Exportando Bitbucket para ${bitbucket_project}..."
+    if "$PYTHON_BIN" "$BITBUCKET_SCRIPT" --project "$bitbucket_project" --out-dir "$OUT_DIR"; then
+        local suffix
+        for suffix in commits pullrequests pipelines; do
+            local bitbucket_file="${OUT_DIR}/${prefix%-downstream}_${suffix}.csv"
+            if [[ -f "$bitbucket_file" ]]; then
+                publish_latest_artifact "$bitbucket_file" "$LATEST_DIR"
+            fi
+        done
+    else
+        local status=$?
+        echo "Aviso: exportacao Bitbucket falhou para ${bitbucket_project} (exit ${status}). O pipeline seguira para portfolio e metricas." >&2
+        BITBUCKET_FAILURES+=("${bitbucket_project}:exit-${status}")
+    fi
+}
+
 echo "Iniciando exportacao Jira -> CSV..."
 echo "Base URL: ${JIRA_BASE_URL}"
 echo "Saida: ${OUT_DIR}"
@@ -220,78 +307,29 @@ export JIRA_IGNORE_STATUS_MAP=1
 for i in "${!PROJECT_KEYS[@]}"; do
     key="${PROJECT_KEYS[$i]}"
     prefix="${PROJECT_PREFIXES[$i]}"
-    process_mining_prefix="${PROCESS_MINING_PREFIXES[$i]}"
-    bitbucket_project="${BITBUCKET_PROJECT_KEYS[$i]}"
-    out_file="${OUT_DIR}/${prefix}-${DATE_TAG}-data.csv"
-    detailed_changelog_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_detailed_changelog.csv"
-
-    echo
-    echo "Projeto: ${key}"
-    echo "Arquivo: ${out_file}"
-
-    export_cmd=(
-        "$PYTHON_BIN" "$SCRIPT_PATH"
-        --projects "$key"
-        --out "$out_file"
-        --env-file "$ENV_FILE"
-        --workers "$WORKERS"
-    )
-
-    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true || "$RUN_PROCESS_MINING" == true ]]; then
-        export_cmd+=(--detailed-changelog-out "$detailed_changelog_out")
-        echo "Changelog detalhado: ${detailed_changelog_out}"
-    fi
-
-    "${export_cmd[@]}"
-
-    downstream_latest="${OUT_DIR}/${prefix}-latest-data.csv"
-    if [[ -f "$out_file" ]]; then
-        cp -f "$out_file" "$downstream_latest"
-        echo "Arquivo latest atualizado: ${downstream_latest}"
-        publish_latest_artifact "$downstream_latest" "$LATEST_DIR"
-    fi
-
-    bottleneck_out="${OUT_DIR}/${prefix}-${DATE_TAG}-data_bottlenecks.csv"
-    bottleneck_latest="${OUT_DIR}/${prefix}-latest-data_bottlenecks.csv"
-    if [[ -f "$bottleneck_out" ]]; then
-        cp -f "$bottleneck_out" "$bottleneck_latest"
-        echo "Arquivo latest atualizado: ${bottleneck_latest}"
-        publish_latest_artifact "$bottleneck_latest" "$LATEST_DIR"
-    fi
-
-    if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true || "$RUN_PROCESS_MINING" == true ]]; then
-        detailed_changelog_latest="${OUT_DIR}/${prefix}-latest-data_detailed_changelog.csv"
-        if [[ -f "${detailed_changelog_out}" ]]; then
-            cp -f "${detailed_changelog_out}" "${detailed_changelog_latest}"
-            echo "Arquivo latest atualizado: ${detailed_changelog_latest}"
-            publish_latest_artifact "$detailed_changelog_latest" "$LATEST_DIR"
-        fi
-    fi
-
-    if [[ "$RUN_PROCESS_MINING" == true ]]; then
-        [[ -f "$PROCESS_MINING_SCRIPT" ]] || { echo "Arquivo nao encontrado: $PROCESS_MINING_SCRIPT"; exit 1; }
-        [[ -f "$detailed_changelog_out" ]] || { echo "Changelog detalhado ausente para process mining: $detailed_changelog_out"; exit 1; }
-        echo "Gerando process mining para ${key}..."
-        "$PYTHON_BIN" "$PROCESS_MINING_SCRIPT" --input "$detailed_changelog_out" --out-dir "$PROCESS_MINING_OUT_DIR" --project "$key" --prefix "$process_mining_prefix"
-    fi
-
-    if [[ "$RUN_BITBUCKET_EXPORT" == true ]]; then
-        [[ -f "$BITBUCKET_SCRIPT" ]] || { echo "Arquivo nao encontrado: $BITBUCKET_SCRIPT"; exit 1; }
-        echo "Exportando Bitbucket para ${bitbucket_project}..."
-        if "$PYTHON_BIN" "$BITBUCKET_SCRIPT" --project "$bitbucket_project" --out-dir "$OUT_DIR"; then
-            for suffix in commits pullrequests pipelines; do
-                bitbucket_file="${OUT_DIR}/${prefix%-downstream}_${suffix}.csv"
-                if [[ -f "$bitbucket_file" ]]; then
-                    publish_latest_artifact "$bitbucket_file" "$LATEST_DIR"
-                fi
-            done
-        else
-            status=$?
-            echo "Aviso: exportacao Bitbucket falhou para ${bitbucket_project} (exit ${status}). O pipeline seguira para portfolio e metricas." >&2
-            BITBUCKET_FAILURES+=("${bitbucket_project}:exit-${status}")
-        fi
-    fi
+    export_project_dashboard_artifacts "$key" "$prefix"
 done
+
+if [[ "$RUN_PROCESS_MINING" == true ]]; then
+    echo
+    echo "Iniciando etapa separada de process mining..."
+    for i in "${!PROJECT_KEYS[@]}"; do
+        key="${PROJECT_KEYS[$i]}"
+        prefix="${PROJECT_PREFIXES[$i]}"
+        process_mining_prefix="${PROCESS_MINING_PREFIXES[$i]}"
+        run_project_process_mining "$key" "$prefix" "$process_mining_prefix"
+    done
+fi
+
+if [[ "$RUN_BITBUCKET_EXPORT" == true ]]; then
+    echo
+    echo "Iniciando etapa separada de exportacao Bitbucket..."
+    for i in "${!BITBUCKET_PROJECT_KEYS[@]}"; do
+        prefix="${PROJECT_PREFIXES[$i]}"
+        bitbucket_project="${BITBUCKET_PROJECT_KEYS[$i]}"
+        export_project_bitbucket_artifacts "$prefix" "$bitbucket_project"
+    done
+fi
 
 if [[ -n "${ORIGINAL_JIRA_STATUS_MAP}" ]]; then
     export JIRA_STATUS_MAP="${ORIGINAL_JIRA_STATUS_MAP}"
