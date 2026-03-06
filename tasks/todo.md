@@ -1,5 +1,23 @@
 # Task Plan
 
+## Current Task (Remover ambiguidade entre pendências e quarter)
+- [x] Localizar os rótulos `Q1/Q2/Q3` usados no indicador de pendências
+- [x] Renomear buckets e títulos para faixas de aging explícitas
+- [x] Validar sintaxe, revisar diff e registrar evidências
+
+## Review (Remover ambiguidade entre pendências e quarter)
+- What was validated:
+  - O indicador deixou de reutilizar `Q1/Q2/Q3`, que competiam visualmente com a semântica de `Quarter` usada em outras partes da aba de Portfólio.
+  - Os buckets agora aparecem como `Pendências 0-15d`, `Pendências 16-30d` e `Pendências +30d`, com a mesma lógica de cor e a mesma regra de aging anterior.
+  - O título e a nota explicativa também passaram a usar `Faixa de Aging`, reduzindo ambiguidade conceitual na leitura da tela.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... compute_portfolio_snapshot(...) ... PY`
+    - Resultados: `['Pendências 0-15d', 'Pendências 16-30d']`, `True`, `True`, `True`
+  - `git diff -- dashboard_full.py tasks/todo.md tasks/lessons.md`
+- Suggested commit message:
+  - `fix(portfolio): rename pending buckets to avoid quarter ambiguity`
+
 ## Current Task (Implementar fase 1 de alertas de portfólio)
 - [x] Mapear o encaixe da nova seção na aba de portfólio do `dashboard_full.py`
 - [x] Adicionar cálculos no snapshot para alertas de integridade estrutural, estagnação e prazo
@@ -47,6 +65,42 @@
       - `has_alert_title True`
 - Suggested commit message:
   - `feat(portfolio): add first-phase alert panel for structure staleness and due dates`
+
+## Current Task (Implementar fase 2 proxy dos alertas técnicos de portfólio)
+- [x] Inspecionar sinais reais disponíveis nas bases para arquitetura, infra e segurança
+- [x] Registrar o escopo da fase 2 como proxy explícito baseado no snapshot atual
+- [x] Implementar classificação técnica por `TEAM`/título e consolidar alertas por épico
+- [x] Exibir no painel a cobertura técnica proxy por épico e o catálogo de itens técnicos detectados
+- [x] Validar sintaxe, smoke tests e registrar o comportamento observado nos dados atuais
+
+## Review (Implementar fase 2 proxy dos alertas técnicos de portfólio)
+- What was implemented:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a classificar itens técnicos por proxy usando `TEAM` e `Titulo`, com três categorias: `arquitetura`, `infra` e `segurança`.
+  - A cobertura técnica do épico agora usa apenas vínculo explícito `ParentID` no próprio snapshot de portfólio; quando não há item técnico classificado e vinculado, o dashboard gera alertas do tipo:
+    - `Épico sem item técnico de arquitetura`
+    - `Épico sem item técnico de infra`
+    - `Épico sem item técnico de seguranca`
+    - além dos casos futuros de `... não validado` quando existir item técnico vinculado mas ainda não concluído
+  - A aba `Alertas` agora também mostra:
+    - `Cobertura técnica proxy por épico`
+    - `Catálogo de itens técnicos detectados no snapshot`
+    - notas explícitas sobre a limitação do proxy e a ausência de vínculo factual confiável com downstream
+- Evidence (tests/smoke/data inspection):
+  - `python3 - <<'PY' ... get_portfolio_snapshot(); load_project_downstream_items_csv(...); scan de colunas/samples ... PY`
+    - Evidência principal: os épicos do portfólio aparecem como `BT-*`, enquanto os vínculos de downstream explorados localmente não casam com esses IDs; `matched_epics_count 0`
+    - Evidência secundária: o snapshot atual já contém sinais de times técnicos como `TECH SECURITY`, `TECH INFRA`, `TECH ARQUITETURA`
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... snapshot['groups']['portfolio_technical_epic_summary'] ... render_tab('portfolio', ...) ... PY`
+    - Resultados observados:
+      - `tech_epic_summary_rows 136`
+      - `tech_catalog_rows 15`
+      - `tech_alert_rows 408`
+      - `has_tech_summary True`
+      - `has_tech_catalog True`
+- Key limitation observed:
+  - O proxy atual é propositalmente conservador: sem vínculo hierárquico explícito no snapshot, o épico é tratado como sem cobertura técnica mesmo que exista trabalho técnico correlato fora dessa hierarquia. Isso evita falso positivo de “cobertura concluída” sem evidência.
+- Suggested commit message:
+  - `feat(portfolio): add proxy technical readiness alerts for architecture infra and security`
 
 ## Current Task (Especificar indicadores e alertas de portfólio)
 - [x] Consolidar regras objetivas para integridade estrutural, estagnação e risco de prazo

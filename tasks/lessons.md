@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-06
+- Context: Ajuste de nomenclatura do indicador de pendências na aba de Portfólio.
+- User correction: Apontou que `Q1/Q2/Q3 Pendências` conflita semanticamente com `Quarter`, gerando leitura ambígua na mesma tela.
+- Root cause: Reusei a letra `Q` para buckets de aging sem considerar que o módulo já usa `Q1/Q2/Q3/Q4` para quarter do roadmap.
+- Prevention rule: Em telas que já usam `Quarter`, não reutilizar `Q1/Q2/Q3` para outra taxonomia; preferir rótulos funcionais explícitos.
+- Action added to workflow: Ao nomear novos indicadores em dashboards, validar colisões de vocabulário com filtros, legendas e eixos já existentes na mesma aba.
+- Date: 2026-03-06
 - Context: Correção dos filtros da tela de Portfólio após regressão em que só `Quarter` filtrava corretamente.
 - User correction: Esclareceu que o filtro da tela deve ser aplicado sobre a coluna `Team` da base de portfólio, não sobre a coluna `Projeto`.
 - Root cause: Eu assumi que o filtro global `Projeto` do dashboard deveria casar com `Projeto` também no CSV de portfólio, sem validar a semântica real usada nessa tela.

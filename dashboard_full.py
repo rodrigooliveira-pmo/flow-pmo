@@ -591,10 +591,13 @@ def build_service_tabs():
 def build_portfolio_tab():
     return [dcc.Tab(label='Portfólio', value=PORTFOLIO_TAB_VALUE)]
 PORTFOLIO_CSV_SUFFIX = '-data.csv'
+PORTFOLIO_PENDING_BUCKET_1 = 'Pendências 0-15d'
+PORTFOLIO_PENDING_BUCKET_2 = 'Pendências 16-30d'
+PORTFOLIO_PENDING_BUCKET_3 = 'Pendências +30d'
 PORTFOLIO_COLOR_THRESHOLDS = {
-    'Q1 Pendências': {'green_max': 2, 'yellow_max': 8},
-    'Q2 Pendências': {'green_max': 1, 'yellow_max': 5},
-    'Q3 Pendências': {'green_max': 0, 'yellow_max': 3},
+    PORTFOLIO_PENDING_BUCKET_1: {'green_max': 2, 'yellow_max': 8},
+    PORTFOLIO_PENDING_BUCKET_2: {'green_max': 1, 'yellow_max': 5},
+    PORTFOLIO_PENDING_BUCKET_3: {'green_max': 0, 'yellow_max': 3},
     'aging_us_20': {'green_max': 0, 'yellow_max': 5},
     'aging_features_40': {'green_max': 0, 'yellow_max': 8},
     'aging_us_comp_20': {'green_max': 0, 'yellow_max': 5},
@@ -1956,6 +1959,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'portfolio_alerts_by_project': pd.DataFrame(),
                 'portfolio_alert_kpis': pd.DataFrame(),
                 'portfolio_technical_readiness_notes': pd.DataFrame(),
+                'portfolio_technical_epic_summary': pd.DataFrame(),
+                'portfolio_technical_items_catalog': pd.DataFrame(),
             },
         }
 
@@ -2376,11 +2381,11 @@ def compute_portfolio_snapshot(df, updated_at_label):
     else:
         data_freshness_por_team_statuscat = pd.DataFrame(columns=['Team', 'StatusCategoria', 'WorkItems', 'GT15', 'GT30', '% >15d', '% >30d'])
 
-    # Q1/Q2/Q3 Pendências (faixas de aging em aberto, por TEAM/projeto agrupado).
+    # Buckets de pendências por aging em aberto, por TEAM/projeto agrupado.
     pendencias = df[df['IsOpen']].copy()
-    pendencias['Quadrante'] = 'Q1 Pendências'
-    pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 15, 'Quadrante'] = 'Q2 Pendências'
-    pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 30, 'Quadrante'] = 'Q3 Pendências'
+    pendencias['Quadrante'] = PORTFOLIO_PENDING_BUCKET_1
+    pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 15, 'Quadrante'] = PORTFOLIO_PENDING_BUCKET_2
+    pendencias.loc[pendencias['AgingDiasSemAlteracao'] > 30, 'Quadrante'] = PORTFOLIO_PENDING_BUCKET_3
     pendencias_q_por_time = (
         group_count(pendencias, ['Quadrante', 'TeamDisplay'], 'WorkItems')
         .rename(columns={'TeamDisplay': 'Team'})
@@ -2642,6 +2647,37 @@ def compute_portfolio_snapshot(df, updated_at_label):
         )
         return local.drop(columns=['_severity_rank'])
 
+    technical_category_defaults = {
+        'arquitetura': ['tech arquitetura', 'arquitetura', 'architecture', 'arq'],
+        'infra': ['tech infra', 'infra', 'devops', 'plataforma', 'platform', 'aws', 'lambda', 'deploy', 'terraform', 'kubernetes'],
+        'seguranca': ['tech security', 'security', 'seguranca', 'cyber security', 'cybersecurity', 'waf', 'pen test', 'pentest', 'permiss', 'auth', 'autentic', 'lgpd'],
+    }
+    technical_category_cfg = parse_json_env('FLOW_PMO_PORTFOLIO_TECH_PATTERNS', technical_category_defaults)
+
+    def _detect_technical_category(row):
+        text = normalize_text(f"{row.get('Team', '')} {row.get('Titulo', '')}")
+        if not text:
+            return ''
+        for category in ['arquitetura', 'infra', 'seguranca']:
+            raw_patterns = technical_category_cfg.get(category, technical_category_defaults.get(category, []))
+            patterns = raw_patterns if isinstance(raw_patterns, list) else [raw_patterns]
+            for pattern in patterns:
+                pattern_norm = normalize_text(pattern)
+                if pattern_norm and pattern_norm in text:
+                    return category
+        return ''
+
+    def _technical_alert_severity(row, has_any_created=False):
+        status_category = str(row.get('StatusCategoria', '')).strip()
+        due_days = pd.to_numeric(row.get('DiasParaVencimento'), errors='coerce')
+        if status_category == 'Em progresso':
+            return 'Critico'
+        if pd.notna(due_days) and float(due_days) <= 14:
+            return 'Alerta'
+        if has_any_created:
+            return 'Alerta'
+        return 'Monitorar'
+
     epics_open = epics[epics['IsOpen'] == True].copy() if not epics.empty else pd.DataFrame(columns=epics.columns)
     features_open = features[features['StatusCategoria'] != 'Concluído'].copy() if not features.empty else pd.DataFrame(columns=features.columns)
     storytask_open = story_task_sem_feature[story_task_sem_feature['IsOpen'] == True].copy() if not story_task_sem_feature.empty else pd.DataFrame(columns=story_task_sem_feature.columns)
@@ -2673,6 +2709,109 @@ def compute_portfolio_snapshot(df, updated_at_label):
             features_missing_story_due['DiasParaVencimento'].notna() &
             (features_missing_story_due['DiasParaVencimento'] <= 14)
         ].copy()
+
+    technical_items_base = df.copy()
+    technical_items_base['TechnicalCategory'] = technical_items_base.apply(_detect_technical_category, axis=1)
+    technical_items_catalog = technical_items_base[technical_items_base['TechnicalCategory'].ne('')].copy()
+    if not technical_items_catalog.empty:
+        technical_items_catalog = technical_items_catalog[[
+            'TechnicalCategory', 'Projeto', 'TeamDisplay', 'Tipo', 'ID', 'Titulo', 'Status', 'StatusCategoria', 'ParentID', 'ParentTipo', 'Link'
+        ]].rename(columns={
+            'TechnicalCategory': 'CategoriaTecnica',
+            'TeamDisplay': 'Team',
+            'ID': 'ItemID',
+            'Tipo': 'TipoItem',
+        }).sort_values(['CategoriaTecnica', 'Projeto', 'Team', 'StatusCategoria', 'ItemID'], ignore_index=True)
+    else:
+        technical_items_catalog = pd.DataFrame(columns=['CategoriaTecnica', 'Projeto', 'Team', 'TipoItem', 'ItemID', 'Titulo', 'Status', 'StatusCategoria', 'ParentID', 'ParentTipo', 'Link'])
+
+    technical_by_parent = {}
+    if not technical_items_base.empty:
+        for _, row in technical_items_base[technical_items_base['TechnicalCategory'].ne('')].iterrows():
+            parent_key = str(row.get('ParentID') or '').strip()
+            if not parent_key:
+                continue
+            technical_by_parent.setdefault(parent_key, []).append(row)
+
+    technical_alert_rows = []
+    technical_epic_summary_rows = []
+    if not epics_open.empty:
+        epics_open_proxy = epics_open.copy()
+        epics_open_proxy['TechnicalCategory'] = epics_open_proxy.apply(_detect_technical_category, axis=1)
+        epics_open_proxy['DueDate'] = pd.to_datetime(epics_open_proxy.get('DueDate'), errors='coerce')
+        epics_open_proxy['DiasParaVencimento'] = _due_days(epics_open_proxy)
+        for _, epic_row in epics_open_proxy.iterrows():
+            epic_id = str(epic_row.get('ID') or '').strip()
+            if not epic_id:
+                continue
+            if str(epic_row.get('TechnicalCategory') or '').strip():
+                continue
+            linked_rows = technical_by_parent.get(epic_id, [])
+            coverage = {}
+            created_any = False
+            validated_any = False
+            for category in ['arquitetura', 'infra', 'seguranca']:
+                linked_category_rows = [r for r in linked_rows if str(r.get('TechnicalCategory') or '').strip() == category]
+                created = len(linked_category_rows) > 0
+                validated = any(str(r.get('StatusCategoria', '')).strip() == 'Concluído' for r in linked_category_rows)
+                coverage[category] = {'created': created, 'validated': validated}
+                created_any = created_any or created
+                validated_any = validated_any or validated
+                if not created:
+                    technical_alert_rows.append({
+                        'Severidade': _technical_alert_severity(epic_row, has_any_created=created_any),
+                        'TipoAlerta': f'Épico sem item técnico de {category}',
+                        'TipoItem': str(epic_row.get('Tipo') or '').strip(),
+                        'Projeto': str(epic_row.get('Projeto') or '').strip(),
+                        'Team': str(epic_row.get('TeamDisplay') or 'Sem TEAM').strip() or 'Sem TEAM',
+                        'ItemID': epic_id,
+                        'Titulo': str(epic_row.get('Titulo') or '').strip(),
+                        'Status': str(epic_row.get('Status') or '').strip(),
+                        'DiasSemMovimentacao': pd.to_numeric(epic_row.get('AgingDiasSemAlteracao'), errors='coerce'),
+                        'DueDate': pd.to_datetime(epic_row.get('DueDate'), errors='coerce'),
+                        'DiasParaVencimento': pd.to_numeric(epic_row.get('DiasParaVencimento'), errors='coerce'),
+                        'MotivoAlerta': f'Nenhum item técnico classificado como {category} foi encontrado via vínculo explícito ParentID no snapshot atual.',
+                        'Link': epic_row.get('Link', ''),
+                    })
+                elif not validated:
+                    technical_alert_rows.append({
+                        'Severidade': _technical_alert_severity(epic_row, has_any_created=True),
+                        'TipoAlerta': f'Épico com {category} não validado',
+                        'TipoItem': str(epic_row.get('Tipo') or '').strip(),
+                        'Projeto': str(epic_row.get('Projeto') or '').strip(),
+                        'Team': str(epic_row.get('TeamDisplay') or 'Sem TEAM').strip() or 'Sem TEAM',
+                        'ItemID': epic_id,
+                        'Titulo': str(epic_row.get('Titulo') or '').strip(),
+                        'Status': str(epic_row.get('Status') or '').strip(),
+                        'DiasSemMovimentacao': pd.to_numeric(epic_row.get('AgingDiasSemAlteracao'), errors='coerce'),
+                        'DueDate': pd.to_datetime(epic_row.get('DueDate'), errors='coerce'),
+                        'DiasParaVencimento': pd.to_numeric(epic_row.get('DiasParaVencimento'), errors='coerce'),
+                        'MotivoAlerta': f'Existe item técnico de {category} vinculado ao épico, mas nenhum aparece concluído no snapshot atual.',
+                        'Link': epic_row.get('Link', ''),
+                    })
+            technical_epic_summary_rows.append({
+                'Projeto': str(epic_row.get('Projeto') or '').strip(),
+                'Team': str(epic_row.get('TeamDisplay') or 'Sem TEAM').strip() or 'Sem TEAM',
+                'EpicID': epic_id,
+                'Titulo': str(epic_row.get('Titulo') or '').strip(),
+                'Status': str(epic_row.get('Status') or '').strip(),
+                'Arquitetura Criada': 'Sim' if coverage.get('arquitetura', {}).get('created') else 'Não',
+                'Arquitetura Validada': 'Sim' if coverage.get('arquitetura', {}).get('validated') else 'Não',
+                'Infra Criada': 'Sim' if coverage.get('infra', {}).get('created') else 'Não',
+                'Infra Validada': 'Sim' if coverage.get('infra', {}).get('validated') else 'Não',
+                'Segurança Criada': 'Sim' if coverage.get('seguranca', {}).get('created') else 'Não',
+                'Segurança Validada': 'Sim' if coverage.get('seguranca', {}).get('validated') else 'Não',
+                'Itens Técnicos Vinculados': int(len(linked_rows)),
+                'Link': epic_row.get('Link', ''),
+            })
+
+    portfolio_technical_epic_summary = pd.DataFrame(technical_epic_summary_rows)
+    if not portfolio_technical_epic_summary.empty:
+        portfolio_technical_epic_summary = portfolio_technical_epic_summary.sort_values(
+            ['Itens Técnicos Vinculados', 'Projeto', 'Team', 'EpicID'],
+            ascending=[True, True, True, True],
+            ignore_index=True,
+        )
 
     alert_frames = [
         _build_alert_frame(
@@ -2755,6 +2894,10 @@ def compute_portfolio_snapshot(df, updated_at_label):
         ),
     ]
 
+    technical_alerts_df = pd.DataFrame(technical_alert_rows, columns=alert_columns) if technical_alert_rows else _empty_alert_df()
+    if technical_alerts_df is not None and not technical_alerts_df.empty:
+        alert_frames.append(technical_alerts_df)
+
     non_empty_alert_frames = [frame for frame in alert_frames if frame is not None and not frame.empty]
     portfolio_alerts_detail = pd.concat(non_empty_alert_frames, ignore_index=True) if non_empty_alert_frames else _empty_alert_df()
     if not portfolio_alerts_detail.empty:
@@ -2801,6 +2944,9 @@ def compute_portfolio_snapshot(df, updated_at_label):
             {'Indicador': 'Features sem story/task', 'Valor': int(type_counts.get('Feature sem story/task', 0))},
             {'Indicador': 'Itens vencidos', 'Valor': int(type_counts.get('Item vencido', 0))},
             {'Indicador': 'Itens vencendo em até 7d', 'Valor': int(len(upcoming_items[upcoming_items['DiasParaVencimento'] <= 7])) if not upcoming_items.empty else 0},
+            {'Indicador': 'Épicos sem arquitetura', 'Valor': int(type_counts.get('Épico sem item técnico de arquitetura', 0))},
+            {'Indicador': 'Épicos sem infra', 'Valor': int(type_counts.get('Épico sem item técnico de infra', 0))},
+            {'Indicador': 'Épicos sem segurança', 'Valor': int(type_counts.get('Épico sem item técnico de seguranca', 0)) + int(type_counts.get('Épico sem item técnico de segurança', 0))},
         ])
     else:
         portfolio_alerts_indicator_summary = pd.DataFrame(columns=['TipoAlerta', 'Severidade', 'Ocorrencias', 'ItensUnicos'])
@@ -2811,12 +2957,16 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
     portfolio_technical_readiness_notes = pd.DataFrame([
         {
-            'Status': 'Pendente de contrato de dados',
-            'Detalhe': 'Prontidão técnica de arquitetura/infra/segurança ainda depende de vínculo explícito entre épico e itens técnicos, além do status factual desses itens no downstream.',
+            'Status': 'Proxy explícito implementado',
+            'Detalhe': 'A cobertura técnica agora usa apenas itens classificados por TEAM/título e vinculados ao épico via ParentID no próprio snapshot de portfólio.',
         },
         {
-            'Status': 'Coberto nesta fase',
-            'Detalhe': 'A fase atual entrega alertas de integridade estrutural, estagnação e prazo usando apenas o snapshot atual do portfólio.',
+            'Status': 'Limitação atual',
+            'Detalhe': 'Itens técnicos existentes fora da hierarquia explícita do snapshot não entram na cobertura; isso pode gerar falso positivo de ausência de arquitetura/infra/segurança.',
+        },
+        {
+            'Status': 'Pendente de contrato de dados',
+            'Detalhe': 'A validação factual no fluxo ainda depende de vínculo explícito entre épico de portfólio e item técnico no downstream, o que hoje não existe de forma confiável por ID.',
         },
     ])
 
@@ -3041,6 +3191,8 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'portfolio_alerts_by_project': portfolio_alerts_by_project,
             'portfolio_alert_kpis': portfolio_alert_kpis,
             'portfolio_technical_readiness_notes': portfolio_technical_readiness_notes,
+            'portfolio_technical_epic_summary': portfolio_technical_epic_summary,
+            'portfolio_technical_items_catalog': technical_items_catalog,
             'has_us_items': has_us_items,
         },
     }
@@ -7066,6 +7218,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         portfolio_alerts_by_project = groups.get('portfolio_alerts_by_project', pd.DataFrame())
         portfolio_alert_kpis = groups.get('portfolio_alert_kpis', pd.DataFrame())
         portfolio_technical_readiness_notes = groups.get('portfolio_technical_readiness_notes', pd.DataFrame())
+        portfolio_technical_epic_summary = groups.get('portfolio_technical_epic_summary', pd.DataFrame())
+        portfolio_technical_items_catalog = groups.get('portfolio_technical_items_catalog', pd.DataFrame())
         has_us_items = bool(groups.get('has_us_items', False))
 
         selected_team = '__ALL__'
@@ -7113,6 +7267,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_detalhe = filter_by_team(features_detalhe)
         portfolio_alerts_detail = filter_by_team(portfolio_alerts_detail)
         portfolio_alerts_by_team = filter_by_team(portfolio_alerts_by_team)
+        portfolio_technical_epic_summary = filter_by_team(portfolio_technical_epic_summary)
+        portfolio_technical_items_catalog = filter_by_team(portfolio_technical_items_catalog)
         if items_base is None or items_base.empty:
             items_base_scope = pd.DataFrame()
         else:
@@ -7248,8 +7404,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         def render_q_pendencias_grid(df_q, df_breakdown, df_detail):
             if df_q is None or df_q.empty:
-                return html.Div([html.H4('Q Pendências por TEAM'), html.P('Sem dados para exibição.')])
-            quadrantes = ['Q1 Pendências', 'Q2 Pendências', 'Q3 Pendências']
+                return html.Div([html.H4('Pendências por Faixa de Aging e TEAM'), html.P('Sem dados para exibição.')])
+            quadrantes = [
+                PORTFOLIO_PENDING_BUCKET_1,
+                PORTFOLIO_PENDING_BUCKET_2,
+                PORTFOLIO_PENDING_BUCKET_3,
+            ]
             blocks = []
             for q in quadrantes:
                 d = df_q[df_q['Quadrante'] == q].copy()
@@ -7270,7 +7430,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ], style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-start', 'marginBottom': '14px'}))
             notes = html.Div([
                 html.P('Pendência = item aberto no snapshot de portfólio (status não concluído).', style={'margin': '0 0 6px 0'}),
-                html.P('Q1: até 15 dias sem alteração | Q2: 16 a 30 dias | Q3: acima de 30 dias.', style={'margin': '0'}),
+                html.P('Faixas: 0-15 dias sem alteração | 16-30 dias | acima de 30 dias.', style={'margin': '0'}),
             ], style={
                 'backgroundColor': '#f5f5f5',
                 'borderLeft': '4px solid #616161',
@@ -7278,7 +7438,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'marginBottom': '14px',
             })
             sections = [
-                html.H3('Indicador 1 - Q Pendências por TEAM', style={'textAlign': 'left'}),
+                html.H3('Indicador 1 - Pendências por Faixa de Aging e TEAM', style={'textAlign': 'left'}),
                 notes,
                 *blocks,
             ]
@@ -7339,6 +7499,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_team,
             df_project,
             df_tech_notes,
+            df_tech_epic_summary,
+            df_tech_catalog,
         ):
             if df_detail is None or df_detail.empty:
                 return html.Div([
@@ -7415,6 +7577,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Alertas por Projeto',
                 'table-portfolio-alert-project'
             )
+            tech_epic_summary_table = portfolio_table_component(
+                df_tech_epic_summary.copy() if df_tech_epic_summary is not None else pd.DataFrame(),
+                'Cobertura técnica proxy por épico',
+                'table-portfolio-technical-epic-summary'
+            )
+            tech_catalog_table = portfolio_table_component(
+                df_tech_catalog.copy() if df_tech_catalog is not None else pd.DataFrame(),
+                'Catálogo de itens técnicos detectados no snapshot',
+                'table-portfolio-technical-items-catalog'
+            )
             tech_table = portfolio_table_component(
                 df_tech_notes.copy() if df_tech_notes is not None else pd.DataFrame(),
                 'Prontidão técnica (pendências de dados)',
@@ -7439,6 +7611,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     html.Div(project_table, className='six columns'),
                 ], className='row', style={'marginTop': '10px'}),
                 detail_table,
+                tech_epic_summary_table,
+                tech_catalog_table,
                 tech_table,
             ], style={'paddingTop': '10px'})
 
@@ -8376,6 +8550,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             portfolio_alerts_by_team,
             portfolio_alerts_by_project,
             portfolio_technical_readiness_notes,
+            portfolio_technical_epic_summary,
+            portfolio_technical_items_catalog,
         )
 
         aging_fluxo_section = html.Div([
