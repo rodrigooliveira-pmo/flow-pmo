@@ -13,6 +13,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -31,11 +32,25 @@ CSV_COLUMNS = [
     "Status",
     "ParentID",
     "ParentTipo",
+    "ParentTitle",
+    "HierarchyLinkSource",
+    "FeatureLinkID",
+    "FeatureLinkTipo",
+    "EpicLinkID",
+    "EpicLinkTipo",
+    "EpicLinkName",
+    "Componentes",
+    "Etiquetas",
+    "IssueLinkKeys",
+    "IssueLinkTypes",
+    "IssueLinkDetails",
     "Link",
     "UpdatedAt",
     "StatusChangedAt",
     "DueDate",
 ]
+
+ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
 
 
 def parse_json_env(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
@@ -256,6 +271,20 @@ def extract_custom_text(value: Any) -> str:
     return str(value)
 
 
+def format_list(values: List[str], as_label_array: bool = False) -> str:
+    cleaned = [str(v).strip() for v in values if str(v).strip()]
+    if not cleaned:
+        return ""
+    if as_label_array:
+        return "[" + ",".join(cleaned) + "]"
+    return ", ".join(cleaned)
+
+
+def issue_key_or_blank(value: Any) -> str:
+    txt = str(value or "").strip()
+    return txt if ISSUE_KEY_PATTERN.match(txt) else ""
+
+
 def extract_team_from_fields(fields: Dict[str, Any], team_field: str) -> str:
     candidates: List[Any] = []
     if team_field:
@@ -298,9 +327,140 @@ def replace_field_in_list(fields: List[str], old_field: str, new_field: str) -> 
     return out
 
 
+def safe_get(mapping: Any, *keys: str) -> Any:
+    current = mapping
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def custom_field_as_text(fields: Dict[str, Any], field_id: str) -> str:
+    if not field_id:
+        return ""
+    return extract_custom_text(fields.get(field_id)).strip()
+
+
+def build_issue_links_summary(issue_links: Any) -> Dict[str, str]:
+    if not isinstance(issue_links, list):
+        return {
+            "IssueLinkKeys": "",
+            "IssueLinkTypes": "",
+            "IssueLinkDetails": "",
+        }
+
+    keys: List[str] = []
+    types: List[str] = []
+    details: List[str] = []
+    for link in issue_links:
+        if not isinstance(link, dict):
+            continue
+        link_type = link.get("type") or {}
+        outward_issue = link.get("outwardIssue") or {}
+        inward_issue = link.get("inwardIssue") or {}
+        direction = ""
+        issue_ref = {}
+        relation_name = ""
+        if outward_issue:
+            direction = "outward"
+            issue_ref = outward_issue
+            relation_name = str(link_type.get("outward") or link_type.get("name") or "").strip()
+        elif inward_issue:
+            direction = "inward"
+            issue_ref = inward_issue
+            relation_name = str(link_type.get("inward") or link_type.get("name") or "").strip()
+        else:
+            continue
+
+        linked_key = str(issue_ref.get("key") or "").strip()
+        linked_summary = str(safe_get(issue_ref, "fields", "summary") or "").strip()
+        linked_type = str(safe_get(issue_ref, "fields", "issuetype", "name") or "").strip()
+        link_type_name = str(link_type.get("name") or "").strip()
+        if linked_key:
+            keys.append(linked_key)
+        if relation_name:
+            types.append(relation_name)
+        elif link_type_name:
+            types.append(link_type_name)
+        detail_parts = [part for part in [direction, relation_name or link_type_name, linked_key, linked_type, linked_summary] if part]
+        if detail_parts:
+            details.append(" | ".join(detail_parts))
+
+    return {
+        "IssueLinkKeys": format_list(keys),
+        "IssueLinkTypes": format_list(types),
+        "IssueLinkDetails": " || ".join(details),
+    }
+
+
+def resolve_hierarchy_links(
+    fields: Dict[str, Any],
+    field_map: Dict[str, Any],
+    parent_id: str,
+    parent_tipo: str,
+    parent_summary: str,
+) -> Dict[str, str]:
+    epic_name = custom_field_as_text(fields, str(field_map.get("epic_name") or "").strip())
+    principal_value = custom_field_as_text(fields, str(field_map.get("principal") or "").strip())
+
+    if epic_name and not principal_value and ISSUE_KEY_PATTERN.match(epic_name):
+        principal_value = epic_name
+        epic_name = ""
+
+    parent_id_key = issue_key_or_blank(parent_id)
+    principal_key = issue_key_or_blank(principal_value)
+    epic_name_key = issue_key_or_blank(epic_name)
+
+    feature_link_id = ""
+    feature_link_tipo = ""
+    epic_link_id = ""
+    epic_link_tipo = ""
+    epic_link_name = ""
+    link_sources: List[str] = []
+
+    if parent_id_key:
+        if is_feature_issue(parent_tipo):
+            feature_link_id = parent_id_key
+            feature_link_tipo = parent_tipo
+            link_sources.append("parent_feature")
+        elif is_epic_issue(parent_tipo):
+            epic_link_id = parent_id_key
+            epic_link_tipo = parent_tipo
+            epic_link_name = parent_summary
+            link_sources.append("parent_epic")
+        else:
+            link_sources.append("parent_other")
+
+    if principal_key and not epic_link_id:
+        epic_link_id = principal_key
+        epic_link_tipo = "Epic/Principal"
+        link_sources.append("principal_key")
+
+    if epic_name_key and not epic_link_id:
+        epic_link_id = epic_name_key
+        epic_link_tipo = "EpicLinkCustomField"
+        link_sources.append("epic_name_key")
+
+    if not epic_link_name and epic_name and not ISSUE_KEY_PATTERN.match(epic_name):
+        epic_link_name = epic_name
+    if epic_link_name and "epic_name_text" not in link_sources:
+        link_sources.append("epic_name_text")
+
+    return {
+        "HierarchyLinkSource": "|".join(link_sources),
+        "FeatureLinkID": feature_link_id,
+        "FeatureLinkTipo": feature_link_tipo,
+        "EpicLinkID": epic_link_id,
+        "EpicLinkTipo": epic_link_tipo,
+        "EpicLinkName": epic_link_name,
+    }
+
+
 def build_output_row(
     base_url: str,
     issue: Dict[str, Any],
+    field_map: Dict[str, Any],
     team_field: str,
     effort_tshirt_field: str,
     issue_team_map: Dict[str, str],
@@ -316,9 +476,19 @@ def build_output_row(
         parent_team = str(issue_team_map.get(parent_id) or "")
     team_text = own_team or parent_team
     issue_type_name = str((fields.get("issuetype") or {}).get("name") or "")
+    components = [str((item or {}).get("name") or "") for item in fields.get("components", []) or []]
+    labels = [str(item) for item in fields.get("labels", []) or []]
     effort_tshirt_size = ""
     if effort_tshirt_field and is_effort_scope_issue(issue_type_name):
         effort_tshirt_size = extract_custom_text(fields.get(effort_tshirt_field)).strip()
+    hierarchy = resolve_hierarchy_links(
+        fields=fields,
+        field_map=field_map,
+        parent_id=parent_id,
+        parent_tipo=str((parent_fields.get("issuetype") or {}).get("name") or ""),
+        parent_summary=str(parent_fields.get("summary") or ""),
+    )
+    issue_links_summary = build_issue_links_summary(fields.get("issuelinks"))
     return {
         "ID": key,
         "Titulo": str(fields.get("summary") or ""),
@@ -330,6 +500,18 @@ def build_output_row(
         "Status": str((fields.get("status") or {}).get("name") or ""),
         "ParentID": parent_id,
         "ParentTipo": str((parent_fields.get("issuetype") or {}).get("name") or ""),
+        "ParentTitle": str(parent_fields.get("summary") or ""),
+        "HierarchyLinkSource": hierarchy.get("HierarchyLinkSource", ""),
+        "FeatureLinkID": hierarchy.get("FeatureLinkID", ""),
+        "FeatureLinkTipo": hierarchy.get("FeatureLinkTipo", ""),
+        "EpicLinkID": hierarchy.get("EpicLinkID", ""),
+        "EpicLinkTipo": hierarchy.get("EpicLinkTipo", ""),
+        "EpicLinkName": hierarchy.get("EpicLinkName", ""),
+        "Componentes": format_list(components),
+        "Etiquetas": format_list(labels, as_label_array=True),
+        "IssueLinkKeys": issue_links_summary.get("IssueLinkKeys", ""),
+        "IssueLinkTypes": issue_links_summary.get("IssueLinkTypes", ""),
+        "IssueLinkDetails": issue_links_summary.get("IssueLinkDetails", ""),
         "Link": f"{base_url}/browse/{key}" if key else "",
         "UpdatedAt": str(fields.get("updated") or ""),
         "StatusChangedAt": str(fields.get("statuscategorychangedate") or ""),
@@ -392,7 +574,15 @@ def main() -> int:
         if effort_tshirt_field:
             print(f"Campo Effort T-shirt size autodetectado: {effort_tshirt_field}")
 
-    fields = ["summary", "issuetype", "project", "parent", "status", "priority", "updated", "statuscategorychangedate", "duedate"]
+    fields = [
+        "summary", "issuetype", "project", "parent", "status", "priority",
+        "updated", "statuscategorychangedate", "duedate", "components", "labels",
+        "issuelinks", "resolution",
+    ]
+    for custom_key in ["principal", "epic_name"]:
+        custom_field = str(field_map.get(custom_key) or "").strip()
+        if custom_field and custom_field not in fields:
+            fields.append(custom_field)
     if team_field and team_field not in fields:
         fields.append(team_field)
     if effort_tshirt_field and effort_tshirt_field not in fields:
@@ -469,6 +659,7 @@ def main() -> int:
         build_output_row(
             base_url=base_url,
             issue=issue,
+            field_map=field_map,
             team_field=team_field,
             effort_tshirt_field=effort_tshirt_field,
             issue_team_map=issue_team_map,

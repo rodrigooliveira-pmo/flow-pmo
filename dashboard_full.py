@@ -1979,6 +1979,9 @@ def compute_portfolio_snapshot(df, updated_at_label):
         df['DueDate'] = pd.NaT
     if 'Team' not in df.columns:
         df['Team'] = ''
+    for col in ['ParentTitle', 'HierarchyLinkSource', 'FeatureLinkID', 'FeatureLinkTipo', 'EpicLinkID', 'EpicLinkTipo', 'EpicLinkName', 'Componentes', 'Etiquetas', 'IssueLinkKeys', 'IssueLinkTypes', 'IssueLinkDetails']:
+        if col not in df.columns:
+            df[col] = ''
 
     df['Projeto'] = df['Projeto'].fillna('').astype(str)
     df['Team'] = df['Team'].fillna('').astype(str).str.strip()
@@ -2655,7 +2658,10 @@ def compute_portfolio_snapshot(df, updated_at_label):
     technical_category_cfg = parse_json_env('FLOW_PMO_PORTFOLIO_TECH_PATTERNS', technical_category_defaults)
 
     def _detect_technical_category(row):
-        text = normalize_text(f"{row.get('Team', '')} {row.get('Titulo', '')}")
+        text = normalize_text(
+            f"{row.get('Team', '')} {row.get('Titulo', '')} "
+            f"{row.get('Componentes', '')} {row.get('Etiquetas', '')} {row.get('IssueLinkTypes', '')}"
+        )
         if not text:
             return ''
         for category in ['arquitetura', 'infra', 'seguranca']:
@@ -2715,7 +2721,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
     technical_items_catalog = technical_items_base[technical_items_base['TechnicalCategory'].ne('')].copy()
     if not technical_items_catalog.empty:
         technical_items_catalog = technical_items_catalog[[
-            'TechnicalCategory', 'Projeto', 'TeamDisplay', 'Tipo', 'ID', 'Titulo', 'Status', 'StatusCategoria', 'ParentID', 'ParentTipo', 'Link'
+            'TechnicalCategory', 'Projeto', 'TeamDisplay', 'Tipo', 'ID', 'Titulo', 'Status', 'StatusCategoria', 'ParentID', 'ParentTipo', 'EpicLinkID', 'FeatureLinkID', 'IssueLinkKeys', 'Link'
         ]].rename(columns={
             'TechnicalCategory': 'CategoriaTecnica',
             'TeamDisplay': 'Team',
@@ -2723,15 +2729,24 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'Tipo': 'TipoItem',
         }).sort_values(['CategoriaTecnica', 'Projeto', 'Team', 'StatusCategoria', 'ItemID'], ignore_index=True)
     else:
-        technical_items_catalog = pd.DataFrame(columns=['CategoriaTecnica', 'Projeto', 'Team', 'TipoItem', 'ItemID', 'Titulo', 'Status', 'StatusCategoria', 'ParentID', 'ParentTipo', 'Link'])
+        technical_items_catalog = pd.DataFrame(columns=['CategoriaTecnica', 'Projeto', 'Team', 'TipoItem', 'ItemID', 'Titulo', 'Status', 'StatusCategoria', 'ParentID', 'ParentTipo', 'EpicLinkID', 'FeatureLinkID', 'IssueLinkKeys', 'Link'])
 
     technical_by_parent = {}
     if not technical_items_base.empty:
         for _, row in technical_items_base[technical_items_base['TechnicalCategory'].ne('')].iterrows():
-            parent_key = str(row.get('ParentID') or '').strip()
-            if not parent_key:
-                continue
-            technical_by_parent.setdefault(parent_key, []).append(row)
+            candidate_refs = []
+            for ref_col in ['ParentID', 'EpicLinkID', 'FeatureLinkID']:
+                ref_value = str(row.get(ref_col) or '').strip()
+                if ref_value:
+                    candidate_refs.append(ref_value)
+            issue_link_keys = str(row.get('IssueLinkKeys') or '').strip()
+            if issue_link_keys:
+                for token in issue_link_keys.split(','):
+                    ref_value = str(token).strip()
+                    if ref_value:
+                        candidate_refs.append(ref_value)
+            for ref_value in candidate_refs:
+                technical_by_parent.setdefault(ref_value, []).append(row)
 
     technical_alert_rows = []
     technical_epic_summary_rows = []

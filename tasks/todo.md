@@ -1,5 +1,146 @@
 # Task Plan
 
+## Current Task (Avaliar aderência do projeto a Flight Levels)
+- [x] Ler o whitepaper e extrair os critérios operacionais de FL1, FL2 e FL3
+- [x] Inspecionar os dados e exportadores de portfólio/downstream realmente usados no projeto
+- [x] Comparar a implementação atual com os critérios do whitepaper e identificar gaps estruturais
+- [x] Registrar evidências, conclusão e próximos passos em uma review objetiva
+
+## Specification (Avaliar aderência do projeto a Flight Levels)
+- Objetivo: determinar, com base no whitepaper [`Flight-Levels-Whitepaper-Update-[2026].pdf`](/Users/rodrigoalmeidadeoliveira/Downloads/Flight-Levels-Whitepaper-Update-%5B2026%5D.pdf) e nos dados/exportadores locais, se a estrutura atual implementa adequadamente os três níveis de Flight Levels.
+- Escopo da análise:
+  - `jira_portfolio_to_csv.py` como fonte do portfólio/hierarquia
+  - `jira_to_pipeline_csv.py` e artefatos downstream como fonte do fluxo operacional
+  - `dashboard_full.py` como materialização visual/analítica da estrutura
+- Critérios de comparação:
+  - `FL3`: metas estratégicas explícitas, lógica de priorização, medição de sucesso e conexão com iniciativas
+  - `FL2`: coordenação entre times, dependências, fluxo do portfólio/iniciativas e conexão entre estratégia e execução
+  - `FL1`: gestão do trabalho diário/entrega por times com visibilidade de fluxo e bloqueios
+- Fora do escopo:
+  - validar se o modelo Flight Levels está “bonito” visualmente
+  - recomendar ferramenta externa; a avaliação deve ser feita apenas sobre a implementação e os dados atuais
+
+## Review (Avaliar aderência do projeto a Flight Levels)
+- Conclusão executiva:
+  - A implementação atual atende bem `FL1`, atende `FL2` apenas de forma parcial e ainda não atende adequadamente `FL3`.
+  - Em termos práticos: o projeto mede execução operacional com boa profundidade, mas ainda não fecha o circuito completo entre estratégia -> coordenação -> execução exigido pelo whitepaper.
+- Leitura do whitepaper usada como critério:
+  - `FL3`: metas estratégicas explícitas, `OKRs`, lógica de priorização e conexão dessas metas com iniciativas.
+  - `FL2`: fluxo de coordenação entre times, iniciativas conectadas à estratégia, dependências e workflows ligados aos times.
+  - `FL1`: trabalho diário dos times com workflow visível, progresso e bloqueios.
+- Evidência de `FL1` aderente:
+  - Os CSVs downstream detalhados existem para `W1NNR`, `S1NC`, `BEFINANCE` e `DATAANALYTICS`, com volume e granularidade operacional reais:
+    - `w1nner-downstream-latest-data.csv`: `2064` itens
+    - `s1nc-downstream-latest-data.csv`: `1783` itens
+    - `befinance-downstream-latest-data.csv`: `194` itens
+    - `dataanalytics-downstream-latest-data.csv`: `358` itens
+  - Essas bases trazem colunas de workflow por etapa, responsável, timestamps por estágio e sinais de bloqueio.
+  - O modelo consolidado [`PowerBI_Model_latest.xlsx`](/Users/rodrigoalmeidadeoliveira/Documents/dados/PowerBI_Model_latest.xlsx) materializa isso em `Fato_Items` com `LeadTime_Dias`, `TempoBacklog_Dias`, `TempoExecucao_Dias`, `TempoBloqueioDias`, `WIP_Dias`, `Bloqueado`.
+  - Há bloqueios observáveis nos dados atuais (`Blocked=true`): `W1NNR=14`, `S1NC=17`, `BEFINANCE=1`, `DATAANALYTICS=9`.
+- Evidência de `FL2` parcial:
+  - O código já tenta sustentar coordenação por hierarquia no portfólio, inclusive com campos como `ParentID`, `ParentTipo`, `FeatureLinkID`, `EpicLinkID`, `HierarchyLinkSource` em [`jira_portfolio_to_csv.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_portfolio_to_csv.py) e no `compute_portfolio_snapshot(...)` de [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py).
+  - Porém o snapshot real [`portfolio-bt-ns-latest-data.csv`](/Users/rodrigoalmeidadeoliveira/Documents/dados/portfolio-bt-ns-latest-data.csv) está operando só com `14` colunas e sem vínculos preenchidos:
+    - `220` linhas totais
+    - `160` épicos
+    - `56` features
+    - `items_with_valid_parent = 0`
+    - `ParentID`, `ParentTipo`, `FeatureLinkID` e `EpicLinkID` vazios no arquivo atual
+  - Sem esses vínculos, o dashboard consegue mostrar volume, aging, due date e status por `Team`, mas não consegue coordenar com robustez `épico -> feature -> trabalho tático`, nem expor dependências reais entre times.
+  - O próprio roadmap do projeto registra esse bloqueio por dados e exportador em [`ROADMAP_INDICADORES_PORTFOLIO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ROADMAP_INDICADORES_PORTFOLIO.md): dependências, CFD de portfólio, throughput de portfólio e tempo de decisão seguem bloqueados.
+  - Há também desalinhamento estrutural entre portfólio e execução: o portfólio atual usa IDs `BT-*`, enquanto os fluxos operacionais detalhados estão em `BF-*`, `W1NNR-*`, `S1NC-*`, `DT-*`; isso enfraquece a ligação de coordenação ponta a ponta.
+- Evidência de `FL3` insuficiente:
+  - O whitepaper exige metas estratégicas, `OKRs`, lógica de priorização e ligação explícita com as iniciativas.
+  - O portfólio atual não exporta campos de objetivo/tema estratégico, `OKR`, benefício, sponsor, risco ou dependência.
+  - O roadmap interno já documenta esses pontos como bloqueados por dados:
+    - `% itens com objetivo estratégico vinculado`
+    - `% itens fora do foco estratégico ativo`
+    - `Distribuição por tema estratégico`
+    - indicadores de benefícios, riscos, dependências e marcos
+  - O dashboard tem uma visualização de roadmap por `quarter` e status, mas isso ainda é planejamento temporal de portfólio, não uma camada estratégica FL3 no sentido do whitepaper.
+- Julgamento final:
+  - `FL1`: adequado
+  - `FL2`: parcialmente adequado, mas operacionalmente frágil por falta de vínculo real no snapshot de portfólio e por ausência de dependências explícitas
+  - `FL3`: inadequado no estado atual; faltam dados e mecanismos de alinhamento estratégico
+- Próximos passos prioritários para aderir melhor a Flight Levels:
+  1. Garantir que o `portfolio-bt-ns-latest-data.csv` publicado em `latest` use a versão enriquecida do exportador e materialize `ParentID`, `ParentTipo`, `FeatureLinkID`, `EpicLinkID`, `IssueLink*`.
+  2. Criar uma ponte confiável entre o portfólio `BT/NS` e os fluxos de execução `BF/W1NNR/S1NC/DT`, para que `FL2` deixe de ser apenas visual e passe a ser rastreável.
+  3. Adicionar no exportador de portfólio campos de `tema/objetivo estratégico`, `owner/sponsor`, `benefício esperado`, `risco`, `milestone/target date`.
+  4. Só depois disso faz sentido afirmar aderência mais forte a `FL3`.
+- Evidence (docs/data/code inspected):
+  - `pdftotext /Users/rodrigoalmeidadeoliveira/Downloads/Flight-Levels-Whitepaper-Update-[2026].pdf -`
+  - `python3 - <<'PY' ... portfolio-bt-ns-latest-data.csv ... PY`
+  - `python3 - <<'PY' ... *-downstream-latest-data.csv ... PY`
+  - `python3 - <<'PY' ... PowerBI_Model_latest.xlsx ... PY`
+  - `sed -n '1,260p' jira_portfolio_to_csv.py`
+  - `sed -n '1,320p' jira_to_pipeline_csv.py`
+  - `sed -n '1950,2065p' dashboard_full.py`
+  - `sed -n '5081,5165p' dashboard_full.py`
+  - `sed -n '150,180p' ROADMAP_INDICADORES_PORTFOLIO.md`
+  - `sed -n '221,275p' ROADMAP_INDICADORES_PORTFOLIO.md`
+- Suggested commit message:
+  - `docs(tasks): assess current Flight Levels adherence across portfolio and execution data`
+
+## Current Task (Evoluir exportador de portfólio para expor vínculos)
+- [x] Inspecionar o exportador atual e comparar com a lógica mais rica de hierarquia já usada no downstream
+- [x] Incluir no CSV de portfólio campos de vínculo/hierarquia suficientes para reduzir falso positivo dos alertas técnicos
+- [x] Preservar compatibilidade do dashboard com snapshots antigos sem os novos campos
+- [x] Validar sintaxe e smoke tests dos helpers novos
+
+## Specification (Evoluir exportador de portfólio para expor vínculos)
+- Objetivo: enriquecer [`jira_portfolio_to_csv.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_portfolio_to_csv.py) para materializar no snapshot as informações mínimas de relacionamento que hoje só aparecem no exportador downstream.
+- Campos alvo desta evolução:
+  - `ParentTitle`
+  - `HierarchyLinkSource`
+  - `FeatureLinkID`
+  - `FeatureLinkTipo`
+  - `EpicLinkID`
+  - `EpicLinkTipo`
+  - `EpicLinkName`
+  - `Componentes`
+  - `Etiquetas`
+  - links tipados agregados (`IssueLinks*`)
+- Regras:
+  - reaproveitar a semântica de resolução de hierarquia do `jira_to_pipeline_csv.py`
+  - manter compatibilidade com snapshots antigos e com ambientes que não têm todos os custom fields
+  - não depender de custo nem de método financeiro
+
+## Review (Evoluir exportador de portfólio para expor vínculos)
+- What was implemented:
+  - [`jira_portfolio_to_csv.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_portfolio_to_csv.py) passou a exportar os novos campos:
+    - `ParentTitle`
+    - `HierarchyLinkSource`
+    - `FeatureLinkID`
+    - `FeatureLinkTipo`
+    - `EpicLinkID`
+    - `EpicLinkTipo`
+    - `EpicLinkName`
+    - `Componentes`
+    - `Etiquetas`
+    - `IssueLinkKeys`
+    - `IssueLinkTypes`
+    - `IssueLinkDetails`
+  - A resolução de hierarquia agora reutiliza a mesma semântica defensiva do exportador downstream, incluindo suporte a `principal` e `epic_name` quando estiverem configurados no `JIRA_FIELD_MAP`.
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) foi ajustado para:
+    - aceitar snapshots antigos sem esses campos
+    - usar `Componentes`, `Etiquetas`, `IssueLinkTypes`, `EpicLinkID`, `FeatureLinkID` e `IssueLinkKeys` quando existirem para melhorar a detecção/vinculação técnica
+- Evidence (tests/smoke):
+  - `python3 -m py_compile jira_portfolio_to_csv.py dashboard_full.py`
+  - `python3 - <<'PY' ... build_output_row(...) ... PY`
+    - Resultados observados:
+      - `ParentTitle Epic parent`
+      - `HierarchyLinkSource parent_epic|epic_name_text`
+      - `EpicLinkID BT-100`
+      - `IssueLinkKeys BT-321`
+      - `IssueLinkTypes relates to`
+  - `python3 - <<'PY' ... import dashboard_full as d; snapshot, df, err = d.get_portfolio_snapshot() ... PY`
+    - Resultados observados:
+      - `error None`
+      - `legacy_snapshot_still_loads True`
+      - `tech_catalog_cols ['EpicLinkID', 'FeatureLinkID', 'IssueLinkKeys']`
+  - Não foi executada exportação real contra o Jira nesta sessão, então a validação foi feita por compilação e smoke test sintético/local.
+- Suggested commit message:
+  - `feat(portfolio-export): add hierarchy and typed issue link fields to portfolio snapshot`
+
 ## Current Task (Remover ambiguidade entre pendências e quarter)
 - [x] Localizar os rótulos `Q1/Q2/Q3` usados no indicador de pendências
 - [x] Renomear buckets e títulos para faixas de aging explícitas
@@ -4625,7 +4766,7 @@
   - `dashboard_full.py`
   - `dashboard_process_mining.py`
   - `tasks/todo.md`
-- Critério de aceite:
+  - Critério de aceite:
   - Se `FLOW_PMO_MODEL_FILE` estiver em formato `C:\...` e o runtime não for Windows, o app ignora esse override e segue para URL/fallbacks locais compatíveis.
   - Se `FLOW_PMO_DATA_DIR` ou `FLOW_PMO_DATA_DIRS` trouxerem caminhos absolutos de outro SO, eles não entram na lista de candidatos.
   - O comportamento atual em Windows permanece preservado.
