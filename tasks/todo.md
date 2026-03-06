@@ -1,5 +1,39 @@
 # Task Plan
 
+## Current Task (Evitar que process mining bloqueie os latest do dashboard no macOS)
+- [x] Confirmar por que `dashboard_output_latest.xlsx`, `bottlenecks_consolidado_latest.xlsx` e `PowerBI_Model_latest.xlsx` não estavam sendo publicados
+- [x] Ajustar `run_all_projects_macos.sh` para não abortar o pipeline de métricas quando process mining falhar ou não tiver eventos
+- [x] Validar sintaxe, revisar diff e registrar a correção
+
+## Review (Evitar que process mining bloqueie os latest do dashboard no macOS)
+- What was validated:
+  - Os arquivos pedidos (`dashboard_output_latest.xlsx`, `bottlenecks_consolidado_latest.xlsx`, `PowerBI_Model_latest.xlsx` e `portfolio-bt-ns-latest-data.csv`) dependem da continuação do pipeline após process mining.
+  - No log enviado, o script parava em `Gerando process mining para DT... Nenhum evento após filtros`, então nunca chegava na etapa `RUN_METRICS=true`, que é a responsável por gerar os três `.xlsx` latest do dashboard.
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) agora trata falhas de process mining como aviso acumulado (`PROCESS_MINING_FAILURES`) e segue para portfolio e métricas, preservando a geração/publicação dos latest do dashboard.
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `rg -n "PROCESS_MINING_FAILURES|process mining falhou|Avisos Process Mining" run_all_projects_macos.sh`
+  - `git diff -- run_all_projects_macos.sh tasks/todo.md`
+- Suggested commit message:
+  - `fix(run-all): keep metrics running when process mining has no data on macos`
+
+## Current Task (Republicar imagens de process mining no latest do run_all macOS)
+- [x] Confirmar por que os `.png` de process mining deixaram de aparecer no `LATEST_DIR` após a refatoração
+- [x] Ajustar `run_all_projects_macos.sh` para sincronizar os `*latest*` de `artifacts/process_mining` com a pasta latest do pipeline
+- [x] Validar sintaxe, revisar diff e registrar a correção
+
+## Review (Republicar imagens de process mining no latest do run_all macOS)
+- What was validated:
+  - O problema não era geração: os `.png` de process mining continuavam sendo criados em `artifacts/process_mining`, como mostrado no log de `process_mining_jira.py`.
+  - Após a refatoração do `run_all_projects_macos.sh`, a etapa de process mining deixou de espelhar os artefatos `*latest*` para o `LATEST_DIR` do pipeline, diferente do que já acontecia com downstream, portfolio e Bitbucket.
+  - [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh) agora chama `sync_latest_artifacts_from_out_dir "$PROCESS_MINING_OUT_DIR" "$LATEST_DIR"` logo após cada execução de process mining, republicando `.xlsx`, `.csv` e `.png` latest na pasta `latest` que você está conferindo.
+- Evidence (tests/logs/diff):
+  - `bash -n run_all_projects_macos.sh`
+  - `rg -n "sync_latest_artifacts_from_out_dir" run_all_projects_macos.sh`
+  - `git diff -- run_all_projects_macos.sh tasks/todo.md`
+- Suggested commit message:
+  - `fix(run-all): republish process mining latest artifacts into macos latest directory`
+
 ## Current Task (Separar extração de process mining no run_all macOS)
 - [x] Confirmar onde `run_all_projects_macos.sh` mistura export downstream, changelog, process mining e Bitbucket no mesmo loop
 - [x] Refatorar o script para executar process mining em etapa separada dos demais artefatos do dashboard

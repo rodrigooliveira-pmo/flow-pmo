@@ -16,6 +16,7 @@ RUN_DETAILED_CHANGELOG_EXPORT=false
 RUN_PROCESS_MINING=true
 RUN_BITBUCKET_EXPORT=true
 BITBUCKET_FAILURES=()
+PROCESS_MINING_FAILURES=()
 
 usage() {
     cat <<'EOF_HELP'
@@ -264,7 +265,13 @@ run_project_process_mining() {
 
     echo
     echo "Gerando process mining para ${key}..."
-    "$PYTHON_BIN" "$PROCESS_MINING_SCRIPT" --input "$detailed_changelog_out" --out-dir "$PROCESS_MINING_OUT_DIR" --project "$key" --prefix "$process_mining_prefix"
+    if "$PYTHON_BIN" "$PROCESS_MINING_SCRIPT" --input "$detailed_changelog_out" --out-dir "$PROCESS_MINING_OUT_DIR" --project "$key" --prefix "$process_mining_prefix"; then
+        sync_latest_artifacts_from_out_dir "$PROCESS_MINING_OUT_DIR" "$LATEST_DIR"
+    else
+        local status=$?
+        echo "Aviso: process mining falhou para ${key} (exit ${status}). O pipeline seguira para portfolio e metricas." >&2
+        PROCESS_MINING_FAILURES+=("${key}:exit-${status}")
+    fi
 }
 
 export_project_bitbucket_artifacts() {
@@ -338,6 +345,9 @@ unset JIRA_IGNORE_STATUS_MAP
 
 echo
 echo "Exportacoes concluidas com sucesso."
+if [[ ${#PROCESS_MINING_FAILURES[@]} -gt 0 ]]; then
+    echo "Avisos Process Mining: ${PROCESS_MINING_FAILURES[*]}" >&2
+fi
 if [[ ${#BITBUCKET_FAILURES[@]} -gt 0 ]]; then
     echo "Avisos Bitbucket: ${BITBUCKET_FAILURES[*]}" >&2
 fi
