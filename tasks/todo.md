@@ -4330,3 +4330,35 @@
   - `git diff -- dash_board_metricas.py process_mining_jira.py run_all_projects_macos.sh tasks/todo.md tasks/lessons.md`
 - Suggested commit message:
   - `fix(latest-paths): ignore windows latest dir overrides on macos and default to Documents/dados/latest`
+
+## Current Task (Deploy Vercel: ignorar `FLOW_PMO_MODEL_FILE` em formato Windows no runtime Linux)
+- [x] Confirmar a origem do path absoluto Windows durante o deploy na Vercel
+- [x] Sanitizar resolução de `FLOW_PMO_MODEL_FILE` para rejeitar caminho incompatível com o SO atual
+- [x] Aplicar a mesma proteção à descoberta de diretórios de dados para evitar falsos candidatos
+- [x] Validar com compilação e smoke test simulando env Windows em runtime não-Windows
+- [x] Registrar review e sugestão de commit
+
+## Specification (Deploy Vercel: ignorar `FLOW_PMO_MODEL_FILE` em formato Windows no runtime Linux)
+- Objetivo: impedir que o deploy/runtime da Vercel falhe quando uma variável de ambiente aponta para um caminho absoluto Windows incompatível com o ambiente Linux do build.
+- Escopo:
+  - `dashboard_full.py`
+  - `dashboard_process_mining.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Se `FLOW_PMO_MODEL_FILE` estiver em formato `C:\...` e o runtime não for Windows, o app ignora esse override e segue para URL/fallbacks locais compatíveis.
+  - Se `FLOW_PMO_DATA_DIR` ou `FLOW_PMO_DATA_DIRS` trouxerem caminhos absolutos de outro SO, eles não entram na lista de candidatos.
+  - O comportamento atual em Windows permanece preservado.
+  - Código válido em sintaxe.
+
+## Review (Deploy Vercel: ignorar `FLOW_PMO_MODEL_FILE` em formato Windows no runtime Linux)
+- What was validated:
+  - A causa raiz foi confirmada no entrypoint [`api/index.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/api/index.py): o deploy importa `dashboard_full` no runtime Linux da Vercel, e `_resolve_model_file(...)` falhava ao aceitar `FLOW_PMO_MODEL_FILE=C:\...`.
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora sanitiza paths absolutos incompatíveis com o SO atual antes de considerar `FLOW_PMO_MODEL_FILE`, `FLOW_PMO_DATA_DIR`, `FLOW_PMO_DATA_DIRS` e `DATA_FOLDER`.
+  - [`dashboard_process_mining.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py) recebeu a mesma proteção para manter a descoberta de diretórios consistente em runtime não-Windows.
+  - Em runtime não-Windows, `C:\Users\W1 TI\...` passa a ser ignorado em vez de virar erro fatal de import/build.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py dashboard_process_mining.py`
+  - `python3 - <<'PY' ... exec(prefix de dashboard_full.py) ... _sanitize_os_path('C:\\Users\\W1 TI\\...') -> <ignored> ... _resolve_model_file([]) ... FileNotFoundError sem reutilizar o path Windows ... PY`
+  - `git diff -- dashboard_full.py dashboard_process_mining.py tasks/todo.md`
+- Suggested commit message:
+  - `fix(deploy): ignore cross-platform absolute paths in model and data env overrides`

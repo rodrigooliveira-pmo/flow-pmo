@@ -35,13 +35,40 @@ else:
     )
 
 
+def _is_windows_absolute_path(path_value):
+    raw = str(path_value or "").strip()
+    return bool(re.match(r"^[A-Za-z]:[\\/]", raw))
+
+
+def _is_posix_absolute_path(path_value):
+    raw = str(path_value or "").strip()
+    return raw.startswith("/")
+
+
+def _is_path_compatible_with_current_os(path_value):
+    raw = str(path_value or "").strip()
+    if not raw:
+        return False
+    if platform.system() == "Windows":
+        return _is_windows_absolute_path(raw) or not _is_posix_absolute_path(raw)
+    return _is_posix_absolute_path(raw) or not _is_windows_absolute_path(raw)
+
+
+def _sanitize_os_path(path_value):
+    raw = str(path_value or "").strip()
+    if not raw:
+        return ""
+    return raw if _is_path_compatible_with_current_os(raw) else ""
+
+
 def _existing_dirs(paths):
     out = []
     seen = set()
     for raw in paths:
-        if not raw:
+        cleaned = _sanitize_os_path(raw)
+        if not cleaned:
             continue
-        p = os.path.abspath(str(raw).strip())
+        p = os.path.abspath(cleaned)
         if p in seen:
             continue
         seen.add(p)
