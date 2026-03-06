@@ -1949,6 +1949,13 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'top_epicos_aging': pd.DataFrame(),
                 'epicos_detalhe': pd.DataFrame(),
                 'features_detalhe': pd.DataFrame(),
+                'portfolio_alerts_detail': pd.DataFrame(),
+                'portfolio_alerts_indicator_summary': pd.DataFrame(),
+                'portfolio_alerts_severity_summary': pd.DataFrame(),
+                'portfolio_alerts_by_team': pd.DataFrame(),
+                'portfolio_alerts_by_project': pd.DataFrame(),
+                'portfolio_alert_kpis': pd.DataFrame(),
+                'portfolio_technical_readiness_notes': pd.DataFrame(),
             },
         }
 
@@ -1961,6 +1968,10 @@ def compute_portfolio_snapshot(df, updated_at_label):
         df['StatusChangedAt'] = pd.to_datetime(df['StatusChangedAt'], errors='coerce', utc=True)
     else:
         df['StatusChangedAt'] = pd.NaT
+    if 'DueDate' in df.columns:
+        df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce', utc=True).dt.tz_localize(None)
+    else:
+        df['DueDate'] = pd.NaT
     if 'Team' not in df.columns:
         df['Team'] = ''
 
@@ -2567,6 +2578,248 @@ def compute_portfolio_snapshot(df, updated_at_label):
         .sort_values(['Team', 'QtdFilhos', 'DiasSemMovimentacao'], ascending=[True, False, False], ignore_index=True)
     )
 
+    today = pd.Timestamp.now().normalize()
+    alert_columns = [
+        'Severidade', 'TipoAlerta', 'TipoItem', 'Projeto', 'Team', 'ItemID', 'Titulo',
+        'Status', 'DiasSemMovimentacao', 'DueDate', 'DiasParaVencimento', 'MotivoAlerta', 'Link'
+    ]
+    severity_order = {'Critico': 0, 'Alerta': 1, 'Monitorar': 2}
+
+    def _empty_alert_df():
+        return pd.DataFrame(columns=alert_columns)
+
+    def _due_days(df_source):
+        if df_source is None or df_source.empty or 'DueDate' not in df_source.columns:
+            return pd.Series(np.nan, index=getattr(df_source, 'index', []), dtype='float64')
+        due_dt = pd.to_datetime(df_source['DueDate'], errors='coerce')
+        return (due_dt.dt.normalize() - today).dt.days
+
+    def _staleness_severity(days_value):
+        days_num = pd.to_numeric(days_value, errors='coerce')
+        if pd.isna(days_num):
+            return 'Monitorar'
+        if float(days_num) > 30:
+            return 'Critico'
+        if float(days_num) > 20:
+            return 'Alerta'
+        return 'Monitorar'
+
+    def _build_alert_frame(df_source, item_id_col, item_type_col, alert_type, reason_builder, severity_builder):
+        if df_source is None or df_source.empty:
+            return _empty_alert_df()
+        local = df_source.copy()
+        local['ItemID'] = local[item_id_col].astype(str).str.strip()
+        if item_type_col in local.columns:
+            local['TipoItem'] = local[item_type_col].fillna('').astype(str).str.strip()
+        else:
+            local['TipoItem'] = ''
+        if 'TeamDisplay' in local.columns:
+            local['Team'] = local['TeamDisplay'].fillna('').astype(str).str.strip()
+        elif 'Team' in local.columns:
+            local['Team'] = local['Team'].fillna('').astype(str).str.strip()
+        else:
+            local['Team'] = ''
+        local.loc[local['Team'] == '', 'Team'] = 'Sem TEAM'
+        if 'Projeto' in local.columns:
+            local['Projeto'] = local['Projeto'].fillna('').astype(str).str.strip()
+        else:
+            local['Projeto'] = ''
+        local['DiasSemMovimentacao'] = pd.to_numeric(
+            local.get('AgingDiasSemAlteracao', local.get('DiasSemMovimentacao')),
+            errors='coerce'
+        )
+        local['DueDate'] = pd.to_datetime(local.get('DueDate'), errors='coerce')
+        local['DiasParaVencimento'] = _due_days(local)
+        local['TipoAlerta'] = alert_type
+        local['MotivoAlerta'] = local.apply(reason_builder, axis=1)
+        local['Severidade'] = local.apply(severity_builder, axis=1)
+        local = local[alert_columns].copy()
+        local['_severity_rank'] = local['Severidade'].map(lambda value: severity_order.get(value, 99))
+        local = local.sort_values(
+            ['_severity_rank', 'DiasParaVencimento', 'DiasSemMovimentacao', 'Projeto', 'Team', 'ItemID'],
+            ascending=[True, True, False, True, True, True],
+            ignore_index=True,
+        )
+        return local.drop(columns=['_severity_rank'])
+
+    epics_open = epics[epics['IsOpen'] == True].copy() if not epics.empty else pd.DataFrame(columns=epics.columns)
+    features_open = features[features['StatusCategoria'] != 'Concluído'].copy() if not features.empty else pd.DataFrame(columns=features.columns)
+    storytask_open = story_task_sem_feature[story_task_sem_feature['IsOpen'] == True].copy() if not story_task_sem_feature.empty else pd.DataFrame(columns=story_task_sem_feature.columns)
+
+    epics_missing_feature = epics_open[epics_open['QtdFeatures'] == 0].copy() if not epics_open.empty else pd.DataFrame(columns=epics.columns)
+    features_missing_story = features_open[features_open['QtdFilhos'] == 0].copy() if not features_open.empty else pd.DataFrame(columns=features.columns)
+
+    due_items = df[df['IsOpen'] & df['DueDate'].notna()].copy() if not df.empty else pd.DataFrame(columns=df.columns)
+    if not due_items.empty:
+        due_items['DiasParaVencimento'] = _due_days(due_items)
+    overdue_items = due_items[due_items['DiasParaVencimento'] < 0].copy() if not due_items.empty else pd.DataFrame(columns=due_items.columns)
+    upcoming_items = due_items[
+        (due_items['DiasParaVencimento'] >= 0) &
+        (due_items['DiasParaVencimento'] <= 30)
+    ].copy() if not due_items.empty else pd.DataFrame(columns=due_items.columns)
+
+    epics_missing_feature_due = epics_missing_feature.copy()
+    if not epics_missing_feature_due.empty:
+        epics_missing_feature_due['DiasParaVencimento'] = _due_days(epics_missing_feature_due)
+        epics_missing_feature_due = epics_missing_feature_due[
+            epics_missing_feature_due['DiasParaVencimento'].notna() &
+            (epics_missing_feature_due['DiasParaVencimento'] <= 14)
+        ].copy()
+
+    features_missing_story_due = features_missing_story.copy()
+    if not features_missing_story_due.empty:
+        features_missing_story_due['DiasParaVencimento'] = _due_days(features_missing_story_due)
+        features_missing_story_due = features_missing_story_due[
+            features_missing_story_due['DiasParaVencimento'].notna() &
+            (features_missing_story_due['DiasParaVencimento'] <= 14)
+        ].copy()
+
+    alert_frames = [
+        _build_alert_frame(
+            epics_missing_feature,
+            'ID',
+            'Tipo',
+            'Épico sem feature',
+            lambda row: 'Épico aberto sem feature vinculada.',
+            lambda row: _staleness_severity(row.get('AgingDiasSemAlteracao'))
+        ),
+        _build_alert_frame(
+            features_missing_story,
+            'ID',
+            'Tipo',
+            'Feature sem story/task',
+            lambda row: 'Feature aberta sem story/task vinculado.',
+            lambda row: _staleness_severity(row.get('DiasSemMovimentacao'))
+        ),
+        _build_alert_frame(
+            storytask_open,
+            'ID',
+            'Tipo',
+            'Story/Task órfão',
+            lambda row: 'Story/Task sem vínculo estrutural válido com feature ou épico.',
+            lambda row: (
+                'Critico' if str(row.get('StatusCategoria', '')).strip() == 'Em progresso' else
+                ('Alerta' if str(row.get('StatusCategoria', '')).strip() == 'Backlog' else 'Monitorar')
+            )
+        ),
+        _build_alert_frame(
+            epics_open[pd.to_numeric(epics_open.get('AgingDiasSemAlteracao'), errors='coerce') > 10].copy() if not epics_open.empty else pd.DataFrame(columns=epics.columns),
+            'ID',
+            'Tipo',
+            'Épico parado',
+            lambda row: f"Épico aberto sem movimentação há {int(row.get('AgingDiasSemAlteracao') or 0)} dias.",
+            lambda row: _staleness_severity(row.get('AgingDiasSemAlteracao'))
+        ),
+        _build_alert_frame(
+            features_open[pd.to_numeric(features_open.get('DiasSemMovimentacao'), errors='coerce') > 10].copy() if not features_open.empty else pd.DataFrame(columns=features.columns),
+            'ID',
+            'Tipo',
+            'Feature parada',
+            lambda row: f"Feature aberta sem movimentação há {int(row.get('DiasSemMovimentacao') or 0)} dias.",
+            lambda row: _staleness_severity(row.get('DiasSemMovimentacao'))
+        ),
+        _build_alert_frame(
+            overdue_items,
+            'ID',
+            'Tipo',
+            'Item vencido',
+            lambda row: f"Item aberto com target date vencida há {abs(int(row.get('DiasParaVencimento') or 0))} dias.",
+            lambda row: 'Critico'
+        ),
+        _build_alert_frame(
+            upcoming_items,
+            'ID',
+            'Tipo',
+            'Item próximo do vencimento',
+            lambda row: f"Item aberto com target date em {int(row.get('DiasParaVencimento') or 0)} dias.",
+            lambda row: (
+                'Critico' if pd.notna(row.get('DiasParaVencimento')) and float(row.get('DiasParaVencimento')) <= 7 else
+                ('Alerta' if pd.notna(row.get('DiasParaVencimento')) and float(row.get('DiasParaVencimento')) <= 14 else 'Monitorar')
+            )
+        ),
+        _build_alert_frame(
+            epics_missing_feature_due,
+            'ID',
+            'Tipo',
+            'Prazo crítico sem decomposição',
+            lambda row: 'Épico vencido ou próximo do vencimento sem feature vinculada.',
+            lambda row: 'Critico' if pd.notna(row.get('DiasParaVencimento')) and float(row.get('DiasParaVencimento')) <= 7 else 'Alerta'
+        ),
+        _build_alert_frame(
+            features_missing_story_due,
+            'ID',
+            'Tipo',
+            'Prazo crítico sem decomposição',
+            lambda row: 'Feature vencida ou próxima do vencimento sem story/task vinculado.',
+            lambda row: 'Critico' if pd.notna(row.get('DiasParaVencimento')) and float(row.get('DiasParaVencimento')) <= 7 else 'Alerta'
+        ),
+    ]
+
+    non_empty_alert_frames = [frame for frame in alert_frames if frame is not None and not frame.empty]
+    portfolio_alerts_detail = pd.concat(non_empty_alert_frames, ignore_index=True) if non_empty_alert_frames else _empty_alert_df()
+    if not portfolio_alerts_detail.empty:
+        portfolio_alerts_detail['_severity_rank'] = portfolio_alerts_detail['Severidade'].map(lambda value: severity_order.get(value, 99))
+        portfolio_alerts_detail = portfolio_alerts_detail.sort_values(
+            ['_severity_rank', 'TipoAlerta', 'DiasParaVencimento', 'DiasSemMovimentacao', 'Projeto', 'Team', 'ItemID'],
+            ascending=[True, True, True, False, True, True, True],
+            ignore_index=True,
+        ).drop(columns=['_severity_rank'])
+
+        portfolio_alerts_indicator_summary = (
+            portfolio_alerts_detail.groupby(['TipoAlerta', 'Severidade'], dropna=False)
+            .agg(Ocorrencias=('ItemID', 'count'), ItensUnicos=('ItemID', 'nunique'))
+            .reset_index()
+            .sort_values(['TipoAlerta', 'Ocorrencias'], ascending=[True, False], ignore_index=True)
+        )
+        portfolio_alerts_severity_summary = (
+            portfolio_alerts_detail.groupby(['Severidade'], dropna=False)
+            .agg(Ocorrencias=('ItemID', 'count'), ItensUnicos=('ItemID', 'nunique'))
+            .reset_index()
+        )
+        portfolio_alerts_severity_summary['_severity_rank'] = portfolio_alerts_severity_summary['Severidade'].map(lambda value: severity_order.get(value, 99))
+        portfolio_alerts_severity_summary = portfolio_alerts_severity_summary.sort_values('_severity_rank').drop(columns=['_severity_rank']).reset_index(drop=True)
+        portfolio_alerts_by_team = (
+            portfolio_alerts_detail.groupby(['Team', 'Severidade'], dropna=False)
+            .agg(Ocorrencias=('ItemID', 'count'), ItensUnicos=('ItemID', 'nunique'))
+            .reset_index()
+            .sort_values(['Ocorrencias', 'ItensUnicos', 'Team'], ascending=[False, False, True], ignore_index=True)
+        )
+        portfolio_alerts_by_project = (
+            portfolio_alerts_detail.groupby(['Projeto', 'Severidade'], dropna=False)
+            .agg(Ocorrencias=('ItemID', 'count'), ItensUnicos=('ItemID', 'nunique'))
+            .reset_index()
+            .sort_values(['Ocorrencias', 'ItensUnicos', 'Projeto'], ascending=[False, False, True], ignore_index=True)
+        )
+        severity_counts = portfolio_alerts_detail['Severidade'].value_counts()
+        type_counts = portfolio_alerts_detail['TipoAlerta'].value_counts()
+        portfolio_alert_kpis = pd.DataFrame([
+            {'Indicador': 'Ocorrências críticas', 'Valor': int(severity_counts.get('Critico', 0))},
+            {'Indicador': 'Ocorrências alerta', 'Valor': int(severity_counts.get('Alerta', 0))},
+            {'Indicador': 'Ocorrências monitorar', 'Valor': int(severity_counts.get('Monitorar', 0))},
+            {'Indicador': 'Itens únicos com alerta', 'Valor': int(portfolio_alerts_detail['ItemID'].nunique())},
+            {'Indicador': 'Épicos sem feature', 'Valor': int(type_counts.get('Épico sem feature', 0))},
+            {'Indicador': 'Features sem story/task', 'Valor': int(type_counts.get('Feature sem story/task', 0))},
+            {'Indicador': 'Itens vencidos', 'Valor': int(type_counts.get('Item vencido', 0))},
+            {'Indicador': 'Itens vencendo em até 7d', 'Valor': int(len(upcoming_items[upcoming_items['DiasParaVencimento'] <= 7])) if not upcoming_items.empty else 0},
+        ])
+    else:
+        portfolio_alerts_indicator_summary = pd.DataFrame(columns=['TipoAlerta', 'Severidade', 'Ocorrencias', 'ItensUnicos'])
+        portfolio_alerts_severity_summary = pd.DataFrame(columns=['Severidade', 'Ocorrencias', 'ItensUnicos'])
+        portfolio_alerts_by_team = pd.DataFrame(columns=['Team', 'Severidade', 'Ocorrencias', 'ItensUnicos'])
+        portfolio_alerts_by_project = pd.DataFrame(columns=['Projeto', 'Severidade', 'Ocorrencias', 'ItensUnicos'])
+        portfolio_alert_kpis = pd.DataFrame(columns=['Indicador', 'Valor'])
+
+    portfolio_technical_readiness_notes = pd.DataFrame([
+        {
+            'Status': 'Pendente de contrato de dados',
+            'Detalhe': 'Prontidão técnica de arquitetura/infra/segurança ainda depende de vínculo explícito entre épico e itens técnicos, além do status factual desses itens no downstream.',
+        },
+        {
+            'Status': 'Coberto nesta fase',
+            'Detalhe': 'A fase atual entrega alertas de integridade estrutural, estagnação e prazo usando apenas o snapshot atual do portfólio.',
+        },
+    ])
+
     # Cards executivos no estilo "mosaico".
     sem_team = int((df['Team'].str.strip() == '').sum())
     em_dia = int(((df['IsOpen']) & (df['AgingDiasSemAlteracao'] <= 15)).sum())
@@ -2781,6 +3034,13 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'top_epicos_aging': top_epicos_aging,
             'epicos_detalhe': epicos_detalhe,
             'features_detalhe': features_detalhe,
+            'portfolio_alerts_detail': portfolio_alerts_detail,
+            'portfolio_alerts_indicator_summary': portfolio_alerts_indicator_summary,
+            'portfolio_alerts_severity_summary': portfolio_alerts_severity_summary,
+            'portfolio_alerts_by_team': portfolio_alerts_by_team,
+            'portfolio_alerts_by_project': portfolio_alerts_by_project,
+            'portfolio_alert_kpis': portfolio_alert_kpis,
+            'portfolio_technical_readiness_notes': portfolio_technical_readiness_notes,
             'has_us_items': has_us_items,
         },
     }
@@ -6799,6 +7059,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         top_epicos_aging = groups.get('top_epicos_aging', pd.DataFrame())
         epicos_detalhe = groups.get('epicos_detalhe', pd.DataFrame())
         features_detalhe = groups.get('features_detalhe', pd.DataFrame())
+        portfolio_alerts_detail = groups.get('portfolio_alerts_detail', pd.DataFrame())
+        portfolio_alerts_indicator_summary = groups.get('portfolio_alerts_indicator_summary', pd.DataFrame())
+        portfolio_alerts_severity_summary = groups.get('portfolio_alerts_severity_summary', pd.DataFrame())
+        portfolio_alerts_by_team = groups.get('portfolio_alerts_by_team', pd.DataFrame())
+        portfolio_alerts_by_project = groups.get('portfolio_alerts_by_project', pd.DataFrame())
+        portfolio_alert_kpis = groups.get('portfolio_alert_kpis', pd.DataFrame())
+        portfolio_technical_readiness_notes = groups.get('portfolio_technical_readiness_notes', pd.DataFrame())
         has_us_items = bool(groups.get('has_us_items', False))
 
         selected_team = '__ALL__'
@@ -6844,6 +7111,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         concentracao_epico_share = filter_by_team(concentracao_epico_share)
         epicos_detalhe = filter_by_team(epicos_detalhe)
         features_detalhe = filter_by_team(features_detalhe)
+        portfolio_alerts_detail = filter_by_team(portfolio_alerts_detail)
+        portfolio_alerts_by_team = filter_by_team(portfolio_alerts_by_team)
         if items_base is None or items_base.empty:
             items_base_scope = pd.DataFrame()
         else:
@@ -6854,6 +7123,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_portfolio_full_scope = df_portfolio_full_scope[
                 df_portfolio_full_scope['Team'].fillna('').astype(str).str.strip() == selected_team
             ].copy()
+        if selected_team != '__ALL__' and portfolio_alerts_by_project is not None and not portfolio_alerts_by_project.empty:
+            scoped_projects = set(portfolio_alerts_detail['Projeto'].dropna().astype(str)) if portfolio_alerts_detail is not None and not portfolio_alerts_detail.empty else set()
+            if scoped_projects:
+                portfolio_alerts_by_project = portfolio_alerts_by_project[
+                    portfolio_alerts_by_project['Projeto'].fillna('').astype(str).isin(scoped_projects)
+                ].copy()
 
         def parse_int_threshold(v, default):
             try:
@@ -7055,6 +7330,117 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     style={'marginTop': '8px', 'color': '#555'}
                 )
             ], style={'marginTop': '24px'})
+
+        def render_portfolio_alerts(
+            df_kpis,
+            df_severity,
+            df_indicator,
+            df_detail,
+            df_team,
+            df_project,
+            df_tech_notes,
+        ):
+            if df_detail is None or df_detail.empty:
+                return html.Div([
+                    html.H3('Alertas de Portfólio', style={'textAlign': 'left'}),
+                    html.P('Sem alertas no escopo atual.', style={'color': '#666'}),
+                    portfolio_table_component(
+                        df_tech_notes.copy() if df_tech_notes is not None else pd.DataFrame(),
+                        'Prontidão técnica (pendências de dados)',
+                        'table-portfolio-technical-readiness-notes-empty'
+                    ),
+                ], style={'paddingTop': '10px'})
+
+            severity_colors = {
+                'Critico': '#b71c1c',
+                'Alerta': '#ef6c00',
+                'Monitorar': '#1565c0',
+            }
+
+            kpi_cards = []
+            if df_kpis is not None and not df_kpis.empty:
+                for _, row in df_kpis.iterrows():
+                    label = str(row.get('Indicador', '')).strip()
+                    value = int(pd.to_numeric(row.get('Valor'), errors='coerce') or 0)
+                    bg = '#455a64'
+                    if 'crítica' in label.lower() or 'critic' in label.lower() or 'vencidos' in label.lower():
+                        bg = severity_colors['Critico']
+                    elif 'alerta' in label.lower() or 'sem feature' in label.lower() or 'sem story' in label.lower():
+                        bg = severity_colors['Alerta']
+                    elif 'monitorar' in label.lower() or '7d' in label.lower():
+                        bg = severity_colors['Monitorar']
+                    kpi_cards.append(
+                        create_kpi_card(
+                            label,
+                            f"{value}",
+                            class_name='',
+                            **portfolio_kpi_style(bg)
+                        )
+                    )
+
+            severity_section = html.Div()
+            if df_severity is not None and not df_severity.empty:
+                sev_plot = df_severity.copy()
+                sev_plot['Cor'] = sev_plot['Severidade'].map(severity_colors).fillna('#455a64')
+                fig = px.bar(
+                    sev_plot,
+                    x='Severidade',
+                    y='Ocorrencias',
+                    color='Severidade',
+                    color_discrete_map=severity_colors,
+                    text='Ocorrencias',
+                    template='plotly_white',
+                    title='Distribuição de alertas por severidade'
+                )
+                fig.update_layout(height=340, showlegend=False, margin=dict(t=60, b=40))
+                severity_section = dcc.Graph(figure=fig)
+
+            indicator_table = portfolio_table_component(
+                df_indicator.copy() if df_indicator is not None else pd.DataFrame(),
+                'Ocorrências por tipo de alerta e severidade',
+                'table-portfolio-alert-indicator-summary'
+            )
+            detail_table = portfolio_table_component(
+                df_detail.copy(),
+                'Itens que compõem os alertas de portfólio',
+                'table-portfolio-alert-detail'
+            )
+            team_table = portfolio_table_component(
+                df_team.copy() if df_team is not None else pd.DataFrame(),
+                'Alertas por TEAM',
+                'table-portfolio-alert-team'
+            )
+            project_table = portfolio_table_component(
+                df_project.copy() if df_project is not None else pd.DataFrame(),
+                'Alertas por Projeto',
+                'table-portfolio-alert-project'
+            )
+            tech_table = portfolio_table_component(
+                df_tech_notes.copy() if df_tech_notes is not None else pd.DataFrame(),
+                'Prontidão técnica (pendências de dados)',
+                'table-portfolio-technical-readiness-notes'
+            )
+
+            return html.Div([
+                html.H3('Alertas de Portfólio', style={'textAlign': 'left'}),
+                html.P(
+                    'Fase 1: alertas implementados apenas com o snapshot atual do portfólio. Custos e prontidão técnica factual ficam para evolução do contrato de dados.',
+                    style={'color': '#666', 'marginBottom': '10px'}
+                ),
+                html.Div(kpi_cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
+                    'gap': '10px',
+                }),
+                severity_section,
+                indicator_table,
+                html.Div([
+                    html.Div(team_table, className='six columns'),
+                    html.Div(project_table, className='six columns'),
+                ], className='row', style={'marginTop': '10px'}),
+                detail_table,
+                tech_table,
+            ], style={'paddingTop': '10px'})
 
         def render_team_total_tiles(df_team, value_col, title, color='#1565c0'):
             if df_team is None or df_team.empty:
@@ -7982,6 +8368,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             render_quality_cards(quality_por_team, quality_summary),
         ], style={'paddingTop': '10px'})
 
+        alertas_section = render_portfolio_alerts(
+            portfolio_alert_kpis,
+            portfolio_alerts_severity_summary,
+            portfolio_alerts_indicator_summary,
+            portfolio_alerts_detail,
+            portfolio_alerts_by_team,
+            portfolio_alerts_by_project,
+            portfolio_technical_readiness_notes,
+        )
+
         aging_fluxo_section = html.Div([
             render_flow_health_dynamic(items_base_scope),
             render_q_pendencias_grid(pendencias_q_por_time, pendencias_breakdown, pendencias_detalhe),
@@ -8126,6 +8522,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 value='portfolio-resumo-executivo',
                 children=[
                     dcc.Tab(label='Resumo Executivo', value='portfolio-resumo-executivo', children=[resumo_exec_section]),
+                    dcc.Tab(label='Alertas', value='portfolio-alertas', children=[alertas_section]),
                     dcc.Tab(label='One Page Completo', value='portfolio-one-page-completo', children=[roadmap_full_section]),
                     dcc.Tab(label='Aging & Fluxo', value='portfolio-aging-fluxo', children=[aging_fluxo_section]),
                     dcc.Tab(label='Hierarquia & Estrutura', value='portfolio-estrutura', children=[estrutura_section]),

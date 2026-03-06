@@ -2,10 +2,10 @@
 
 ## Current Task (Implementar fase 1 de alertas de portfólio)
 - [x] Mapear o encaixe da nova seção na aba de portfólio do `dashboard_full.py`
-- [ ] Adicionar cálculos no snapshot para alertas de integridade estrutural, estagnação e prazo
-- [ ] Adicionar aba/seção visual `Alertas` no módulo de portfólio
-- [ ] Exibir backlog explícito de prontidão técnica como pendência de contrato de dados
-- [ ] Validar sintaxe, smoke test local e revisar diff
+- [x] Adicionar cálculos no snapshot para alertas de integridade estrutural, estagnação e prazo
+- [x] Adicionar aba/seção visual `Alertas` no módulo de portfólio
+- [x] Exibir backlog explícito de prontidão técnica como pendência de contrato de dados
+- [x] Validar sintaxe, smoke test local e revisar diff
 
 ## Specification (Implementar fase 1 de alertas de portfólio)
 - Objetivo: materializar a primeira fase da [`ESPECIFICACAO_ALERTAS_PORTFOLIO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ESPECIFICACAO_ALERTAS_PORTFOLIO.md) usando apenas o snapshot atual do portfólio.
@@ -20,6 +20,33 @@
   - custos
   - cálculo factual de prontidão técnica por arquitetura/infra/segurança
   - dependências tipadas sem enriquecimento do exportador
+
+## Review (Implementar fase 1 de alertas de portfólio)
+- What was implemented:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a calcular no `compute_portfolio_snapshot(...)` os alertas de:
+    - `Épico sem feature`
+    - `Feature sem story/task`
+    - `Story/Task órfão`
+    - `Épico parado`
+    - `Feature parada`
+    - `Item vencido`
+    - `Item próximo do vencimento`
+    - `Prazo crítico sem decomposição`
+  - Os alertas agora geram grupos dedicados no snapshot: detalhe, resumo por indicador, resumo por severidade, agregações por time/projeto, KPIs de topo e nota explícita sobre a pendência de prontidão técnica.
+  - A aba `Portfólio` recebeu uma nova temática `Alertas`, com cards de KPI, gráfico de severidade, tabelas por tipo/time/projeto, backlog detalhado de alertas e quadro de limitações para prontidão técnica.
+  - Custos ficaram fora desta entrega, conforme a decisão registrada na especificação.
+- Evidence (tests/smoke):
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... import dashboard_full as d; snapshot, df, err = d.get_portfolio_snapshot(); ... d.render_tab('portfolio', ...) ... PY`
+    - Resultados observados:
+      - `error None`
+      - `detail_rows 389`
+      - `kpi_rows 8`
+      - `tech_rows 2`
+      - `has_alert_tab True`
+      - `has_alert_title True`
+- Suggested commit message:
+  - `feat(portfolio): add first-phase alert panel for structure staleness and due dates`
 
 ## Current Task (Especificar indicadores e alertas de portfólio)
 - [x] Consolidar regras objetivas para integridade estrutural, estagnação e risco de prazo
