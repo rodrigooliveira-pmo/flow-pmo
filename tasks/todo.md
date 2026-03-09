@@ -1,5 +1,54 @@
 # Task Plan
 
+## Current Task (Implementar visão dedicada de Work Item Age)
+- [x] Mapear o que já existe de aging/WIP/tempo no dashboard e definir o encaixe da nova aba
+- [x] Implementar cálculo operacional de `Work Item Age` para itens ativos no recorte filtrado
+- [x] Comparar `Work Item Age` com referência factual de `Cycle Time` do mesmo recorte
+- [x] Adicionar visualizações dedicadas, KPIs e tabela detalhada no dashboard
+- [x] Validar com compilação/smoke tests e registrar review com evidências
+
+## Specification (Implementar visão dedicada de Work Item Age)
+- Objetivo: materializar uma visão operacional explícita de `Work Item Age` no módulo de serviços do dashboard, reaproveitando o que já existe de aging no projeto.
+- Resultado esperado:
+  - nova aba dedicada no conjunto `Serviços (Value Stream)`
+  - cálculo de idade dos itens ativos a partir de `DataInProgress`
+  - comparação da idade atual com referência de `Cycle Time` factual do mesmo recorte
+  - KPIs, distribuição, ranking dos itens mais envelhecidos, cortes por status/responsável/classe de serviço e tabela detalhada
+- Regras:
+  - respeitar os filtros ativos já existentes (`período`, `projeto`, `tipo`, `classe_servico`, `responsavel`)
+  - não criar conceito novo incompatível com o restante do dashboard; usar a semântica atual de fluxo e de tempos já calculados
+  - quando não houver base suficiente de `Cycle Time`, a aba deve continuar funcional e explicitar a limitação
+
+## Review (Implementar visão dedicada de Work Item Age)
+- O que foi implementado:
+  - Nova aba `Work Item Age` adicionada ao módulo `Serviços (Value Stream)` em [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py).
+  - A aba calcula `Work Item Age` de forma operacional para itens ativos, usando `DataInProgress` como início e o menor valor entre `data final do filtro` e `hoje` como snapshot.
+  - A saúde dos itens passou a ser classificada por comparação com `Cycle Time` factual do mesmo recorte:
+    - `Saudável`: idade <= `Cycle P50`
+    - `Atenção`: idade entre `Cycle P50` e `Cycle P85`
+    - `Crítico`: idade > `Cycle P85`
+    - fallback defensivo para `Sem referência` quando não houver amostra suficiente de `Cycle Time`
+  - A nova visão inclui:
+    - KPIs de total ativo, idade média/mediana/máxima, críticos, atenção, bloqueados e `% críticos`
+    - distribuição do `Work Item Age`
+    - faixas de idade por severidade
+    - ranking dos itens mais envelhecidos
+    - scatter por data de início
+    - resumos por severidade, status e responsável
+    - tabela detalhada com filtro/ordenação nativos
+  - A implementação foi feita de forma defensiva para recortes/fontes em que colunas como `Status`, `Responsavel`, `ClasseServico` ou `Projeto` estejam ausentes.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; out = d.render_tab('services', 'tab-work-item-age', '2025-12-01', '2025-12-31', None, None, None, None, [], 5, 'score', d.PROJECT_FILTER_ALL_VALUE, 'ALL', None, None, None, None, None, None, None, None, None, None); ..."`
+    - Resultado observado:
+      - `Div`
+      - `True` para presença de `children`
+      - `True` para o título `Work Item Age`
+      - `16` blocos/children renderizados
+  - O smoke test gerou apenas `FutureWarning` de `pandas/plotly`, sem erro funcional de renderização.
+- Suggested commit message:
+  - `feat(flow): add dedicated work item age tab with cycle time risk classification`
+
 ## Current Task (Avaliar lacunas de métricas de fluxo com base nos artefatos da Cristiane Goncalves)
 - [x] Registrar a especificação da análise e os artefatos-fonte
 - [x] Ler os PDFs e a planilha para extrair métricas de fluxo, visualizações e fórmulas relevantes

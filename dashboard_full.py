@@ -570,6 +570,7 @@ SERVICE_TABS = [
     ('Tendências', 'tab-tendencias'),
     ('Throughput Breakdown', 'tab-throughput-breakdown'),
     ('Padrões Sistêmicos', 'tab-padroes'),
+    ('Work Item Age', 'tab-work-item-age'),
     ('WIP por Pessoa', 'tab-wip'),
     ('Estatística Descritiva', 'tab-estatistica'),
     ('Capacidade de Fila', 'tab-fila-capacidade'),
@@ -6659,6 +6660,40 @@ def update_leadtime_stage_filter_options(projeto, current_value):
     return options, get_default_lead_time_start_stages(start_candidates)
 
 
+def _work_item_age_health_label(age_days, cycle_p50, cycle_p85):
+    age = pd.to_numeric(pd.Series([age_days]), errors='coerce').iloc[0]
+    p50 = pd.to_numeric(pd.Series([cycle_p50]), errors='coerce').iloc[0]
+    p85 = pd.to_numeric(pd.Series([cycle_p85]), errors='coerce').iloc[0]
+    if pd.isna(age):
+        return 'Sem idade'
+    if pd.isna(p50) or p50 <= 0:
+        return 'Sem referência'
+    if age <= p50:
+        return 'Saudável'
+    if pd.notna(p85) and p85 > p50:
+        if age <= p85:
+            return 'Atenção'
+        return 'Crítico'
+    if age <= (p50 * 1.5):
+        return 'Atenção'
+    return 'Crítico'
+
+
+def _work_item_age_bucket(age_days):
+    age = pd.to_numeric(pd.Series([age_days]), errors='coerce').iloc[0]
+    if pd.isna(age):
+        return 'Sem idade'
+    if age <= 7:
+        return '0-7d'
+    if age <= 15:
+        return '8-15d'
+    if age <= 30:
+        return '16-30d'
+    if age <= 60:
+        return '31-60d'
+    return '60d+'
+
+
 @app.callback(
     Output('filter-portfolio-team', 'options'),
     Output('filter-portfolio-team', 'value'),
@@ -11299,6 +11334,365 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style_cell={'textAlign': 'left', 'padding': '6px', 'whiteSpace': 'normal'},
                 style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
                 page_size=10,
+            ),
+        ])
+
+    if tab == 'tab-work-item-age':
+        start_date_ts = pd.to_datetime(start_date)
+        end_date_ts = pd.to_datetime(end_date)
+        today_ts = pd.Timestamp.today().normalize()
+        snapshot_ts = min(end_date_ts.normalize(), today_ts)
+
+        df_age_base = fato.copy()
+        if projeto:
+            df_age_base = df_age_base[df_age_base['Projeto'] == projeto]
+        if tipo:
+            df_age_base = df_age_base[df_age_base['TipoDemanda'] == tipo]
+        if classe_servico:
+            df_age_base = df_age_base[df_age_base['ClasseServico'] == classe_servico]
+        if responsavel:
+            df_age_base = df_age_base[df_age_base['Responsavel'] == responsavel]
+        df_age_base, _ = apply_selected_lead_time_metric(df_age_base, projeto, leadtime_stages)
+
+        in_progress_series = pd.to_datetime(df_age_base.get('DataInProgress'), errors='coerce')
+        done_series = pd.to_datetime(df_age_base.get('DataDone'), errors='coerce')
+        active_mask = (
+            in_progress_series.notna() &
+            (in_progress_series <= snapshot_ts) &
+            (done_series.isna() | (done_series > snapshot_ts))
+        )
+        df_age = df_age_base[active_mask].copy()
+        if df_age.empty:
+            return html.Div(
+                'Sem itens ativos com DataInProgress válida para calcular Work Item Age no recorte selecionado.'
+            )
+
+        df_age['DataInProgress'] = pd.to_datetime(df_age.get('DataInProgress'), errors='coerce')
+        df_age['WorkItemAge_Dias'] = (snapshot_ts - df_age['DataInProgress']).dt.total_seconds() / 86400.0
+        df_age['WorkItemAge_Dias'] = pd.to_numeric(df_age['WorkItemAge_Dias'], errors='coerce')
+        df_age = df_age[df_age['WorkItemAge_Dias'].notna()].copy()
+        if df_age.empty:
+            return html.Div('Sem itens ativos com idade calculável para o recorte selecionado.')
+
+        done_period_mask = (
+            (pd.to_datetime(df_age_base.get('DataDone'), errors='coerce') >= start_date_ts) &
+            (pd.to_datetime(df_age_base.get('DataDone'), errors='coerce') <= end_date_ts)
+        )
+        df_cycle_done = df_age_base[done_period_mask].copy()
+        df_cycle_done = df_cycle_done[done_time_eligible_mask(df_cycle_done)].copy()
+        cycle_series = time_metric_series(df_cycle_done, 'TempoExecucao_Dias', non_negative=True)
+        if cycle_series.empty:
+            cycle_series = time_metric_series(df_cycle_done, 'CycleTime_Dias', non_negative=True)
+
+        cycle_p50 = exact_empirical_percentile(cycle_series, 0.50) if not cycle_series.empty else np.nan
+        cycle_p85 = exact_empirical_percentile(cycle_series, 0.85) if not cycle_series.empty else np.nan
+        cycle_mean = float(cycle_series.mean()) if not cycle_series.empty else np.nan
+
+        df_age['SaudeAge'] = df_age['WorkItemAge_Dias'].apply(lambda v: _work_item_age_health_label(v, cycle_p50, cycle_p85))
+        df_age['AgeBucket'] = df_age['WorkItemAge_Dias'].apply(_work_item_age_bucket)
+        df_age['RazaoVsCycleP50'] = np.where(
+            pd.notna(cycle_p50) and cycle_p50 > 0,
+            df_age['WorkItemAge_Dias'] / cycle_p50,
+            np.nan,
+        )
+        df_age['BloqueadoFlag'] = df_age.get('Bloqueado', False).fillna(False).astype(bool) if 'Bloqueado' in df_age.columns else False
+        df_age['BloqueadoLabel'] = np.where(df_age['BloqueadoFlag'], 'Bloqueado', 'Sem bloqueio')
+
+        item_key_col = next((c for c in ['ItemID', 'Issue Key', 'ID'] if c in df_age.columns), None)
+        title_col = next((c for c in ['Titulo', 'Title', 'Summary'] if c in df_age.columns), None)
+        type_col = next((c for c in ['TipoDemanda', 'Tipo', 'Tipo de Problema'] if c in df_age.columns), None)
+        if 'Status' not in df_age.columns:
+            df_age['Status'] = 'Sem status'
+        else:
+            df_age['Status'] = df_age['Status'].fillna('').astype(str).replace('', 'Sem status')
+        if 'Responsavel' not in df_age.columns:
+            df_age['Responsavel'] = 'Sem responsável'
+        else:
+            df_age['Responsavel'] = df_age['Responsavel'].fillna('').astype(str).replace('', 'Sem responsável')
+        if 'ClasseServico' not in df_age.columns:
+            df_age['ClasseServico'] = 'Sem classe'
+        else:
+            df_age['ClasseServico'] = df_age['ClasseServico'].fillna('').astype(str).replace('', 'Sem classe')
+        if 'Projeto' not in df_age.columns:
+            df_age['Projeto'] = 'Sem projeto'
+        else:
+            df_age['Projeto'] = df_age['Projeto'].fillna('').astype(str).replace('', 'Sem projeto')
+
+        if item_key_col is None:
+            df_age['ItemKey'] = df_age.index.astype(str)
+        else:
+            df_age['ItemKey'] = df_age[item_key_col].astype(str)
+        if title_col is None:
+            df_age['TituloDisplay'] = ''
+        else:
+            df_age['TituloDisplay'] = df_age[title_col].fillna('').astype(str)
+        df_age['ItemLabel'] = df_age['ItemKey'] + np.where(
+            df_age['TituloDisplay'].str.strip() != '',
+            ' - ' + df_age['TituloDisplay'].str.slice(0, 60),
+            ''
+        )
+
+        severity_order = {'Crítico': 0, 'Atenção': 1, 'Saudável': 2, 'Sem referência': 3, 'Sem idade': 4}
+        severity_colors = {
+            'Crítico': '#C62828',
+            'Atenção': '#EF6C00',
+            'Saudável': '#2E7D32',
+            'Sem referência': '#546E7A',
+            'Sem idade': '#90A4AE',
+        }
+        age_bucket_order = ['0-7d', '8-15d', '16-30d', '31-60d', '60d+', 'Sem idade']
+        df_age['_severity_rank'] = df_age['SaudeAge'].map(lambda value: severity_order.get(value, 99))
+
+        risk_summary = (
+            df_age.groupby('SaudeAge', dropna=False)
+            .agg(
+                Itens=('ItemKey', 'count'),
+                IdadeMedia=('WorkItemAge_Dias', 'mean'),
+                IdadeMediana=('WorkItemAge_Dias', 'median'),
+                IdadeMax=('WorkItemAge_Dias', 'max'),
+                Bloqueados=('BloqueadoFlag', 'sum'),
+            )
+            .reset_index()
+            .rename(columns={'SaudeAge': 'Saúde'})
+        )
+        if not risk_summary.empty:
+            for col in ['IdadeMedia', 'IdadeMediana', 'IdadeMax']:
+                risk_summary[col] = pd.to_numeric(risk_summary[col], errors='coerce').round(1)
+            risk_summary['_severity_rank'] = risk_summary['Saúde'].map(lambda value: severity_order.get(value, 99))
+            risk_summary = risk_summary.sort_values('_severity_rank', ignore_index=True).drop(columns=['_severity_rank'])
+
+        status_summary = (
+            df_age.groupby(['Status', 'SaudeAge'], dropna=False)
+            .agg(
+                Itens=('ItemKey', 'count'),
+                IdadeMedia=('WorkItemAge_Dias', 'mean'),
+                IdadeMax=('WorkItemAge_Dias', 'max'),
+            )
+            .reset_index()
+            .rename(columns={'SaudeAge': 'Saúde'})
+        )
+        if not status_summary.empty:
+            status_summary['IdadeMedia'] = pd.to_numeric(status_summary['IdadeMedia'], errors='coerce').round(1)
+            status_summary['IdadeMax'] = pd.to_numeric(status_summary['IdadeMax'], errors='coerce').round(1)
+
+        owner_summary = pd.DataFrame()
+        if 'Responsavel' in df_age.columns:
+            owner_summary = (
+                df_age.groupby('Responsavel', dropna=False)
+                .agg(
+                    Itens=('ItemKey', 'count'),
+                    IdadeMedia=('WorkItemAge_Dias', 'mean'),
+                    IdadeMax=('WorkItemAge_Dias', 'max'),
+                    Bloqueados=('BloqueadoFlag', 'sum'),
+                )
+                .reset_index()
+                .rename(columns={'Responsavel': 'Responsável'})
+            )
+            owner_summary['Responsável'] = owner_summary['Responsável'].fillna('').replace('', 'Sem responsável')
+            owner_summary['IdadeMedia'] = pd.to_numeric(owner_summary['IdadeMedia'], errors='coerce').round(1)
+            owner_summary['IdadeMax'] = pd.to_numeric(owner_summary['IdadeMax'], errors='coerce').round(1)
+            owner_summary = owner_summary.sort_values(['IdadeMedia', 'Itens'], ascending=[False, False], ignore_index=True)
+
+        df_age['AgeBucket'] = pd.Categorical(df_age['AgeBucket'], categories=age_bucket_order, ordered=True)
+        age_bucket_summary = (
+            df_age.groupby(['AgeBucket', 'SaudeAge'], dropna=False)
+            .size()
+            .reset_index(name='Itens')
+        )
+        age_bucket_summary['AgeBucket'] = age_bucket_summary['AgeBucket'].astype(str)
+        age_bucket_summary = age_bucket_summary[age_bucket_summary['AgeBucket'] != 'nan']
+
+        top_oldest = (
+            df_age.sort_values(['_severity_rank', 'WorkItemAge_Dias'], ascending=[True, False], ignore_index=True)
+            .head(15)
+            .copy()
+        )
+        top_oldest = top_oldest.sort_values('WorkItemAge_Dias', ascending=True)
+
+        fig_age_hist = px.histogram(
+            df_age,
+            x='WorkItemAge_Dias',
+            color='SaudeAge',
+            nbins=min(24, max(8, int(np.ceil(np.sqrt(len(df_age)))))),
+            title='Distribuição do Work Item Age',
+            labels={'WorkItemAge_Dias': 'Work Item Age (dias)', 'count': 'Itens', 'SaudeAge': 'Saúde'},
+            color_discrete_map=severity_colors,
+        )
+        if pd.notna(cycle_p50):
+            fig_age_hist.add_vline(x=float(cycle_p50), line_dash='dash', line_color='#1F77B4', annotation_text=f'Cycle P50: {cycle_p50:.1f}d')
+        if pd.notna(cycle_p85):
+            fig_age_hist.add_vline(x=float(cycle_p85), line_dash='dot', line_color='#8E24AA', annotation_text=f'Cycle P85: {cycle_p85:.1f}d')
+        fig_age_hist.update_layout(height=480, barmode='overlay', margin=dict(b=60))
+
+        fig_top_oldest = px.bar(
+            top_oldest,
+            x='WorkItemAge_Dias',
+            y='ItemLabel',
+            color='SaudeAge',
+            orientation='h',
+            title='Itens ativos mais envelhecidos',
+            labels={'WorkItemAge_Dias': 'Work Item Age (dias)', 'ItemLabel': 'Item', 'SaudeAge': 'Saúde'},
+            color_discrete_map=severity_colors,
+            hover_data=['Status', 'Responsavel', 'ClasseServico'] if 'Responsavel' in top_oldest.columns and 'ClasseServico' in top_oldest.columns else None,
+        )
+        fig_top_oldest.update_layout(height=520, margin=dict(l=120, r=30, t=60, b=40), yaxis_title='')
+
+        scatter_hover = [c for c in ['ItemKey', 'TituloDisplay', 'Status', 'Responsavel', 'ClasseServico', 'Projeto'] if c in df_age.columns]
+        fig_age_scatter = px.scatter(
+            df_age.sort_values('DataInProgress'),
+            x='DataInProgress',
+            y='WorkItemAge_Dias',
+            color='SaudeAge',
+            symbol='BloqueadoLabel',
+            hover_data=scatter_hover,
+            title='Work Item Age por data de início',
+            labels={'DataInProgress': 'Data de início', 'WorkItemAge_Dias': 'Work Item Age (dias)', 'SaudeAge': 'Saúde'},
+            color_discrete_map=severity_colors,
+        )
+        if pd.notna(cycle_p50):
+            fig_age_scatter.add_hline(y=float(cycle_p50), line_dash='dash', line_color='#1F77B4', annotation_text=f'Cycle P50: {cycle_p50:.1f}d')
+        if pd.notna(cycle_p85):
+            fig_age_scatter.add_hline(y=float(cycle_p85), line_dash='dot', line_color='#8E24AA', annotation_text=f'Cycle P85: {cycle_p85:.1f}d')
+        fig_age_scatter.update_layout(height=500, margin=dict(b=90), xaxis_tickangle=-45)
+
+        fig_age_bucket = px.bar(
+            age_bucket_summary,
+            x='AgeBucket',
+            y='Itens',
+            color='SaudeAge',
+            barmode='stack',
+            title='Faixas de Work Item Age por severidade',
+            labels={'AgeBucket': 'Faixa de idade', 'Itens': 'Itens', 'SaudeAge': 'Saúde'},
+            color_discrete_map=severity_colors,
+            category_orders={'AgeBucket': age_bucket_order},
+        )
+        fig_age_bucket.update_layout(height=420, margin=dict(b=40))
+
+        critical_items = int((df_age['SaudeAge'] == 'Crítico').sum())
+        attention_items = int((df_age['SaudeAge'] == 'Atenção').sum())
+        blocked_items = int(df_age['BloqueadoFlag'].sum())
+        total_items = int(len(df_age))
+        avg_age = float(df_age['WorkItemAge_Dias'].mean()) if total_items else np.nan
+        median_age = float(df_age['WorkItemAge_Dias'].median()) if total_items else np.nan
+        max_age = float(df_age['WorkItemAge_Dias'].max()) if total_items else np.nan
+        critical_pct = (critical_items / total_items * 100.0) if total_items else 0.0
+
+        subtitle_parts = [
+            f"Snapshot considerado: {snapshot_ts.strftime('%d/%m/%Y')}",
+            f"Itens ativos: {total_items}",
+            f"Amostra de Cycle Time concluído: {int(len(cycle_series))}",
+        ]
+        if pd.notna(cycle_mean):
+            subtitle_parts.append(f"Cycle médio: {cycle_mean:.1f}d")
+        if pd.notna(cycle_p50):
+            subtitle_parts.append(f"Cycle P50: {cycle_p50:.1f}d")
+        if pd.notna(cycle_p85):
+            subtitle_parts.append(f"Cycle P85: {cycle_p85:.1f}d")
+        subtitle = " | ".join(subtitle_parts)
+
+        if pd.notna(cycle_p50):
+            interpretation = (
+                "Saudável = idade <= Cycle P50; Atenção = entre Cycle P50 e P85; "
+                "Crítico = acima do Cycle P85 do mesmo recorte."
+            )
+        else:
+            interpretation = (
+                "Sem referência factual de Cycle Time concluído no recorte; a aba mantém a idade dos itens "
+                "e sinaliza a limitação."
+            )
+
+        detail_cols = [
+            ('ItemKey', 'Item'),
+            ('TituloDisplay', 'Título'),
+            ('Projeto', 'Projeto'),
+            ('Status', 'Status'),
+            ('Responsavel', 'Responsável'),
+            ('ClasseServico', 'Classe Serviço'),
+            ('BloqueadoLabel', 'Bloqueio'),
+            ('DataInProgress', 'Data Início'),
+            ('WorkItemAge_Dias', 'Work Item Age (dias)'),
+            ('RazaoVsCycleP50', 'Razão vs Cycle P50'),
+            ('SaudeAge', 'Saúde'),
+            ('Link', 'Link'),
+        ]
+        if type_col and type_col not in {'TipoDemanda', 'Tipo'}:
+            detail_cols.insert(3, (type_col, 'Tipo'))
+        elif type_col:
+            detail_cols.insert(3, (type_col, type_col))
+        available_detail_cols = [src for src, _ in detail_cols if src in df_age.columns]
+        detail_rename = {src: dst for src, dst in detail_cols if src in available_detail_cols}
+        detail_df = df_age[available_detail_cols].copy().rename(columns=detail_rename)
+        if 'Data Início' in detail_df.columns:
+            detail_df['Data Início'] = pd.to_datetime(detail_df['Data Início'], errors='coerce').dt.strftime('%d/%m/%Y')
+        for col in ['Work Item Age (dias)', 'Razão vs Cycle P50']:
+            if col in detail_df.columns:
+                detail_df[col] = pd.to_numeric(detail_df[col], errors='coerce').round(1)
+        detail_df = detail_df.sort_values(
+            ['Saúde', 'Work Item Age (dias)'] if 'Work Item Age (dias)' in detail_df.columns else ['Saúde'],
+            ascending=[True, False],
+            key=lambda s: s.map(severity_order) if s.name == 'Saúde' else s,
+            ignore_index=True,
+        )
+
+        return html.Div([
+            html.H3("Work Item Age", style={'textAlign': 'center'}),
+            html.P(subtitle, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '8px'}),
+            html.P(interpretation, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '18px'}),
+            html.Div([
+                create_kpi_card('Itens Ativos', total_items, class_name='three columns'),
+                create_kpi_card('Age Médio', f"{avg_age:.1f}d" if pd.notna(avg_age) else '—', class_name='three columns'),
+                create_kpi_card('Age Mediano', f"{median_age:.1f}d" if pd.notna(median_age) else '—', class_name='three columns'),
+                create_kpi_card('Age Máximo', f"{max_age:.1f}d" if pd.notna(max_age) else '—', class_name='three columns'),
+                create_kpi_card('Críticos', critical_items, class_name='three columns'),
+                create_kpi_card('Em Atenção', attention_items, class_name='three columns'),
+                create_kpi_card('Bloqueados', blocked_items, class_name='three columns'),
+                create_kpi_card('% Críticos', f"{critical_pct:.1f}%", class_name='three columns'),
+            ], className='row'),
+            dcc.Graph(figure=fig_age_hist),
+            dcc.Graph(figure=fig_age_bucket),
+            dcc.Graph(figure=fig_top_oldest),
+            dcc.Graph(figure=fig_age_scatter),
+            html.H4("Resumo por Severidade", style={'textAlign': 'center', 'marginTop': '24px'}),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in risk_summary.columns],
+                data=risk_summary.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248,248,248)'}],
+            ),
+            html.H4("Resumo por Status", style={'textAlign': 'center', 'marginTop': '24px'}),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in status_summary.columns],
+                data=status_summary.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248,248,248)'}],
+                page_size=12,
+            ),
+            html.H4("Resumo por Responsável", style={'textAlign': 'center', 'marginTop': '24px'}),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in owner_summary.columns],
+                data=owner_summary.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248,248,248)'}],
+                page_size=12,
+            ) if not owner_summary.empty else html.P('Sem dados suficientes por responsável no recorte.'),
+            html.H4("Detalhe dos Itens Ativos", style={'textAlign': 'center', 'marginTop': '24px'}),
+            dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in detail_df.columns],
+                data=detail_df.to_dict('records'),
+                page_size=15,
+                filter_action='native',
+                sort_action='native',
+                style_table={'overflowX': 'auto'},
+                style_cell={'minWidth': '100px', 'width': '140px', 'maxWidth': '220px', 'textAlign': 'left'},
+                style_header={'backgroundColor': 'rgb(230,230,230)', 'fontWeight': 'bold'},
+                style_data_conditional=[
+                    {'if': {'filter_query': '{Saúde} = "Crítico"'}, 'backgroundColor': '#fdecea'},
+                    {'if': {'filter_query': '{Saúde} = "Atenção"'}, 'backgroundColor': '#fff8e1'},
+                    {'if': {'filter_query': '{Saúde} = "Saudável"'}, 'backgroundColor': '#edf7ed'},
+                ],
             ),
         ])
 
