@@ -1,5 +1,110 @@
 # Task Plan
 
+## Current Task (Avaliar lacunas de métricas de fluxo com base nos artefatos da Cristiane Goncalves)
+- [x] Registrar a especificação da análise e os artefatos-fonte
+- [x] Ler os PDFs e a planilha para extrair métricas de fluxo, visualizações e fórmulas relevantes
+- [x] Comparar os artefatos com as métricas e dashboards já implementados no projeto
+- [x] Listar lacunas objetivas de implementação, priorizadas por impacto e viabilidade
+- [x] Registrar review com evidências e sugerir mensagem de commit
+
+## Specification (Avaliar lacunas de métricas de fluxo com base nos artefatos da Cristiane Goncalves)
+- Objetivo: avaliar, usando apenas os artefatos fornecidos pelo usuário e o código/dados atuais do projeto, o que ainda falta implementar especificamente em relação a métricas de fluxo.
+- Artefatos-fonte:
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/Material+Complementar+-+Dashboards+Ágeis+Aplicados+-+Autora+Cristiane+Goncalves.pdf`
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/Planilha+Exercicios+Metricas+Ageis+-+Kit+Estimativas+e+Metricas+Ageis+-+Autora+Cristiane+Goncalves.xlsx`
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/Leia+me+Guia-Completo-de-Estimativas-e-Metricas-em-Ambientes-Ageis.pdf`
+- Escopo da análise:
+  - identificar métricas de fluxo citadas ou exemplificadas nos artefatos
+  - verificar aderência no projeto atual (`dashboard_full.py`, exportadores e roadmap de indicadores)
+  - produzir lista objetiva de itens faltantes para implementação
+- Fora do escopo:
+  - implementar mudanças no dashboard nesta tarefa
+  - avaliar estimativas/capacidade que não estejam ligadas a fluxo
+
+## Review (Avaliar lacunas de métricas de fluxo com base nos artefatos da Cristiane Goncalves)
+- Conclusão executiva:
+  - O projeto já cobre uma base forte de métricas de fluxo operacional: `Lead Time`, `Throughput`, `CFD`, `WIP`, análise de gargalos por etapa, saúde do fluxo, padrões sistêmicos, estatística descritiva e capacidade de fila.
+  - Comparando com os artefatos da Cristiane Goncalves, o que ainda falta não é o núcleo básico de fluxo, mas sim a camada de previsibilidade probabilística, guardrails operacionais explícitos e playbooks de leitura/ação mais prescritivos.
+  - Em termos práticos: o projeto está maduro em observabilidade do fluxo, mas ainda incompleto em previsibilidade baseada em fluxo e em operacionalização dos sinais para decisão.
+- O que os artefatos pedem como referência de fluxo:
+  - A planilha traz como núcleo de fluxo: `Throughput`, `Cycle Time`, `Lead Time`, `CFD`, `WIP`, `Work Item Age`, `Flow Efficiency` e `Monte Carlo`.
+  - O guia complementar reforça leitura integrada via Lei de Little: correlacionar `Throughput`, `WIP`, `Cycle Time`, dispersão do scatterplot e sinais do `CFD`.
+  - O mesmo guia também propõe um checklist operacional com thresholds simples:
+    - `Throughput` dentro de `±20%` da média histórica
+    - `Cycle Time` dentro de `±30%` da mediana histórica
+    - `WIP` abaixo de limite explícito
+    - variação semanal de throughput acima de `30%`
+    - leitura visual do `CFD` e da dispersão do scatterplot
+  - No material de entrada (`Leia-me`), a trilha de estudo ainda destaca `SLE`, políticas explícitas, `Fast Track` e gestão de `WIP` para estabilidade.
+- Cobertura já existente no projeto:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) já expõe abas de fluxo com:
+    - `Lead Time` com distribuição, curva acumulada e scatterplot
+    - `Fluxo` com `Lead Time`, `Cycle Time`, `Throughput`, pressão/eficiência de fluxo, bloqueio e gargalos por etapa
+    - `CFD` dedicado
+    - `Saúde do Fluxo` com chegadas x throughput e tendência de `WIP`
+    - `Estatística Descritiva` com percentis e variabilidade de `Lead Time`, `Throughput` e `WIP`
+    - `Capacidade de Fila` com modelo `M/M/1`
+    - `Padrões Sistêmicos` com heurísticas que já correlacionam `WIP`, throughput, bloqueio, pressão e aging
+  - Há sinais parciais de classes de serviço/urgência (`ClasseServico`, `Expedite`) e correlação operacional suficiente para boa parte da leitura sistêmica.
+- Lacunas objetivas ainda não implementadas:
+  1. `Monte Carlo` de fluxo para previsão probabilística.
+     - Não há aba ou cálculo explícito de simulação probabilística por throughput/lead time para responder “quantos itens até data X?” ou “quando terminam N itens?”.
+     - Este é o gap mais claro frente à planilha, que trata `Monte Carlo` como métrica principal de previsibilidade.
+  2. `SLE` explícito e operacional.
+     - O material cita `Service Level Expectation (SLE)`, mas o dashboard hoje mostra percentis e distribuição sem transformar isso em compromisso operacional claro por classe de serviço ou por tipo de demanda.
+     - Falta materializar algo como: `SLE atual = 85% dos itens terminam em X dias`, acompanhado de cumprimento do SLE no período.
+  3. `Work Item Age` como visão operacional de primeiro nível.
+     - O projeto usa aging internamente e em padrões, mas não há uma visão dedicada de `Work Item Age` no fluxo operacional com ranking de itens envelhecidos, faixas de risco e comparação direta contra `Cycle Time` de referência, como a planilha propõe.
+     - Hoje isso aparece mais como sinal derivado do que como métrica operacional explícita.
+  4. `WIP limit` explícito por etapa/time e monitoramento de violação.
+     - Existe `WIP` observado, mas não um contrato visual de `limite definido` versus `WIP atual`, que é um dos checks centrais do material Kanban.
+     - Falta permitir configurar limites por estágio/time e mostrar excesso, tempo acima do limite e frequência de violação.
+  5. Checklist/alertas semanais prontos para leitura gerencial.
+     - O material traz uma camada de interpretação padronizada (`±20%`, `±30%`, variação >`30%`, coerência entre gráficos, barriga no CFD).
+     - O projeto já tem os dados, mas ainda não empacota isso como checklist objetivo com status `ok/atenção/crítico`.
+  6. Diagnóstico prescritivo baseado em combinação de métricas.
+     - Há `Padrões Sistêmicos`, mas ainda não há uma tabela de leitura rápida alinhada ao guia, com padrão observado -> diagnóstico provável -> decisão recomendada.
+     - Isso reduziria a distância entre dado e ação.
+  7. `Cycle Time` separado por tipo de trabalho em contexto híbrido.
+     - O material de dashboards híbridos recomenda separar `Cycle Time` de trabalho planejado versus urgente.
+     - O projeto já filtra por `ClasseServico`, mas não expõe comparativo pronto entre fluxo normal e urgente nem `% de capacidade consumida por urgências` como quadro de decisão.
+  8. Política de `Fast Track`/`Expedite` como métrica e governança.
+     - Existem campos e sinais de `Expedite`, mas falta uma visão explícita de fast track: volume, aging, lead time, impacto no throughput normal e aderência à política.
+  9. Dispersão/variabilidade tratada como diagnóstico visível.
+     - Há scatterplot e estatística descritiva, mas o critério de dispersão citado no material (`CV < 0.3?`) ainda não aparece como indicador operacional ou alerta nativo.
+     - Falta transformar variabilidade em semáforo e recomendação de ação.
+- Priorização recomendada de implementação:
+  1. `SLE` opcional + `Work Item Age` dedicado + `WIP limit` explícito por etapa
+  2. checklist semanal automatizado + tabela diagnóstica prescritiva
+  3. comparativos híbridos (`planejado x urgente`) + governança de `Fast Track`
+  4. alertas explícitos de variabilidade/dispersão
+- Decisão de escopo do usuário nesta sessão:
+  - `Monte Carlo` não será implementado.
+  - `SLE` ficou como possibilidade, não como item obrigatório.
+  - O backlog principal segue com os demais itens operacionais de fluxo.
+- Julgamento final por aderência aos artefatos:
+  - `Throughput`: atendido
+  - `Cycle Time`: atendido, mas falta separação mais explícita por classe de trabalho
+  - `Lead Time`: atendido
+  - `CFD`: atendido
+  - `WIP`: parcialmente atendido, porque falta limite contratado e violação
+  - `Work Item Age`: parcialmente atendido, porque falta visão operacional dedicada
+  - `Flow Efficiency`: atendido de forma aproximada/operacional
+  - `Monte Carlo`: fora do escopo decidido pelo usuário
+  - `SLE/Fast Track/políticas explícitas`: parcialmente fora do escopo; `SLE` opcional, demais capabilities ainda pendentes
+- Evidências usadas:
+  - Planilha em `/Users/rodrigoalmeidadeoliveira/Downloads/Planilha+Exercicios+Metricas+Ageis+-+Kit+Estimativas+e+Metricas+Ageis+-+Autora+Cristiane+Goncalves.xlsx`
+    - abas `3.4 Throughput`, `3.5.1 Cycle Time`, `3.5.2 Lead Time`, `3.6 CFD`, `3.7 Monte Carlo`, `5.2.1 WIP`, `5.2.4 Work Item Age`, `5.2.5.a/b Flow`
+  - Texto extraído de `/Users/rodrigoalmeidadeoliveira/Downloads/Material+Complementar+-+Dashboards+Ágeis+Aplicados+-+Autora+Cristiane+Goncalves.pdf`
+    - seções `4.2 Dashboards em Ambientes Kanban`, `4.3 Dashboards em Ambientes Híbridos`, `5.2 O Poder da Leitura Integrada`, `5.3 Tabela de Diagnóstico`, `5.4 Checklist de Análise Semanal`, `6.3 Métricas de Fluxo`
+  - Texto extraído de `/Users/rodrigoalmeidadeoliveira/Downloads/Leia+me+Guia-Completo-de-Estimativas-e-Metricas-em-Ambientes-Ageis.pdf`
+    - resumo da trilha com `SLE`, políticas explícitas, `Fast Track` e gestão de `WIP`
+  - Código atual em [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py)
+    - `SERVICE_TABS`
+    - renderização das abas `Lead Time`, `Fluxo`, `CFD`, `Saúde do Fluxo`, `Estatística Descritiva`, `Capacidade de Fila`, `Padrões Sistêmicos`
+- Suggested commit message:
+  - `docs(tasks): assess remaining flow metrics gaps against Cristiane Goncalves artifacts`
+
 ## Current Task (Recalibrar diagnóstico de hierarquia do portfólio BT)
 - [x] Registrar a correção do usuário sobre features no mesmo projeto `BT`
 - [x] Reavaliar a hipótese principal para vínculos vazios no snapshot

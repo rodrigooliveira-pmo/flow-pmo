@@ -11,6 +11,12 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-09
+- Context: Priorização de backlog após análise de lacunas de métricas de fluxo com base nos artefatos da Cristiane Goncalves.
+- User correction: Informou que `Monte Carlo` não será implementado; `SLE` é apenas possibilidade; o foco deve ficar no restante das métricas operacionais de fluxo.
+- Root cause: Eu mantive `Monte Carlo` no topo da priorização por aderência ao material de referência, sem ajustar a recomendação à direção explícita de escopo do usuário.
+- Prevention rule: Quando o usuário delimitar o backlog por preferência de implementação, tratar imediatamente os itens excluídos como fora de escopo, mesmo que sejam recomendados por frameworks ou materiais externos.
+- Action added to workflow: Em revisões de gap/backlog, separar sempre `recomendado pela referência` de `escopo decidido pelo usuário` antes de priorizar próximos passos.
 - Date: 2026-03-06
 - Context: Diagnóstico do snapshot de portfólio após validar ausência de `ParentID`/`EpicLinkID` no CSV gerado.
 - User correction: Esclareceu que as `features` agora estão no mesmo space de portfólio, no mesmo projeto `BT`.
