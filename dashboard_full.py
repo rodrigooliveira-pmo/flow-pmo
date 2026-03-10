@@ -388,6 +388,11 @@ def portfolio_project_team_aliases(project_value):
     return out
 
 
+def portfolio_has_extra_onepage_tag(raw_labels):
+    text = normalize_text(str(raw_labels or '')).replace('-', ' ')
+    return PORTFOLIO_EXTRA_ONEPAGE_TAG in text
+
+
 def apply_portfolio_module_filters(df_portfolio, projeto=None, tipo=None, classe_servico=None, responsavel=None,
                                    portfolio_project=None, portfolio_quarter='ALL'):
     df_filtered = df_portfolio.copy() if df_portfolio is not None else pd.DataFrame()
@@ -558,6 +563,7 @@ PORTFOLIO_CACHE = {
 }
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_TAB_VALUE = 'tab-portfolio'
+PORTFOLIO_EXTRA_ONEPAGE_TAG = 'extra onepage'
 PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
 PROJECT_FILTER_ALL_LABEL = 'Todos os projetos'
 SERVICE_TABS = [
@@ -575,6 +581,7 @@ SERVICE_TABS = [
     ('Padrões Sistêmicos', 'tab-padroes'),
     ('Work Item Age', 'tab-work-item-age'),
     ('WIP por Pessoa', 'tab-wip'),
+    ('Produtividade Dev', 'tab-produtividade-dev'),
     ('Estatística Descritiva', 'tab-estatistica'),
     ('Capacidade de Fila', 'tab-fila-capacidade'),
 ]
@@ -1276,6 +1283,137 @@ def compute_cross_source_capacity_weekly_metrics(jira_df, bitbucket_logs, start_
     merged['Score Capacidade (%)'] = pd.to_numeric(merged['Score Capacidade (%)'], errors='coerce').fillna(0).round(2)
     merged = merged.sort_values(['Semana', 'Score Capacidade (%)', 'Pessoa'], ascending=[True, False, True]).reset_index(drop=True)
     return merged
+
+
+def _sp_bucket(sp):
+    """Classifica story points em faixas de complexidade."""
+    try:
+        val = float(sp)
+    except (TypeError, ValueError):
+        val = 0.0
+    if val <= 0:
+        return 'Sem estimativa'
+    if val <= 3:
+        return '1-3 SP (pequeno)'
+    if val <= 8:
+        return '5-8 SP (médio)'
+    return '13+ SP (grande)'
+
+
+def build_dev_productivity_metrics(df, start_ts, end_ts):
+    """
+    Calcula métricas de produtividade individual por desenvolvedor.
+
+    Retorna:
+        per_dev_df  — DataFrame com resumo por pessoa (uma linha por dev).
+        complexity_df — DataFrame com cartões puxados por faixa de Story Points e pessoa.
+    """
+    if df is None or df.empty or 'Responsavel' not in df.columns:
+        return pd.DataFrame(), pd.DataFrame()
+
+    alias_index = _load_person_alias_index()
+
+    base = df.copy()
+    base['_Pessoa'] = base['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    base = base[base['_Pessoa'].astype(str).str.strip().ne('')]
+    if base.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    start_ts = pd.to_datetime(start_ts)
+    end_ts = pd.to_datetime(end_ts)
+
+    done_eligible = base[done_time_eligible_mask(base)].copy() if callable(done_time_eligible_mask) else base.copy()
+    done_window = done_eligible[
+        (done_eligible['DataDone'] >= start_ts) & (done_eligible['DataDone'] < end_ts)
+    ].copy() if 'DataDone' in done_eligible.columns else pd.DataFrame()
+
+    started_window = base[
+        (base['DataInProgress'] >= start_ts) & (base['DataInProgress'] < end_ts)
+    ].copy() if 'DataInProgress' in base.columns else pd.DataFrame()
+
+    all_people = sorted(base['_Pessoa'].unique())
+    per_dev = pd.DataFrame({'Pessoa': all_people})
+
+    # Cartões entregues
+    if not done_window.empty:
+        per_dev['Itens Entregues'] = per_dev['Pessoa'].map(
+            done_window['_Pessoa'].value_counts()
+        ).fillna(0).astype(int)
+    else:
+        per_dev['Itens Entregues'] = 0
+
+    # Cartões puxados (iniciados no período)
+    if not started_window.empty:
+        per_dev['Itens Puxados'] = per_dev['Pessoa'].map(
+            started_window['_Pessoa'].value_counts()
+        ).fillna(0).astype(int)
+    else:
+        per_dev['Itens Puxados'] = 0
+
+    # Story Points entregues
+    if not done_window.empty and 'StoryPoints' in done_window.columns:
+        sp_done = done_window.copy()
+        sp_done['StoryPoints'] = pd.to_numeric(sp_done['StoryPoints'], errors='coerce').fillna(0)
+        per_dev['SP Entregues'] = per_dev['Pessoa'].map(
+            sp_done.groupby('_Pessoa')['StoryPoints'].sum()
+        ).fillna(0).round(0).astype(int)
+    else:
+        per_dev['SP Entregues'] = 0
+
+    # Demandas de Falha — defeitos concluídos atribuídos ao dev
+    if not done_window.empty and 'WorkItemCategory' in done_window.columns:
+        defeitos = done_window[done_window['WorkItemCategory'] == 'Defeitos']
+        per_dev['Defeitos Entregues'] = per_dev['Pessoa'].map(
+            defeitos['_Pessoa'].value_counts()
+        ).fillna(0).astype(int)
+        per_dev['% Demanda Falha'] = np.where(
+            per_dev['Itens Entregues'] > 0,
+            (per_dev['Defeitos Entregues'] / per_dev['Itens Entregues'] * 100.0).round(1),
+            0.0,
+        )
+    else:
+        per_dev['Defeitos Entregues'] = 0
+        per_dev['% Demanda Falha'] = 0.0
+
+    # Defeitos iniciados (falhas puxadas no período)
+    if not started_window.empty and 'WorkItemCategory' in started_window.columns:
+        def_puxados = started_window[started_window['WorkItemCategory'] == 'Defeitos']
+        per_dev['Defeitos Puxados'] = per_dev['Pessoa'].map(
+            def_puxados['_Pessoa'].value_counts()
+        ).fillna(0).astype(int)
+    else:
+        per_dev['Defeitos Puxados'] = 0
+
+    # Lead Time mediano
+    if not done_window.empty and 'LeadTime_Selected_Dias' in done_window.columns:
+        lt = done_window.copy()
+        lt['LeadTime_Selected_Dias'] = pd.to_numeric(lt['LeadTime_Selected_Dias'], errors='coerce')
+        lt = lt[lt['LeadTime_Selected_Dias'] >= 0]
+        per_dev['Lead Time Mediano (dias)'] = per_dev['Pessoa'].map(
+            lt.groupby('_Pessoa')['LeadTime_Selected_Dias'].median()
+        ).fillna(0.0).round(1)
+    else:
+        per_dev['Lead Time Mediano (dias)'] = 0.0
+
+    # Cartões puxados por faixa de complexidade (Story Points)
+    complexity_df = pd.DataFrame()
+    if not started_window.empty and 'StoryPoints' in started_window.columns:
+        sw = started_window.copy()
+        sw['StoryPoints'] = pd.to_numeric(sw['StoryPoints'], errors='coerce').fillna(0)
+        sw['SP_Bucket'] = sw['StoryPoints'].apply(_sp_bucket)
+        complexity_df = (
+            sw.groupby(['_Pessoa', 'SP_Bucket']).size()
+            .reset_index(name='Qtd')
+            .rename(columns={'_Pessoa': 'Pessoa'})
+        )
+
+    per_dev = per_dev[per_dev['Pessoa'].astype(str).str.strip().ne('')]
+    per_dev = per_dev.sort_values(
+        ['Itens Entregues', 'Itens Puxados', 'Pessoa'],
+        ascending=[False, False, True]
+    ).reset_index(drop=True)
+
+    return per_dev, complexity_df
 
 
 def build_bitbucket_contributor_section(
@@ -2495,6 +2633,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'portfolio_alerts_by_team': pd.DataFrame(),
                 'portfolio_alerts_by_project': pd.DataFrame(),
                 'portfolio_alert_kpis': pd.DataFrame(),
+                'portfolio_extra_onepage_summary': pd.DataFrame(),
                 'portfolio_technical_readiness_notes': pd.DataFrame(),
                 'portfolio_technical_epic_summary': pd.DataFrame(),
                 'portfolio_technical_items_catalog': pd.DataFrame(),
@@ -2516,9 +2655,11 @@ def compute_portfolio_snapshot(df, updated_at_label):
         df['DueDate'] = pd.NaT
     if 'Team' not in df.columns:
         df['Team'] = ''
-    for col in ['ParentTitle', 'HierarchyLinkSource', 'FeatureLinkID', 'FeatureLinkTipo', 'EpicLinkID', 'EpicLinkTipo', 'EpicLinkName', 'Componentes', 'Etiquetas', 'IssueLinkKeys', 'IssueLinkTypes', 'IssueLinkDetails']:
+    for col in ['ParentTitle', 'HierarchyLinkSource', 'FeatureLinkID', 'FeatureLinkTipo', 'EpicLinkID', 'EpicLinkTipo', 'EpicLinkName', 'Componentes', 'ETIQUETA', 'Etiquetas', 'IssueLinkKeys', 'IssueLinkTypes', 'IssueLinkDetails']:
         if col not in df.columns:
             df[col] = ''
+    df['ExtraOnePageLabels'] = df['ETIQUETA'].where(df['ETIQUETA'].astype(str).str.strip() != '', df['Etiquetas'])
+    df['IsExtraOnePage'] = df['ExtraOnePageLabels'].apply(portfolio_has_extra_onepage_tag)
 
     df['Projeto'] = df['Projeto'].fillna('').astype(str)
     df['Team'] = df['Team'].fillna('').astype(str).str.strip()
@@ -3253,6 +3394,22 @@ def compute_portfolio_snapshot(df, updated_at_label):
             (features_missing_story_due['DiasParaVencimento'] <= 14)
         ].copy()
 
+    extra_onepage_items = df[df['IsExtraOnePage'] == True].copy() if not df.empty else pd.DataFrame(columns=df.columns)
+    if not extra_onepage_items.empty:
+        portfolio_extra_onepage_summary = (
+            extra_onepage_items.groupby(['Tipo'], dropna=False)
+            .agg(TotalItens=('ID', 'nunique'))
+            .reset_index()
+            .rename(columns={'Tipo': 'TipoItem'})
+            .sort_values(['TotalItens', 'TipoItem'], ascending=[False, True], ignore_index=True)
+        )
+        portfolio_extra_onepage_summary.loc[
+            portfolio_extra_onepage_summary['TipoItem'].fillna('').astype(str).str.strip() == '',
+            'TipoItem'
+        ] = 'Sem tipo'
+    else:
+        portfolio_extra_onepage_summary = pd.DataFrame(columns=['TipoItem', 'TotalItens'])
+
     technical_items_base = df.copy()
     technical_items_base['TechnicalCategory'] = technical_items_base.apply(_detect_technical_category, axis=1)
     technical_items_catalog = technical_items_base[technical_items_base['TechnicalCategory'].ne('')].copy()
@@ -3444,6 +3601,14 @@ def compute_portfolio_snapshot(df, updated_at_label):
             lambda row: 'Feature vencida ou próxima do vencimento sem story/task vinculado.',
             lambda row: 'Critico' if pd.notna(row.get('DiasParaVencimento')) and float(row.get('DiasParaVencimento')) <= 7 else 'Alerta'
         ),
+        _build_alert_frame(
+            extra_onepage_items,
+            'ID',
+            'Tipo',
+            'Tag EXTRA-ONEPAGE',
+            lambda row: 'Item marcado com a tag EXTRA-ONEPAGE para destaque no one page executivo.',
+            lambda row: 'Alerta'
+        ),
     ]
 
     technical_alerts_df = pd.DataFrame(technical_alert_rows, columns=alert_columns) if technical_alert_rows else _empty_alert_df()
@@ -3492,6 +3657,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             {'Indicador': 'Ocorrências alerta', 'Valor': int(severity_counts.get('Alerta', 0))},
             {'Indicador': 'Ocorrências monitorar', 'Valor': int(severity_counts.get('Monitorar', 0))},
             {'Indicador': 'Itens únicos com alerta', 'Valor': int(portfolio_alerts_detail['ItemID'].nunique())},
+            {'Indicador': 'Itens com tag EXTRA-ONEPAGE', 'Valor': int(extra_onepage_items['ID'].nunique())},
             {'Indicador': 'Épicos sem feature', 'Valor': int(type_counts.get('Épico sem feature', 0))},
             {'Indicador': 'Features sem story/task', 'Valor': int(type_counts.get('Feature sem story/task', 0))},
             {'Indicador': 'Itens vencidos', 'Valor': int(type_counts.get('Item vencido', 0))},
@@ -3742,6 +3908,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'portfolio_alerts_by_team': portfolio_alerts_by_team,
             'portfolio_alerts_by_project': portfolio_alerts_by_project,
             'portfolio_alert_kpis': portfolio_alert_kpis,
+            'portfolio_extra_onepage_summary': portfolio_extra_onepage_summary,
             'portfolio_technical_readiness_notes': portfolio_technical_readiness_notes,
             'portfolio_technical_epic_summary': portfolio_technical_epic_summary,
             'portfolio_technical_items_catalog': technical_items_catalog,
@@ -4181,6 +4348,12 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         ], style={'marginBottom': '18px'})
 
     df = df_source.copy()
+    if 'ETIQUETA' not in df.columns:
+        df['ETIQUETA'] = ''
+    if 'Etiquetas' not in df.columns:
+        df['Etiquetas'] = ''
+    df['ExtraOnePageLabels'] = df['ETIQUETA'].where(df['ETIQUETA'].astype(str).str.strip() != '', df['Etiquetas'])
+    df['IsExtraOnePage'] = df['ExtraOnePageLabels'].apply(portfolio_has_extra_onepage_tag)
     if 'TipoNorm' not in df.columns and 'Tipo' in df.columns:
         df['TipoNorm'] = df['Tipo'].map(normalize_text)
     if 'TipoNorm' in df.columns:
@@ -4191,11 +4364,20 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
             html.P('Nenhum épico encontrado no recorte atual.', style={'margin': 0, 'color': '#666'})
         ], style={'marginBottom': '18px'})
 
-    df['RoadmapQuarter'] = df['DueDate'].apply(portfolio_quarter_label_from_date) if 'DueDate' in df.columns else None
-    df = df[df['RoadmapQuarter'].isin(PORTFOLIO_ROADMAP_QUARTERS_2026)].copy()
+    if 'DueDate' in df.columns:
+        df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce')
+        df['MissingTargetDate'] = df['DueDate'].isna()
+        df['RoadmapQuarter'] = df['DueDate'].apply(portfolio_quarter_label_from_date)
+    else:
+        df['DueDate'] = pd.NaT
+        df['MissingTargetDate'] = True
+        df['RoadmapQuarter'] = None
+
+    missing_target_df = df[df['MissingTargetDate']].copy()
+    roadmap_df = df[df['RoadmapQuarter'].isin(PORTFOLIO_ROADMAP_QUARTERS_2026)].copy()
     if selected_quarter in PORTFOLIO_ROADMAP_QUARTERS_2026:
-        df = df[df['RoadmapQuarter'] == selected_quarter].copy()
-    if df.empty:
+        roadmap_df = roadmap_df[roadmap_df['RoadmapQuarter'] == selected_quarter].copy()
+    if roadmap_df.empty and missing_target_df.empty:
         return html.Div([
             html.H4('One Page Completo - Roadmap 2026', style={'margin': '0 0 6px 0'}),
             html.P('Nenhum épico com DueDate em 2026 no recorte atual.', style={'margin': 0, 'color': '#666'})
@@ -4230,11 +4412,13 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         df['TituloNorm'].isin(high_titles_norm) |
         df['TituloNorm'].str.contains('higest|highest', regex=True, na=False)
     )
-    if 'DueDate' in df.columns:
-        df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce')
+    roadmap_df = df[df['RoadmapQuarter'].isin(PORTFOLIO_ROADMAP_QUARTERS_2026)].copy()
+    if selected_quarter in PORTFOLIO_ROADMAP_QUARTERS_2026:
+        roadmap_df = roadmap_df[roadmap_df['RoadmapQuarter'] == selected_quarter].copy()
+    missing_target_df = df[df['MissingTargetDate']].copy()
 
     legend_counts = (
-        df['RoadmapStatus']
+        roadmap_df['RoadmapStatus']
         .value_counts()
         .reindex(PORTFOLIO_ROADMAP_STATUS_ORDER, fill_value=0)
     )
@@ -4257,117 +4441,160 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
             ], style={'display': 'inline-block', 'marginRight': '8px', 'marginBottom': '6px'})
         )
 
-    quarter_columns = []
-    for quarter in PORTFOLIO_ROADMAP_QUARTERS_2026:
-        q_df = df[df['RoadmapQuarter'] == quarter].copy()
-        if not q_df.empty:
-            q_df = q_df.sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
-        if q_df.empty:
-            quarter_columns.append(
-                html.Div([
-                    html.Div(quarter, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': '#3e6166', 'marginBottom': '10px'}),
-                    html.Div('Sem épicos', style={'fontSize': '13px', 'color': '#666', 'fontStyle': 'italic'})
-                ], style={'padding': '12px', 'border': '1px solid #d8e1e3', 'borderRadius': '6px', 'minHeight': '540px'})
-            )
-            continue
-
-        def _render_epic_row(row):
-            status = str(row.get('RoadmapStatus', 'Planning'))
-            color = PORTFOLIO_ROADMAP_STATUS_COLORS.get(status, '#d9d9d9')
-            pct = row.get('RoadmapProgressPct')
-            pct_valid = pd.notna(pct)
-            pct_label = f"{int(pct)}%" if pct_valid else 'N/D'
-            is_high = bool(row.get('IsHighestPriority', False))
-            return html.Div([
+    def _render_epic_row(row, highlight_missing_target=False):
+        status = str(row.get('RoadmapStatus', 'Planning'))
+        is_extra_onepage = bool(row.get('IsExtraOnePage', False))
+        color = '#f5b7b1' if highlight_missing_target else PORTFOLIO_ROADMAP_STATUS_COLORS.get(status, '#d9d9d9')
+        if is_extra_onepage:
+            color = '#f8d7da'
+        pct = row.get('RoadmapProgressPct')
+        pct_valid = pd.notna(pct)
+        pct_label = f"{int(pct)}%" if pct_valid else 'N/D'
+        is_high = bool(row.get('IsHighestPriority', False))
+        title_extra = ' | Sem target date' if highlight_missing_target else ''
+        return html.Div([
+            html.Div(
+                [
+                    html.Span(str(row.get('Titulo', 'Sem título')), style={'flex': '1', 'minWidth': 0}),
+                    html.Span(
+                        'Sem target date',
+                        style={
+                            'display': 'inline-block',
+                            'marginLeft': '8px',
+                            'padding': '2px 6px',
+                            'borderRadius': '999px',
+                            'backgroundColor': '#b42318',
+                            'color': 'white',
+                            'fontSize': '10px',
+                            'fontWeight': '700',
+                            'textTransform': 'uppercase',
+                            'letterSpacing': '0.02em',
+                        }
+                    ) if highlight_missing_target else html.Span(),
+                    html.Span(
+                        'EXTRA-ONEPAGE',
+                        style={
+                            'display': 'inline-block',
+                            'marginLeft': '8px',
+                            'padding': '2px 6px',
+                            'borderRadius': '999px',
+                            'backgroundColor': '#b42318',
+                            'color': 'white',
+                            'fontSize': '10px',
+                            'fontWeight': '700',
+                            'textTransform': 'uppercase',
+                            'letterSpacing': '0.02em',
+                        }
+                    ) if is_extra_onepage else html.Span(),
+                    html.Span(
+                        '★',
+                        title='Priority: Highest',
+                        style={
+                            'display': 'inline-flex',
+                            'alignItems': 'center',
+                            'justifyContent': 'center',
+                            'width': '26px',
+                            'height': '26px',
+                            'borderRadius': '50%',
+                            'backgroundColor': '#1f4f5e',
+                            'color': '#000000',
+                            'fontSize': '16px',
+                            'fontWeight': '900',
+                            'marginLeft': '8px',
+                        }
+                    ) if is_high else html.Span()
+                ],
+                title=f"{row.get('Titulo', '')} | Status: {row.get('Status', '')}{title_extra}" + (' | Highest' if is_high else ''),
+                style={
+                    'backgroundColor': color,
+                    'padding': '4px 10px',
+                    'borderRadius': '0',
+                    'fontSize': '15px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.2',
+                    'display': 'flex',
+                    'alignItems': 'center',
+                    'borderLeft': '4px solid #b42318' if (highlight_missing_target or is_extra_onepage) else '0',
+                    'color': '#7a0610' if is_extra_onepage else '#111',
+                }
+            ),
+            html.Div([
+                html.Span('Avanço:', style={'fontSize': '11px', 'fontWeight': 'bold', 'marginRight': '6px', 'color': '#3d3d3d'}),
+                html.Span(pct_label, style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#1f3e46'}),
                 html.Div(
-                    [
-                        html.Span(str(row.get('Titulo', 'Sem título')), style={'flex': '1', 'minWidth': 0}),
-                        html.Span(
-                            '★',
-                            title='Priority: Highest',
-                            style={
-                                'display': 'inline-flex',
-                                'alignItems': 'center',
-                                'justifyContent': 'center',
-                                'width': '26px',
-                                'height': '26px',
-                                'borderRadius': '50%',
-                                'backgroundColor': '#1f4f5e',
-                                'color': '#000000',
-                                'fontSize': '16px',
-                                'fontWeight': '900',
-                                'marginLeft': '8px',
-                            }
-                        ) if is_high else html.Span()
-                    ],
-                    title=f"{row.get('Titulo', '')} | Status: {row.get('Status', '')}" + (' | Highest' if is_high else ''),
-                    style={
-                        'backgroundColor': color,
-                        'padding': '4px 10px',
-                        'borderRadius': '0',
-                        'fontSize': '15px',
-                        'fontWeight': '700',
-                        'lineHeight': '1.2',
-                        'display': 'flex',
-                        'alignItems': 'center',
-                    }
-                ),
-                html.Div([
-                    html.Span('Avanço:', style={'fontSize': '11px', 'fontWeight': 'bold', 'marginRight': '6px', 'color': '#3d3d3d'}),
-                    html.Span(pct_label, style={'fontSize': '11px', 'fontWeight': 'bold', 'color': '#1f3e46'}),
                     html.Div(
-                        html.Div(
-                            style={
-                                'width': f"{int(max(0, min(100, float(pct)))) if pct_valid else 0}%",
-                                'height': '6px',
-                                'backgroundColor': '#1f3e46',
-                                'borderRadius': '4px'
-                            }
-                        ),
-                        style={'marginTop': '4px', 'height': '6px', 'backgroundColor': '#d6e1e4', 'borderRadius': '4px'}
-                    )
-                ], style={'padding': '3px 4px 6px 4px'} if status == 'Running' else {'display': 'none'})
-            ], style={'marginBottom': '3px'})
+                        style={
+                            'width': f"{int(max(0, min(100, float(pct)))) if pct_valid else 0}%",
+                            'height': '6px',
+                            'backgroundColor': '#1f3e46',
+                            'borderRadius': '4px'
+                        }
+                    ),
+                    style={'marginTop': '4px', 'height': '6px', 'backgroundColor': '#d6e1e4', 'borderRadius': '4px'}
+                )
+            ], style={'padding': '3px 4px 6px 4px'} if status == 'Running' else {'display': 'none'})
+        ], style={'marginBottom': '3px'})
 
-        running_df = q_df[q_df['RoadmapStatus'] == 'Running'].copy()
+    def _render_column(title, items_df, header_color='#3e6166', border_color='#d8e1e3',
+                       empty_label='Sem épicos', counter_label='Épicos', highlight_missing_target=False):
+        local_df = items_df.copy()
+        if local_df.empty:
+            return html.Div([
+                html.Div(title, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': header_color, 'marginBottom': '10px'}),
+                html.Div(empty_label, style={'fontSize': '13px', 'color': '#666', 'fontStyle': 'italic'})
+            ], style={'padding': '12px', 'border': f'1px solid {border_color}', 'borderRadius': '6px', 'minHeight': '540px'})
+
+        local_df = local_df.sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
+        running_df = local_df[local_df['RoadmapStatus'] == 'Running'].copy()
         if not running_df.empty:
             running_df['_pct_sort'] = pd.to_numeric(running_df['RoadmapProgressPct'], errors='coerce').fillna(-1)
             running_df = running_df.sort_values(['_pct_sort', 'DueDate', 'Titulo'], ascending=[True, True, True], ignore_index=True)
-        planning_df = q_df[q_df['RoadmapStatus'] == 'Planning'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
-        done_df = q_df[q_df['RoadmapStatus'] == 'Done'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
-        paused_df = q_df[q_df['RoadmapStatus'] == 'Paused'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
+        planning_df = local_df[local_df['RoadmapStatus'] == 'Planning'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
+        done_df = local_df[local_df['RoadmapStatus'] == 'Done'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
+        paused_df = local_df[local_df['RoadmapStatus'] == 'Paused'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
 
         epic_rows = []
         if not running_df.empty:
             epic_rows.append(html.Div(f"Running ({int(len(running_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#1f3e46', 'margin': '4px 0'}))
             for _, row in running_df.iterrows():
-                epic_rows.append(_render_epic_row(row))
+                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
         if not planning_df.empty:
             epic_rows.append(html.Div(f"Planning ({int(len(planning_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#4a3e57', 'margin': '8px 0 4px 0'}))
             for _, row in planning_df.iterrows():
-                epic_rows.append(_render_epic_row(row))
+                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
         if not done_df.empty:
             epic_rows.append(html.Div(f"Done ({int(len(done_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#355427', 'margin': '8px 0 4px 0'}))
             for _, row in done_df.iterrows():
-                epic_rows.append(_render_epic_row(row))
+                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
         if not paused_df.empty:
             epic_rows.append(html.Div(f"Paused ({int(len(paused_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#6d5a29', 'margin': '8px 0 4px 0'}))
             for _, row in paused_df.iterrows():
-                epic_rows.append(_render_epic_row(row))
+                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
 
-        quarter_columns.append(
-            html.Div([
-                html.Div(quarter, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': '#3e6166', 'marginBottom': '8px'}),
-                html.Div(
-                    f"Épicos: {int(len(q_df))}",
-                    style={'fontSize': '12px', 'color': '#3d3d3d', 'marginBottom': '8px'}
-                ),
-                html.Div(
-                    epic_rows,
-                    style={'maxHeight': '500px', 'overflowY': 'auto'}
-                ),
-            ], style={'padding': '12px', 'border': '1px solid #d8e1e3', 'borderRadius': '6px', 'minHeight': '540px'})
+        return html.Div([
+            html.Div(title, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': header_color, 'marginBottom': '8px'}),
+            html.Div(
+                f"{counter_label}: {int(len(local_df))}",
+                style={'fontSize': '12px', 'color': '#3d3d3d', 'marginBottom': '8px'}
+            ),
+            html.Div(epic_rows, style={'maxHeight': '500px', 'overflowY': 'auto'}),
+        ], style={'padding': '12px', 'border': f'1px solid {border_color}', 'borderRadius': '6px', 'minHeight': '540px'})
+
+    quarter_columns = [
+        _render_column(quarter, roadmap_df[roadmap_df['RoadmapQuarter'] == quarter].copy())
+        for quarter in PORTFOLIO_ROADMAP_QUARTERS_2026
+    ]
+    quarter_columns.append(
+        _render_column(
+            'Sem target date',
+            missing_target_df,
+            header_color='#b42318',
+            border_color='#f5c2c7',
+            empty_label='Nenhum épico sem target date',
+            counter_label='Sem target date',
+            highlight_missing_target=True
         )
+    )
 
     return html.Div([
         html.Div([
@@ -4379,11 +4606,11 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
                 'textAlign': 'center',
                 'fontWeight': 'bold',
                 'fontSize': '32px',
-                'color': '#e6f0f1',
-                'backgroundColor': '#4d7378',
+                'color': '#e6f0f1' if q != 'Sem target date' else '#fff1f2',
+                'backgroundColor': '#4d7378' if q != 'Sem target date' else '#b42318',
                 'padding': '8px 0',
                 'borderRight': '2px solid #f5f9fa'
-            }) for q in ['Q1', 'Q2', 'Q3', 'Q4']
+            }) for q in ['Q1', 'Q2', 'Q3', 'Q4', 'Sem target date']
         ], style={'display': 'flex', 'marginTop': '4px', 'borderRadius': '4px', 'overflow': 'hidden'}),
         html.Div([
             html.Span('Legenda:', style={'fontStyle': 'italic', 'fontWeight': 'bold', 'marginRight': '8px'}),
@@ -7803,6 +8030,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         portfolio_alerts_by_team = groups.get('portfolio_alerts_by_team', pd.DataFrame())
         portfolio_alerts_by_project = groups.get('portfolio_alerts_by_project', pd.DataFrame())
         portfolio_alert_kpis = groups.get('portfolio_alert_kpis', pd.DataFrame())
+        portfolio_extra_onepage_summary = groups.get('portfolio_extra_onepage_summary', pd.DataFrame())
         portfolio_technical_readiness_notes = groups.get('portfolio_technical_readiness_notes', pd.DataFrame())
         portfolio_technical_epic_summary = groups.get('portfolio_technical_epic_summary', pd.DataFrame())
         portfolio_technical_items_catalog = groups.get('portfolio_technical_items_catalog', pd.DataFrame())
@@ -7853,6 +8081,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         features_detalhe = filter_by_team(features_detalhe)
         portfolio_alerts_detail = filter_by_team(portfolio_alerts_detail)
         portfolio_alerts_by_team = filter_by_team(portfolio_alerts_by_team)
+        if selected_team != '__ALL__' and portfolio_alerts_detail is not None and not portfolio_alerts_detail.empty:
+            extra_scope = portfolio_alerts_detail[portfolio_alerts_detail['TipoAlerta'] == 'Tag EXTRA-ONEPAGE'].copy()
+            if extra_scope.empty:
+                portfolio_extra_onepage_summary = pd.DataFrame(columns=['TipoItem', 'TotalItens'])
+            else:
+                portfolio_extra_onepage_summary = (
+                    extra_scope.groupby(['TipoItem'], dropna=False)
+                    .agg(TotalItens=('ItemID', 'nunique'))
+                    .reset_index()
+                    .sort_values(['TotalItens', 'TipoItem'], ascending=[False, True], ignore_index=True)
+                )
         portfolio_technical_epic_summary = filter_by_team(portfolio_technical_epic_summary)
         portfolio_technical_items_catalog = filter_by_team(portfolio_technical_items_catalog)
         if items_base is None or items_base.empty:
@@ -8084,6 +8323,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_detail,
             df_team,
             df_project,
+            df_extra_onepage,
             df_tech_notes,
             df_tech_epic_summary,
             df_tech_catalog,
@@ -8092,6 +8332,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 return html.Div([
                     html.H3('Alertas de Portfólio', style={'textAlign': 'left'}),
                     html.P('Sem alertas no escopo atual.', style={'color': '#666'}),
+                    portfolio_table_component(
+                        df_extra_onepage.copy() if df_extra_onepage is not None else pd.DataFrame(),
+                        'Itens com tag EXTRA-ONEPAGE por tipo',
+                        'table-portfolio-extra-onepage-summary-empty'
+                    ),
                     portfolio_table_component(
                         df_tech_notes.copy() if df_tech_notes is not None else pd.DataFrame(),
                         'Prontidão técnica (pendências de dados)',
@@ -8163,6 +8408,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Alertas por Projeto',
                 'table-portfolio-alert-project'
             )
+            extra_onepage_table = portfolio_table_component(
+                df_extra_onepage.copy() if df_extra_onepage is not None else pd.DataFrame(),
+                'Itens com tag EXTRA-ONEPAGE por tipo',
+                'table-portfolio-extra-onepage-summary'
+            )
             tech_epic_summary_table = portfolio_table_component(
                 df_tech_epic_summary.copy() if df_tech_epic_summary is not None else pd.DataFrame(),
                 'Cobertura técnica proxy por épico',
@@ -8192,6 +8442,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 }),
                 severity_section,
                 indicator_table,
+                extra_onepage_table,
                 html.Div([
                     html.Div(team_table, className='six columns'),
                     html.Div(project_table, className='six columns'),
@@ -9135,6 +9386,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             portfolio_alerts_detail,
             portfolio_alerts_by_team,
             portfolio_alerts_by_project,
+            portfolio_extra_onepage_summary,
             portfolio_technical_readiness_notes,
             portfolio_technical_epic_summary,
             portfolio_technical_items_catalog,
@@ -12955,6 +13207,249 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_queue),
             insight_block,
         ])
+
+    # ─── Produtividade Dev ─────────────────────────────────────────────────────
+    if tab == 'tab-produtividade-dev':
+        start_ts_prod = pd.to_datetime(start_date)
+        end_ts_prod = pd.to_datetime(end_date)
+
+        df_prod_base = fato.copy()
+        if projeto:
+            df_prod_base = df_prod_base[df_prod_base['Projeto'] == projeto]
+        if responsavel:
+            df_prod_base = df_prod_base[df_prod_base['Responsavel'] == responsavel]
+        if tipo:
+            df_prod_base = df_prod_base[df_prod_base['TipoDemanda'] == tipo]
+        if classe_servico:
+            df_prod_base = df_prod_base[df_prod_base['ClasseServico'] == classe_servico]
+        df_prod_base, _ = apply_selected_lead_time_metric(df_prod_base, projeto, leadtime_stages)
+
+        if df_prod_base.empty or 'Responsavel' not in df_prod_base.columns:
+            return html.Div('Sem dados de responsável disponíveis para o período e filtros selecionados.',
+                            style={'padding': '30px', 'textAlign': 'center', 'color': '#888'})
+
+        per_dev, complexity_df = build_dev_productivity_metrics(df_prod_base, start_ts_prod, end_ts_prod)
+
+        if per_dev.empty:
+            return html.Div('Sem dados de produtividade individual para o período selecionado.',
+                            style={'padding': '30px', 'textAlign': 'center', 'color': '#888'})
+
+        # Enriquecer com métricas do Bitbucket
+        bb_cols_to_merge = []
+        bitbucket_logs_prod = load_project_bitbucket_logs(projeto) if projeto else {
+            'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()
+        }
+        alias_index_prod = _load_person_alias_index()
+        bb_df_prod, _ = compute_bitbucket_contributor_metrics(bitbucket_logs_prod, start_ts_prod, end_ts_prod, alias_index=alias_index_prod)
+        if not bb_df_prod.empty and 'Pessoa' in bb_df_prod.columns:
+            bb_cols_available = [c for c in ['Pessoa', 'Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes'] if c in bb_df_prod.columns]
+            bb_cols_to_merge = [c for c in bb_cols_available if c != 'Pessoa']
+            per_dev = pd.merge(per_dev, bb_df_prod[bb_cols_available], on='Pessoa', how='left')
+        for col in ['Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes']:
+            if col not in per_dev.columns:
+                per_dev[col] = 0
+            per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce').fillna(0).astype(int)
+
+        # Score integrado: entregas + PRs merged + aprovações + commits/5
+        per_dev['Score Integrado'] = (
+            per_dev['Itens Entregues'] +
+            per_dev['PRs Merged'] +
+            per_dev['Aprovacoes'] +
+            (per_dev['Commits'] / 5.0)
+        ).round(1)
+
+        per_dev = per_dev.sort_values('Score Integrado', ascending=False).reset_index(drop=True)
+
+        # ── KPIs de resumo do período ─────────────────────────────────────────
+        total_entregues = int(per_dev['Itens Entregues'].sum())
+        total_puxados = int(per_dev['Itens Puxados'].sum())
+        total_sp = int(per_dev['SP Entregues'].sum())
+        total_defeitos = int(per_dev['Defeitos Entregues'].sum())
+        total_commits = int(per_dev['Commits'].sum())
+        total_prs = int(per_dev['PRs Merged'].sum())
+        pct_falha_geral = round(total_defeitos / total_entregues * 100, 1) if total_entregues > 0 else 0.0
+        devs_ativos = int((per_dev['Itens Entregues'] > 0).sum())
+
+        kpi_row = html.Div([
+            create_kpi_card('Devs Ativos', devs_ativos),
+            create_kpi_card('Itens Entregues', total_entregues),
+            create_kpi_card('Itens Puxados', total_puxados),
+            create_kpi_card('SP Entregues', total_sp),
+            create_kpi_card('Defeitos Entregues', total_defeitos),
+            create_kpi_card('% Demanda Falha', f'{pct_falha_geral:.1f}%'),
+            create_kpi_card('Commits', total_commits),
+            create_kpi_card('PRs Merged', total_prs),
+        ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '10px', 'marginBottom': '24px'})
+
+        # ── Tabela resumo por dev ─────────────────────────────────────────────
+        table_col_order = [
+            'Pessoa', 'Itens Puxados', 'Itens Entregues', 'SP Entregues',
+            'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
+            'Lead Time Mediano (dias)', 'Commits', 'PRs Abertos', 'PRs Merged',
+            'Aprovacoes', 'Score Integrado',
+        ]
+        table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
+        prod_table = dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in table_cols_prod],
+            data=per_dev[table_cols_prod].head(60).to_dict('records'),
+            style_cell={'textAlign': 'left', 'padding': '7px', 'fontSize': '13px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            sort_action='native',
+            filter_action='native',
+            page_size=20,
+            style_data_conditional=[
+                {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'},
+                {
+                    'if': {'filter_query': '{% Demanda Falha} >= 40', 'column_id': '% Demanda Falha'},
+                    'color': '#c0392b', 'fontWeight': 'bold',
+                },
+            ],
+        )
+
+        # ── Gráfico: Entregues vs Puxados (barras agrupadas) ─────────────────
+        top_n_prod = min(25, len(per_dev))
+        df_top = per_dev.head(top_n_prod).copy()
+        fig_pulled_vs_done = px.bar(
+            df_top,
+            x='Pessoa',
+            y=['Itens Puxados', 'Itens Entregues'],
+            title='Cartões Puxados vs Entregues por Dev (top 25 por Score)',
+            barmode='group',
+            color_discrete_map={'Itens Puxados': '#5b9bd5', 'Itens Entregues': '#2ca02c'},
+            height=520,
+        )
+        fig_pulled_vs_done.update_layout(
+            xaxis_tickangle=-45,
+            margin=dict(b=140),
+            legend_title='Métrica',
+            yaxis_title='Quantidade de itens',
+        )
+
+        # ── Gráfico: Cartões puxados por complexidade (SP bucket, stacked) ───
+        fig_complexity = go.Figure()
+        if not complexity_df.empty:
+            bucket_order = ['Sem estimativa', '1-3 SP (pequeno)', '5-8 SP (médio)', '13+ SP (grande)']
+            bucket_colors = {
+                'Sem estimativa': '#aec7e8',
+                '1-3 SP (pequeno)': '#98df8a',
+                '5-8 SP (médio)': '#ffbb78',
+                '13+ SP (grande)': '#ff9896',
+            }
+            top_people_complexity = per_dev['Pessoa'].head(top_n_prod).tolist()
+            cdf = complexity_df[complexity_df['Pessoa'].isin(top_people_complexity)].copy()
+            # garante todas as faixas para todos os devs (pivot + melt)
+            cdf_pivot = cdf.pivot_table(index='Pessoa', columns='SP_Bucket', values='Qtd', aggfunc='sum', fill_value=0).reset_index()
+            cdf_melted = cdf_pivot.melt(id_vars='Pessoa', var_name='SP_Bucket', value_name='Qtd')
+            # ordena devs pelo total
+            person_totals_cx = cdf_melted.groupby('Pessoa')['Qtd'].sum().sort_values(ascending=False)
+            people_ordered_cx = person_totals_cx.index.tolist()
+            fig_complexity = px.bar(
+                cdf_melted,
+                x='Pessoa',
+                y='Qtd',
+                color='SP_Bucket',
+                title='Cartões Puxados por Complexidade (Story Points)',
+                category_orders={'SP_Bucket': bucket_order, 'Pessoa': people_ordered_cx},
+                color_discrete_map=bucket_colors,
+                height=520,
+                labels={'Qtd': 'Qtd. itens iniciados', 'SP_Bucket': 'Faixa de Complexidade'},
+            )
+            fig_complexity.update_layout(
+                xaxis_tickangle=-45,
+                margin=dict(b=140),
+                legend_title='Complexidade',
+            )
+
+        # ── Gráfico: Demanda de Falha por Dev ─────────────────────────────────
+        fig_failure_demand = go.Figure()
+        has_defect_data = False
+        if 'Defeitos Entregues' in per_dev.columns:
+            df_defects = per_dev[per_dev['Defeitos Entregues'] > 0].head(20).copy()
+            if not df_defects.empty:
+                has_defect_data = True
+                fig_failure_demand = px.bar(
+                    df_defects,
+                    x='Pessoa',
+                    y='Defeitos Entregues',
+                    color='% Demanda Falha',
+                    color_continuous_scale='RdYlGn_r',
+                    range_color=[0, 100],
+                    title='Demandas de Falha Entregues por Dev (colorido por % falha)',
+                    labels={'Defeitos Entregues': 'Defeitos', '% Demanda Falha': '% Falha'},
+                    height=480,
+                )
+                fig_failure_demand.update_layout(xaxis_tickangle=-45, margin=dict(b=140))
+
+        # ── Gráfico: Scatter Commits x Itens Entregues ────────────────────────
+        df_scatter = per_dev[(per_dev['Itens Entregues'] > 0) | (per_dev['Commits'] > 0)].copy()
+        fig_scatter = go.Figure()
+        if not df_scatter.empty:
+            fig_scatter = px.scatter(
+                df_scatter,
+                x='Commits',
+                y='Itens Entregues',
+                size=df_scatter['PRs Merged'].clip(lower=1),
+                color='% Demanda Falha',
+                color_continuous_scale='RdYlGn_r',
+                range_color=[0, 100],
+                hover_name='Pessoa',
+                hover_data={
+                    'Commits': ':.0f',
+                    'Itens Entregues': ':.0f',
+                    'SP Entregues': ':.0f',
+                    'Defeitos Entregues': ':.0f',
+                    '% Demanda Falha': ':.1f',
+                    'PRs Merged': ':.0f',
+                    'Score Integrado': ':.1f',
+                },
+                title='Commits (Bitbucket) × Itens Entregues (Jira) por Dev',
+                labels={
+                    'Commits': 'Commits no período',
+                    'Itens Entregues': 'Itens concluídos no Jira',
+                    '% Demanda Falha': '% Falha',
+                },
+                size_max=45,
+                height=580,
+            )
+            fig_scatter.update_traces(marker=dict(line=dict(width=1, color='white'), opacity=0.88))
+            fig_scatter.add_hline(y=0, line_dash='dash', line_color='#aaa', opacity=0.5)
+            fig_scatter.add_vline(x=0, line_dash='dash', line_color='#aaa', opacity=0.5)
+            fig_scatter.update_layout(template='plotly_white', margin=dict(t=60, b=50))
+
+        period_label = f"{start_ts_prod.date()} → {end_ts_prod.date()}"
+        note_style = {'textAlign': 'center', 'color': '#666', 'marginBottom': '8px'}
+
+        return html.Div([
+            html.H3('Produtividade Individual por Desenvolvedor', style={'textAlign': 'center', 'marginBottom': '4px'}),
+            html.P(
+                f'Período: {period_label} | Cruza dados Jira (cartões, Story Points, demanda de falha) com Bitbucket (commits, PRs).',
+                style=note_style,
+            ),
+            kpi_row,
+            html.H4('Resumo por Desenvolvedor', style={'marginTop': '10px', 'marginBottom': '8px'}),
+            html.P('Ordenado por Score Integrado. Use os filtros e ordenação da tabela para explorar.', style=note_style),
+            prod_table,
+            html.H4('Cartões Puxados vs Entregues', style={'marginTop': '28px'}),
+            dcc.Graph(figure=fig_pulled_vs_done),
+            html.H4('Cartões Puxados por Complexidade (Story Points)', style={'marginTop': '18px'}),
+            html.P('Mostra quais faixas de complexidade cada dev puxou para WIP no período.', style=note_style),
+            dcc.Graph(figure=fig_complexity) if not complexity_df.empty else html.Div(
+                'Story Points não disponíveis nos dados de fluxo para análise de complexidade.',
+                style={'padding': '16px', 'color': '#888'}
+            ),
+            html.H4('Demanda de Falha por Dev (Defeitos Entregues)', style={'marginTop': '18px'}),
+            html.P('Quantidade de itens do tipo "Defeito" concluídos por dev e percentual em relação ao total entregue.', style=note_style),
+            dcc.Graph(figure=fig_failure_demand) if has_defect_data else html.Div(
+                'Nenhum defeito registrado no período com os filtros ativos.',
+                style={'padding': '16px', 'color': '#888'}
+            ),
+            html.H4('Commits × Itens Entregues (visão cruzada Bitbucket + Jira)', style={'marginTop': '18px'}),
+            html.P(
+                'Cada bolha = um dev. Tamanho ∝ PRs Merged. Cor = % Demanda Falha (vermelho = alto).',
+                style=note_style,
+            ),
+            dcc.Graph(figure=fig_scatter),
+        ], style={'padding': '16px'})
 
     return html.Div('Aba não encontrada')
 

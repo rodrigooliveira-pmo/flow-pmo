@@ -40,6 +40,7 @@ CSV_COLUMNS = [
     "EpicLinkTipo",
     "EpicLinkName",
     "Componentes",
+    "ETIQUETA",
     "Etiquetas",
     "IssueLinkKeys",
     "IssueLinkTypes",
@@ -478,6 +479,7 @@ def build_output_row(
     issue_type_name = str((fields.get("issuetype") or {}).get("name") or "")
     components = [str((item or {}).get("name") or "") for item in fields.get("components", []) or []]
     labels = [str(item) for item in fields.get("labels", []) or []]
+    labels_text = format_list(labels, as_label_array=True)
     effort_tshirt_size = ""
     if effort_tshirt_field and is_effort_scope_issue(issue_type_name):
         effort_tshirt_size = extract_custom_text(fields.get(effort_tshirt_field)).strip()
@@ -508,7 +510,8 @@ def build_output_row(
         "EpicLinkTipo": hierarchy.get("EpicLinkTipo", ""),
         "EpicLinkName": hierarchy.get("EpicLinkName", ""),
         "Componentes": format_list(components),
-        "Etiquetas": format_list(labels, as_label_array=True),
+        "ETIQUETA": labels_text,
+        "Etiquetas": labels_text,
         "IssueLinkKeys": issue_links_summary.get("IssueLinkKeys", ""),
         "IssueLinkTypes": issue_links_summary.get("IssueLinkTypes", ""),
         "IssueLinkDetails": issue_links_summary.get("IssueLinkDetails", ""),

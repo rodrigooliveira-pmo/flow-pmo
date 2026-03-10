@@ -1,5 +1,105 @@
 # Task Plan
 
+## Current Task (Alertar e destacar itens com tag EXTRA-ONEPAGE no portfólio)
+- [x] Localizar a montagem da aba de alertas e do relatório one page de portfólio
+- [x] Adicionar agregação de alerta por tipo de item para a tag `EXTRA-ONEPAGE`
+- [x] Destacar em vermelho os itens marcados com essa tag no one page
+- [x] Validar com compilação/smoke test e registrar review
+
+## Specification (Alertar e destacar itens com tag EXTRA-ONEPAGE no portfólio)
+- Objetivo: transformar a tag Jira `EXTRA-ONEPAGE` em um sinal explícito na leitura executiva de portfólio.
+- Entregas:
+  - alerta na aba `Alertas` mostrando total de itens com a tag por tipo de item
+  - destaque visual em vermelho no relatório/aba `One Page` para itens com a tag
+- Regras:
+  - considerar a tag independentemente de maiúsculas/minúsculas
+  - usar a base de portfólio já filtrada na tela
+  - preservar os alertas e cores já existentes, apenas adicionando o novo destaque
+
+## Review (Alertar e destacar itens com tag EXTRA-ONEPAGE no portfólio)
+- O que foi implementado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora detecta a tag `EXTRA-ONEPAGE` a partir de `ETIQUETA`/`Etiquetas`, com normalização case-insensitive.
+  - A aba `Alertas` passou a incluir uma tabela `Itens com tag EXTRA-ONEPAGE por tipo`, além de materializar esses itens no detalhe de alertas com `TipoAlerta = Tag EXTRA-ONEPAGE`.
+  - Os KPIs de alertas agora incluem `Itens com tag EXTRA-ONEPAGE`.
+  - O `One Page Completo - Roadmap 2026` passou a destacar em vermelho os épicos marcados com essa tag e a exibir um badge `EXTRA-ONEPAGE`.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... snapshot = compute_portfolio_snapshot(df, 'test') ... render_portfolio_roadmap_full_epics_view(df) ... PY`
+    - Resultado observado:
+      - `summary = [{'TipoItem': 'Epic', 'TotalItens': 1}, {'TipoItem': 'Feature', 'TotalItens': 1}, {'TipoItem': 'Story', 'TotalItens': 1}]`
+      - `kpi = [3]` para `Itens com tag EXTRA-ONEPAGE`
+      - `alert_types = ['Epic', 'Feature', 'Story']` para o alerta `Tag EXTRA-ONEPAGE`
+      - `has_badge = True` na renderização do one page
+- Observação:
+  - O smoke test gerou apenas `FutureWarning` preexistente de `pandas`, sem falha funcional.
+- Suggested commit message:
+  - `feat(portfolio): alert and highlight items tagged EXTRA-ONEPAGE`
+
+## Current Task (Expor ETIQUETA/LABELS na extração de portfólio)
+- [x] Localizar onde o CSV de portfólio define o schema e mapeia `labels`
+- [x] Ajustar a extração para expor explicitamente o campo `ETIQUETA/LABELS` para épicos, features e histórias/tasks
+- [x] Preservar compatibilidade com a coluna atual consumida pelo dashboard
+- [x] Validar com compilação/smoke test e registrar review
+
+## Specification (Expor ETIQUETA/LABELS na extração de portfólio)
+- Objetivo: garantir que a extração de dados de portfólio traga explicitamente o campo de etiquetas do Jira (`labels`) para os itens do portfólio.
+- Escopo esperado:
+  - épicos
+  - features
+  - histórias/tasks
+- Regras:
+  - não remover a coluna atual `Etiquetas` se ela já estiver sendo consumida
+  - expor o campo solicitado no CSV gerado
+  - manter o comportamento para itens sem labels como valor vazio
+
+## Review (Expor ETIQUETA/LABELS na extração de portfólio)
+- O que foi implementado:
+  - O exportador [`jira_portfolio_to_csv.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_portfolio_to_csv.py) passou a expor explicitamente a coluna `ETIQUETA` no CSV de portfólio.
+  - A coluna existente `Etiquetas` foi preservada como alias compatível, ambas preenchidas a partir de `fields.labels` retornado pelo Jira.
+  - Como o exportador monta linhas para todos os tipos retornados no portfólio, o campo passa a sair para épicos, features e histórias/tasks quando existir label no item.
+- Evidências de validação:
+  - `python3 -m py_compile jira_portfolio_to_csv.py`
+  - `python3 -c "import jira_portfolio_to_csv as m; ...; row=m.build_output_row(...); print(row['Tipo']); print(row['ETIQUETA']); print(row['Etiquetas']); print('ETIQUETA' in m.CSV_COLUMNS, 'Etiquetas' in m.CSV_COLUMNS)"`
+    - Resultado observado:
+      - `Tipo = Story`
+      - `ETIQUETA = [portfolio,jira]`
+      - `Etiquetas = [portfolio,jira]`
+      - as duas colunas existem no schema do CSV
+- Suggested commit message:
+  - `feat(portfolio): expose jira labels as ETIQUETA in portfolio export`
+
+## Current Task (Destacar épicos sem target date na visão de portfólio)
+- [x] Localizar a montagem do grid `One Page Completo - Roadmap 2026`
+- [x] Adicionar uma coluna dedicada para itens sem `Target Date`
+- [x] Destacar visualmente essa coluna em vermelho
+- [x] Validar com compilação e smoke test da renderização
+
+## Specification (Destacar épicos sem target date na visão de portfólio)
+- Objetivo: tornar explícitos, na visão de portfólio, os itens sem `Target Date` definido.
+- Resultado esperado:
+  - uma coluna adicional no grid do roadmap
+  - itens sem `Target Date` agrupados nessa coluna
+  - destaque visual em vermelho para facilitar leitura executiva
+- Regras:
+  - não remover o agrupamento atual por quarter
+  - preservar ordenação e semântica das colunas `Q1..Q4`
+  - considerar `DueDate` vazio como ausência de `Target Date`
+
+## Review (Destacar épicos sem target date na visão de portfólio)
+- O que foi implementado:
+  - A função [`render_portfolio_roadmap_full_epics_view(...)` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a separar os épicos sem `DueDate` em uma coluna adicional chamada `Sem target date`.
+  - A nova coluna foi destacada visualmente em vermelho no cabeçalho, na borda dos cards e com badge textual por item.
+  - A visão `Q1..Q4` foi preservada; itens sem data deixaram de ser descartados silenciosamente e agora aparecem explicitamente no mesmo grid executivo.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... render_portfolio_roadmap_full_epics_view(df) ... PY`
+    - Resultado observado:
+      - `header_count= 5`
+      - `headers= ['Q1', 'Q2', 'Q3', 'Q4', 'Sem target date']`
+      - `missing_counter= Sem target date: 7`
+- Suggested commit message:
+  - `feat(portfolio): highlight epics missing target dates in roadmap`
+
 ## Current Task (Implementar governança de Fast Track/Expedite e alertas de variabilidade)
 - [x] Mapear os sinais já existentes de `ClasseServico/Expedite` e `CV/dispersão`
 - [x] Implementar visão explícita de governança Fast Track/Expedite
