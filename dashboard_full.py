@@ -81,11 +81,13 @@ def _candidate_data_folders():
     split_env_dirs = [p for p in env_dirs.split(os.pathsep) if p.strip()]
     explicit_dir = os.getenv('FLOW_PMO_DATA_DIR', '').strip()
     legacy_override = os.getenv('DATA_FOLDER', '').strip()
+    latest_dir = os.getenv('FLOW_PMO_LATEST_DIR', '').strip()
     base_dir = os.path.dirname(__file__)
     project_root_dir = os.path.abspath(os.path.join(base_dir, os.pardir))
     home_dir = os.path.expanduser('~')
     return _existing_dirs([
         explicit_dir,
+        latest_dir,
         legacy_override,
         *split_env_dirs,
         os.path.join(project_root_dir, 'dados', 'latest'),
@@ -186,6 +188,33 @@ def _load_bottleneck_url_map():
         if project_key and url:
             out[project_key] = url
     return out
+
+
+def _load_bitbucket_csv_url_map():
+    """Carrega mapa de URLs para CSVs do Bitbucket.
+    Formato: {"w1nner_commits": "https://...", "w1nner_pullrequests": "https://...", ...}
+    A chave é {prefix}_{tipo} (sem .csv). Ex: w1nner_commits, s1nc_pullrequests, befinance_commits.
+    """
+    raw = os.getenv('FLOW_PMO_BITBUCKET_CSV_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k).strip().lower(): str(v).strip() for k, v in parsed.items() if k and v}
+
+
+def _download_bitbucket_csv_from_url(url, key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    safe_key = ''.join(ch for ch in str(key).lower() if ch.isalnum() or ch == '_')
+    out_file = os.path.join(cache_dir, f'bb-{safe_key}-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
 
 
 def _load_downstream_url_map():
@@ -886,6 +915,17 @@ def _story_points_band(value):
 def _load_project_bitbucket_csv(project_prefix, suffix):
     if not project_prefix:
         return pd.DataFrame()
+    # Chave no mapa de URLs: ex. "w1nner_commits", "befinance_pullrequests"
+    url_map = _load_bitbucket_csv_url_map()
+    type_name = suffix.lstrip('_').replace('.csv', '')  # "_commits.csv" → "commits"
+    map_key = f'{project_prefix.lower()}_{type_name}'
+    url = url_map.get(map_key)
+    if url:
+        try:
+            local_path = _download_bitbucket_csv_from_url(url, map_key)
+            return pd.read_csv(local_path)
+        except Exception:
+            pass
     candidates = []
     for folder in DATA_FOLDERS:
         try:

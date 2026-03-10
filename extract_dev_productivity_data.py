@@ -105,10 +105,11 @@ def _load_env_file(path: str) -> None:
 
 def _resolve_out_dir(out_dir_arg: str) -> Path:
     """Determina e cria a pasta de saída."""
-    # Prioridade: argumento CLI > FLOW_PMO_DATA_DIR > padrão OneDrive
+    # Prioridade: argumento CLI > FLOW_PMO_DATA_DIR > FLOW_PMO_LATEST_DIR > DATA_FOLDER > padrão OneDrive
     candidate = (
         out_dir_arg
         or os.getenv("FLOW_PMO_DATA_DIR", "").strip()
+        or os.getenv("FLOW_PMO_LATEST_DIR", "").strip()
         or os.getenv("DATA_FOLDER", "").strip()
         or _DEFAULT_OUT_DIR
     )

@@ -12,6 +12,7 @@ import time
 import urllib.parse
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import chain
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Optional
@@ -41,13 +42,15 @@ PROJECT_BITBUCKET_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "BEFINANCE": {
         "aliases": {"BF", "BEFINANCE"},
         "issue_key_prefixes": {"BF", "BEFINANCE"},
-        "repo": "befinance",
+        "repos": ["be-finance-api", "be-finance-web", "be-finance-lambda", "be-finance-diagnostic-api", "be-finance-diagnostic-web", "be-finance-dev"],
+        "repo": "be-finance-api",
         "prefix": "befinance",
     },
     "DATA&ANALYTICS": {
         "aliases": {"DT", "DA", "DATA&ANALYTICS", "DATA&ANALITICS"},
         "issue_key_prefixes": {"DT", "DA"},
-        "repo": "dataanalytics",
+        "repos": ["d-a-analysis", "w1-data-toolbox", "automacao-rfv", "apuracao-indicadores-mensais", "api-resumo-e-insights", "c3po-automation"],
+        "repo": "d-a-analysis",
         "prefix": "dataanalytics",
     },
 }
@@ -711,10 +714,24 @@ def main() -> int:
         email = require_env("BB_EMAIL")
         token = require_env("BB_TOKEN")
         workspace = require_env("BB_WORKSPACE")
-        repo = require_env("BB_REPO")
+        repo = os.getenv("BB_REPO", "").strip() or str(project_config.get("repo") or "").strip()
+        if not repo:
+            raise ValueError("Variável obrigatória ausente: BB_REPO")
     except ValueError as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return 2
+
+    # Build list of repos to query (supports multi-repo projects like BF, DT).
+    repos_list: list[str] = []
+    raw_repos = project_config.get("repos")
+    if isinstance(raw_repos, list):
+        repos_list = [r.strip() for r in raw_repos if str(r).strip()]
+    elif isinstance(raw_repos, str):
+        repos_list = [r.strip() for r in raw_repos.split(",") if r.strip()]
+    if args.repo:
+        repos_list = [args.repo.strip()]
+    if not repos_list:
+        repos_list = [repo]
 
     issue_key_prefixes = _normalize_issue_key_prefixes(
         args.issue_key_prefixes
@@ -727,7 +744,7 @@ def main() -> int:
         if project_config:
             print(f"project={project_config.get('canonical_project')}")
         print(f"workspace={workspace}")
-        print(f"repo={repo}")
+        print(f"repos={','.join(repos_list)}")
         print(f"prefix={args.prefix}")
         print(f"issue_key_prefixes={','.join(issue_key_prefixes)}")
         print(f"email={email}")
@@ -767,7 +784,6 @@ def main() -> int:
             return True
         return work_item_keys_match_project(extract_work_item_keys(*texts), issue_key_prefixes)
 
-    base_url = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}"
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -777,70 +793,77 @@ def main() -> int:
     prs_csv = out_dir / f"{args.prefix}_pullrequests.csv"
     pipelines_csv = out_dir / f"{args.prefix}_pipelines.csv"
 
+    def _collect_commits_for_repo(current_repo: str) -> list[Dict[str, Any]]:
+        repo_base = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{current_repo}"
+        try:
+            with requests.Session() as session:
+                rows = iter_paginated(
+                    session,
+                    f"{repo_base}/commits",
+                    auth=auth,
+                    pagelen=pagelen,
+                    max_pages=max_pages,
+                    extra_params={
+                        "fields": "values.hash,values.date,values.author.raw,values.message,next",
+                    },
+                    stop_on_row=lambda row: row_older_than_cutoff(row, ("date",)),
+                )
+                return [
+                    row for row in rows
+                    if row_matches_project(row, str(row.get("message") or ""))
+                ]
+        except requests.HTTPError as exc:
+            print(f"  Aviso: repo '{current_repo}' — {exc}", file=sys.stderr)
+            return []
+
     def run_commits() -> int:
         if args.skip_commits:
             return 0
-        with requests.Session() as session:
-            rows = iter_paginated(
-                session,
-                f"{base_url}/commits",
-                auth=auth,
-                pagelen=pagelen,
-                max_pages=max_pages,
-                extra_params={
-                    "fields": "values.hash,values.date,values.author.raw,values.message,next",
-                },
-                stop_on_row=lambda row: row_older_than_cutoff(row, ("date",)),
-            )
-            filtered_rows = (
-                row
-                for row in rows
-                if row_matches_project(row, str(row.get("message") or ""))
-            )
-            return _safe_export(commits_csv, export_commits, filtered_rows)
+        all_rows: list[Dict[str, Any]] = []
+        for current_repo in repos_list:
+            all_rows.extend(_collect_commits_for_repo(current_repo))
+        return _safe_export(commits_csv, export_commits, iter(all_rows))
 
-    def run_pullrequests() -> int:
-        if args.skip_pullrequests:
-            return 0
-        with requests.Session() as session:
-            rows = iter_paginated(
-                session,
-                f"{base_url}/pullrequests",
-                auth=auth,
-                pagelen=pagelen,
-                max_pages=max_pages,
-                extra_params={
-                    "state": "ALL",
-                    "fields": (
-                        "values.id,values.state,values.title,values.author.display_name,"
-                        "values.created_on,values.updated_on,values.source.branch.name,"
-                        "values.destination.branch.name,values.participants.role,"
-                        "values.participants.approved,values.participants.state,"
-                        "values.participants.display_name,values.participants.user.display_name,"
-                        "values.links.diffstat.href,next"
-                    ),
-                },
-                stop_on_row=lambda row: row_older_than_cutoff(row, ("updated_on", "created_on")),
-            )
-            rows = (
-                row for row in rows
-                if row_matches_project(
-                    row,
-                    str(row.get("title") or ""),
-                    str((((row.get("source") or {}).get("branch") or {}).get("name")) if isinstance(row.get("source"), dict) else ""),
-                    str((((row.get("destination") or {}).get("branch") or {}).get("name")) if isinstance(row.get("destination"), dict) else ""),
+    def _collect_prs_for_repo(current_repo: str) -> list[Dict[str, Any]]:
+        repo_base = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{current_repo}"
+        try:
+            with requests.Session() as session:
+                rows = iter_paginated(
+                    session,
+                    f"{repo_base}/pullrequests",
+                    auth=auth,
+                    pagelen=pagelen,
+                    max_pages=max_pages,
+                    extra_params={
+                        "state": "ALL",
+                        "fields": (
+                            "values.id,values.state,values.title,values.author.display_name,"
+                            "values.created_on,values.updated_on,values.source.branch.name,"
+                            "values.destination.branch.name,values.participants.role,"
+                            "values.participants.approved,values.participants.state,"
+                            "values.participants.display_name,values.participants.user.display_name,"
+                            "values.links.diffstat.href,next"
+                        ),
+                    },
+                    stop_on_row=lambda row: row_older_than_cutoff(row, ("updated_on", "created_on")),
                 )
-            )
-            if args.skip_pr_volume:
-                return _safe_export(prs_csv, export_pullrequests, rows)
-
-            def iter_enriched_pullrequests() -> Iterable[Dict[str, Any]]:
-                for row in rows:
+                filtered = [
+                    row for row in rows
+                    if row_matches_project(
+                        row,
+                        str(row.get("title") or ""),
+                        str((((row.get("source") or {}).get("branch") or {}).get("name")) if isinstance(row.get("source"), dict) else ""),
+                        str((((row.get("destination") or {}).get("branch") or {}).get("name")) if isinstance(row.get("destination"), dict) else ""),
+                    )
+                ]
+                if args.skip_pr_volume:
+                    return filtered
+                enriched = []
+                for row in filtered:
                     if not isinstance(row, dict):
                         continue
                     pr_id = row.get("id")
-                    # Prefer canonical endpoint by PR id (stable and avoids malformed revspec hrefs).
-                    diffstat_url = f"{base_url}/pullrequests/{pr_id}/diffstat" if pr_id else ""
+                    diffstat_url = f"{repo_base}/pullrequests/{pr_id}/diffstat" if pr_id else ""
                     if not diffstat_url:
                         diffstat_url = (
                             ((row.get("links") or {}).get("diffstat") or {}).get("href")
@@ -859,46 +882,58 @@ def main() -> int:
                             )
                         )
                     else:
-                        row.update(
-                            {
-                                "additions": "",
-                                "deletions": "",
-                                "files_changed": "",
-                                "lines_changed_total": "",
-                            }
-                        )
-                    yield row
+                        row.update({"additions": "", "deletions": "", "files_changed": "", "lines_changed_total": ""})
+                    enriched.append(row)
+                return enriched
+        except requests.HTTPError as exc:
+            print(f"  Aviso: repo '{current_repo}' — {exc}", file=sys.stderr)
+            return []
 
-            return _safe_export(prs_csv, export_pullrequests, iter_enriched_pullrequests())
+    def run_pullrequests() -> int:
+        if args.skip_pullrequests:
+            return 0
+        all_rows: list[Dict[str, Any]] = []
+        for current_repo in repos_list:
+            all_rows.extend(_collect_prs_for_repo(current_repo))
+        return _safe_export(prs_csv, export_pullrequests, iter(all_rows))
+
+    def _collect_pipelines_for_repo(current_repo: str) -> list[Dict[str, Any]]:
+        repo_base = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{current_repo}"
+        try:
+            with requests.Session() as session:
+                rows = iter_paginated(
+                    session,
+                    f"{repo_base}/pipelines/",
+                    auth=auth,
+                    pagelen=pagelen,
+                    max_pages=max_pages,
+                    extra_params={
+                        "fields": (
+                            "values.uuid,values.build_number,values.state.name,values.state.type,"
+                            "values.state.result.name,values.created_on,values.completed_on,"
+                            "values.target.ref_name,values.target.commit.hash,next"
+                        ),
+                    },
+                    stop_on_row=lambda row: row_older_than_cutoff(row, ("completed_on", "created_on")),
+                )
+                return [
+                    row for row in rows
+                    if row_matches_project(
+                        row,
+                        str(((row.get("target") or {}).get("ref_name")) if isinstance(row.get("target"), dict) else ""),
+                    )
+                ]
+        except requests.HTTPError as exc:
+            print(f"  Aviso: repo '{current_repo}' — {exc}", file=sys.stderr)
+            return []
 
     def run_pipelines() -> int:
         if args.skip_pipelines:
             return 0
-        with requests.Session() as session:
-            rows = iter_paginated(
-                session,
-                f"{base_url}/pipelines/",
-                auth=auth,
-                pagelen=pagelen,
-                max_pages=max_pages,
-                extra_params={
-                    "fields": (
-                        "values.uuid,values.build_number,values.state.name,values.state.type,"
-                        "values.state.result.name,values.created_on,values.completed_on,"
-                        "values.target.ref_name,values.target.commit.hash,next"
-                    ),
-                },
-                stop_on_row=lambda row: row_older_than_cutoff(row, ("completed_on", "created_on")),
-            )
-            filtered_rows = (
-                row
-                for row in rows
-                if row_matches_project(
-                    row,
-                    str(((row.get("target") or {}).get("ref_name")) if isinstance(row.get("target"), dict) else ""),
-                )
-            )
-            return _safe_export(pipelines_csv, export_pipelines, filtered_rows)
+        all_rows: list[Dict[str, Any]] = []
+        for current_repo in repos_list:
+            all_rows.extend(_collect_pipelines_for_repo(current_repo))
+        return _safe_export(pipelines_csv, export_pipelines, iter(all_rows))
 
     try:
         workers = min(max(args.workers, 1), 3)
@@ -940,6 +975,8 @@ def main() -> int:
         print(f"Erro ao exportar dados do Bitbucket: {exc}", file=sys.stderr)
         return 1
 
+    repos_label = ", ".join(repos_list)
+    print(f"Repos consultados: {repos_label}")
     print(f"Commits exportados: {commit_count} -> {commits_csv}")
     print(f"Pull requests exportados: {pr_count} -> {prs_csv}")
     print(f"Pipelines exportados: {pipeline_count} -> {pipelines_csv}")
