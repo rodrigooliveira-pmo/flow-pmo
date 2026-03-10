@@ -41,6 +41,18 @@
     "Peterson Daronch de Bem": "Sistemas - W1NNER",
     "Wallison Oliveira": "Sistemas - W1NNER"
   },
+  "_role_comment": "Papel de cada pessoa: 'Tech Lead' ou 'Dev'. Usado para segmentar benchmarks de produtividade. Padrão = 'Dev' para quem não estiver listado aqui.",
+  "role_map": {
+    "Leonardo de Carvalho Pereira": "Tech Lead",
+    "Rodrigo Almeida de Oliveira": "Tech Lead",
+    "Rafael Christopher de Souza": "Tech Lead",
+    "Ademir Junior": "Tech Lead",
+    "Christopher Leonardo Alves Ristau": "Tech Lead",
+    "Luciano Ilha Carbonell": "Tech Lead",
+    "Gabriel Azevedo": "Tech Lead",
+    "Camila Silotto": "Tech Lead",
+    "Carlos Henrique dos Santos": "Tech Lead"
+  },
   "_aliases_comment": "Aliases para cobrir variações de nome entre Jira e Bitbucket. Chave = nome canônico acima; valor = lista de variações conhecidas.",
   "aliases": {
     "Christopher Leonardo Alves Ristau": ["Christopher Alves", "Christopher Ristau"],

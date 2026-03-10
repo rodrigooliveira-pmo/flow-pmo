@@ -791,6 +791,34 @@ def _person_bu(canonical_name: str, bu_index: dict | None = None) -> str:
     return bu_index.get(key, '')
 
 
+def _load_person_role_map() -> dict:
+    """Retorna índice {chave_normalizada → papel} a partir de people_config.json."""
+    config = _load_people_config()
+    raw_role_map: dict = config.get('role_map', {})
+    raw_aliases: dict = config.get('aliases', {})
+    role_index: dict = {}
+
+    def _register(raw_name: str, role: str) -> None:
+        key = _person_match_key(raw_name)
+        if key:
+            role_index[key] = role
+
+    for canonical, role in raw_role_map.items():
+        _register(canonical, role)
+        for alias_entry in raw_aliases.get(canonical, []):
+            _register(alias_entry, role)
+
+    return role_index
+
+
+def _person_role(canonical_name: str, role_index: dict | None = None) -> str:
+    """Retorna o papel de uma pessoa ('Tech Lead' ou 'Dev'). Padrão = 'Dev'."""
+    if role_index is None:
+        role_index = _load_person_role_map()
+    key = _person_match_key(canonical_name)
+    return role_index.get(key, 'Dev')
+
+
 def _load_person_alias_index():
     raw = os.getenv('FLOW_PMO_PERSON_ALIAS_MAP', '').strip()
     if not raw:
@@ -1406,6 +1434,23 @@ def _sp_bucket(sp):
     return '13+ SP (grande)'
 
 
+def _sp_weight(sp):
+    """Peso de complexidade por faixa de SP (para normalizar score de entrega).
+    Sem estimativa = 0.5; pequeno (1-3) = 1.0; médio (5-8) = 2.0; grande (13+) = 3.0
+    """
+    try:
+        val = float(sp)
+    except (TypeError, ValueError):
+        val = 0.0
+    if val <= 0:
+        return 0.5
+    if val <= 3:
+        return 1.0
+    if val <= 8:
+        return 2.0
+    return 3.0
+
+
 def build_dev_productivity_metrics(df, start_ts, end_ts):
     """
     Calcula métricas de produtividade individual por desenvolvedor.
@@ -1517,15 +1562,32 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     bu_index = _load_person_bu_map()
     per_dev['BU'] = per_dev['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
 
+    # Papel por pessoa: 'Tech Lead' ou 'Dev' (via people_config.json)
+    role_index = _load_person_role_map()
+    per_dev['Papel'] = per_dev['Pessoa'].apply(lambda p: _person_role(p, role_index=role_index))
+
+    # Score de Complexidade: itens entregues ponderados pelo peso de SP
+    # Peso: sem estimativa=0.5, pequeno(1-3)=1.0, médio(5-8)=2.0, grande(13+)=3.0
+    if not done_window.empty and 'StoryPoints' in done_window.columns:
+        dw_cx = done_window.copy()
+        dw_cx['StoryPoints'] = pd.to_numeric(dw_cx['StoryPoints'], errors='coerce').fillna(0)
+        dw_cx['_SP_Weight'] = dw_cx['StoryPoints'].apply(_sp_weight)
+        per_dev['Score Complexidade'] = per_dev['Pessoa'].map(
+            dw_cx.groupby('_Pessoa')['_SP_Weight'].sum()
+        ).fillna(0).round(1)
+    else:
+        per_dev['Score Complexidade'] = per_dev['Itens Entregues'].astype(float)
+
     per_dev = per_dev[per_dev['Pessoa'].astype(str).str.strip().ne('')]
     per_dev = per_dev.sort_values(
         ['Itens Entregues', 'Itens Puxados', 'Pessoa'],
         ascending=[False, False, True]
     ).reset_index(drop=True)
 
-    # Propaga BU para complexity_df também
+    # Propaga BU e Papel para complexity_df também
     if not complexity_df.empty:
         complexity_df['BU'] = complexity_df['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
+        complexity_df['Papel'] = complexity_df['Pessoa'].apply(lambda p: _person_role(p, role_index=role_index))
 
     return per_dev, complexity_df
 
@@ -13428,9 +13490,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 per_dev[col] = 0
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce').fillna(0).astype(int)
 
-        # Score integrado: entregas + PRs merged + aprovações + commits/5
+        # Indicador de colaboração real: qualidade de revisão = aprovações / total revisões
+        per_dev['Total Revisoes'] = per_dev['Aprovacoes'] + per_dev['Reprovacoes']
+        per_dev['Qualidade Revisao'] = np.where(
+            per_dev['Total Revisoes'] > 0,
+            (per_dev['Aprovacoes'] / per_dev['Total Revisoes'] * 100).round(1),
+            0.0,
+        )
+
+        # Score Integrado: usa Score Complexidade (entrega ponderada por SP) em vez de itens brutos
+        _score_base = per_dev['Score Complexidade'] if 'Score Complexidade' in per_dev.columns else per_dev['Itens Entregues'].astype(float)
         per_dev['Score Integrado'] = (
-            per_dev['Itens Entregues'] +
+            _score_base +
             per_dev['PRs Merged'] +
             per_dev['Aprovacoes'] +
             (per_dev['Commits'] / 5.0)
@@ -13515,10 +13586,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # ── Tabela resumo por dev ─────────────────────────────────────────────
         table_col_order = [
-            'BU', 'Pessoa', 'Itens Puxados', 'Itens Entregues', 'SP Entregues',
-            'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
+            'BU', 'Papel', 'Pessoa', 'Itens Puxados', 'Itens Entregues', 'SP Entregues',
+            'Score Complexidade', 'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
             'Lead Time Mediano (dias)', 'Commits', 'PRs Abertos', 'PRs Merged',
-            'Aprovacoes', 'Score Integrado',
+            'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao', 'Score Integrado',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
 
@@ -13716,6 +13787,131 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         period_label = f"{start_ts_prod.date()} → {end_ts_prod.date()}"
 
+        # ── Radar chart multidimensional ──────────────────────────────────────
+        # Dimensões: Entrega (Score Complexidade), Código (Commits), Revisão (Aprovacoes),
+        # Qualidade (100 - % Falha), Velocidade (lead time invertido)
+        fig_radar = go.Figure()
+        _radar_top = per_dev.head(10).copy()
+        if not _radar_top.empty:
+            def _norm_series(s):
+                mx = s.max()
+                return (s / mx * 100).fillna(0) if mx > 0 else s * 0
+
+            _score_cx_col = 'Score Complexidade' if 'Score Complexidade' in _radar_top.columns else 'Itens Entregues'
+            _radar_top['_r_entrega'] = _norm_series(_radar_top[_score_cx_col])
+            _radar_top['_r_codigo'] = _norm_series(_radar_top['Commits'])
+            _radar_top['_r_revisao'] = _norm_series(_radar_top['Aprovacoes'])
+            _radar_top['_r_qualidade'] = (100 - _radar_top['% Demanda Falha'].clip(0, 100))
+            _lt_max = _radar_top['Lead Time Mediano (dias)'].replace(0, np.nan).max()
+            if _lt_max and _lt_max > 0:
+                _radar_top['_r_velocidade'] = (
+                    (_lt_max - _radar_top['Lead Time Mediano (dias)']) / _lt_max * 100
+                ).clip(0, 100)
+            else:
+                _radar_top['_r_velocidade'] = pd.Series(50, index=_radar_top.index)
+
+            _radar_categories = ['Entrega', 'Código', 'Revisão', 'Qualidade', 'Velocidade']
+            _radar_cols = ['_r_entrega', '_r_codigo', '_r_revisao', '_r_qualidade', '_r_velocidade']
+            _radar_colors = [
+                '#2980b9', '#27ae60', '#8e44ad', '#e67e22', '#c0392b',
+                '#16a085', '#d35400', '#2c3e50', '#1abc9c', '#e74c3c',
+            ]
+            for _ri, (_ridx, _rrow) in enumerate(_radar_top.iterrows()):
+                _vals = [_rrow[c] for c in _radar_cols]
+                _vals_closed = _vals + [_vals[0]]
+                _cats_closed = _radar_categories + [_radar_categories[0]]
+                _short_name = str(_rrow['Pessoa']).split()[0] if _rrow['Pessoa'] else str(_rrow['Pessoa'])
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=_vals_closed,
+                    theta=_cats_closed,
+                    fill='toself',
+                    name=_short_name,
+                    opacity=0.55,
+                    line=dict(color=_radar_colors[_ri % len(_radar_colors)], width=2),
+                ))
+            fig_radar.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, range=[0, 100], tickfont=dict(size=10)),
+                    angularaxis=dict(tickfont=dict(size=12)),
+                ),
+                showlegend=True,
+                height=540,
+                title='Perfil Multidimensional — Top 10 por Score (normalizado 0-100 por dimensão)',
+                template='plotly_white',
+                legend=dict(orientation='h', yanchor='bottom', y=-0.35, x=0.5, xanchor='center'),
+                margin=dict(t=60, b=120),
+            )
+
+        # ── Comparativo por Papel (Tech Lead vs Dev) ──────────────────────────
+        fig_papel = go.Figure()
+        _has_papel = 'Papel' in per_dev.columns and per_dev['Papel'].astype(str).str.strip().ne('').any()
+        papel_kpi_section = html.Span()
+        if _has_papel:
+            _score_cx_col_p = 'Score Complexidade' if 'Score Complexidade' in per_dev.columns else 'Itens Entregues'
+            papel_agg = per_dev.groupby('Papel', dropna=False).agg(
+                Devs=('Pessoa', 'count'),
+                Itens_Entregues_Med=('Itens Entregues', 'median'),
+                Score_Cx_Med=(_score_cx_col_p, 'median'),
+                Commits_Med=('Commits', 'median'),
+                PRs_Merged_Med=('PRs Merged', 'median'),
+                Aprovacoes_Med=('Aprovacoes', 'median'),
+                Falha_Med=('% Demanda Falha', 'median'),
+                LT_Med=('Lead Time Mediano (dias)', 'median'),
+                QualRev_Med=('Qualidade Revisao', 'median'),
+            ).reset_index()
+            papel_agg.columns = [
+                'Papel', 'Devs', 'Itens Entregues (med)', 'Score Complexidade (med)',
+                'Commits (med)', 'PRs Merged (med)', 'Aprovações (med)',
+                '% Demanda Falha (med)', 'Lead Time (med, dias)', 'Qualidade Revisão (med %)',
+            ]
+            _metricas_papel = [
+                'Itens Entregues (med)', 'Score Complexidade (med)', 'Commits (med)',
+                'PRs Merged (med)', 'Aprovações (med)',
+            ]
+            _papel_melted = papel_agg.melt(
+                id_vars='Papel', value_vars=_metricas_papel,
+                var_name='Métrica', value_name='Mediana',
+            )
+            fig_papel = px.bar(
+                _papel_melted,
+                x='Métrica',
+                y='Mediana',
+                color='Papel',
+                barmode='group',
+                title='Benchmark por Papel — Medianas (Tech Lead vs Dev)',
+                color_discrete_map={'Tech Lead': '#e67e22', 'Dev': '#2980b9'},
+                height=420,
+                labels={'Mediana': 'Valor mediano'},
+            )
+            fig_papel.update_layout(xaxis_tickangle=-20, margin=dict(b=100), legend_title='Papel')
+
+            # Mini KPIs de comparação
+            _papel_rows = papel_agg.set_index('Papel').to_dict('index')
+            _kpi_papel_cards = []
+            for _p, _pdata in _papel_rows.items():
+                _bg = '#fff8f0' if _p == 'Tech Lead' else '#f0f6ff'
+                _border = '#e67e22' if _p == 'Tech Lead' else '#2980b9'
+                _kpi_papel_cards.append(html.Div([
+                    html.Div(_p, style={
+                        'fontWeight': '700', 'fontSize': '13px',
+                        'color': _border, 'marginBottom': '6px',
+                        'borderBottom': f'2px solid {_border}', 'paddingBottom': '4px',
+                    }),
+                    html.Div(f"Devs: {int(_pdata.get('Devs', 0))}", style={'fontSize': '12px', 'marginBottom': '2px'}),
+                    html.Div(f"Itens med.: {_pdata.get('Itens Entregues (med)', 0):.1f}", style={'fontSize': '12px', 'marginBottom': '2px'}),
+                    html.Div(f"Score Cx med.: {_pdata.get('Score Complexidade (med)', 0):.1f}", style={'fontSize': '12px', 'marginBottom': '2px'}),
+                    html.Div(f"Commits med.: {_pdata.get('Commits (med)', 0):.1f}", style={'fontSize': '12px', 'marginBottom': '2px'}),
+                    html.Div(f"Qual. Revisão: {_pdata.get('Qualidade Revisão (med %)', 0):.1f}%", style={'fontSize': '12px', 'marginBottom': '2px'}),
+                    html.Div(f"% Falha med.: {_pdata.get('% Demanda Falha (med)', 0):.1f}%", style={'fontSize': '12px'}),
+                ], style={
+                    'background': _bg, 'border': f'1px solid {_border}',
+                    'borderRadius': '8px', 'padding': '10px 14px',
+                    'minWidth': '180px', 'flex': '1',
+                }))
+            papel_kpi_section = html.Div(_kpi_papel_cards, style={
+                'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px', 'marginBottom': '16px',
+            })
+
         def _section(title, subtitle=None, children=None):
             """Helper: cria bloco de seção com título, linha divisória e conteúdo."""
             return html.Div([
@@ -13768,8 +13964,28 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # ── Tabela de devs ─────────────────────────────────────────────────
             _section(
                 'Ranking de Desenvolvedores',
-                'Ordenado por Score Integrado. Filtre a coluna BU para ver somente um time.',
+                'Ordenado por Score Integrado (complexidade ponderada + PRs + aprovações + commits/5). Filtre a coluna BU ou Papel.',
                 [prod_table],
+            ),
+
+            # ── Radar chart multidimensional ───────────────────────────────────
+            _section(
+                'Perfil Multidimensional por Desenvolvedor',
+                'Top 10 por Score Integrado. Cada eixo normalizado 0-100 em relação ao maior valor do período. '
+                'Entrega = Score Complexidade; Revisão = aprovações Bitbucket; Velocidade = lead time invertido.',
+                [dcc.Graph(figure=fig_radar, config={'displayModeBar': False})]
+                if fig_radar.data else [html.P('Dados insuficientes para gerar radar.', style={'color': '#aaa'})],
+            ),
+
+            # ── Segmentação por Papel (Tech Lead vs Dev) ───────────────────────
+            _section(
+                'Benchmark por Papel — Tech Lead vs Dev',
+                'Medianas por papel. Ajuste os papéis em people_config.json → role_map.',
+                [
+                    papel_kpi_section,
+                    dcc.Graph(figure=fig_papel, config={'displayModeBar': False})
+                    if fig_papel.data else html.P('Papel não configurado ou sem dados.', style={'color': '#aaa'}),
+                ],
             ),
 
             # ── Gráfico puxados vs entregues ───────────────────────────────────
