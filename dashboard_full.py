@@ -6304,6 +6304,188 @@ def load_w1nner_process_mining_report():
     return path, loaded
 
 
+# Prefixo de arquivo de process mining por projeto
+_PM_FILE_PREFIX_MAP = {
+    'W1NNER': 'w1nner',
+    'W1NNR':  'w1nner',
+    'S1NC':   's1nc',
+    'W1SFT':  's1nc',
+    'BEFINANCE': 'befinance',
+    'BF':        'befinance',
+    'DATA&ANALYTICS': 'dataanalytics',
+    'DATA ANALYTICS': 'dataanalytics',
+    'DT': 'dataanalytics',
+    'DA': 'dataanalytics',
+}
+
+
+def load_project_pm_case_df(projeto: str) -> pd.DataFrame:
+    """Carrega a aba ConformidadeCasos do Excel de process mining mais recente para qualquer projeto.
+    Retorna DataFrame vazio se não encontrado.
+    """
+    project_key = str(projeto or '').strip().upper()
+    prefix = _PM_FILE_PREFIX_MAP.get(project_key, project_key.lower().replace(' ', '').replace('&', ''))
+    required_sheet = 'ConformidadeCasos'
+    latest_name = f'{prefix}-process-mining-latest.xlsx'
+    candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if low.startswith(f'{prefix}-process-mining-') and low.endswith('.xlsx'):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    is_latest = 1 if name.lower() == latest_name else 0
+                    candidates.append((is_latest, os.path.getctime(path), path))
+    if not candidates:
+        return pd.DataFrame()
+    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    for _, _, path in candidates:
+        try:
+            xls = pd.ExcelFile(path)
+            if required_sheet in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=required_sheet)
+                if not df.empty:
+                    return df
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+
+def compute_pm_dev_metrics(
+    case_df: pd.DataFrame,
+    start_ts,
+    end_ts,
+    alias_index: dict | None = None,
+) -> pd.DataFrame:
+    """Calcula métricas de process mining por desenvolvedor a partir de ConformidadeCasos.
+
+    Retorna DataFrame com colunas:
+        Pessoa, Conformance Quality, Rework Rate PM (%), QA Return Rate (%)
+    """
+    if case_df is None or case_df.empty:
+        return pd.DataFrame()
+    if 'Done Final Author' not in case_df.columns or 'Done Final Date' not in case_df.columns:
+        return pd.DataFrame()
+
+    df = case_df.copy()
+    df['Done Final Date'] = pd.to_datetime(df['Done Final Date'], errors='coerce')
+    start_ts = pd.to_datetime(start_ts)
+    end_ts = pd.to_datetime(end_ts)
+
+    # Filtra por período (itens concluídos no janela)
+    mask = df['Done Final Date'].notna() & (df['Done Final Date'] >= start_ts) & (df['Done Final Date'] < end_ts)
+    df = df[mask].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    # Normaliza autor
+    if alias_index is None:
+        alias_index = _load_person_alias_index()
+    df['Pessoa'] = df['Done Final Author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    df = df[df['Pessoa'].astype(str).str.strip().ne('') & df['Pessoa'].str.lower().ne('sem autor')]
+
+    for col in ['Conformance Score', 'Rework Score', 'QA Returns']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    rows = []
+    for pessoa, g in df.groupby('Pessoa'):
+        total = len(g)
+        conform_avg = g['Conformance Score'].mean() * 100 if 'Conformance Score' in g.columns else 0.0
+        rework_pct = (g['Rework Score'] > 0).sum() / total * 100 if 'Rework Score' in g.columns else 0.0
+        qa_pct = (g['QA Returns'] > 0).sum() / total * 100 if 'QA Returns' in g.columns else 0.0
+        variant_len_avg = g['Variant'].apply(lambda v: len(str(v).split(' > ')) if pd.notna(v) else 0).mean() if 'Variant' in g.columns else 0.0
+        rows.append({
+            'Pessoa': pessoa,
+            'Conformance Quality (%)': round(float(conform_avg), 1),
+            'Rework Rate PM (%)': round(float(rework_pct), 1),
+            'QA Return Rate (%)': round(float(qa_pct), 1),
+            'Complexidade Variante': round(float(variant_len_avg), 1),
+        })
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def compute_pipeline_success_rate(
+    bb_projects: list,
+    start_ts,
+    end_ts,
+    alias_index: dict | None = None,
+) -> pd.DataFrame:
+    """Calcula taxa de sucesso de pipeline por autor, cruzando pipelines com commits.
+
+    Retorna DataFrame com colunas: Pessoa, Pipelines Total, Pipelines Sucesso, Pipeline Success Rate (%)
+    """
+    if alias_index is None:
+        alias_index = _load_person_alias_index()
+    start_ts = pd.to_datetime(start_ts)
+    end_ts = pd.to_datetime(end_ts)
+
+    all_pipelines = []
+    all_commits = []
+    for proj in bb_projects:
+        logs = load_project_bitbucket_logs(proj)
+        pip = logs.get('pipelines', pd.DataFrame())
+        com = logs.get('commits', pd.DataFrame())
+        if not pip.empty:
+            all_pipelines.append(pip)
+        if not com.empty:
+            all_commits.append(com)
+
+    if not all_pipelines or not all_commits:
+        return pd.DataFrame()
+
+    pipelines = pd.concat(all_pipelines, ignore_index=True).drop_duplicates(subset=['uuid'] if 'uuid' in all_pipelines[0].columns else None)
+    commits = pd.concat(all_commits, ignore_index=True).drop_duplicates(subset=['hash'] if 'hash' in all_commits[0].columns else None)
+
+    if 'commit_hash' not in pipelines.columns or 'hash' not in commits.columns or 'author' not in commits.columns:
+        return pd.DataFrame()
+
+    # Filtra pipelines pelo período
+    if 'created_on' in pipelines.columns:
+        pipelines['created_on'] = pd.to_datetime(pipelines['created_on'], errors='coerce')
+        pipelines = pipelines[
+            pipelines['created_on'].notna() &
+            (pipelines['created_on'] >= start_ts) &
+            (pipelines['created_on'] < end_ts)
+        ]
+    if pipelines.empty:
+        return pd.DataFrame()
+
+    # Join pipelines → commits para obter autor
+    commits_slim = commits[['hash', 'author']].copy()
+    commits_slim['hash'] = commits_slim['hash'].astype(str).str.strip()
+    pipelines['commit_hash'] = pipelines['commit_hash'].astype(str).str.strip()
+    merged = pipelines.merge(commits_slim, left_on='commit_hash', right_on='hash', how='left')
+    merged = merged[merged['author'].notna() & (merged['author'].astype(str).str.strip() != '')]
+    if merged.empty:
+        return pd.DataFrame()
+
+    merged['Pessoa'] = merged['author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    merged = merged[merged['Pessoa'].astype(str).str.strip().ne('')]
+
+    state_col = 'state_norm' if 'state_norm' in merged.columns else 'state_result' if 'state_result' in merged.columns else None
+    if not state_col:
+        return pd.DataFrame()
+
+    merged['_sucesso'] = merged[state_col].astype(str).str.strip().str.lower().isin({'successful', 'success', 'passed'})
+
+    rows = []
+    for pessoa, g in merged.groupby('Pessoa'):
+        total = len(g)
+        sucesso = int(g['_sucesso'].sum())
+        rows.append({
+            'Pessoa': pessoa,
+            'Pipelines Total': total,
+            'Pipelines Sucesso': sucesso,
+            'Pipeline Success Rate (%)': round(sucesso / total * 100, 1) if total > 0 else 0.0,
+        })
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
 def get_leadtime_stage_filter_columns(projeto):
     """
     Resolve stage columns/options for the Lead Time stage filter.
@@ -13490,6 +13672,42 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 per_dev[col] = 0
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce').fillna(0).astype(int)
 
+        # ── Métricas de Process Mining (Conformance Quality, Rework Rate, QA Return Rate) ──
+        # Carrega ConformidadeCasos para todos os projetos relevantes e agrega por dev
+        pm_frames = []
+        for _pm_proj in bb_projects:
+            _case_df = load_project_pm_case_df(_pm_proj)
+            if not _case_df.empty:
+                _pm_metrics = compute_pm_dev_metrics(
+                    _case_df, start_ts_prod, end_ts_prod, alias_index=alias_index_prod
+                )
+                if not _pm_metrics.empty:
+                    pm_frames.append(_pm_metrics)
+        if pm_frames:
+            pm_combined = pd.concat(pm_frames, ignore_index=True)
+            if 'Pessoa' in pm_combined.columns:
+                _pm_num_cols = [c for c in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)', 'Complexidade Variante'] if c in pm_combined.columns]
+                _pm_agg = {c: 'mean' for c in _pm_num_cols}
+                if _pm_agg:
+                    pm_combined = pm_combined.groupby('Pessoa').agg(_pm_agg).reset_index()
+                    for c in _pm_num_cols:
+                        pm_combined[c] = pm_combined[c].round(1)
+                per_dev = pd.merge(per_dev, pm_combined, on='Pessoa', how='left')
+
+        for col in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)', 'Complexidade Variante']:
+            if col not in per_dev.columns:
+                per_dev[col] = np.nan
+            per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce')
+
+        # ── Pipeline Success Rate (Bitbucket pipelines × commits) ──────────────
+        pip_df = compute_pipeline_success_rate(bb_projects, start_ts_prod, end_ts_prod, alias_index=alias_index_prod)
+        if not pip_df.empty and 'Pessoa' in pip_df.columns:
+            per_dev = pd.merge(per_dev, pip_df[['Pessoa', 'Pipeline Success Rate (%)', 'Pipelines Total']], on='Pessoa', how='left')
+        for col in ['Pipeline Success Rate (%)', 'Pipelines Total']:
+            if col not in per_dev.columns:
+                per_dev[col] = np.nan
+            per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce')
+
         # Indicador de colaboração real: qualidade de revisão = aprovações / total revisões
         per_dev['Total Revisoes'] = per_dev['Aprovacoes'] + per_dev['Reprovacoes']
         per_dev['Qualidade Revisao'] = np.where(
@@ -13586,19 +13804,33 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # ── Tabela resumo por dev ─────────────────────────────────────────────
         table_col_order = [
-            'BU', 'Papel', 'Pessoa', 'Itens Puxados', 'Itens Entregues', 'SP Entregues',
-            'Score Complexidade', 'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
-            'Lead Time Mediano (dias)', 'Commits', 'PRs Abertos', 'PRs Merged',
-            'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao', 'Score Integrado',
+            'BU', 'Papel', 'Pessoa',
+            # Entrega
+            'Itens Puxados', 'Itens Entregues', 'SP Entregues', 'Score Complexidade',
+            # Qualidade Jira
+            'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
+            'Lead Time Mediano (dias)',
+            # Código / CI
+            'Commits', 'PRs Abertos', 'PRs Merged',
+            'Pipelines Total', 'Pipeline Success Rate (%)',
+            # Revisão
+            'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao',
+            # Process Mining
+            'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
+            'Complexidade Variante',
+            # Score
+            'Score Integrado',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
 
-        # Formata % Demanda Falha como string para exibição
+        # Formata colunas percentuais para exibição
         prod_display = per_dev[table_cols_prod].head(80).copy()
-        if '% Demanda Falha' in prod_display.columns:
-            prod_display['% Demanda Falha'] = prod_display['% Demanda Falha'].apply(
-                lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
-            )
+        for _pct_col in ['% Demanda Falha', 'Qualidade Revisao', 'Pipeline Success Rate (%)',
+                         'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)']:
+            if _pct_col in prod_display.columns:
+                prod_display[_pct_col] = prod_display[_pct_col].apply(
+                    lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
+                )
 
         prod_table = dash_table.DataTable(
             columns=[{"name": c, "id": c} for c in table_cols_prod],
@@ -13788,39 +14020,57 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         period_label = f"{start_ts_prod.date()} → {end_ts_prod.date()}"
 
         # ── Radar chart multidimensional ──────────────────────────────────────
-        # Dimensões: Entrega (Score Complexidade), Código (Commits), Revisão (Aprovacoes),
-        # Qualidade (100 - % Falha), Velocidade (lead time invertido)
+        # 5 eixos fundamentados na literatura:
+        # Entrega (Oliveira 2020, SPACE), Código+Pipeline (Nogueira 2023),
+        # Revisão/Colaboração (Forsgren 2021), Processo/Conformance (Caldeira 2019),
+        # Qualidade/Anti-Retrabalho (Caldeira 2021, Shah 2023)
         fig_radar = go.Figure()
         _radar_top = per_dev.head(10).copy()
         if not _radar_top.empty:
             def _norm_series(s):
+                s = pd.to_numeric(s, errors='coerce').fillna(0)
                 mx = s.max()
-                return (s / mx * 100).fillna(0) if mx > 0 else s * 0
+                return (s / mx * 100) if mx > 0 else s * 0
 
+            # Eixo 1: Entrega ponderada por complexidade
             _score_cx_col = 'Score Complexidade' if 'Score Complexidade' in _radar_top.columns else 'Itens Entregues'
             _radar_top['_r_entrega'] = _norm_series(_radar_top[_score_cx_col])
-            _radar_top['_r_codigo'] = _norm_series(_radar_top['Commits'])
-            _radar_top['_r_revisao'] = _norm_series(_radar_top['Aprovacoes'])
-            _radar_top['_r_qualidade'] = (100 - _radar_top['% Demanda Falha'].clip(0, 100))
-            _lt_max = _radar_top['Lead Time Mediano (dias)'].replace(0, np.nan).max()
-            if _lt_max and _lt_max > 0:
-                _radar_top['_r_velocidade'] = (
-                    (_lt_max - _radar_top['Lead Time Mediano (dias)']) / _lt_max * 100
-                ).clip(0, 100)
-            else:
-                _radar_top['_r_velocidade'] = pd.Series(50, index=_radar_top.index)
 
-            _radar_categories = ['Entrega', 'Código', 'Revisão', 'Qualidade', 'Velocidade']
-            _radar_cols = ['_r_entrega', '_r_codigo', '_r_revisao', '_r_qualidade', '_r_velocidade']
+            # Eixo 2: Código + sinal de pipeline (commits normalizado, bonus +10 se pipeline > 80%)
+            _r_code = _norm_series(_radar_top['Commits'])
+            _pip_bonus = np.where(
+                _radar_top['Pipeline Success Rate (%)'].fillna(0) >= 80, 10, 0
+            ) if 'Pipeline Success Rate (%)' in _radar_top.columns else 0
+            _radar_top['_r_codigo'] = (_r_code + _pip_bonus).clip(0, 100)
+
+            # Eixo 3: Revisão / Colaboração (qualidade de revisão Bitbucket)
+            _radar_top['_r_revisao'] = _norm_series(_radar_top['Qualidade Revisao'] if 'Qualidade Revisao' in _radar_top.columns else _radar_top['Aprovacoes'])
+
+            # Eixo 4: Conformance de processo (Caldeira 2019)
+            if 'Conformance Quality (%)' in _radar_top.columns:
+                _radar_top['_r_processo'] = _radar_top['Conformance Quality (%)'].fillna(0).clip(0, 100)
+            else:
+                _radar_top['_r_processo'] = pd.Series(50, index=_radar_top.index)
+
+            # Eixo 5: Anti-retrabalho = 100 - Rework Rate PM (Caldeira 2021)
+            # Se não tiver PM, cai para 100 - % Demanda Falha Jira
+            if 'Rework Rate PM (%)' in _radar_top.columns and _radar_top['Rework Rate PM (%)'].notna().any():
+                _radar_top['_r_qualidade'] = (100 - _radar_top['Rework Rate PM (%)'].fillna(50)).clip(0, 100)
+            else:
+                _radar_top['_r_qualidade'] = (100 - _radar_top['% Demanda Falha'].clip(0, 100))
+
+            _radar_categories = ['Entrega', 'Código+Pipeline', 'Revisão', 'Conformance', 'Anti-Retrabalho']
+            _radar_cols = ['_r_entrega', '_r_codigo', '_r_revisao', '_r_processo', '_r_qualidade']
             _radar_colors = [
                 '#2980b9', '#27ae60', '#8e44ad', '#e67e22', '#c0392b',
                 '#16a085', '#d35400', '#2c3e50', '#1abc9c', '#e74c3c',
             ]
             for _ri, (_ridx, _rrow) in enumerate(_radar_top.iterrows()):
-                _vals = [_rrow[c] for c in _radar_cols]
+                _vals = [float(_rrow[c]) for c in _radar_cols]
                 _vals_closed = _vals + [_vals[0]]
                 _cats_closed = _radar_categories + [_radar_categories[0]]
-                _short_name = str(_rrow['Pessoa']).split()[0] if _rrow['Pessoa'] else str(_rrow['Pessoa'])
+                _nome_parts = str(_rrow['Pessoa']).split()
+                _short_name = f"{_nome_parts[0]} {_nome_parts[-1]}" if len(_nome_parts) > 1 else str(_rrow['Pessoa'])
                 fig_radar.add_trace(go.Scatterpolar(
                     r=_vals_closed,
                     theta=_cats_closed,
@@ -13835,11 +14085,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     angularaxis=dict(tickfont=dict(size=12)),
                 ),
                 showlegend=True,
-                height=540,
-                title='Perfil Multidimensional — Top 10 por Score (normalizado 0-100 por dimensão)',
+                height=560,
+                title=(
+                    'Perfil Multidimensional — Top 10 por Score (normalizado 0-100)<br>'
+                    '<sup>Entrega=Score×SP | Código+Pipeline | Revisão=qualidade review | '
+                    'Conformance=process mining | Anti-Retrabalho=100-ReworkRate</sup>'
+                ),
                 template='plotly_white',
                 legend=dict(orientation='h', yanchor='bottom', y=-0.35, x=0.5, xanchor='center'),
-                margin=dict(t=60, b=120),
+                margin=dict(t=80, b=130),
             )
 
         # ── Comparativo por Papel (Tech Lead vs Dev) ──────────────────────────
@@ -13964,7 +14218,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # ── Tabela de devs ─────────────────────────────────────────────────
             _section(
                 'Ranking de Desenvolvedores',
-                'Ordenado por Score Integrado (complexidade ponderada + PRs + aprovações + commits/5). Filtre a coluna BU ou Papel.',
+                'Ordenado por Score Integrado. Colunas de Process Mining (Conformance Quality, Rework Rate PM, QA Return Rate) '
+                'provêm dos arquivos *-process-mining-latest.xlsx. Filtre por BU ou Papel.',
                 [prod_table],
             ),
 
