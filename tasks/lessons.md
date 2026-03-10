@@ -12,6 +12,24 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-09
+- Context: Ajuste da governança de `Expedite` após orientação sobre prioridade `HIGEST`.
+- User correction: Pediu que itens classificados com prioridade `HIGEST` fossem tratados como `Expedite`.
+- Root cause: A governança de expedite dependia principalmente de `ClasseServico`, e eu não havia alinhado totalmente essa leitura com a variação ortográfica real de prioridade usada nos dados.
+- Prevention rule: Quando a regra de urgência depender de prioridade, cobrir explicitamente as variações ortográficas reais observadas no ambiente (`highest`, `higest`, etc.) na resolução canônica.
+- Action added to workflow: Em toda regra de classificação operacional baseada em prioridade, validar aliases e typos conhecidos antes de concluir a implementação.
+- Date: 2026-03-09
+- Context: Correção da aba `Padrões Sistêmicos` após erro em runtime com `KeyError: 'Severidade'`.
+- User correction: Reportou traceback mostrando que a aba tentava acessar `details['Severidade']` quando não havia ocorrências de padrões.
+- Root cause: Eu tratei o caso vazio no fluxo principal da aba, mas mantive `detect_systemic_patterns(...)` retornando `DataFrame()` sem schema, o que deixou o consumo frágil em acessos por coluna.
+- Prevention rule: Helpers que retornam `DataFrame` para consumo por UI devem devolver colunas estáveis mesmo no caso vazio; na camada de renderização, acessos a colunas críticas também devem ser defensivos.
+- Action added to workflow: Em qualquer tabela/gráfico novo, validar explicitamente dois cenários no smoke test: `com dados` e `sem linhas`, verificando schema e renderização.
+- Date: 2026-03-09
+- Context: Ajuste do checklist semanal automatizado para leitura de `WIP`.
+- User correction: Indicou que a regra anterior não era operacionalmente adequada e pediu avaliação configurável de `WIP por pessoa`, usando `2 itens por pessoa` como referência inicial.
+- Root cause: Eu havia usado uma banda histórica agregada de `WIP`, que pode normalizar cenários evidentemente anômalos em times pequenos.
+- Prevention rule: Para alertas de `WIP` operacional, preferir limites ancorados em capacidade explícita do time (`itens por pessoa`, `limite por estágio`, etc.) em vez de apenas bandas históricas agregadas.
+- Action added to workflow: Em qualquer checklist de fluxo com `WIP`, validar primeiro se existe uma regra de capacidade mais interpretável pelo usuário antes de recorrer a referência histórica.
+- Date: 2026-03-09
 - Context: Priorização de backlog após análise de lacunas de métricas de fluxo com base nos artefatos da Cristiane Goncalves.
 - User correction: Informou que `Monte Carlo` não será implementado; `SLE` é apenas possibilidade; o foco deve ficar no restante das métricas operacionais de fluxo.
 - Root cause: Eu mantive `Monte Carlo` no topo da priorização por aderência ao material de referência, sem ajustar a recomendação à direção explícita de escopo do usuário.

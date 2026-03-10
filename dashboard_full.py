@@ -343,6 +343,9 @@ def resolve_service_class(classe_servico, prioridade):
     if pd.notna(prioridade):
         prioridade_text = str(prioridade).strip()
         if prioridade_text and prioridade_text.lower() != 'nan':
+            prioridade_norm = ''.join(ch for ch in prioridade_text.lower() if ch.isalnum() or ch.isspace()).strip()
+            if any(token in prioridade_norm for token in ['highest', 'higest']):
+                return 'Expedite'
             return prioridade_text
 
     if classe_text and classe_text.lower() != 'nan':
@@ -1726,6 +1729,11 @@ def load_pattern_rules():
 load_env_file('jira_env.txt')
 load_env_file('jira-env.txt')
 PATTERN_RULES = load_pattern_rules()
+DEFAULT_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT = float(os.getenv('FLOW_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT', '2').strip() or '2')
+DEFAULT_EXPEDITE_TARGET_PCT = float(os.getenv('FLOW_EXPEDITE_TARGET_PCT', '20').strip() or '20')
+DEFAULT_EXPEDITE_CRITICAL_PCT = float(os.getenv('FLOW_EXPEDITE_CRITICAL_PCT', '30').strip() or '30')
+DEFAULT_VARIABILITY_CV_WARN = float(os.getenv('FLOW_VARIABILITY_CV_WARN', '0.30').strip() or '0.30')
+DEFAULT_VARIABILITY_CV_CRITICAL = float(os.getenv('FLOW_VARIABILITY_CV_CRITICAL', '0.50').strip() or '0.50')
 
 
 def _safe_ratio(num, den):
@@ -1740,7 +1748,85 @@ def _safe_pct(num, den):
     return float(num) / float(den) * 100.0
 
 
+def _get_weekly_wip_items_per_person_limit():
+    raw = os.getenv('FLOW_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT', '').strip()
+    if not raw:
+        return DEFAULT_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT
+    try:
+        value = float(raw)
+        return value if value > 0 else DEFAULT_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT
+    except Exception:
+        return DEFAULT_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT
+
+
+def _get_expedite_target_pct():
+    raw = os.getenv('FLOW_EXPEDITE_TARGET_PCT', '').strip()
+    if not raw:
+        return DEFAULT_EXPEDITE_TARGET_PCT
+    try:
+        value = float(raw)
+        return value if value >= 0 else DEFAULT_EXPEDITE_TARGET_PCT
+    except Exception:
+        return DEFAULT_EXPEDITE_TARGET_PCT
+
+
+def _get_expedite_critical_pct():
+    raw = os.getenv('FLOW_EXPEDITE_CRITICAL_PCT', '').strip()
+    if not raw:
+        return DEFAULT_EXPEDITE_CRITICAL_PCT
+    try:
+        value = float(raw)
+        return value if value >= 0 else DEFAULT_EXPEDITE_CRITICAL_PCT
+    except Exception:
+        return DEFAULT_EXPEDITE_CRITICAL_PCT
+
+
+def _get_variability_cv_warn():
+    raw = os.getenv('FLOW_VARIABILITY_CV_WARN', '').strip()
+    if not raw:
+        return DEFAULT_VARIABILITY_CV_WARN
+    try:
+        value = float(raw)
+        return value if value > 0 else DEFAULT_VARIABILITY_CV_WARN
+    except Exception:
+        return DEFAULT_VARIABILITY_CV_WARN
+
+
+def _get_variability_cv_critical():
+    raw = os.getenv('FLOW_VARIABILITY_CV_CRITICAL', '').strip()
+    if not raw:
+        return DEFAULT_VARIABILITY_CV_CRITICAL
+    try:
+        value = float(raw)
+        return value if value > 0 else DEFAULT_VARIABILITY_CV_CRITICAL
+    except Exception:
+        return DEFAULT_VARIABILITY_CV_CRITICAL
+
+
+def _is_expedite_service_class(value):
+    text = normalize_text(value)
+    return any(token in text for token in ['expedite', 'urgent', 'urgente', 'critical', 'critico', 'fast track', 'fasttrack', 'highest', 'higest'])
+
+
+def _variability_status(cv_value, warn=None, critical=None):
+    warn = _get_variability_cv_warn() if warn is None else float(warn)
+    critical = _get_variability_cv_critical() if critical is None else float(critical)
+    if pd.isna(cv_value):
+        return 'Sem base'
+    if cv_value < warn:
+        return 'OK'
+    if cv_value < critical:
+        return 'Atenção'
+    return 'Crítico'
+
+
 def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
+    detail_cols = [
+        'Projeto', 'Semana', 'Padrão', 'Severidade', 'Regras Acionadas', 'Expedite (%)',
+        'Pressure (λ/μ)', 'Failure Demand (%)', 'Predictability (P85/P50)',
+        'Lead Time P85', 'WIP/Throughput', 'Blocked (%)', 'Discard (%)', 'WIP Age / LT P85'
+    ]
+    summary_cols = ['Padrão', 'Severidade', 'Ocorrências']
     pattern_labels = {
         "urgencia_cronica": "Times operando em estado de urgência",
         "burnout": "Times em processo de burnout",
@@ -1753,7 +1839,7 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
     weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
     rows = []
     if len(weeks) < 2:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(columns=detail_cols), pd.DataFrame(columns=summary_cols)
 
     if 'Projeto' in df_source.columns:
         project_groups = [
@@ -1839,7 +1925,7 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
 
     details = pd.DataFrame(rows)
     if details.empty:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(columns=detail_cols), pd.DataFrame(columns=summary_cols)
     summary = (
         details.groupby(['Padrão', 'Severidade'], as_index=False)
         .size()
@@ -1847,6 +1933,456 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
         .sort_values('Ocorrências', ascending=False)
     )
     return details, summary
+
+
+def build_weekly_flow_checklist_and_diagnosis(df_source, start_ts, end_ts):
+    weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
+    wip_items_per_person_limit = _get_weekly_wip_items_per_person_limit()
+    if len(weeks) < 2 or df_source is None or df_source.empty:
+        empty_checklist = pd.DataFrame(columns=['Checklist', 'Status', 'Observado', 'Referência', 'Leitura'])
+        empty_diag = pd.DataFrame(columns=['Semana', 'Padrão Observado', 'Diagnóstico Provável', 'Ação Recomendada', 'Severidade'])
+        empty_weekly = pd.DataFrame()
+        return empty_checklist, empty_diag, empty_weekly
+
+    rows = []
+    for i in range(len(weeks) - 1):
+        week_start = weeks[i]
+        week_end = weeks[i + 1]
+        arrived = df_source[(df_source['DataInProgress'] >= week_start) & (df_source['DataInProgress'] < week_end)]
+        done = df_source[(df_source['DataDone'] >= week_start) & (df_source['DataDone'] < week_end)]
+        done = done[done_time_eligible_mask(done)] if not done.empty else done
+        wip = df_source[(df_source['DataInProgress'] < week_end) & ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))].copy()
+
+        cycle_series = time_metric_series(done, 'TempoExecucao_Dias', non_negative=True)
+        if cycle_series.empty:
+            cycle_series = time_metric_series(done, 'CycleTime_Dias', non_negative=True)
+        cycle_p50 = exact_empirical_percentile(cycle_series, 0.50) if not cycle_series.empty else np.nan
+        cycle_p85 = exact_empirical_percentile(cycle_series, 0.85) if not cycle_series.empty else np.nan
+        cycle_mean = float(cycle_series.mean()) if not cycle_series.empty else np.nan
+        cycle_cv = float(cycle_series.std() / cycle_series.mean()) if len(cycle_series) > 1 and cycle_series.mean() > 0 else np.nan
+
+        wip_age_avg = np.nan
+        oldest_open_age = np.nan
+        aged_over_p85_count = 0
+        if not wip.empty:
+            wip['DataInProgress'] = pd.to_datetime(wip['DataInProgress'], errors='coerce')
+            wip['WorkItemAge_Dias'] = (week_end - wip['DataInProgress']).dt.total_seconds() / 86400.0
+            valid_age = pd.to_numeric(wip['WorkItemAge_Dias'], errors='coerce')
+            if not valid_age.dropna().empty:
+                wip_age_avg = float(valid_age.mean())
+                oldest_open_age = float(valid_age.max())
+                if pd.notna(cycle_p85) and cycle_p85 > 0:
+                    aged_over_p85_count = int((valid_age > cycle_p85).sum())
+
+        active_people = np.nan
+        wip_per_person = np.nan
+        wip_limit = np.nan
+        if 'Responsavel' in df_source.columns:
+            people_series = pd.concat([
+                arrived.get('Responsavel', pd.Series(dtype='object')),
+                done.get('Responsavel', pd.Series(dtype='object')),
+                wip.get('Responsavel', pd.Series(dtype='object')),
+            ], ignore_index=True)
+            people_series = people_series.fillna('').astype(str).str.strip()
+            people_series = people_series[people_series != '']
+            if not people_series.empty:
+                active_people = int(people_series.nunique())
+                wip_limit = float(active_people) * float(wip_items_per_person_limit)
+                wip_per_person = float(len(wip)) / float(active_people) if active_people > 0 else np.nan
+
+        tp = int(len(done))
+        inflow = int(len(arrived))
+        flow_pressure = _safe_ratio(inflow, tp)
+        blocked_rate = _safe_pct(wip['Bloqueado'].sum(), len(wip)) if 'Bloqueado' in wip.columns and len(wip) > 0 else 0.0
+
+        rows.append({
+            'Semana': week_start.date(),
+            'Chegadas': inflow,
+            'Throughput': tp,
+            'WIP': int(len(wip)),
+            'CycleTime_Medio': round(cycle_mean, 2) if pd.notna(cycle_mean) else np.nan,
+            'CycleTime_P50': round(cycle_p50, 2) if pd.notna(cycle_p50) else np.nan,
+            'CycleTime_P85': round(cycle_p85, 2) if pd.notna(cycle_p85) else np.nan,
+            'CycleTime_CV': round(cycle_cv, 3) if pd.notna(cycle_cv) else np.nan,
+            'WIP_Age_Medio': round(wip_age_avg, 2) if pd.notna(wip_age_avg) else np.nan,
+            'OldestOpenAge': round(oldest_open_age, 2) if pd.notna(oldest_open_age) else np.nan,
+            'AgedOverP85Count': aged_over_p85_count,
+            'PessoasAtivas': int(active_people) if pd.notna(active_people) else np.nan,
+            'WIP_Por_Pessoa': round(wip_per_person, 2) if pd.notna(wip_per_person) else np.nan,
+            'WIP_Limite_Config': round(wip_limit, 2) if pd.notna(wip_limit) else np.nan,
+            'BlockedRate': round(blocked_rate, 2),
+            'FlowPressure': round(flow_pressure, 3) if pd.notna(flow_pressure) else np.nan,
+        })
+
+    weekly = pd.DataFrame(rows)
+    if weekly.empty:
+        empty_checklist = pd.DataFrame(columns=['Checklist', 'Status', 'Observado', 'Referência', 'Leitura'])
+        empty_diag = pd.DataFrame(columns=['Semana', 'Padrão Observado', 'Diagnóstico Provável', 'Ação Recomendada', 'Severidade'])
+        return empty_checklist, empty_diag, weekly
+
+    throughput_avg = float(weekly['Throughput'].mean()) if weekly['Throughput'].notna().any() else np.nan
+    wip_p85_ref = float(weekly['WIP'].quantile(0.85)) if weekly['WIP'].notna().any() else np.nan
+    cycle_hist_series = time_metric_series(df_source[done_time_eligible_mask(df_source)].copy(), 'TempoExecucao_Dias', non_negative=True)
+    if cycle_hist_series.empty:
+        cycle_hist_series = time_metric_series(df_source[done_time_eligible_mask(df_source)].copy(), 'CycleTime_Dias', non_negative=True)
+    cycle_hist_median = exact_empirical_percentile(cycle_hist_series, 0.50) if not cycle_hist_series.empty else np.nan
+
+    weekly['ThroughputPrev'] = weekly['Throughput'].shift(1)
+    weekly['ThroughputVarVsPrevPct'] = np.where(
+        weekly['ThroughputPrev'].fillna(0) > 0,
+        ((weekly['Throughput'] - weekly['ThroughputPrev']) / weekly['ThroughputPrev']) * 100.0,
+        np.nan,
+    )
+    weekly['ThroughputStatus'] = 'Estável'
+    if pd.notna(throughput_avg) and throughput_avg > 0:
+        weekly.loc[weekly['Throughput'] < throughput_avg * 0.8, 'ThroughputStatus'] = 'Baixo'
+        weekly.loc[weekly['Throughput'] > throughput_avg * 1.2, 'ThroughputStatus'] = 'Alto'
+
+    weekly['CycleStatus'] = 'Estável'
+    if pd.notna(cycle_hist_median) and cycle_hist_median > 0:
+        weekly.loc[weekly['CycleTime_P50'] > cycle_hist_median * 1.3, 'CycleStatus'] = 'Alto'
+        weekly.loc[weekly['CycleTime_P50'] < cycle_hist_median * 0.7, 'CycleStatus'] = 'Baixo'
+
+    wip_median = float(weekly['WIP'].median()) if weekly['WIP'].notna().any() else np.nan
+    weekly['WIPStatus'] = 'Estável'
+    if pd.notna(wip_median) and wip_median > 0:
+        weekly.loc[weekly['WIP'] > wip_median * 1.2, 'WIPStatus'] = 'Alto'
+        weekly.loc[weekly['WIP'] < wip_median * 0.8, 'WIPStatus'] = 'Baixo'
+
+    latest = weekly.iloc[-1]
+    checklist_rows = []
+
+    def add_check(item, passed, observed, reference, reading, critical=False):
+        status = 'OK' if passed else ('Crítico' if critical else 'Atenção')
+        checklist_rows.append({
+            'Checklist': item,
+            'Status': status,
+            'Observado': observed,
+            'Referência': reference,
+            'Leitura': reading,
+        })
+
+    tp_ok = pd.notna(throughput_avg) and latest['Throughput'] >= throughput_avg * 0.8 and latest['Throughput'] <= throughput_avg * 1.2
+    add_check(
+        'Throughput dentro de ±20% da média histórica?',
+        bool(tp_ok),
+        f"{int(latest['Throughput'])} itens/semana",
+        f"{throughput_avg:.1f} ±20%" if pd.notna(throughput_avg) else 'Sem histórico suficiente',
+        'Vazão dentro da banda esperada.' if tp_ok else 'Vazão fora da banda histórica; revisar capacidade ou variabilidade.',
+        critical=bool(pd.notna(throughput_avg) and latest['Throughput'] < throughput_avg * 0.8),
+    )
+
+    cycle_ok = pd.notna(cycle_hist_median) and pd.notna(latest['CycleTime_P50']) and latest['CycleTime_P50'] <= cycle_hist_median * 1.3
+    add_check(
+        'Cycle Time dentro de +30% da mediana histórica?',
+        bool(cycle_ok),
+        f"{latest['CycleTime_P50']:.1f}d" if pd.notna(latest['CycleTime_P50']) else 'Sem amostra',
+        f"{cycle_hist_median:.1f}d +30%" if pd.notna(cycle_hist_median) else 'Sem histórico suficiente',
+        'Tempo de fluxo segue estável.' if cycle_ok else 'Cycle Time acima da banda; há perda de previsibilidade.',
+        critical=bool(pd.notna(cycle_hist_median) and pd.notna(latest['CycleTime_P50']) and latest['CycleTime_P50'] > cycle_hist_median * 1.5),
+    )
+
+    wip_rule_available = pd.notna(latest.get('PessoasAtivas')) and pd.notna(latest.get('WIP_Limite_Config')) and latest.get('PessoasAtivas', 0) > 0
+    wip_ok = bool(wip_rule_available and latest['WIP'] <= latest['WIP_Limite_Config'])
+    add_check(
+        'WIP da semana abaixo do limite configurado por pessoa?',
+        bool(wip_ok),
+        (
+            f"{int(latest['WIP'])} itens | "
+            f"{latest['WIP_Por_Pessoa']:.2f} por pessoa"
+            if wip_rule_available and pd.notna(latest.get('WIP_Por_Pessoa'))
+            else f"{int(latest['WIP'])} itens"
+        ),
+        (
+            f"{wip_items_per_person_limit:.1f} por pessoa x {int(latest['PessoasAtivas'])} pessoas = {latest['WIP_Limite_Config']:.1f}"
+            if wip_rule_available else
+            f"Fallback histórico P85 = {wip_p85_ref:.1f}" if pd.notna(wip_p85_ref) else 'Sem base suficiente'
+        ),
+        (
+            'Carga em progresso compatível com a capacidade observada do time.'
+            if wip_ok else
+            'WIP por pessoa acima do limite configurado; reduzir frentes abertas e priorizar conclusão.'
+        ),
+        critical=bool(wip_rule_available and latest['WIP'] > latest['WIP_Limite_Config'] * 1.25),
+    )
+
+    tp_var_ok = pd.isna(latest['ThroughputVarVsPrevPct']) or abs(latest['ThroughputVarVsPrevPct']) <= 30.0
+    add_check(
+        'Variação de throughput <= 30% vs semana anterior?',
+        bool(tp_var_ok),
+        f"{latest['ThroughputVarVsPrevPct']:.1f}%" if pd.notna(latest['ThroughputVarVsPrevPct']) else 'Sem semana anterior',
+        '<= 30%',
+        'Cadência estável.' if tp_var_ok else 'Oscilação semanal alta; revisar entrada irregular ou itens muito heterogêneos.',
+    )
+
+    dispersion_ok = pd.notna(latest['CycleTime_CV']) and latest['CycleTime_CV'] < 0.30
+    add_check(
+        'Dispersão do Cycle Time controlada (CV < 0.30)?',
+        bool(dispersion_ok),
+        f"{latest['CycleTime_CV']:.3f}" if pd.notna(latest['CycleTime_CV']) else 'Sem amostra',
+        'CV < 0.30',
+        'Dispersão sob controle.' if dispersion_ok else 'Variabilidade alta; revisar tamanho de itens e qualidade de entrada.',
+    )
+
+    correlation_bad = latest['WIPStatus'] == 'Alto' and latest['CycleStatus'] == 'Alto'
+    add_check(
+        'Há correlação adversa entre WIP e Cycle Time?',
+        not correlation_bad,
+        f"WIP={latest['WIPStatus']} | Cycle={latest['CycleStatus']}",
+        'Evitar WIP alto junto com Cycle alto',
+        'Sem correlação adversa relevante.' if not correlation_bad else 'WIP e Cycle subiram juntos; fila interna provavelmente está crescendo.',
+        critical=bool(correlation_bad),
+    )
+
+    aged_ok = int(latest['AgedOverP85Count']) == 0
+    add_check(
+        'Itens abertos acima do Cycle P85 estão sob controle?',
+        aged_ok,
+        f"{int(latest['AgedOverP85Count'])} itens",
+        '0 itens acima do P85',
+        'Nenhum item aberto ultrapassando a banda crítica.' if aged_ok else 'Há itens envelhecendo acima do P85; fazer swarming ou desbloqueio.',
+        critical=bool(int(latest['AgedOverP85Count']) >= 3),
+    )
+
+    checklist_df = pd.DataFrame(checklist_rows)
+
+    diagnosis_rows = []
+    for _, row in weekly.iterrows():
+        throughput_status = row.get('ThroughputStatus')
+        cycle_status = row.get('CycleStatus')
+        wip_status = row.get('WIPStatus')
+        high_dispersion = pd.notna(row.get('CycleTime_CV')) and row.get('CycleTime_CV') >= 0.30
+        many_aged = int(row.get('AgedOverP85Count') or 0)
+        unstable_tp = pd.notna(row.get('ThroughputVarVsPrevPct')) and abs(float(row.get('ThroughputVarVsPrevPct'))) > 30.0
+        wip_over_people_limit = pd.notna(row.get('WIP_Limite_Config')) and pd.notna(row.get('WIP')) and float(row.get('WIP')) > float(row.get('WIP_Limite_Config'))
+
+        diagnosis = None
+        if throughput_status == 'Baixo' and (wip_status == 'Alto' or wip_over_people_limit) and cycle_status == 'Alto':
+            diagnosis = ('Throughput baixo | WIP alto | Cycle alto', 'Sistema sobrecarregado com filas internas.', 'Limitar WIP, priorizar conclusão, fazer swarming nos itens mais antigos e pausar novas entradas.', 'Crítico')
+        elif throughput_status == 'Baixo' and wip_status == 'Estável' and cycle_status == 'Alto' and high_dispersion:
+            diagnosis = ('Throughput baixo | WIP estável | Cycle alto | alta dispersão', 'Variabilidade elevada por itens complexos ou bloqueios pontuais.', 'Revisar Definition of Ready, quebrar itens grandes e mapear dependências recorrentes.', 'Atenção')
+        elif throughput_status == 'Baixo' and wip_status == 'Baixo' and cycle_status == 'Estável':
+            diagnosis = ('Throughput baixo | WIP baixo | Cycle estável', 'Redução de capacidade sem degradação do fluxo.', 'Ajustar expectativas e prazos sem acelerar artificialmente o sistema.', 'Atenção')
+        elif throughput_status == 'Alto' and wip_status == 'Alto' and cycle_status == 'Alto':
+            diagnosis = ('Throughput alto | WIP alto | Cycle alto', 'Aceleração acima do limite sustentável.', 'Congelar novas entradas, reforçar políticas pull e reduzir multitarefa.', 'Crítico')
+        elif throughput_status == 'Alto' and wip_status == 'Estável' and cycle_status == 'Estável':
+            diagnosis = ('Throughput alto | WIP estável | Cycle estável', 'Fluxo saudável e equilibrado.', 'Manter políticas atuais e usar os dados para planejamento confiável.', 'OK')
+        elif throughput_status == 'Estável' and (wip_status == 'Alto' or wip_over_people_limit) and cycle_status == 'Alto':
+            diagnosis = ('Throughput estável | WIP alto | Cycle alto', 'Saturação progressiva do sistema.', 'Atuar preventivamente limitando WIP e revisando pontos de espera.', 'Atenção')
+        elif unstable_tp and wip_status == 'Estável' and high_dispersion:
+            diagnosis = ('Throughput instável | WIP estável | Cycle instável', 'Processo inconsistente ou entrada irregular de trabalho.', 'Padronizar tamanho de itens, revisar critérios de entrada e estabilizar a cadência.', 'Atenção')
+        elif cycle_status == 'Alto' and throughput_status == 'Estável' and wip_status == 'Estável':
+            diagnosis = ('Cycle alto | Throughput estável | WIP estável', 'Aumento de complexidade interna ou retrabalho.', 'Investigar qualidade, revisar DoD e reduzir dependências.', 'Atenção')
+        elif many_aged > 0 and many_aged <= 3:
+            diagnosis = ('Work Item Age alto em poucos itens', 'Bloqueios silenciosos ou envelhecimento de itens críticos.', 'Fazer swarming direcionado e tornar bloqueios visíveis.', 'Atenção')
+        elif throughput_status == 'Baixo' and wip_status == 'Baixo' and cycle_status == 'Baixo':
+            diagnosis = ('WIP baixo | Throughput baixo | Cycle baixo', 'Subutilização de capacidade ou demanda reduzida.', 'Avaliar pipeline de demandas e redistribuir capacidade.', 'Atenção')
+
+        if diagnosis:
+            diagnosis_rows.append({
+                'Semana': row['Semana'],
+                'Padrão Observado': diagnosis[0],
+                'Diagnóstico Provável': diagnosis[1],
+                'Ação Recomendada': diagnosis[2],
+                'Severidade': diagnosis[3],
+            })
+
+    diagnosis_df = pd.DataFrame(diagnosis_rows)
+    if not diagnosis_df.empty:
+        severity_rank = {'Crítico': 0, 'Atenção': 1, 'OK': 2}
+        diagnosis_df['_rank'] = diagnosis_df['Severidade'].map(lambda value: severity_rank.get(value, 9))
+        diagnosis_df = diagnosis_df.sort_values(['Semana', '_rank'], ascending=[False, True], ignore_index=True).drop(columns=['_rank'])
+
+    return checklist_df, diagnosis_df, weekly
+
+
+def build_expedite_governance_view(df_source, start_ts, end_ts):
+    empty_kpis = {
+        'arrivals_pct': np.nan,
+        'throughput_pct': np.nan,
+        'open_items': 0,
+        'policy_status': 'Sem base',
+        'open_age_avg': np.nan,
+        'lead_p85': np.nan,
+    }
+    empty_table = pd.DataFrame(columns=['Classe de Serviço', 'Itens', 'Lead P50', 'Lead P85'])
+    empty_alerts = pd.DataFrame(columns=['Indicador', 'Observado', 'Regra', 'Status', 'Leitura'])
+    if df_source is None or df_source.empty:
+        return empty_kpis, empty_table, empty_alerts
+
+    scope = df_source.copy()
+    if 'ClasseServico' not in scope.columns:
+        scope['ClasseServico'] = ''
+    scope['ClasseServicoNorm'] = scope['ClasseServico'].fillna('').astype(str).map(normalize_text)
+    scope['IsExpedite'] = scope['ClasseServico'].apply(_is_expedite_service_class)
+
+    done_period = scope[(scope['DataDone'] >= start_ts) & (scope['DataDone'] <= end_ts)].copy()
+    done_period = done_period[done_time_eligible_mask(done_period)] if not done_period.empty else done_period
+    arrivals_period = scope[(scope['DataInProgress'] >= start_ts) & (scope['DataInProgress'] <= end_ts)].copy()
+    active_period = scope[
+        (scope['DataInProgress'] <= end_ts) &
+        ((scope['DataDone'] > end_ts) | pd.isna(scope['DataDone']))
+    ].copy()
+
+    expedite_target = _get_expedite_target_pct()
+    expedite_critical = max(expedite_target, _get_expedite_critical_pct())
+
+    expedite_arrivals = arrivals_period[arrivals_period['IsExpedite']].copy() if not arrivals_period.empty else pd.DataFrame(columns=scope.columns)
+    expedite_done = done_period[done_period['IsExpedite']].copy() if not done_period.empty else pd.DataFrame(columns=scope.columns)
+    expedite_open = active_period[active_period['IsExpedite']].copy() if not active_period.empty else pd.DataFrame(columns=scope.columns)
+
+    arrivals_pct = _safe_pct(len(expedite_arrivals), len(arrivals_period)) if len(arrivals_period) > 0 else np.nan
+    throughput_pct = _safe_pct(len(expedite_done), len(done_period)) if len(done_period) > 0 else np.nan
+    expedite_lead = time_metric_series(expedite_done, 'LeadTime_Dias', non_negative=True)
+    if expedite_lead.empty:
+        expedite_lead = time_metric_series(expedite_done, 'LeadTime_Selected_Dias', non_negative=True)
+    expedite_lead_p50 = exact_empirical_percentile(expedite_lead, 0.50) if not expedite_lead.empty else np.nan
+    expedite_lead_p85 = exact_empirical_percentile(expedite_lead, 0.85) if not expedite_lead.empty else np.nan
+
+    if not expedite_open.empty:
+        expedite_open = expedite_open.copy()
+        expedite_open['OpenAge'] = (end_ts - expedite_open['DataInProgress']).dt.total_seconds() / 86400.0
+        open_age_avg = float(pd.to_numeric(expedite_open['OpenAge'], errors='coerce').mean())
+    else:
+        open_age_avg = np.nan
+
+    if pd.isna(arrivals_pct):
+        policy_status = 'Sem base'
+    elif arrivals_pct <= expedite_target:
+        policy_status = 'OK'
+    elif arrivals_pct <= expedite_critical:
+        policy_status = 'Atenção'
+    else:
+        policy_status = 'Crítico'
+
+    class_summary = pd.DataFrame()
+    if 'ClasseServico' in done_period.columns and not done_period.empty:
+        base = done_period.copy()
+        lead_vals = pd.to_numeric(base.get('LeadTime_Dias'), errors='coerce')
+        if lead_vals.isna().all():
+            lead_vals = pd.to_numeric(base.get('LeadTime_Selected_Dias'), errors='coerce')
+        base['LeadMetric'] = lead_vals
+        class_summary = (
+            base.groupby('ClasseServico', dropna=False)['LeadMetric']
+            .agg(Itens='count', Lead_P50=lambda s: exact_empirical_percentile(s.dropna(), 0.50) if not s.dropna().empty else np.nan, Lead_P85=lambda s: exact_empirical_percentile(s.dropna(), 0.85) if not s.dropna().empty else np.nan)
+            .reset_index()
+            .rename(columns={'ClasseServico': 'Classe de Serviço', 'Lead_P50': 'Lead P50', 'Lead_P85': 'Lead P85'})
+            .sort_values('Itens', ascending=False, ignore_index=True)
+        )
+        for col in ['Lead P50', 'Lead P85']:
+            class_summary[col] = pd.to_numeric(class_summary[col], errors='coerce').round(1)
+
+    alerts = pd.DataFrame([
+        {
+            'Indicador': '% de entradas em Expedite',
+            'Observado': f"{arrivals_pct:.1f}%" if pd.notna(arrivals_pct) else 'Sem base',
+            'Regra': f"OK <= {expedite_target:.1f}% | Crítico > {expedite_critical:.1f}%",
+            'Status': policy_status,
+            'Leitura': (
+                'Uso de expedite dentro da política.'
+                if policy_status == 'OK' else
+                'Expedite acima da meta; revisar critérios de fast track.'
+                if policy_status == 'Atenção' else
+                'Expedite dominando a entrada; risco de canibalizar fluxo normal.'
+                if policy_status == 'Crítico' else
+                'Sem base suficiente para política de expedite.'
+            ),
+        },
+        {
+            'Indicador': '% de throughput em Expedite',
+            'Observado': f"{throughput_pct:.1f}%" if pd.notna(throughput_pct) else 'Sem base',
+            'Regra': 'Monitorar desbalanceamento entre urgente e fluxo normal',
+            'Status': 'OK' if pd.notna(throughput_pct) and throughput_pct <= expedite_target else ('Atenção' if pd.notna(throughput_pct) and throughput_pct <= expedite_critical else 'Crítico' if pd.notna(throughput_pct) else 'Sem base'),
+            'Leitura': 'Usar como proxy de quanto da capacidade está sendo consumida por urgências.',
+        },
+        {
+            'Indicador': 'Itens Expedite em aberto',
+            'Observado': f"{int(len(expedite_open))} itens",
+            'Regra': 'Preferir fila urgente curta e envelhecimento baixo',
+            'Status': 'OK' if len(expedite_open) <= 2 else 'Atenção' if len(expedite_open) <= 5 else 'Crítico',
+            'Leitura': 'Itens urgentes abertos demais indicam fast track virando estoque em vez de exceção.',
+        },
+    ])
+
+    return {
+        'arrivals_pct': arrivals_pct,
+        'throughput_pct': throughput_pct,
+        'open_items': int(len(expedite_open)),
+        'policy_status': policy_status,
+        'open_age_avg': round(open_age_avg, 1) if pd.notna(open_age_avg) else np.nan,
+        'lead_p85': round(expedite_lead_p85, 1) if pd.notna(expedite_lead_p85) else np.nan,
+    }, class_summary, alerts
+
+
+def build_variability_alerts_view(df_source, start_ts, end_ts):
+    warn = _get_variability_cv_warn()
+    critical = _get_variability_cv_critical()
+    empty_alerts = pd.DataFrame(columns=['Indicador', 'Observado', 'Regra', 'Status', 'Leitura', 'Ação'])
+    empty_metrics = pd.DataFrame(columns=['Métrica', 'CV', 'Status'])
+    if df_source is None or df_source.empty:
+        return empty_alerts, empty_metrics
+
+    done_period = df_source[(df_source['DataDone'] >= start_ts) & (df_source['DataDone'] <= end_ts)].copy()
+    done_period = done_period[done_time_eligible_mask(done_period)] if not done_period.empty else done_period
+    lead_series = time_metric_series(done_period, 'LeadTime_Dias', non_negative=True)
+    if lead_series.empty:
+        lead_series = time_metric_series(done_period, 'LeadTime_Selected_Dias', non_negative=True)
+    cycle_series = time_metric_series(done_period, 'TempoExecucao_Dias', non_negative=True)
+    if cycle_series.empty:
+        cycle_series = time_metric_series(done_period, 'CycleTime_Dias', non_negative=True)
+
+    weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
+    throughput_weekly = []
+    for i in range(len(weeks) - 1):
+        week_start = weeks[i]
+        week_end = weeks[i + 1]
+        throughput_weekly.append(int(((df_source['DataDone'] >= week_start) & (df_source['DataDone'] < week_end) & done_time_eligible_mask(df_source)).sum()))
+    throughput_weekly = pd.Series(throughput_weekly, dtype='float64')
+
+    def series_cv(series):
+        s = pd.to_numeric(series, errors='coerce').dropna()
+        if len(s) < 2 or s.mean() <= 0:
+            return np.nan
+        return float(s.std() / s.mean())
+
+    lead_cv = series_cv(lead_series)
+    cycle_cv = series_cv(cycle_series)
+    throughput_cv = series_cv(throughput_weekly)
+
+    metrics = pd.DataFrame([
+        {'Métrica': 'Lead Time', 'CV': round(lead_cv, 3) if pd.notna(lead_cv) else np.nan, 'Status': _variability_status(lead_cv, warn, critical)},
+        {'Métrica': 'Cycle Time', 'CV': round(cycle_cv, 3) if pd.notna(cycle_cv) else np.nan, 'Status': _variability_status(cycle_cv, warn, critical)},
+        {'Métrica': 'Throughput Semanal', 'CV': round(throughput_cv, 3) if pd.notna(throughput_cv) else np.nan, 'Status': _variability_status(throughput_cv, warn, critical)},
+    ])
+
+    alerts = pd.DataFrame([
+        {
+            'Indicador': 'Dispersão de Lead Time',
+            'Observado': f"CV={lead_cv:.3f}" if pd.notna(lead_cv) else 'Sem base',
+            'Regra': f"OK < {warn:.2f} | Crítico >= {critical:.2f}",
+            'Status': _variability_status(lead_cv, warn, critical),
+            'Leitura': 'Dispersão do lead time afeta previsibilidade externa.',
+            'Ação': 'Revisar variabilidade de entrada, dependências e mix de tipos de demanda.',
+        },
+        {
+            'Indicador': 'Dispersão de Cycle Time',
+            'Observado': f"CV={cycle_cv:.3f}" if pd.notna(cycle_cv) else 'Sem base',
+            'Regra': f"OK < {warn:.2f} | Crítico >= {critical:.2f}",
+            'Status': _variability_status(cycle_cv, warn, critical),
+            'Leitura': 'Dispersão do cycle time evidencia inconsciência operacional dentro do fluxo.',
+            'Ação': 'Quebrar itens grandes, reduzir retrabalho e reforçar Definition of Ready.',
+        },
+        {
+            'Indicador': 'Dispersão de Throughput Semanal',
+            'Observado': f"CV={throughput_cv:.3f}" if pd.notna(throughput_cv) else 'Sem base',
+            'Regra': f"OK < {warn:.2f} | Crítico >= {critical:.2f}",
+            'Status': _variability_status(throughput_cv, warn, critical),
+            'Leitura': 'Oscilação alta de vazão dificulta compromisso e planejamento.',
+            'Ação': 'Estabilizar a cadência, reduzir urgências e padronizar tamanho de trabalho.',
+        },
+    ])
+
+    return alerts, metrics
 
 
 def compute_portfolio_snapshot(df, updated_at_label):
@@ -10487,38 +11023,116 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if df_patterns.empty:
             return html.Div('Sem dados para detectar padrões no filtro selecionado.')
 
+        checklist_df, diagnosis_df, weekly_review_df = build_weekly_flow_checklist_and_diagnosis(df_patterns, start_ts, end_ts)
+        expedite_kpis_data, expedite_table_df, expedite_alerts_df = build_expedite_governance_view(df_patterns, start_ts, end_ts)
+        variability_alerts_df, variability_metrics_df = build_variability_alerts_view(df_patterns, start_ts, end_ts)
         details, summary = detect_systemic_patterns(df_patterns, start_ts, end_ts, PATTERN_RULES)
-        if details.empty:
+        if details.empty and checklist_df.empty and diagnosis_df.empty:
             return html.Div([
                 html.H3('Padrões Sistêmicos', style={'textAlign': 'center'}),
                 html.P(
-                    'Nenhum padrão detectado com as regras configuradas para o período/filtros.',
+                    'Nenhum padrão ou checklist automatizado disponível com os dados do período/filtros.',
                     style={'textAlign': 'center', 'color': '#555'}
                 ),
             ])
 
-        criticos = int((details['Severidade'] == 'Crítico').sum())
-        atencao = int((details['Severidade'] == 'Atenção').sum())
-        semanas_afetadas = int(details['Semana'].nunique())
+        criticos = int((details['Severidade'] == 'Crítico').sum()) if 'Severidade' in details.columns else 0
+        atencao = int((details['Severidade'] == 'Atenção').sum()) if 'Severidade' in details.columns else 0
+        semanas_afetadas = int(details['Semana'].nunique()) if 'Semana' in details.columns else 0
+        checklist_criticos = int((checklist_df['Status'] == 'Crítico').sum()) if not checklist_df.empty else 0
+        checklist_alertas = int((checklist_df['Status'] == 'Atenção').sum()) if not checklist_df.empty else 0
+        diagnosticos = int(len(diagnosis_df)) if not diagnosis_df.empty else 0
+        variability_criticos = int((variability_alerts_df['Status'] == 'Crítico').sum()) if not variability_alerts_df.empty else 0
+        expedite_status = expedite_kpis_data.get('policy_status', 'Sem base')
 
         kpis = html.Div([
             create_kpi_card('Ocorrências Críticas', criticos, class_name='four columns'),
             create_kpi_card('Ocorrências Atenção', atencao, class_name='four columns'),
             create_kpi_card('Semanas com Sinal', semanas_afetadas, class_name='four columns'),
         ], className='row')
+        checklist_kpis = html.Div([
+            create_kpi_card('Checklist Crítico', checklist_criticos, class_name='four columns'),
+            create_kpi_card('Checklist Atenção', checklist_alertas, class_name='four columns'),
+            create_kpi_card('Diagnósticos Prescritivos', diagnosticos, class_name='four columns'),
+        ], className='row')
+        expedite_kpis = html.Div([
+            create_kpi_card('Expedite nas Entradas', f"{expedite_kpis_data['arrivals_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('arrivals_pct')) else '—', class_name='three columns'),
+            create_kpi_card('Expedite no Throughput', f"{expedite_kpis_data['throughput_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('throughput_pct')) else '—', class_name='three columns'),
+            create_kpi_card('Expedite em Aberto', f"{int(expedite_kpis_data.get('open_items', 0))}", class_name='three columns'),
+            create_kpi_card('Política Expedite', expedite_status, class_name='three columns'),
+        ], className='row')
+        variability_kpis = html.Div([
+            create_kpi_card('Alertas de Variabilidade Críticos', variability_criticos, class_name='four columns'),
+            create_kpi_card('CV Lead Time', f"{float(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].iloc[0]):.3f}" if not variability_metrics_df.empty and not variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].empty and pd.notna(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].iloc[0]) else '—', class_name='four columns'),
+            create_kpi_card('CV Cycle Time', f"{float(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].iloc[0]):.3f}" if not variability_metrics_df.empty and not variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].empty and pd.notna(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].iloc[0]) else '—', class_name='four columns'),
+        ], className='row')
 
-        fig_summary = px.bar(
-            summary,
-            x='Padrão',
-            y='Ocorrências',
-            color='Severidade',
-            barmode='group',
-            title='Padrões Detectados por Severidade',
-            color_discrete_map={'Crítico': '#c62828', 'Atenção': '#f9a825'}
-        )
-        fig_summary.update_layout(height=520, xaxis_tickangle=-25, margin=dict(b=140))
+        fig_summary = go.Figure()
+        if not summary.empty:
+            fig_summary = px.bar(
+                summary,
+                x='Padrão',
+                y='Ocorrências',
+                color='Severidade',
+                barmode='group',
+                title='Padrões Detectados por Severidade',
+                color_discrete_map={'Crítico': '#c62828', 'Atenção': '#f9a825'}
+            )
+            fig_summary.update_layout(height=520, xaxis_tickangle=-25, margin=dict(b=140))
 
-        details_view = details.sort_values(['Semana', 'Severidade'], ascending=[False, True])
+        fig_expedite = go.Figure()
+        if not expedite_table_df.empty:
+            plot_df = expedite_table_df.copy().head(10)
+            fig_expedite = px.bar(
+                plot_df,
+                x='Classe de Serviço',
+                y='Itens',
+                title='Distribuição de throughput por classe de serviço',
+                color='Classe de Serviço',
+            )
+            fig_expedite.update_layout(height=420, xaxis_tickangle=-25, showlegend=False, margin=dict(b=100))
+
+        fig_variability = go.Figure()
+        if not variability_metrics_df.empty:
+            fig_variability = px.bar(
+                variability_metrics_df,
+                x='Métrica',
+                y='CV',
+                color='Status',
+                title='Alertas explícitos de variabilidade/dispersão',
+                color_discrete_map={'OK': '#2E7D32', 'Atenção': '#EF6C00', 'Crítico': '#C62828', 'Sem base': '#90A4AE'},
+            )
+            fig_variability.update_layout(height=420, showlegend=True, margin=dict(b=60))
+
+        fig_weekly_review = go.Figure()
+        if not weekly_review_df.empty:
+            weekly_plot = weekly_review_df.copy()
+            weekly_plot['Semana'] = weekly_plot['Semana'].astype(str)
+            fig_weekly_review = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_weekly_review.add_trace(
+                go.Bar(x=weekly_plot['Semana'], y=weekly_plot['Throughput'], name='Throughput', marker_color='#2E7D32'),
+                secondary_y=False,
+            )
+            fig_weekly_review.add_trace(
+                go.Scatter(x=weekly_plot['Semana'], y=weekly_plot['WIP'], name='WIP', mode='lines+markers', line=dict(color='#1565C0', width=3)),
+                secondary_y=False,
+            )
+            fig_weekly_review.add_trace(
+                go.Scatter(x=weekly_plot['Semana'], y=weekly_plot['CycleTime_P50'], name='Cycle P50', mode='lines+markers', line=dict(color='#EF6C00', width=3)),
+                secondary_y=True,
+            )
+            fig_weekly_review.update_layout(
+                title='Resumo Semanal Automatizado: Throughput, WIP e Cycle Time',
+                height=520,
+                template='plotly_white',
+                hovermode='x unified',
+                margin=dict(b=90),
+            )
+            fig_weekly_review.update_xaxes(title_text='Semana', tickangle=-45)
+            fig_weekly_review.update_yaxes(title_text='Itens', secondary_y=False)
+            fig_weekly_review.update_yaxes(title_text='Cycle Time P50 (dias)', secondary_y=True)
+
+        details_view = details.sort_values(['Semana', 'Severidade'], ascending=[False, True]) if not details.empty else pd.DataFrame()
         table_summary = dash_table.DataTable(
             columns=[{'name': c, 'id': c} for c in summary.columns],
             data=summary.to_dict('records'),
@@ -10526,7 +11140,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
             style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
             page_size=12,
-        )
+        ) if not summary.empty else html.P('Nenhum padrão sistêmico acionado no período.')
         table_details = dash_table.DataTable(
             columns=[{'name': c, 'id': c} for c in details_view.columns],
             data=details_view.to_dict('records'),
@@ -10545,7 +11159,73 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             page_size=12,
             filter_action='native',
             sort_action='native',
-        )
+        ) if not details_view.empty else html.P('Nenhum detalhe adicional de padrões no período.')
+        checklist_table = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in checklist_df.columns],
+            data=checklist_df.to_dict('records'),
+            style_cell={'textAlign': 'left', 'padding': '6px', 'whiteSpace': 'normal'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[
+                {'if': {'filter_query': '{Status} = "Crítico"'}, 'backgroundColor': '#fdecea'},
+                {'if': {'filter_query': '{Status} = "Atenção"'}, 'backgroundColor': '#fff8e1'},
+                {'if': {'filter_query': '{Status} = "OK"'}, 'backgroundColor': '#edf7ed'},
+            ],
+            page_size=10,
+        ) if not checklist_df.empty else html.P('Sem checklist automatizado disponível para o recorte.')
+        diagnosis_table = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in diagnosis_df.columns],
+            data=diagnosis_df.to_dict('records'),
+            style_cell={'textAlign': 'left', 'padding': '6px', 'minWidth': '120px', 'maxWidth': '320px', 'whiteSpace': 'normal'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[
+                {'if': {'filter_query': '{Severidade} = "Crítico"'}, 'backgroundColor': '#fdecea'},
+                {'if': {'filter_query': '{Severidade} = "Atenção"'}, 'backgroundColor': '#fff8e1'},
+                {'if': {'filter_query': '{Severidade} = "OK"'}, 'backgroundColor': '#edf7ed'},
+            ],
+            page_size=10,
+            filter_action='native',
+            sort_action='native',
+        ) if not diagnosis_df.empty else html.P('Nenhum diagnóstico prescritivo foi gerado para o período.')
+        expedite_table = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in expedite_table_df.columns],
+            data=expedite_table_df.to_dict('records'),
+            style_cell={'textAlign': 'center', 'padding': '6px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            page_size=10,
+        ) if not expedite_table_df.empty else html.P('Sem base suficiente para governança de expedite.')
+        expedite_alerts_table = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in expedite_alerts_df.columns],
+            data=expedite_alerts_df.to_dict('records'),
+            style_cell={'textAlign': 'left', 'padding': '6px', 'whiteSpace': 'normal'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[
+                {'if': {'filter_query': '{Status} = "Crítico"'}, 'backgroundColor': '#fdecea'},
+                {'if': {'filter_query': '{Status} = "Atenção"'}, 'backgroundColor': '#fff8e1'},
+                {'if': {'filter_query': '{Status} = "OK"'}, 'backgroundColor': '#edf7ed'},
+            ],
+            page_size=10,
+        ) if not expedite_alerts_df.empty else html.P('Sem alertas de expedite para o recorte.')
+        variability_alerts_table = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in variability_alerts_df.columns],
+            data=variability_alerts_df.to_dict('records'),
+            style_cell={'textAlign': 'left', 'padding': '6px', 'whiteSpace': 'normal'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[
+                {'if': {'filter_query': '{Status} = "Crítico"'}, 'backgroundColor': '#fdecea'},
+                {'if': {'filter_query': '{Status} = "Atenção"'}, 'backgroundColor': '#fff8e1'},
+                {'if': {'filter_query': '{Status} = "OK"'}, 'backgroundColor': '#edf7ed'},
+            ],
+            page_size=10,
+        ) if not variability_alerts_df.empty else html.P('Sem base suficiente para alertas de variabilidade.')
+        weekly_review_table = dash_table.DataTable(
+            columns=[{'name': c, 'id': c} for c in weekly_review_df.columns],
+            data=weekly_review_df.to_dict('records'),
+            style_cell={'textAlign': 'center', 'padding': '6px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            page_size=12,
+        ) if not weekly_review_df.empty else html.P('Sem base semanal suficiente para a revisão automatizada.')
 
         return html.Div([
             html.H3('Padrões Sistêmicos Detectados', style={'textAlign': 'center'}),
@@ -10555,8 +11235,42 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'atrasos/desperdícios, estagnação e compromisso prematuro.',
                 style={'textAlign': 'center', 'color': '#555'}
             ),
+            html.H4('Checklist Semanal Automatizado', style={'marginTop': '16px'}),
+            html.P(
+                'Leitura operacional automática da última semana do recorte, usando banda histórica de throughput, referência factual de cycle time e banda histórica de WIP.',
+                style={'color': '#555'}
+            ),
+            checklist_kpis,
+            checklist_table,
+            html.H4('Tabela Diagnóstica Prescritiva', style={'marginTop': '16px'}),
+            html.P(
+                'Combinações semanais de métricas transformadas em diagnóstico provável e ação recomendada.',
+                style={'color': '#555'}
+            ),
+            diagnosis_table,
+            html.H4('Governança Fast Track / Expedite', style={'marginTop': '16px'}),
+            html.P(
+                'Expõe participação de urgências na entrada, na saída e no estoque em aberto para evitar que fast track vire regra em vez de exceção.',
+                style={'color': '#555'}
+            ),
+            expedite_kpis,
+            expedite_alerts_table,
+            dcc.Graph(figure=fig_expedite) if isinstance(fig_expedite, go.Figure) and fig_expedite.data else html.Div(),
+            expedite_table,
+            html.H4('Alertas Explícitos de Variabilidade / Dispersão', style={'marginTop': '16px'}),
+            html.P(
+                'Semáforos operacionais de dispersão para `Lead Time`, `Cycle Time` e `Throughput`, convertendo CV em alerta acionável.',
+                style={'color': '#555'}
+            ),
+            variability_kpis,
+            dcc.Graph(figure=fig_variability) if isinstance(fig_variability, go.Figure) and fig_variability.data else html.Div(),
+            variability_alerts_table,
+            dcc.Graph(figure=fig_weekly_review) if isinstance(fig_weekly_review, go.Figure) and fig_weekly_review.data else html.Div(),
+            html.H4('Base Semanal da Revisão Automatizada', style={'marginTop': '16px'}),
+            weekly_review_table,
+            html.Hr(style={'margin': '28px 0'}),
             kpis,
-            dcc.Graph(figure=fig_summary),
+            dcc.Graph(figure=fig_summary) if isinstance(fig_summary, go.Figure) and fig_summary.data else html.Div(),
             html.H4('Resumo de Ocorrências', style={'marginTop': '16px'}),
             table_summary,
             html.H4('Detalhamento Semanal', style={'marginTop': '16px'}),

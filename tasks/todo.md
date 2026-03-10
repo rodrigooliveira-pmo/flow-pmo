@@ -1,5 +1,192 @@
 # Task Plan
 
+## Current Task (Implementar governança de Fast Track/Expedite e alertas de variabilidade)
+- [x] Mapear os sinais já existentes de `ClasseServico/Expedite` e `CV/dispersão`
+- [x] Implementar visão explícita de governança Fast Track/Expedite
+- [x] Implementar alertas explícitos de variabilidade/dispersão com thresholds operacionais
+- [x] Integrar os blocos ao dashboard mantendo coerência com as abas existentes
+- [x] Validar com compilação/smoke tests e registrar review
+
+## Specification (Implementar governança de Fast Track/Expedite e alertas de variabilidade)
+- Objetivo: transformar sinais já existentes de urgência e variabilidade em capabilities visíveis e acionáveis no dashboard.
+- Entregas:
+  - governança explícita de `Fast Track/Expedite`
+  - alertas explícitos de variabilidade/dispersão
+- Regras:
+  - reutilizar `ClasseServico`/prioridade já resolvida no projeto
+  - usar thresholds operacionais compreensíveis
+  - manter a solução no módulo de serviços, preferencialmente junto da leitura sistêmica já existente
+
+## Review (Implementar governança de Fast Track/Expedite e alertas de variabilidade)
+- O que foi implementado:
+  - A aba [`tab-padroes` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a incluir dois blocos novos:
+    - `Governança Fast Track / Expedite`
+    - `Alertas Explícitos de Variabilidade / Dispersão`
+  - A governança de `Fast Track/Expedite` agora materializa:
+    - `% de entradas em expedite`
+    - `% de throughput em expedite`
+    - quantidade de itens expedite em aberto
+    - status da política (`OK`, `Atenção`, `Crítico`)
+    - tabela por classe de serviço com `Lead P50` e `Lead P85`
+    - alertas textuais específicos para uso indevido de expedite
+  - Foram adicionadas configurações operacionais por ambiente:
+    - `FLOW_EXPEDITE_TARGET_PCT` (default `20`)
+    - `FLOW_EXPEDITE_CRITICAL_PCT` (default `30`)
+  - Os alertas explícitos de variabilidade/dispersão agora transformam `CV` em semáforo operacional para:
+    - `Lead Time`
+    - `Cycle Time`
+    - `Throughput Semanal`
+  - Também foram adicionados thresholds configuráveis de variabilidade:
+    - `FLOW_VARIABILITY_CV_WARN` (default `0.30`)
+    - `FLOW_VARIABILITY_CV_CRITICAL` (default `0.50`)
+- Decisão de design:
+  - Os blocos foram mantidos na aba `Padrões Sistêmicos`, porque dependem da mesma leitura combinada usada por checklist, diagnóstico e padrões por regra.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; kpis, table_df, alerts_df = d.build_expedite_governance_view(...); print(kpis); print(table_df.columns.tolist()); print(alerts_df.columns.tolist())"`
+    - Resultado observado:
+      - `policy_status: 'OK'`
+      - tabela com colunas `Classe de Serviço`, `Itens`, `Lead P50`, `Lead P85`
+      - alertas com colunas `Indicador`, `Observado`, `Regra`, `Status`, `Leitura`
+  - `python3 -c "import dashboard_full as d; alerts_df, metrics_df = d.build_variability_alerts_view(...); print(alerts_df.columns.tolist()); print(metrics_df.to_dict('records'))"`
+    - Resultado observado:
+      - métricas de variabilidade geradas para `Lead Time`, `Cycle Time` e `Throughput Semanal`
+      - no dataset atual, os três `CV` ficaram marcados como `Crítico`
+  - `python3 -c "import dashboard_full as d; out = d.render_tab('services', 'tab-padroes', ...); ..."`
+    - Resultado observado:
+      - `Div`
+      - presença de `Governança Fast Track / Expedite`
+      - presença de `Alertas Explícitos de Variabilidade / Dispersão`
+  - O smoke test de renderização gerou apenas `FutureWarning` de `plotly/pandas`, sem erro funcional.
+- Suggested commit message:
+  - `feat(flow): add expedite governance and explicit variability alerts`
+
+## Current Task (Ajustar checklist para WIP por pessoa configurável)
+- [x] Localizar a regra atual do checklist semanal para WIP
+- [x] Implementar limite configurável de itens em progresso por pessoa
+- [x] Atualizar a leitura exibida no checklist e na base semanal
+- [x] Validar com compilação/smoke test e registrar review
+
+## Specification (Ajustar checklist para WIP por pessoa configurável)
+- Objetivo: substituir, no checklist semanal automatizado, a avaliação genérica de banda histórica de `WIP` por uma regra operacional configurável de `WIP por pessoa`.
+- Regra esperada:
+  - padrão inicial: `2 itens por pessoa`
+  - exemplo de leitura: time com `5` pessoas => limite de `10` itens em progresso
+- Requisitos:
+  - a regra deve ser configurável sem editar o código
+  - o checklist deve mostrar a conta usada (`limite por pessoa x pessoas ativas`)
+  - a saída deve explicitar também `WIP por pessoa` observado
+
+## Review (Ajustar checklist para WIP por pessoa configurável)
+- O que foi implementado:
+  - A avaliação de `WIP` no checklist semanal automatizado deixou de usar apenas banda histórica agregada e passou a usar uma regra operacional configurável de `WIP por pessoa`.
+  - Foi adicionada a configuração `FLOW_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT`, com default `2`.
+  - A base semanal agora calcula e expõe:
+    - `PessoasAtivas`
+    - `WIP_Por_Pessoa`
+    - `WIP_Limite_Config`
+  - O item do checklist foi reescrito para mostrar:
+    - `WIP` total observado
+    - `WIP por pessoa` observado
+    - conta de referência no formato `limite por pessoa x pessoas ativas = limite total`
+  - A tabela diagnóstica também passou a considerar estouro do limite configurado por pessoa como sinal de sobrecarga/saturação.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; checklist, diag, weekly = d.build_weekly_flow_checklist_and_diagnosis(...); ..."`
+    - Resultado observado para o item de checklist:
+      - `Checklist`: `WIP da semana abaixo do limite configurado por pessoa?`
+      - `Status`: `Crítico`
+      - `Observado`: `359 itens | 12.82 por pessoa`
+      - `Referência`: `2.0 por pessoa x 28 pessoas = 56.0`
+  - `python3 -c "import dashboard_full as d; out = d.render_tab('services', 'tab-padroes', ...); print(type(out).__name__)"`
+    - Resultado observado: `Div`
+- Suggested commit message:
+  - `fix(flow): evaluate weekly wip against configurable per-person limit`
+
+## Current Task (Corrigir KeyError de Severidade na aba Padrões Sistêmicos)
+- [x] Reproduzir o cenário do traceback e localizar o ponto frágil
+- [x] Garantir schema estável quando não houver padrões detectados
+- [x] Tornar a renderização defensiva para colunas críticas
+- [x] Validar compilação e smoke test
+
+## Review (Corrigir KeyError de Severidade na aba Padrões Sistêmicos)
+- O que foi corrigido:
+  - [`detect_systemic_patterns(...)` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora retorna `DataFrame`s vazios com colunas estáveis, em vez de `DataFrame()` sem schema.
+  - A aba `tab-padroes` passou a tratar de forma defensiva o acesso a `Severidade` e `Semana`.
+- Evidências:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; details, summary = d.detect_systemic_patterns(...); print(details.columns.tolist()); print(summary.columns.tolist())"`
+    - Resultado observado:
+      - `details` com colunas incluindo `Severidade`
+      - `summary` com colunas `Padrão`, `Severidade`, `Ocorrências`
+  - `python3 -c "import dashboard_full as d; out = d.render_tab('services', 'tab-padroes', ...); print(type(out).__name__)"`
+    - Resultado observado: `Div`
+- Suggested commit message:
+  - `fix(flow): stabilize empty pattern schemas to avoid severity key errors`
+
+## Current Task (Implementar checklist semanal automatizado e tabela diagnóstica prescritiva)
+- [x] Mapear o encaixe desses recursos nas abas existentes de fluxo
+- [x] Implementar cálculo semanal automatizado com thresholds e referências históricas
+- [x] Implementar tabela diagnóstica com padrão observado, diagnóstico provável e ação recomendada
+- [x] Integrar a visualização ao dashboard com os filtros já existentes
+- [x] Validar com compilação/smoke tests e registrar review
+
+## Specification (Implementar checklist semanal automatizado e tabela diagnóstica prescritiva)
+- Objetivo: materializar no dashboard uma camada operacional de leitura do fluxo baseada nos artefatos de referência, sem depender de leitura manual dos gráficos.
+- Entregas:
+  - checklist semanal automatizado com thresholds explícitos
+  - tabela diagnóstica prescritiva com combinação de métricas -> hipótese de problema -> ação recomendada
+- Regras:
+  - reutilizar as métricas semanais já calculadas no projeto sempre que possível
+  - respeitar os filtros ativos atuais
+  - manter a solução no módulo de serviços, alinhada às abas de `Saúde do Fluxo` e `Padrões Sistêmicos`
+
+## Review (Implementar checklist semanal automatizado e tabela diagnóstica prescritiva)
+- O que foi implementado:
+  - A aba [`tab-padroes` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a incluir:
+    - `Checklist Semanal Automatizado`
+    - `Tabela Diagnóstica Prescritiva`
+    - base semanal explícita da revisão automatizada
+  - Foi criado um helper dedicado para consolidar sinais semanais de fluxo a partir da base filtrada:
+    - `Throughput`
+    - `WIP`
+    - `Cycle Time` (`P50`, `P85`, média e `CV`)
+    - `WIP Age` médio
+    - quantidade de itens abertos acima do `Cycle P85`
+    - taxa de bloqueio
+    - pressão de fluxo
+  - O checklist automatizado agora valida a última semana do recorte contra referências históricas:
+    - throughput dentro de `±20%` da média
+    - cycle time dentro de `+30%` da mediana histórica
+    - WIP abaixo da banda de referência (`P85` histórico do recorte)
+    - variação semanal de throughput <= `30%`
+    - dispersão de cycle time controlada (`CV < 0.30`)
+    - correlação adversa `WIP alto + Cycle alto`
+    - itens abertos acima do `Cycle P85`
+  - A tabela diagnóstica prescritiva foi implementada com padrões observados, diagnóstico provável e ação recomendada, cobrindo cenários como:
+    - sobrecarga
+    - variabilidade elevada
+    - redução de capacidade
+    - aceleração acima do limite
+    - fluxo saudável
+    - saturação progressiva
+    - processo inconsistente
+    - complexidade/retrabalho
+    - bloqueios silenciosos
+    - subutilização
+- Decisão de design:
+  - Em vez de abrir uma aba nova, a solução foi integrada à aba `Padrões Sistêmicos`, porque os dois recursos dependem da mesma leitura semanal combinada de métricas e reforçam a interpretação do que já existe.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full as d; out = d.render_tab('services', 'tab-padroes', '2025-12-01', '2025-12-31', None, None, None, None, [], 5, 'score', d.PROJECT_FILTER_ALL_VALUE, 'ALL', None, None, None, None, None, None, None, None, None, None); ..."`
+    - Resultado observado:
+      - `Div`
+      - `True` para presença de `children`
+      - `True` para `Checklist Semanal Automatizado`
+      - `True` para `Tabela Diagnóstica Prescritiva`
+- Suggested commit message:
+  - `feat(flow): add automated weekly checklist and prescriptive diagnostics`
+
 ## Current Task (Implementar visão dedicada de Work Item Age)
 - [x] Mapear o que já existe de aging/WIP/tempo no dashboard e definir o encaixe da nova aba
 - [x] Implementar cálculo operacional de `Work Item Age` para itens ativos no recorte filtrado
