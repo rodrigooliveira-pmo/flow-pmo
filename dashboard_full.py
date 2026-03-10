@@ -696,6 +696,61 @@ def _load_bitbucket_prefix_map():
     return out
 
 
+_PEOPLE_CONFIG_CACHE: dict | None = None
+
+
+def _load_people_config() -> dict:
+    """Carrega people_config.json da raiz do projeto (com cache em memória)."""
+    global _PEOPLE_CONFIG_CACHE
+    if _PEOPLE_CONFIG_CACHE is not None:
+        return _PEOPLE_CONFIG_CACHE
+    config_path = Path(DATA_PATH).parent / 'people_config.json'
+    if not config_path.exists():
+        # tenta na pasta raiz do script
+        config_path = Path(__file__).resolve().parent / 'people_config.json'
+    if config_path.exists():
+        try:
+            with config_path.open(encoding='utf-8') as fp:
+                _PEOPLE_CONFIG_CACHE = json.load(fp)
+            return _PEOPLE_CONFIG_CACHE
+        except Exception:
+            pass
+    _PEOPLE_CONFIG_CACHE = {}
+    return _PEOPLE_CONFIG_CACHE
+
+
+def _load_person_bu_map() -> dict:
+    """
+    Retorna índice {chave_normalizada → BU} a partir de people_config.json.
+    Inclui aliases definidos em people_config['aliases'].
+    """
+    config = _load_people_config()
+    raw_bu_map: dict = config.get('bu_map', {})
+    raw_aliases: dict = config.get('aliases', {})
+
+    bu_index: dict = {}
+
+    def _register(raw_name: str, bu: str) -> None:
+        key = _person_match_key(raw_name)
+        if key:
+            bu_index[key] = bu
+
+    for canonical, bu in raw_bu_map.items():
+        _register(canonical, bu)
+        for alias_entry in raw_aliases.get(canonical, []):
+            _register(alias_entry, bu)
+
+    return bu_index
+
+
+def _person_bu(canonical_name: str, bu_index: dict | None = None) -> str:
+    """Retorna a BU de uma pessoa pelo nome canônico. Retorna '' se não encontrado."""
+    if bu_index is None:
+        bu_index = _load_person_bu_map()
+    key = _person_match_key(canonical_name)
+    return bu_index.get(key, '')
+
+
 def _load_person_alias_index():
     raw = os.getenv('FLOW_PMO_PERSON_ALIAS_MAP', '').strip()
     if not raw:
@@ -1407,11 +1462,19 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
             .rename(columns={'_Pessoa': 'Pessoa'})
         )
 
+    # BU por pessoa (via people_config.json)
+    bu_index = _load_person_bu_map()
+    per_dev['BU'] = per_dev['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
+
     per_dev = per_dev[per_dev['Pessoa'].astype(str).str.strip().ne('')]
     per_dev = per_dev.sort_values(
         ['Itens Entregues', 'Itens Puxados', 'Pessoa'],
         ascending=[False, False, True]
     ).reset_index(drop=True)
+
+    # Propaga BU para complexity_df também
+    if not complexity_df.empty:
+        complexity_df['BU'] = complexity_df['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
 
     return per_dev, complexity_df
 
@@ -13235,16 +13298,51 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                             style={'padding': '30px', 'textAlign': 'center', 'color': '#888'})
 
         # Enriquecer com métricas do Bitbucket
-        bb_cols_to_merge = []
-        bitbucket_logs_prod = load_project_bitbucket_logs(projeto) if projeto else {
-            'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()
-        }
+        # W1NNER e S1NC compartilham o mesmo repositório; a BU (people_config.json) separa os times
         alias_index_prod = _load_person_alias_index()
-        bb_df_prod, _ = compute_bitbucket_contributor_metrics(bitbucket_logs_prod, start_ts_prod, end_ts_prod, alias_index=alias_index_prod)
+        bu_index_prod = _load_person_bu_map()
+
+        def _load_bb_for_projects(projects: list[str]) -> tuple[pd.DataFrame, dict]:
+            """Carrega Bitbucket de um ou mais projetos e consolida."""
+            frames = []
+            for proj in projects:
+                logs = load_project_bitbucket_logs(proj)
+                df_bb, _ = compute_bitbucket_contributor_metrics(
+                    logs, start_ts_prod, end_ts_prod, alias_index=alias_index_prod
+                )
+                if not df_bb.empty:
+                    frames.append(df_bb)
+            if not frames:
+                return pd.DataFrame(), {}
+            combined = pd.concat(frames, ignore_index=True)
+            if 'Pessoa' not in combined.columns:
+                return pd.DataFrame(), {}
+            num_cols = [c for c in combined.columns if c != 'Pessoa']
+            agg = {c: 'sum' for c in num_cols if combined[c].dtype.kind in 'if'}
+            if not agg:
+                return combined.drop_duplicates('Pessoa'), {}
+            result = combined.groupby('Pessoa', dropna=False).agg(agg).reset_index()
+            totals = {c: int(result[c].sum()) for c in agg}
+            return result, totals
+
+        # Decide quais projetos carregar para Bitbucket
+        # W1NNER e S1NC estão no mesmo repo (w1nner), então basta um dos dois
+        if projeto:
+            bb_projects = [projeto]
+            # Se o projeto selecionado cobre W1NNER ou S1NC, inclui ambos para não perder nenhum
+            if str(projeto).upper() in {'W1NNR', 'W1NNER', 'S1NC', 'W1SFT'}:
+                bb_projects = ['W1NNER', 'S1NC']
+        else:
+            bb_projects = ['W1NNER', 'S1NC', 'BEFINANCE', 'DATA&ANALYTICS']
+
+        bb_df_prod, _ = _load_bb_for_projects(bb_projects)
+
         if not bb_df_prod.empty and 'Pessoa' in bb_df_prod.columns:
             bb_cols_available = [c for c in ['Pessoa', 'Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes'] if c in bb_df_prod.columns]
-            bb_cols_to_merge = [c for c in bb_cols_available if c != 'Pessoa']
+            # Enriquece BU nos dados Bitbucket para herdar da config de pessoas
+            bb_df_prod['BU'] = bb_df_prod['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index_prod))
             per_dev = pd.merge(per_dev, bb_df_prod[bb_cols_available], on='Pessoa', how='left')
+
         for col in ['Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes']:
             if col not in per_dev.columns:
                 per_dev[col] = 0
@@ -13260,6 +13358,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         per_dev = per_dev.sort_values('Score Integrado', ascending=False).reset_index(drop=True)
 
+        # Filtro por BU (inline, sem necessidade de novo callback)
+        bus_disponiveis = sorted(per_dev['BU'].dropna().unique().tolist())
+        bus_disponiveis = [b for b in bus_disponiveis if b]  # remove vazios
+
         # ── KPIs de resumo do período ─────────────────────────────────────────
         total_entregues = int(per_dev['Itens Entregues'].sum())
         total_puxados = int(per_dev['Itens Puxados'].sum())
@@ -13270,50 +13372,135 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         pct_falha_geral = round(total_defeitos / total_entregues * 100, 1) if total_entregues > 0 else 0.0
         devs_ativos = int((per_dev['Itens Entregues'] > 0).sum())
 
+        def _mini_kpi(label, value, color='#2c3e50', bg='#f8f9fa', border_color='#dee2e6'):
+            falha_bg = '#fff5f5' if '% Demanda' in label and isinstance(value, str) and float(value.replace('%','') or 0) >= 30 else bg
+            falha_border = '#e74c3c' if '% Demanda' in label and isinstance(value, str) and float(value.replace('%','') or 0) >= 30 else border_color
+            return html.Div([
+                html.Div(str(value), style={
+                    'fontSize': '26px', 'fontWeight': '700', 'color': color,
+                    'lineHeight': '1.1', 'marginBottom': '4px',
+                }),
+                html.Div(label, style={
+                    'fontSize': '11px', 'color': '#6c757d', 'textTransform': 'uppercase',
+                    'letterSpacing': '0.5px', 'fontWeight': '500',
+                }),
+            ], style={
+                'background': falha_bg, 'border': f'1px solid {falha_border}',
+                'borderRadius': '8px', 'padding': '12px 16px',
+                'minWidth': '110px', 'flex': '1',
+                'textAlign': 'center', 'boxShadow': '0 1px 3px rgba(0,0,0,.06)',
+            })
+
+        falha_color = '#e74c3c' if pct_falha_geral >= 30 else '#e67e22' if pct_falha_geral >= 15 else '#27ae60'
         kpi_row = html.Div([
-            create_kpi_card('Devs Ativos', devs_ativos),
-            create_kpi_card('Itens Entregues', total_entregues),
-            create_kpi_card('Itens Puxados', total_puxados),
-            create_kpi_card('SP Entregues', total_sp),
-            create_kpi_card('Defeitos Entregues', total_defeitos),
-            create_kpi_card('% Demanda Falha', f'{pct_falha_geral:.1f}%'),
-            create_kpi_card('Commits', total_commits),
-            create_kpi_card('PRs Merged', total_prs),
-        ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '10px', 'marginBottom': '24px'})
+            _mini_kpi('Devs Ativos', devs_ativos, color='#2980b9'),
+            _mini_kpi('Itens Entregues', total_entregues, color='#27ae60'),
+            _mini_kpi('Itens Puxados', total_puxados, color='#2980b9'),
+            _mini_kpi('SP Entregues', total_sp, color='#8e44ad'),
+            _mini_kpi('Defeitos Entregues', total_defeitos, color='#c0392b'),
+            _mini_kpi('% Demanda Falha', f'{pct_falha_geral:.1f}%', color=falha_color),
+            _mini_kpi('Commits', total_commits, color='#16a085'),
+            _mini_kpi('PRs Merged', total_prs, color='#2980b9'),
+        ], style={
+            'display': 'flex', 'flexWrap': 'wrap', 'gap': '10px',
+            'marginBottom': '20px', 'marginTop': '10px',
+        })
+
+        # ── Banner de BU ──────────────────────────────────────────────────────
+        _bu_chips = [
+            html.Span(bu, style={
+                'display': 'inline-block', 'background': '#e9ecef', 'color': '#495057',
+                'borderRadius': '12px', 'padding': '2px 10px', 'fontSize': '12px',
+                'marginLeft': '6px', 'fontWeight': '500',
+            })
+            for bu in bus_disponiveis
+        ] if bus_disponiveis else [
+            html.Span('(nenhuma BU mapeada — verifique people_config.json)',
+                      style={'color': '#aaa', 'fontSize': '12px', 'marginLeft': '6px'})
+        ]
+        bu_selector = html.Div(
+            [html.Span('Times mapeados: ', style={'fontWeight': '600', 'fontSize': '12px', 'color': '#555'})]
+            + _bu_chips
+            + [html.Span(
+                ' | Use a coluna BU na tabela para filtrar por time. W1NNER e S1NC compartilham repositório Bitbucket.',
+                style={'fontSize': '11px', 'color': '#999', 'marginLeft': '8px'},
+            )],
+            style={
+                'padding': '8px 14px', 'backgroundColor': '#f8f9fa',
+                'border': '1px solid #dee2e6', 'borderRadius': '6px',
+                'marginBottom': '14px', 'display': 'flex', 'flexWrap': 'wrap',
+                'alignItems': 'center', 'gap': '2px',
+            },
+        )
 
         # ── Tabela resumo por dev ─────────────────────────────────────────────
         table_col_order = [
-            'Pessoa', 'Itens Puxados', 'Itens Entregues', 'SP Entregues',
+            'BU', 'Pessoa', 'Itens Puxados', 'Itens Entregues', 'SP Entregues',
             'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
             'Lead Time Mediano (dias)', 'Commits', 'PRs Abertos', 'PRs Merged',
             'Aprovacoes', 'Score Integrado',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
+
+        # Formata % Demanda Falha como string para exibição
+        prod_display = per_dev[table_cols_prod].head(80).copy()
+        if '% Demanda Falha' in prod_display.columns:
+            prod_display['% Demanda Falha'] = prod_display['% Demanda Falha'].apply(
+                lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
+            )
+
         prod_table = dash_table.DataTable(
             columns=[{"name": c, "id": c} for c in table_cols_prod],
-            data=per_dev[table_cols_prod].head(60).to_dict('records'),
-            style_cell={'textAlign': 'left', 'padding': '7px', 'fontSize': '13px'},
-            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            data=prod_display.to_dict('records'),
+            style_table={'overflowX': 'auto'},
+            style_cell={
+                'textAlign': 'left', 'padding': '8px 12px',
+                'fontSize': '13px', 'whiteSpace': 'nowrap',
+                'overflow': 'hidden', 'textOverflow': 'ellipsis',
+                'maxWidth': '180px',
+            },
+            style_cell_conditional=[
+                {'if': {'column_id': 'Pessoa'}, 'minWidth': '150px', 'maxWidth': '200px'},
+                {'if': {'column_id': 'BU'}, 'minWidth': '120px'},
+            ],
+            style_header={
+                'backgroundColor': '#343a40', 'color': 'white',
+                'fontWeight': '600', 'fontSize': '12px',
+                'textTransform': 'uppercase', 'letterSpacing': '0.4px',
+                'padding': '10px 12px',
+            },
             sort_action='native',
             filter_action='native',
             page_size=20,
             style_data_conditional=[
-                {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'},
-                {
-                    'if': {'filter_query': '{% Demanda Falha} >= 40', 'column_id': '% Demanda Falha'},
-                    'color': '#c0392b', 'fontWeight': 'bold',
-                },
+                {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                {'if': {'filter_query': '{Itens Entregues} >= 10'}, 'borderLeft': '3px solid #27ae60'},
+                {'if': {'filter_query': '{BU} = "Sistemas - W1NNER"'}, 'borderLeft': '3px solid #3498db'},
+                {'if': {'filter_query': '{BU} = "Sistemas - S1NC"'}, 'borderLeft': '3px solid #9b59b6'},
+                {'if': {'filter_query': '{BU} = "BeFinance"'}, 'borderLeft': '3px solid #e67e22'},
+                {'if': {'filter_query': '{BU} = "Dados"'}, 'borderLeft': '3px solid #1abc9c'},
             ],
         )
 
-        # ── Gráfico: Entregues vs Puxados (barras agrupadas) ─────────────────
-        top_n_prod = min(25, len(per_dev))
+        # ── Gráfico: Entregues vs Puxados por BU (barras agrupadas) ──────────
+        top_n_prod = min(30, len(per_dev))
         df_top = per_dev.head(top_n_prod).copy()
+        color_col = 'BU' if 'BU' in df_top.columns and df_top['BU'].astype(str).str.strip().ne('').any() else None
         fig_pulled_vs_done = px.bar(
             df_top,
             x='Pessoa',
             y=['Itens Puxados', 'Itens Entregues'],
-            title='Cartões Puxados vs Entregues por Dev (top 25 por Score)',
+            title='Cartões Puxados vs Entregues por Dev (top 30 por Score)',
+            barmode='group',
+            color_discrete_map={'Itens Puxados': '#5b9bd5', 'Itens Entregues': '#2ca02c'},
+            height=560,
+            facet_col=color_col,
+            facet_col_wrap=3 if color_col else None,
+        ) if color_col else px.bar(
+            df_top,
+            x='Pessoa',
+            y=['Itens Puxados', 'Itens Entregues'],
+            title='Cartões Puxados vs Entregues por Dev (top 30 por Score)',
             barmode='group',
             color_discrete_map={'Itens Puxados': '#5b9bd5', 'Itens Entregues': '#2ca02c'},
             height=520,
@@ -13324,6 +13511,37 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             legend_title='Métrica',
             yaxis_title='Quantidade de itens',
         )
+
+        # Gráfico agregado por BU
+        fig_bu_summary = go.Figure()
+        _has_bu_data = 'BU' in per_dev.columns and per_dev['BU'].astype(str).str.strip().ne('').any()
+        if _has_bu_data:
+            bu_agg = per_dev.groupby('BU', dropna=False).agg(
+                Devs=('Pessoa', 'count'),
+                Itens_Entregues=('Itens Entregues', 'sum'),
+                Itens_Puxados=('Itens Puxados', 'sum'),
+                SP_Entregues=('SP Entregues', 'sum'),
+                Defeitos_Entregues=('Defeitos Entregues', 'sum'),
+                Commits=('Commits', 'sum'),
+                PRs_Merged=('PRs Merged', 'sum'),
+            ).reset_index()
+            bu_agg.columns = ['BU', 'Devs', 'Itens Entregues', 'Itens Puxados', 'SP Entregues',
+                               'Defeitos Entregues', 'Commits', 'PRs Merged']
+            bu_agg['% Demanda Falha'] = np.where(
+                bu_agg['Itens Entregues'] > 0,
+                (bu_agg['Defeitos Entregues'] / bu_agg['Itens Entregues'] * 100).round(1),
+                0.0,
+            )
+            bu_agg = bu_agg.sort_values('Itens Entregues', ascending=False)
+            fig_bu_summary = px.bar(
+                bu_agg,
+                x='BU',
+                y=['Itens Entregues', 'Commits', 'PRs Merged'],
+                title='Resumo por BU/Time — Entregas, Commits e PRs Merged',
+                barmode='group',
+                height=460,
+            )
+            fig_bu_summary.update_layout(xaxis_tickangle=-30, margin=dict(b=100), legend_title='Métrica')
 
         # ── Gráfico: Cartões puxados por complexidade (SP bucket, stacked) ───
         fig_complexity = go.Figure()
@@ -13417,39 +13635,100 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             fig_scatter.update_layout(template='plotly_white', margin=dict(t=60, b=50))
 
         period_label = f"{start_ts_prod.date()} → {end_ts_prod.date()}"
-        note_style = {'textAlign': 'center', 'color': '#666', 'marginBottom': '8px'}
+
+        def _section(title, subtitle=None, children=None):
+            """Helper: cria bloco de seção com título, linha divisória e conteúdo."""
+            return html.Div([
+                html.Div([
+                    html.H4(title, style={
+                        'margin': '0 0 2px 0', 'fontSize': '15px',
+                        'fontWeight': '600', 'color': '#343a40',
+                    }),
+                    html.P(subtitle, style={
+                        'margin': '0', 'fontSize': '12px', 'color': '#6c757d',
+                    }) if subtitle else html.Span(),
+                ], style={'borderBottom': '2px solid #dee2e6', 'paddingBottom': '8px', 'marginBottom': '12px'}),
+                *(children or []),
+            ], style={
+                'backgroundColor': '#ffffff', 'border': '1px solid #e9ecef',
+                'borderRadius': '8px', 'padding': '16px 20px', 'marginBottom': '16px',
+                'boxShadow': '0 1px 4px rgba(0,0,0,.05)',
+            })
 
         return html.Div([
-            html.H3('Produtividade Individual por Desenvolvedor', style={'textAlign': 'center', 'marginBottom': '4px'}),
-            html.P(
-                f'Período: {period_label} | Cruza dados Jira (cartões, Story Points, demanda de falha) com Bitbucket (commits, PRs).',
-                style=note_style,
-            ),
+            # ── Cabeçalho ─────────────────────────────────────────────────────
+            html.Div([
+                html.H3('Produtividade Individual por Desenvolvedor', style={
+                    'margin': '0 0 4px 0', 'fontSize': '20px', 'fontWeight': '700', 'color': '#212529',
+                }),
+                html.P(
+                    f'Período: {period_label}  •  Jira (cartões, Story Points, demanda de falha) + Bitbucket (commits, PRs)',
+                    style={'margin': 0, 'fontSize': '12px', 'color': '#6c757d'},
+                ),
+            ], style={
+                'padding': '14px 20px', 'marginBottom': '16px',
+                'background': 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+                'borderRadius': '8px', 'borderLeft': '4px solid #2980b9',
+            }),
+
+            # ── KPIs ──────────────────────────────────────────────────────────
             kpi_row,
-            html.H4('Resumo por Desenvolvedor', style={'marginTop': '10px', 'marginBottom': '8px'}),
-            html.P('Ordenado por Score Integrado. Use os filtros e ordenação da tabela para explorar.', style=note_style),
-            prod_table,
-            html.H4('Cartões Puxados vs Entregues', style={'marginTop': '28px'}),
-            dcc.Graph(figure=fig_pulled_vs_done),
-            html.H4('Cartões Puxados por Complexidade (Story Points)', style={'marginTop': '18px'}),
-            html.P('Mostra quais faixas de complexidade cada dev puxou para WIP no período.', style=note_style),
-            dcc.Graph(figure=fig_complexity) if not complexity_df.empty else html.Div(
-                'Story Points não disponíveis nos dados de fluxo para análise de complexidade.',
-                style={'padding': '16px', 'color': '#888'}
+
+            # ── BU Banner ─────────────────────────────────────────────────────
+            bu_selector,
+
+            # ── Resumo por BU ─────────────────────────────────────────────────
+            _section(
+                'Visão por BU / Time',
+                'Entregas, commits e PRs Merged consolidados por time no período.',
+                [dcc.Graph(figure=fig_bu_summary, config={'displayModeBar': False})]
+                if fig_bu_summary.data else [html.P('Dados de BU não disponíveis.', style={'color': '#aaa'})],
             ),
-            html.H4('Demanda de Falha por Dev (Defeitos Entregues)', style={'marginTop': '18px'}),
-            html.P('Quantidade de itens do tipo "Defeito" concluídos por dev e percentual em relação ao total entregue.', style=note_style),
-            dcc.Graph(figure=fig_failure_demand) if has_defect_data else html.Div(
-                'Nenhum defeito registrado no período com os filtros ativos.',
-                style={'padding': '16px', 'color': '#888'}
+
+            # ── Tabela de devs ─────────────────────────────────────────────────
+            _section(
+                'Ranking de Desenvolvedores',
+                'Ordenado por Score Integrado. Filtre a coluna BU para ver somente um time.',
+                [prod_table],
             ),
-            html.H4('Commits × Itens Entregues (visão cruzada Bitbucket + Jira)', style={'marginTop': '18px'}),
-            html.P(
-                'Cada bolha = um dev. Tamanho ∝ PRs Merged. Cor = % Demanda Falha (vermelho = alto).',
-                style=note_style,
+
+            # ── Gráfico puxados vs entregues ───────────────────────────────────
+            _section(
+                'Cartões Puxados vs Entregues',
+                'Top 30 por Score Integrado. Puxados = itens movidos para WIP; Entregues = itens concluídos.',
+                [dcc.Graph(figure=fig_pulled_vs_done, config={'displayModeBar': False})],
             ),
-            dcc.Graph(figure=fig_scatter),
-        ], style={'padding': '16px'})
+
+            # ── Complexidade ──────────────────────────────────────────────────
+            _section(
+                'Cartões Puxados por Complexidade (Story Points)',
+                'Faixas de SP dos itens iniciados no período por desenvolvedor.',
+                [dcc.Graph(figure=fig_complexity, config={'displayModeBar': False})]
+                if not complexity_df.empty else [
+                    html.P('Story Points não disponíveis nos dados — os cartões do Jira precisam ter SP preenchido.',
+                           style={'color': '#aaa', 'fontStyle': 'italic'})
+                ],
+            ),
+
+            # ── Demanda de falha ──────────────────────────────────────────────
+            _section(
+                'Demanda de Falha por Desenvolvedor',
+                'Defeitos concluídos atribuídos ao dev. Cor indica % de falha em relação ao total entregue.',
+                [dcc.Graph(figure=fig_failure_demand, config={'displayModeBar': False})]
+                if has_defect_data else [
+                    html.P('Nenhum item do tipo Defeito concluído no período com os filtros ativos.',
+                           style={'color': '#aaa', 'fontStyle': 'italic'})
+                ],
+            ),
+
+            # ── Scatter commits x entregas ────────────────────────────────────
+            _section(
+                'Commits × Itens Entregues (Bitbucket + Jira)',
+                'Cada bolha = um dev. Tamanho ∝ PRs Merged. Cor = % Demanda Falha (verde → saudável, vermelho → alto).',
+                [dcc.Graph(figure=fig_scatter, config={'displayModeBar': False})],
+            ),
+
+        ], style={'padding': '20px', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
 
     return html.Div('Aba não encontrada')
 
