@@ -14,6 +14,7 @@ import json
 import numpy as np
 import math
 import hashlib
+from pathlib import Path
 import socket
 import urllib.request
 import urllib.parse
@@ -704,10 +705,7 @@ def _load_people_config() -> dict:
     global _PEOPLE_CONFIG_CACHE
     if _PEOPLE_CONFIG_CACHE is not None:
         return _PEOPLE_CONFIG_CACHE
-    config_path = Path(DATA_PATH).parent / 'people_config.json'
-    if not config_path.exists():
-        # tenta na pasta raiz do script
-        config_path = Path(__file__).resolve().parent / 'people_config.json'
+    config_path = Path(__file__).resolve().parent / 'people_config.json'
     if config_path.exists():
         try:
             with config_path.open(encoding='utf-8') as fp:
@@ -4240,6 +4238,13 @@ def portfolio_is_highest_priority(priority_value):
     )
 
 
+def portfolio_is_cancelled_item(status_value, status_category_value=''):
+    status_norm = normalize_text(status_value)
+    status_category_norm = normalize_text(status_category_value)
+    cancel_terms = ('cancel', 'cancelad', 'cancelled', 'canceled', 'descart', 'abort')
+    return any(term in status_norm for term in cancel_terms) or any(term in status_category_norm for term in cancel_terms)
+
+
 def render_portfolio_roadmap_quarter_view(df_source, selected_quarter='ALL'):
     if df_source is None or df_source.empty:
         return html.Div([
@@ -4248,6 +4253,17 @@ def render_portfolio_roadmap_quarter_view(df_source, selected_quarter='ALL'):
         ], style={'marginBottom': '18px'})
 
     df = df_source.copy()
+    df = df[
+        ~df.apply(
+            lambda row: portfolio_is_cancelled_item(row.get('Status', ''), row.get('StatusCategoria', '')),
+            axis=1
+        )
+    ].copy()
+    if df.empty:
+        return html.Div([
+            html.H4('One Page - Roadmap 2026', style={'margin': '0 0 6px 0'}),
+            html.P('Sem itens de portfólio ativos para montar o roadmap por quarter.', style={'margin': 0, 'color': '#666'})
+        ], style={'marginBottom': '18px'})
     if 'DueDate' in df.columns:
         df['RoadmapQuarter'] = df['DueDate'].apply(portfolio_quarter_label_from_date)
     else:
@@ -4411,6 +4427,17 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         ], style={'marginBottom': '18px'})
 
     df = df_source.copy()
+    df = df[
+        ~df.apply(
+            lambda row: portfolio_is_cancelled_item(row.get('Status', ''), row.get('StatusCategoria', '')),
+            axis=1
+        )
+    ].copy()
+    if df.empty:
+        return html.Div([
+            html.H4('One Page Completo - Roadmap 2026', style={'margin': '0 0 6px 0'}),
+            html.P('Sem itens de portfólio ativos para montar o roadmap completo.', style={'margin': 0, 'color': '#666'})
+        ], style={'marginBottom': '18px'})
     if 'ETIQUETA' not in df.columns:
         df['ETIQUETA'] = ''
     if 'Etiquetas' not in df.columns:

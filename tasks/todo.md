@@ -1,5 +1,35 @@
 # Task Plan
 
+## Current Task (Ocultar projetos cancelados no one page)
+- [x] Localizar a regra de montagem do roadmap one page de portfólio
+- [x] Excluir itens/projetos cancelados das visões one page
+- [x] Validar com compilação e smoke test da renderização
+- [x] Registrar review e commit sugerido
+
+## Specification (Ocultar projetos cancelados no one page)
+- Objetivo: impedir que projetos cancelados apareçam nas visões `One Page` de portfólio.
+- Regras:
+  - aplicar a exclusão antes da montagem visual do roadmap
+  - considerar sinais de cancelamento em `Status` e `StatusCategoria`
+  - manter o restante do comportamento do one page inalterado
+
+## Review (Ocultar projetos cancelados no one page)
+- O que foi implementado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora usa o helper `portfolio_is_cancelled_item(...)` para identificar cancelamento por `Status` e `StatusCategoria`.
+  - As visões [`render_portfolio_roadmap_quarter_view(...)`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) e [`render_portfolio_roadmap_full_epics_view(...)`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passaram a remover itens cancelados antes de montar o one page.
+  - Quando o recorte tiver apenas itens cancelados, a UI agora responde com mensagem de ausência de itens ativos em vez de exibir cards cancelados.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... render_portfolio_roadmap_full_epics_view(df) ... PY`
+    - Resultado observado:
+      - `full_has_active = True`
+      - `full_has_cancelled = False`
+  - `python3 - <<'PY' ... render_portfolio_roadmap_quarter_view(df) ... PY`
+    - Resultado observado:
+      - renderização sem erro com dataset contendo item cancelado e ativo
+- Suggested commit message:
+  - `fix(portfolio): hide cancelled items from one page roadmaps`
+
 ## Current Task (Alertar e destacar itens com tag EXTRA-ONEPAGE no portfólio)
 - [x] Localizar a montagem da aba de alertas e do relatório one page de portfólio
 - [x] Adicionar agregação de alerta por tipo de item para a tag `EXTRA-ONEPAGE`
