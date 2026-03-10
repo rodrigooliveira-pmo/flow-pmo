@@ -198,10 +198,23 @@ def _load_bitbucket_csv_url_map():
     raw = os.getenv('FLOW_PMO_BITBUCKET_CSV_URL_MAP', '').strip()
     if not raw:
         return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return {}
+    # Remove quebras de linha e espaços extras que o Vercel UI pode inserir
+    cleaned = ' '.join(raw.splitlines())
+    parsed = None
+    for candidate in (cleaned, cleaned.strip('"').strip("'"), cleaned.replace('\\"', '"')):
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            break
+        except Exception:
+            continue
+    if parsed is None:
+        matches = re.findall(r'"([a-z0-9_]+)"\s*:\s*"([^"]+)"', cleaned)
+        if matches:
+            parsed = {k: v for k, v in matches}
+        else:
+            return {}
     if not isinstance(parsed, dict):
         return {}
     return {str(k).strip().lower(): str(v).strip() for k, v in parsed.items() if k and v}
