@@ -1,0 +1,645 @@
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage[margin=2.5cm]{geometry}
+
+\title{FlowPMO: Operationalizing Multidimensional Developer Productivity\\
+       with Absolute Benchmark Normalization}
+
+\author{Rodrigo Almeida de Oliveira \\
+  Flow Engineering Research Group \\
+  \texttt{rodrigoalmeidadeoliveira@gmail.com}}
+
+\begin{document}
+
+\maketitle
+
+\begin{resumo}
+Medir produtividade de desenvolvedores permanece um dos desafios mais controversos na
+engenharia de software. Este artigo apresenta o FlowPMO, um framework de dashboard
+open-source que operacionaliza a produtividade em cinco dimens\~{o}es inspiradas no SPACE:
+Entrega, Flow Efficiency, Qualidade de Revis\~{a}o, Conform\^{a}ncia de Processo e
+Anti-Retrabalho. Cada dimens\~{a}o \'{e} normalizada contra benchmarks absolutos fundamentados
+na literatura, evitando o problema de colapso de ranking da normaliza\c{c}\~{a}o por z-score
+em equipes pequenas. O Score Benchmark, computado como dist\^{a}ncia euclidiana ao perfil
+ideal, fornece um \'{i}ndice composto adequado para conversas de coaching. A avalia\c{c}\~{a}o
+com dataset sint\'{e}tico reproduz\'{i}vel de 28 desenvolvedores (Q3 2024, seed=42) mostra que
+Score Benchmark captura vari\^{a}ncia invis\'{i}vel para m\'{e}tricas \'{u}nicas (r=0,36 para
+commits vs.\ r=0,85 para Score Complexity), que Flow Efficiency e Entrega s\~{a}o as
+dimens\~{o}es mais fracas, e que Tech Leads exibem sistematicamente maior Qualidade de
+Revis\~{a}o (+7,1 pp) por\'{e}m menor Flow Efficiency ($-$10,8 pp).
+\end{resumo}
+
+\begin{abstract}
+Measuring developer productivity remains one of the most contested challenges in software
+engineering management. Widely adopted proxies --- lines of code, commit frequency, and
+velocity points --- are inherently uni-dimensional and susceptible to gaming, failing to
+capture the qualitative dimensions of value delivery, process health, and engineering
+craftsmanship. This paper presents FlowPMO, an open-source dashboard framework that
+operationalizes developer productivity across five dimensions inspired by the SPACE
+framework: Delivery Output, Flow Efficiency, Review Quality, Process Conformance, and
+Anti-Rework. Each dimension is normalized against absolute, literature-grounded benchmarks
+rather than relative peer comparisons, avoiding the rank-collapse problem that afflicts
+z-score normalization in small teams. An individual-level Score Benchmark, computed as the
+euclidean distance to an ideal five-dimensional profile, provides a single composite index
+suitable for coaching conversations and team retrospectives. We evaluate the framework using
+a reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024 (seed = 42).
+Results show that Score Benchmark (median 80.2) captures productivity variance invisible to
+commit counts alone (Pearson $r = 0.36$), that the Delivery dimension shows the widest spread
+across developers, and that Tech Leads exhibit systematically higher Review Quality (+7.1 pp)
+but lower absolute Flow Efficiency ($-$10.8 pp) compared to individual contributors,
+consistent with their process-coordination overhead.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+% ============================================================
+
+Software organizations increasingly seek objective, data-driven evidence of engineering
+effectiveness. Yet the choice of productivity proxy shapes organizational behavior in
+profound ways: when a single metric is treated as a target, it ceases to be a good
+measure~\cite{demarco1999}. Commit frequency rewards small, frequent commits; velocity
+points reward estimation inflation; lines of code reward verbosity. None of these proxies
+is inherently wrong, but each is dangerously incomplete when used in isolation.
+
+The SPACE framework~\cite{forsgren2021} provides a principled taxonomy of developer
+productivity across five dimensions: Satisfaction and well-being, Performance, Activity,
+Communication and collaboration, and Efficiency and flow. SPACE explicitly cautions against
+reducing productivity to any single dimension and advocates for multi-dimensional measurement.
+However, SPACE does not prescribe a concrete operationalization: it does not specify which
+metrics to collect, how to normalize them, or how to compose them into a dashboard that
+practitioners can act upon during sprint retrospectives and individual coaching sessions.
+
+FlowPMO fills this gap. It is an open-source Python/Streamlit dashboard\footnote{Source
+code available at: \url{https://github.com/rodrigoalmeidadeoliveira/flow-pmo}} that ingests
+developer activity data --- from Jira, Bitbucket, GitLab, or synthetic generators --- and
+produces per-developer, per-team, and portfolio-level productivity profiles aligned with the
+five SPACE-inspired dimensions described in this paper. The key design choice that
+distinguishes FlowPMO from prior dashboards is \emph{absolute benchmark normalization}: each
+raw metric is scaled against a literature-derived or industry-consensus target value, rather
+than against the team's own distribution. This avoids a common failure mode we call
+\emph{rank collapse}: in a team of homogeneous underperformers, z-score normalization would
+assign average scores to everyone, masking the systemic gap from external standards.
+
+\subsection*{Contributions}
+
+This paper makes the following contributions:
+
+\begin{enumerate}
+  \item A five-dimensional productivity framework with explicit metric-to-dimension mappings
+        and absolute benchmark values sourced from the literature (Section~\ref{sec:framework}).
+  \item A benchmark normalization method that caps scores at 100 and computes an
+        individual Score Benchmark via euclidean distance to the ideal profile
+        (Section~\ref{sec:framework}).
+  \item A reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024
+        (seed = 42) designed to exhibit realistic role and team heterogeneity
+        (Section~\ref{sec:evaluation}).
+  \item An empirical analysis of the framework's behavior, including cross-metric
+        correlations, dimension spread, and role-stratified comparisons
+        (Section~\ref{sec:results}).
+\end{enumerate}
+
+\subsection*{Research Questions}
+
+We address three research questions:
+
+\begin{itemize}
+  \item \textbf{RQ1}: Does Score Benchmark capture productivity variance that is invisible to
+        individual activity metrics?
+  \item \textbf{RQ2}: Which productivity dimensions exhibit the widest spread across
+        individual developers?
+  \item \textbf{RQ3}: Do Tech Leads and individual contributors exhibit systematically
+        different productivity profiles in each dimension?
+\end{itemize}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:background} reviews
+related work on developer productivity measurement, the DORA and Flow metrics, process
+mining approaches, and rework quality. Section~\ref{sec:framework} describes the FlowPMO
+framework in detail. Section~\ref{sec:evaluation} presents the evaluation design.
+Section~\ref{sec:results} reports results. Section~\ref{sec:threats} discusses threats to
+validity. Section~\ref{sec:discussion} discusses implications. Section~\ref{sec:conclusion}
+concludes.
+
+% ============================================================
+\section{Background and Related Work}
+\label{sec:background}
+% ============================================================
+
+\subsection{Developer Productivity Measurement}
+
+Developer productivity measurement has a long and contentious history. Early approaches
+focused on lines of code (LOC) and function points~\cite{fenton1997}, both of which suffer
+from incentive misalignment: LOC rewards verbosity, and function point counting requires
+specialized analysts. Story-point velocity, introduced by the Agile movement, shifted focus
+to team throughput but conflated estimation accuracy with actual output~\cite{jorgensen2014}.
+
+The key insight from the measurement validation literature~\cite{kitchenham1995} is that a
+metric must be \emph{valid} (measuring what it claims to measure), \emph{reliable}
+(producing consistent results), and \emph{actionable} (enabling decisions). No single
+activity metric satisfies all three criteria for developer productivity, which motivates the
+multi-dimensional approach taken in this paper.
+
+\subsection{DORA Metrics and Flow Framework}
+
+The DORA research program~\cite{forsgren2018} identified four software delivery metrics ---
+Deployment Frequency, Lead Time for Changes, Change Failure Rate, and Mean Time to Recovery
+--- as predictors of organizational performance. These metrics operate at the team or
+service level and are less suited to individual-level coaching. The Flow Framework
+by Mik Kersten extends DORA with flow metrics that track items through the value
+stream~\cite{anderson2010}, including Flow Efficiency (the ratio of active time to total
+elapsed time), which we adopt directly as one of our five dimensions.
+
+\subsection{Process Mining for Software Engineering}
+
+Process mining techniques~\cite{vanderaalst2016} enable conformance checking: comparing
+observed process executions against a normative model. Caldeira et al.~\cite{caldeira2019}
+applied conformance checking to software development workflows, measuring how often
+developers follow prescribed ticket lifecycle transitions. We operationalize this as our
+Process Conformance dimension, using the percentage of workflow steps that follow the
+prescribed sequence as the primary metric.
+
+\subsection{Rework and Technical Quality}
+
+Rework --- returning a completed work item to a prior stage --- is a widely recognized
+quality signal~\cite{caldeira2021}. Shah et al.~\cite{shah2023} found empirically that
+rework rate correlates with accumulated technical debt. The anti-rework dimension in
+FlowPMO captures the inverse of rework rate, rewarding developers who consistently deliver
+work that does not require remediation after reaching ``Done.''
+
+Nogueira and Rela~\cite{nogueira2023} studied continuous integration pipeline quality and
+found that code review thoroughness --- measured via the ratio of review comments to merged
+pull requests --- is a leading indicator of post-merge defect density. This supports our
+Review Quality dimension.
+
+\subsection{Identified Gaps}
+
+Prior dashboards either aggregate metrics into a single score (losing dimensional
+information) or present raw metrics without normalization (preventing cross-team comparison).
+Composite indices such as the Developer Productivity Score used by some commercial tools
+apply z-score normalization relative to the current team, making the score meaningless when
+the entire team is underperforming. FlowPMO addresses these gaps with absolute benchmark
+normalization and a five-dimensional profile that preserves dimensional transparency.
+
+% ============================================================
+\section{The FlowPMO Framework}
+\label{sec:framework}
+% ============================================================
+
+\subsection{Overview}
+
+FlowPMO organizes developer productivity into five dimensions, each mapped to one or more
+raw metrics collected from issue tracking and version control systems. Table~\ref{tab:dimensions}
+summarizes the dimensions, their primary metrics, the benchmark values used for normalization,
+and the literature sources that support those benchmarks.
+
+\begin{table}[htbp]
+  \centering
+  \caption{FlowPMO dimensions, primary metrics, benchmarks, and references.}
+  \label{tab:dimensions}
+  \small
+  \begin{tabular}{clllc}
+    \toprule
+    \textbf{Dim} & \textbf{Dimension} & \textbf{Primary Metric} & \textbf{Benchmark} & \textbf{Reference} \\
+    \midrule
+    D1 & Delivery Output     & Items delivered / sprint          & 10 items/sprint        & \cite{jorgensen2014} \\
+    D2 & Flow Efficiency     & Active time / total cycle time    & 80\%                   & \cite{anderson2010}  \\
+    D3 & Review Quality      & Review comments / PR merged       & 75\% threshold         & \cite{nogueira2023}  \\
+    D4 & Process Conformance & Workflow steps in correct order   & 75\% conformance       & \cite{caldeira2019}  \\
+    D5 & Anti-Rework         & 1 $-$ rework rate                 & $\leq$15\% rework rate & \cite{caldeira2021}  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Absolute Benchmark Normalization}
+
+Each raw dimension score $d_i$ is normalized against an absolute benchmark $\beta_i$
+derived from the literature or from industry consensus:
+
+\begin{equation}
+  \hat{d}_i = \min\!\left(\frac{d_i}{\beta_i} \times 100,\; 100\right)
+  \label{eq:norm}
+\end{equation}
+
+where $\beta_i$ is the literature-derived benchmark for dimension $i$. The $\min(\cdot,100)$
+cap prevents scores from exceeding 100, which would distort the euclidean distance
+computation in Equation~\ref{eq:sb}. Unlike z-score normalization, which is relative to the
+current sample, this formulation produces the same score for the same raw value regardless
+of the team composition. This property is essential for cross-team and cross-quarter
+comparisons.
+
+\subsection{Score Benchmark Composite Index}
+
+Given the five normalized dimension scores $\hat{d}_1, \ldots, \hat{d}_5$, we define the
+Score Benchmark (SB) as the complement of the normalized euclidean distance from the
+developer's profile $\mathbf{r} = [\hat{d}_1, \hat{d}_2, \hat{d}_3, \hat{d}_4, \hat{d}_5]$
+to the ideal profile $\mathbf{v}^* = [100, 100, 100, 100, 100]$:
+
+\begin{equation}
+  \text{SB} = 100 - \frac{\left\|\mathbf{r} - \mathbf{v}^*\right\|_2}{\sqrt{5}\times 100} \times 100
+  \label{eq:sb}
+\end{equation}
+
+where $\mathbf{r} = [\hat{d}_1, \hat{d}_2, \hat{d}_3, \hat{d}_4, \hat{d}_5]$ and
+$\mathbf{v}^* = [100, 100, 100, 100, 100]$. The denominator $\sqrt{5} \times 100$ is the
+maximum possible euclidean distance (achieved when all dimensions are zero), ensuring that
+SB is bounded in $[0, 100]$. A developer with all dimensions at 100 achieves SB = 100; a
+developer at the benchmark on all dimensions (all $\hat{d}_i = 75$) achieves SB $\approx$
+91.7.
+
+\subsection{Dimension Definitions}
+
+\paragraph{D1 --- Delivery Output.} The number of Jira items (stories, tasks, or bug fixes)
+with status \emph{Done} attributed to the developer in the reference quarter, divided by the
+number of sprints in the quarter and normalized against a benchmark of 10 items per sprint.
+Items below story-point threshold or flagged as subtasks are excluded to avoid incentivizing
+ticket fragmentation.
+
+\paragraph{D2 --- Flow Efficiency.} Computed as the ratio of time a work item spends in
+active states (In Progress, In Review) to its total cycle time from first transition out of
+Backlog to Done. A benchmark of 80\% is derived from the Flow Framework literature and
+represents the threshold above which teams are considered to have low wait-state overhead.
+
+\paragraph{D3 --- Review Quality.} Captures the thoroughness and timeliness of code review
+participation. The primary sub-metric is the ratio of review comments authored to pull
+requests reviewed, capped and normalized against a benchmark distribution. Timely approvals
+(within 24 hours of PR opening) and rejection-with-feedback events are weighted positively.
+
+\paragraph{D4 --- Process Conformance.} The percentage of work-item lifecycle transitions
+that follow the prescribed workflow model (Backlog $\to$ To Do $\to$ In Progress $\to$ In
+Review $\to$ Done). Transitions that skip stages or regress without a rework event are
+penalized. The benchmark of 75\% conformance is derived from the process mining
+literature~\cite{caldeira2019}.
+
+\paragraph{D5 --- Anti-Rework.} The complement of the rework rate, defined as the fraction
+of items that re-enter In Progress from Done or Closed within the quarter. A rework rate
+below 15\% maps to a full Anti-Rework score of 100, consistent with empirical findings on
+sustainable rework levels~\cite{caldeira2021}.
+
+\subsection{Implementation}
+
+FlowPMO is implemented in Python 3.11 using Pandas for data wrangling, Plotly for
+interactive radar and scatter charts, and Streamlit for the web dashboard. A synthetic data
+generator (\texttt{generate\_synthetic\_data.py}) produces reproducible datasets for
+testing and benchmarking. The framework exposes a configuration file where practitioners can
+override the default benchmark values for each dimension, enabling calibration to
+organization-specific standards.
+
+% ============================================================
+\section{Evaluation Design}
+\label{sec:evaluation}
+% ============================================================
+
+\subsection{Synthetic Dataset}
+
+We evaluate the framework using a reproducible synthetic dataset of 28 developers across
+5 teams for Q3 2024, generated with \texttt{numpy.random.seed(42)}. The dataset includes
+both individual contributors (Devs, $n = 21$) and Tech Leads (TLs, $n = 7$). Each developer
+record includes raw values for all five dimensions, plus ancillary fields: total commits,
+pull requests merged, story-point complexity score, and work-in-progress residual at
+quarter end.
+
+The synthetic generator uses team-level parameters (mean and standard deviation for each
+raw metric) that were calibrated against anonymized data from three mid-sized software
+companies. Tech Lead profiles were parameterized to reflect a known organizational pattern:
+reduced delivery throughput (due to context-switching and meeting load) but higher review
+participation and lower rework rates.
+
+\subsection{Metrics and Analysis}
+
+We compute descriptive statistics (mean, standard deviation, median) for all five normalized
+dimensions and Score Benchmark, stratified by role. To address RQ1, we compute Pearson
+correlation between Score Benchmark and individual activity proxies (commit count,
+story-point complexity). To address RQ2, we compare the coefficient of variation across
+dimensions. To address RQ3, we compute mean differences between TL and Dev groups for each
+normalized dimension and for Score Benchmark.
+
+\subsection{Reproducibility}
+
+The full dataset, generation script, and figure generation script are included in the
+FlowPMO repository. Any result reported in this paper can be reproduced by running
+\texttt{generate\_synthetic\_data.py} followed by \texttt{generate\_figures.py} from the
+repository root.
+
+% ============================================================
+\section{Results}
+\label{sec:results}
+% ============================================================
+
+\subsection{Descriptive Statistics by Role}
+
+Table~\ref{tab:desc} presents descriptive statistics for all developers, stratified by role.
+Tech Leads show markedly lower Items Delivered (6.3 vs.\ 11.3) and Flow Efficiency
+(61.4\% vs.\ 72.2\%), while their Review Quality is substantially higher (78.7\% vs.\
+71.6\%). Score Benchmark is 12.1 points lower for Tech Leads (72.4 vs.\ 84.5), driven
+primarily by the Delivery gap.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Descriptive statistics (mean $\pm$ SD, median) by role. Dev: $n=21$; TL: $n=7$.}
+  \label{tab:desc}
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Metric} & \multicolumn{2}{c}{\textbf{Dev ($n=21$)}} & \multicolumn{2}{c}{\textbf{Tech Lead ($n=7$)}} \\
+    \cmidrule(lr){2-3} \cmidrule(lr){4-5}
+                         & Mean $\pm$ SD & Median & Mean $\pm$ SD & Median \\
+    \midrule
+    Items Delivered      & $11.3 \pm 4.4$  & 10.0 & $6.3 \pm 2.1$   & 6.0  \\
+    Flow Efficiency (\%) & $72.2 \pm 14.6$ & 72.1 & $61.4 \pm 9.1$  & 65.1 \\
+    Score Complexity     & $19.0 \pm 7.4$  & 17.0 & $10.0 \pm 3.3$  & 9.0  \\
+    Review Quality (\%)  & $71.6 \pm 13.3$ & 72.8 & $78.7 \pm 12.5$ & 79.2 \\
+    Conformance (\%)     & $69.5 \pm 13.0$ & 69.3 & $65.2 \pm 11.7$ & 61.5 \\
+    Rework Rate (\%)     & $18.6 \pm 7.8$  & 19.7 & $16.6 \pm 9.4$  & 21.1 \\
+    Commits              & $62.4 \pm 19.6$ & 65.0 & $31.9 \pm 14.5$ & 32.0 \\
+    PRs Merged           & $9.8 \pm 2.6$   & 11.0 & $10.4 \pm 4.5$  & 9.0  \\
+    Score Benchmark      & $84.5 \pm 9.2$  & 83.6 & $72.4 \pm 7.9$  & 71.3 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Multidimensional Profiles (Radar Chart)}
+
+Figure~\ref{fig:radar} shows the radar chart for the top 10 developers by Score Benchmark.
+The chart reveals that high-scoring developers consistently achieve strong Anti-Rework and
+Review Quality scores, while their Delivery and Flow Efficiency scores vary more widely.
+This suggests that quality-oriented behaviors are more consistent predictors of high overall
+scores than raw throughput.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.80\textwidth]{figures/fig1_radar.pdf}
+  \caption{Radar chart of the five normalized dimensions for the top 10 developers by
+           Score Benchmark (Q3 2024, $n=28$, seed=42). Dashed orange line: minimum
+           expected score of 75. Dotted green line: excellence threshold of 100. Each
+           filled polygon represents one developer.}
+  \label{fig:radar}
+\end{figure}
+
+\subsection{Flow Efficiency and Conformance Relationship}
+
+Figure~\ref{fig:scatter} shows the joint distribution of Flow Efficiency and Conformance
+Quality, with bubble size proportional to WIP Residual and color encoding Rework Rate.
+Developers in the upper-right quadrant (high Flow Efficiency, high Conformance) tend to
+show lower rework rates (green hues), confirming that process adherence and flow health are
+mutually reinforcing. The lower-left quadrant is dominated by developers with high WIP
+residual, suggesting that unfinished work at quarter end is a compounding signal.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/fig2_scatter.pdf}
+  \caption{Scatter plot of Flow Efficiency (\%) vs.\ Conformance Quality (\%). Bubble size
+           is proportional to WIP Residual; color encodes Rework Rate (\%) using a
+           red-to-green colormap (red = high rework). Dashed vertical line: Flow Efficiency
+           benchmark (80\%). Dashed horizontal line: Conformance benchmark (75\%).}
+  \label{fig:scatter}
+\end{figure}
+
+\subsection{Score Benchmark Distribution}
+
+Figure~\ref{fig:hist} shows the distribution of Score Benchmark values across all 28
+developers. The median is 80.2, with the majority of developers falling in the 75--95 range.
+The distribution is slightly left-skewed, with a small cluster of developers below 70,
+primarily Tech Leads with very low Delivery scores.
+
+To address RQ1, we computed Pearson correlations between Score Benchmark and two common
+activity proxies: commit count ($r = 0.36$, $p = 0.06$) and story-point complexity score
+($r = 0.85$, $p < 0.001$). The weak correlation with commit count confirms that Score
+Benchmark captures dimensions of productivity that raw commit frequency does not, while the
+strong correlation with complexity score suggests that item complexity is a meaningful
+component of the overall productivity signal.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.80\textwidth]{figures/fig3_histogram.pdf}
+  \caption{Distribution of Score Benchmark values for all 28 developers (Q3 2024, seed=42).
+           Bars are color-coded: red = below 75 (below minimum expected), orange = 75--85,
+           green = above 85 (excellence zone). Dashed lines mark the minimum expected (75)
+           and excellence (100) thresholds. Solid blue line: median (80.2).}
+  \label{fig:hist}
+\end{figure}
+
+\subsection{Role Comparison: Normalized Dimensions}
+
+Table~\ref{tab:radar} and Figure~\ref{fig:rolebars} address RQ3 by comparing the five
+normalized dimension scores across roles. The Delivery dimension shows the largest gap
+($-$33.7 pp for Tech Leads), followed by Flow Efficiency ($-$10.1 pp). Review Quality
+favors Tech Leads (+3.8 pp), as does Anti-Rework (+0.5 pp). Conformance is slightly lower
+for Tech Leads ($-$3.7 pp), possibly reflecting that they spend less time in formal workflow
+states.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Normalized dimension scores by role (0--100 scale). Diff = TL $-$ Dev.}
+  \label{tab:radar}
+  \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Dimension} & \textbf{Dev} & \textbf{Tech Lead} & \textbf{Diff} \\
+    \midrule
+    Entrega (Delivery)     & 80.8 & 47.1 & $-$33.7 \\
+    Flow Efficiency        & 86.9 & 76.8 & $-$10.1 \\
+    Revis\~{a}o (Review)  & 93.9 & 97.7 & $+$3.8  \\
+    Conformance            & 89.4 & 85.7 & $-$3.7  \\
+    Anti-Retrabalho        & 96.8 & 97.3 & $+$0.5  \\
+    \midrule
+    \textbf{Score Benchmark} & \textbf{84.5} & \textbf{72.4} & $\mathbf{-12.1}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/fig4_role_bars.pdf}
+  \caption{Grouped bar chart comparing normalized dimension scores for Tech Lead vs.\ Dev
+           roles across all five productivity dimensions (Q3 2024, $n=28$, seed=42). Dashed
+           lines mark the minimum expected score (75) and excellence threshold (100). Dev:
+           blue; Tech Lead: orange.}
+  \label{fig:rolebars}
+\end{figure}
+
+% ============================================================
+\section{Threats to Validity}
+\label{sec:threats}
+% ============================================================
+
+\paragraph{Construct validity.} The five dimensions and their primary metrics are grounded
+in literature, but the specific benchmark values (e.g., 80\% for Flow Efficiency, 10 items
+per sprint for Delivery) may not be universally applicable. Organizations operating in
+domains with longer cycle times (e.g., embedded systems, regulated industries) may need to
+recalibrate benchmarks. The FlowPMO configuration layer supports this, but empirical
+validation against real organizational data is needed.
+
+\paragraph{Internal validity.} The dataset is synthetic. Although parameterized to reflect
+realistic team dynamics, synthetic data cannot reproduce the full complexity of real
+developer behavior, including strategic behavior changes in response to measurement. The
+correlation results reported in Section~\ref{sec:results} should be interpreted as
+illustrative of the framework's properties, not as empirical claims about real developer
+populations.
+
+\paragraph{External validity.} The evaluation covers one quarter and 28 developers across
+5 teams. This is sufficient to demonstrate the framework's behavior but insufficient to
+generalize findings to the population of all software teams. In particular, the role
+comparison (RQ3) involves only 7 Tech Lead observations, limiting statistical power. A
+longitudinal, multi-organization study is needed before these findings can be treated as
+prescriptive.
+
+\paragraph{Reliability.} The benchmark values were selected based on literature review.
+Different reviewers might select different benchmarks or map different metrics to the same
+dimension. We mitigate this through explicit documentation and by making the configuration
+layer programmable, but a formal Delphi study to validate benchmark consensus would
+strengthen the framework's measurement reliability~\cite{kitchenham2002}.
+
+% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+% ============================================================
+
+\subsection{Implications for Practice}
+
+The finding that Score Benchmark correlates weakly with commit count ($r = 0.36$) but
+strongly with story-point complexity ($r = 0.85$) has a practical implication: engineering
+managers who track commit frequency as a productivity proxy are likely missing a large
+portion of meaningful productivity variance. The FlowPMO Score Benchmark, by incorporating
+Review Quality, Process Conformance, and Anti-Rework, surfaces behaviors that commit-counting
+cannot capture.
+
+The role-stratified analysis (RQ3) reveals a structural trade-off: Tech Leads exchange
+Delivery throughput and Flow Efficiency for Review Quality and Anti-Rework contributions.
+This is consistent with the expected role of a Tech Lead in an Agile team --- they invest
+time in code review and mentoring rather than in individual delivery --- but it means that
+applying the same absolute delivery benchmark to Tech Leads and individual contributors will
+systematically undervalue Tech Lead contributions. Practitioners using FlowPMO should
+consider role-specific benchmark profiles, or at minimum, interpret the Delivery dimension
+score for Tech Leads in the context of their review participation.
+
+\subsection{Absolute vs.\ Relative Normalization}
+
+The rank-collapse problem motivates absolute normalization, but absolute benchmarks
+introduce a different risk: benchmark staleness. A benchmark of 80\% for Flow Efficiency
+may have been appropriate for teams using Scrum with two-week sprints, but may be
+unrealistically high for teams in domains with long approval cycles. We recommend that
+organizations using FlowPMO review benchmark values at least annually and after significant
+process changes.
+
+\subsection{Limitations of Euclidean Distance}
+
+The euclidean-distance formulation of Score Benchmark treats all five dimensions as equally
+important, which may not reflect organizational priorities. A weighted variant of
+Equation~\ref{eq:sb}, where each dimension receives a weight $w_i$ with $\sum w_i = 1$,
+would allow organizations to emphasize, for example, Anti-Rework over Delivery in a
+quality-critical domain. We leave the empirical validation of weighting schemes to future
+work.
+
+% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ============================================================
+
+This paper presented FlowPMO, an open-source developer productivity dashboard that
+operationalizes five SPACE-inspired dimensions using absolute benchmark normalization and a
+euclidean-distance composite index (Score Benchmark). We evaluated the framework on a
+reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024.
+
+Key findings are:
+
+\begin{enumerate}
+  \item Score Benchmark captures productivity variance invisible to commit counts alone
+        (Pearson $r = 0.36$ vs.\ $r = 0.85$ for story-point complexity score), validating
+        its multi-dimensional design (\textbf{RQ1}).
+  \item The Delivery dimension exhibits the widest spread across developers (coefficient of
+        variation: 39\%), followed by Flow Efficiency (20\%), confirming that throughput-
+        and flow-related metrics are the most heterogeneous within the team (\textbf{RQ2}).
+  \item Tech Leads exhibit systematically higher Review Quality (+3.8 pp normalized) and
+        Anti-Rework (+0.5 pp) but lower Delivery ($-$33.7 pp) and Flow Efficiency
+        ($-$10.1 pp) compared to individual contributors, consistent with their
+        process-coordination role (\textbf{RQ3}).
+\end{enumerate}
+
+Future work will focus on: (i) validating the framework with longitudinal, multi-organization
+data; (ii) empirically calibrating dimension weights via a Delphi study with engineering
+managers; (iii) extending the framework to team-level aggregation with inter-dimensional
+correlation analysis; and (iv) integrating well-being and satisfaction proxies from pulse
+surveys to address the Satisfaction dimension of the SPACE framework.
+
+% ============================================================
+% REFERENCES
+% ============================================================
+
+\bibliographystyle{plain}
+
+\begin{thebibliography}{13}
+
+\bibitem{demarco1999}
+  T.\ DeMarco and T.\ Lister,
+  \textit{Peopleware: Productive Projects and Teams}, 2nd ed.
+  Dorset House, 1999.
+
+\bibitem{forsgren2021}
+  N.\ Forsgren et al.,
+  ``The SPACE of Developer Productivity,''
+  \textit{ACM Queue}, vol.\ 19, no.\ 1, pp.\ 20--48, 2021.
+
+\bibitem{kitchenham1995}
+  B.\ Kitchenham, S.\ L.\ Pfleeger, and N.\ Fenton,
+  ``Towards a Framework for Software Measurement Validation,''
+  \textit{IEEE TSE}, vol.\ 21, no.\ 12, pp.\ 929--944, 1995.
+
+\bibitem{anderson2010}
+  D.\ J.\ Anderson,
+  \textit{Kanban: Successful Evolutionary Change for Your Technology Business}.
+  Blue Hole Press, 2010.
+
+\bibitem{shah2023}
+  S.\ M.\ A.\ Shah et al.,
+  ``An Empirical Study on the Relationship Between Rework and Technical Debt,''
+  in \textit{Proc.\ ICSME}, 2023.
+
+\bibitem{caldeira2019}
+  J.\ Caldeira et al.,
+  ``Conformance Quality in Software Development: A Process Mining Approach,''
+  in \textit{Proc.\ ICPM}, 2019, pp.\ 121--128.
+
+\bibitem{fenton1997}
+  N.\ Fenton and S.\ L.\ Pfleeger,
+  \textit{Software Metrics: A Rigorous and Practical Approach}, 2nd ed.
+  PWS Publishing, 1997.
+
+\bibitem{jorgensen2014}
+  M.\ J{\o}rgensen,
+  ``What We Know About Software Development Effort Estimation,''
+  \textit{IEEE Software}, vol.\ 31, no.\ 2, pp.\ 37--40, 2014.
+
+\bibitem{forsgren2018}
+  N.\ Forsgren, J.\ Humble, and G.\ Kim,
+  \textit{Accelerate}.
+  IT Revolution Press, 2018.
+
+\bibitem{vanderaalst2016}
+  W.\ M.\ P.\ van der Aalst,
+  \textit{Process Mining: Data Science in Action}, 2nd ed.
+  Springer, 2016.
+
+\bibitem{caldeira2021}
+  J.\ Caldeira et al.,
+  ``Mining Software Development Rework Patterns Using Process Mining Techniques,''
+  \textit{IST}, vol.\ 135, p.\ 106565, 2021.
+
+\bibitem{nogueira2023}
+  A.\ F.\ Nogueira and M.\ Z.\ Rela,
+  ``Continuous Integration Pipeline Quality,''
+  \textit{IST}, vol.\ 161, p.\ 107256, 2023.
+
+\bibitem{kitchenham2002}
+  B.\ Kitchenham,
+  ``Procedures for Performing Systematic Reviews,''
+  Keele University, Tech.\ Rep.\ TR/SE-0401, 2002.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,38 @@
+%%% sbc-template.sty - SBC template for papers
+%%% Adapted for SBES/CBSoft submission
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{sbc-template}[2024/01/01 SBC Template]
+
+\RequirePackage{times}
+\RequirePackage{graphicx}
+\RequirePackage{url}
+\RequirePackage{amsmath}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+
+\pagestyle{empty}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\oddsidemargin}{-0.5cm}
+\setlength{\evensidemargin}{-0.5cm}
+\setlength{\textwidth}{17.5cm}
+\setlength{\textheight}{25.5cm}
+
+% Title formatting
+\renewcommand{\maketitle}{%
+  \begin{center}
+    {\Large\bf\@title\par}
+    \vspace{0.5em}
+    {\@author\par}
+  \end{center}
+  \vspace{1em}
+}
+
+% Abstract environment (English)
+\renewenvironment{abstract}{%
+  \small\bf Abstract.\normalfont\small\quad\ignorespaces
+}{\par\vspace{0.5em}}
+
+% Resumo environment (Portuguese)
+\newenvironment{resumo}{%
+  \small\bf Resumo.\normalfont\small\quad\ignorespaces
+}{\par\vspace{1em}}
