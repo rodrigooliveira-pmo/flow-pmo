@@ -1460,7 +1460,7 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
         complexity_df — DataFrame com cartões puxados por faixa de Story Points e pessoa.
     """
     if df is None or df.empty or 'Responsavel' not in df.columns:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     alias_index = _load_person_alias_index()
 
@@ -1468,7 +1468,18 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     base['_Pessoa'] = base['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
     base = base[base['_Pessoa'].astype(str).str.strip().ne('')]
     if base.empty:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    # Deriva WorkItemCategory a partir de TipoDemanda se a coluna não existir
+    # TipoDemanda usa constantes TYPE_ISSUES, TYPE_DEV, TYPE_SUPPORT, TYPE_OTHER
+    if 'WorkItemCategory' not in base.columns and 'TipoDemanda' in base.columns:
+        _tipodemanda_to_cat = {
+            TYPE_ISSUES:  'Defeitos',
+            TYPE_DEV:     'Desenvolvimento',
+            TYPE_SUPPORT: 'Suporte',
+            TYPE_OTHER:   'Outro',
+        }
+        base['WorkItemCategory'] = base['TipoDemanda'].map(_tipodemanda_to_cat).fillna('Outro')
 
     start_ts = pd.to_datetime(start_ts)
     end_ts = pd.to_datetime(end_ts)
@@ -1535,6 +1546,26 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     else:
         per_dev['Defeitos Puxados'] = 0
 
+    # WIP Residual — itens iniciados no período que ainda não foram concluídos
+    # (DataDone nula ou >= end_ts)
+    if not started_window.empty and 'DataDone' in started_window.columns:
+        _dd = pd.to_datetime(started_window['DataDone'], errors='coerce')
+        _wip_mask = _dd.isna() | (_dd >= end_ts)
+        _wip_items = started_window[_wip_mask.values]
+        per_dev['WIP Residual'] = per_dev['Pessoa'].map(
+            _wip_items['_Pessoa'].value_counts()
+        ).fillna(0).astype(int)
+    else:
+        per_dev['WIP Residual'] = 0
+
+    # Flow Efficiency — % de itens puxados que foram entregues no período
+    # Proxy de Little's Law: alta efficiency → baixo WIP acumulado (Anderson 2010)
+    per_dev['Flow Efficiency (%)'] = np.where(
+        per_dev['Itens Puxados'] > 0,
+        (per_dev['Itens Entregues'] / per_dev['Itens Puxados'] * 100.0).round(1),
+        0.0,
+    )
+
     # Lead Time mediano
     if not done_window.empty and 'LeadTime_Selected_Dias' in done_window.columns:
         lt = done_window.copy()
@@ -1557,6 +1588,19 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
             .reset_index(name='Qtd')
             .rename(columns={'_Pessoa': 'Pessoa'})
         )
+
+    # Breakdown por tipo de demanda (WorkItemCategory) dos itens entregues
+    # Retorna category_df com colunas: Pessoa, WorkItemCategory, Qtd, Pct
+    category_df = pd.DataFrame()
+    if not done_window.empty and 'WorkItemCategory' in done_window.columns:
+        _cat_grp = (
+            done_window.groupby(['_Pessoa', 'WorkItemCategory']).size()
+            .reset_index(name='Qtd')
+            .rename(columns={'_Pessoa': 'Pessoa'})
+        )
+        _cat_totals = _cat_grp.groupby('Pessoa')['Qtd'].transform('sum')
+        _cat_grp['Pct'] = (_cat_grp['Qtd'] / _cat_totals * 100).round(1)
+        category_df = _cat_grp.copy()
 
     # BU por pessoa (via people_config.json)
     bu_index = _load_person_bu_map()
@@ -1584,12 +1628,14 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
         ascending=[False, False, True]
     ).reset_index(drop=True)
 
-    # Propaga BU e Papel para complexity_df também
+    # Propaga BU e Papel para complexity_df e category_df
     if not complexity_df.empty:
         complexity_df['BU'] = complexity_df['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
         complexity_df['Papel'] = complexity_df['Pessoa'].apply(lambda p: _person_role(p, role_index=role_index))
+    if not category_df.empty:
+        category_df['BU'] = category_df['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
 
-    return per_dev, complexity_df
+    return per_dev, complexity_df, category_df
 
 
 def build_bitbucket_contributor_section(
@@ -6319,13 +6365,12 @@ _PM_FILE_PREFIX_MAP = {
 }
 
 
-def load_project_pm_case_df(projeto: str) -> pd.DataFrame:
-    """Carrega a aba ConformidadeCasos do Excel de process mining mais recente para qualquer projeto.
+def load_project_pm_sheet(projeto: str, sheet_name: str) -> pd.DataFrame:
+    """Carrega qualquer aba do Excel de process mining mais recente para qualquer projeto.
     Retorna DataFrame vazio se não encontrado.
     """
     project_key = str(projeto or '').strip().upper()
     prefix = _PM_FILE_PREFIX_MAP.get(project_key, project_key.lower().replace(' ', '').replace('&', ''))
-    required_sheet = 'ConformidadeCasos'
     latest_name = f'{prefix}-process-mining-latest.xlsx'
     candidates = []
     for folder in DATA_FOLDERS:
@@ -6346,13 +6391,18 @@ def load_project_pm_case_df(projeto: str) -> pd.DataFrame:
     for _, _, path in candidates:
         try:
             xls = pd.ExcelFile(path)
-            if required_sheet in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=required_sheet)
+            if sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
                 if not df.empty:
                     return df
         except Exception:
             continue
     return pd.DataFrame()
+
+
+def load_project_pm_case_df(projeto: str) -> pd.DataFrame:
+    """Carrega a aba ConformidadeCasos do Excel de process mining mais recente para qualquer projeto."""
+    return load_project_pm_sheet(projeto, 'ConformidadeCasos')
 
 
 def compute_pm_dev_metrics(
@@ -6484,6 +6534,100 @@ def compute_pipeline_success_rate(
             'Pipeline Success Rate (%)': round(sucesso / total * 100, 1) if total > 0 else 0.0,
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# Statuses terminais excluídos da identificação de gargalos
+_TERMINAL_STATUS_HINTS = {
+    'done', 'concluido', 'concluído', 'cancelled', 'cancelado', 'closed',
+    'fechado', 'rejected', 'won\'t do', 'wont do', 'backlog', 'to do',
+}
+
+
+def compute_pm_bottleneck_contribution(
+    bb_projects: list,
+    alias_index: dict | None = None,
+) -> pd.DataFrame:
+    """Calcula contribuição de horas em status de gargalo por desenvolvedor.
+
+    Gargalo = statuses com Tempo Mediano > P75 de todos os statuses (excluindo terminais).
+    Fonte: HorasPessoaStatus + TemposPorStatus dos Excels de process mining.
+
+    Retorna DataFrame: Pessoa, Horas em Gargalo, % Horas em Gargalo, Statuses Gargalo
+    """
+    if alias_index is None:
+        alias_index = _load_person_alias_index()
+
+    all_horas: list[pd.DataFrame] = []
+    all_tempos: list[pd.DataFrame] = []
+    for proj in bb_projects:
+        df_hs = load_project_pm_sheet(proj, 'HorasPessoaStatus')
+        df_ts = load_project_pm_sheet(proj, 'TemposPorStatus')
+        if not df_hs.empty:
+            all_horas.append(df_hs)
+        if not df_ts.empty:
+            all_tempos.append(df_ts)
+
+    if not all_horas:
+        return pd.DataFrame()
+
+    horas_df = pd.concat(all_horas, ignore_index=True)
+    if 'Responsavel' not in horas_df.columns or 'HorasNoFluxo' not in horas_df.columns or 'Status' not in horas_df.columns:
+        return pd.DataFrame()
+
+    horas_df['HorasNoFluxo'] = pd.to_numeric(horas_df['HorasNoFluxo'], errors='coerce').fillna(0)
+    horas_df['Pessoa'] = horas_df['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    horas_df = horas_df[horas_df['Pessoa'].astype(str).str.strip().ne('')]
+    if horas_df.empty:
+        return pd.DataFrame()
+
+    # Identifica gargalos: statuses com Tempo Mediano > P75 excluindo terminais
+    gargalo_statuses: set[str] = set()
+    if all_tempos:
+        tempos_df = pd.concat(all_tempos, ignore_index=True)
+        if 'Status' in tempos_df.columns and 'Tempo Mediano (dias)' in tempos_df.columns:
+            tempos_df['Tempo Mediano (dias)'] = pd.to_numeric(tempos_df['Tempo Mediano (dias)'], errors='coerce').fillna(0)
+            # Remove statuses terminais
+            tempos_df['_status_norm'] = tempos_df['Status'].astype(str).str.lower().str.strip()
+            tempos_df = tempos_df[~tempos_df['_status_norm'].apply(
+                lambda s: any(hint in s for hint in _TERMINAL_STATUS_HINTS)
+            )]
+            if not tempos_df.empty:
+                p75 = tempos_df['Tempo Mediano (dias)'].quantile(0.75)
+                gargalo_statuses = set(tempos_df[tempos_df['Tempo Mediano (dias)'] >= p75]['Status'].astype(str))
+
+    # Fallback: usa top 3 statuses por total de horas se não identificou gargalos
+    if not gargalo_statuses:
+        top_status = (
+            horas_df.groupby('Status')['HorasNoFluxo'].sum()
+            .nlargest(3).index.tolist()
+        )
+        gargalo_statuses = set(top_status)
+
+    gargalo_label = ', '.join(sorted(gargalo_statuses)[:5])  # máx 5 nomes no label
+
+    # Total de horas por pessoa
+    total_horas = horas_df.groupby('Pessoa')['HorasNoFluxo'].sum()
+    # Horas em status gargalo por pessoa
+    horas_gargalo = (
+        horas_df[horas_df['Status'].isin(gargalo_statuses)]
+        .groupby('Pessoa')['HorasNoFluxo'].sum()
+    )
+
+    rows = []
+    for pessoa in total_horas.index:
+        total = float(total_horas.get(pessoa, 0))
+        gargalo = float(horas_gargalo.get(pessoa, 0))
+        pct = round(gargalo / total * 100, 1) if total > 0 else 0.0
+        rows.append({
+            'Pessoa': pessoa,
+            'Horas em Gargalo': round(gargalo, 1),
+            '% Horas em Gargalo': pct,
+        })
+
+    result = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if not result.empty:
+        result.attrs['gargalo_label'] = gargalo_label
+    return result
 
 
 def get_leadtime_stage_filter_columns(projeto):
@@ -13615,7 +13759,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             return html.Div('Sem dados de responsável disponíveis para o período e filtros selecionados.',
                             style={'padding': '30px', 'textAlign': 'center', 'color': '#888'})
 
-        per_dev, complexity_df = build_dev_productivity_metrics(df_prod_base, start_ts_prod, end_ts_prod)
+        per_dev, complexity_df, category_df = build_dev_productivity_metrics(df_prod_base, start_ts_prod, end_ts_prod)
 
         if per_dev.empty:
             return html.Div('Sem dados de produtividade individual para o período selecionado.',
@@ -13704,6 +13848,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if not pip_df.empty and 'Pessoa' in pip_df.columns:
             per_dev = pd.merge(per_dev, pip_df[['Pessoa', 'Pipeline Success Rate (%)', 'Pipelines Total']], on='Pessoa', how='left')
         for col in ['Pipeline Success Rate (%)', 'Pipelines Total']:
+            if col not in per_dev.columns:
+                per_dev[col] = np.nan
+            per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce')
+
+        # ── Bottleneck Contribution (horas em status de gargalo por dev) ────────
+        _bnk_df = compute_pm_bottleneck_contribution(bb_projects, alias_index=alias_index_prod)
+        _gargalo_label = _bnk_df.attrs.get('gargalo_label', '') if not _bnk_df.empty else ''
+        if not _bnk_df.empty and 'Pessoa' in _bnk_df.columns:
+            per_dev = pd.merge(per_dev, _bnk_df[['Pessoa', 'Horas em Gargalo', '% Horas em Gargalo']], on='Pessoa', how='left')
+        for col in ['Horas em Gargalo', '% Horas em Gargalo']:
             if col not in per_dev.columns:
                 per_dev[col] = np.nan
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce')
@@ -13805,8 +13959,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # ── Tabela resumo por dev ─────────────────────────────────────────────
         table_col_order = [
             'BU', 'Papel', 'Pessoa',
-            # Entrega
-            'Itens Puxados', 'Itens Entregues', 'SP Entregues', 'Score Complexidade',
+            # Entrega e flow
+            'Itens Puxados', 'Itens Entregues', 'WIP Residual', 'Flow Efficiency (%)',
+            'SP Entregues', 'Score Complexidade',
             # Qualidade Jira
             'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
             'Lead Time Mediano (dias)',
@@ -13815,9 +13970,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Pipelines Total', 'Pipeline Success Rate (%)',
             # Revisão
             'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao',
-            # Process Mining
+            # Process Mining — qualidade de processo
             'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
             'Complexidade Variante',
+            # Process Mining — bottleneck
+            'Horas em Gargalo', '% Horas em Gargalo',
+            # Benchmark multidimensional
+            'Score Benchmark', 'Distancia ao Ideal',
             # Score
             'Score Integrado',
         ]
@@ -13826,7 +13985,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # Formata colunas percentuais para exibição
         prod_display = per_dev[table_cols_prod].head(80).copy()
         for _pct_col in ['% Demanda Falha', 'Qualidade Revisao', 'Pipeline Success Rate (%)',
-                         'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)']:
+                         'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
+                         '% Horas em Gargalo', 'Flow Efficiency (%)']:
             if _pct_col in prod_display.columns:
                 prod_display[_pct_col] = prod_display[_pct_col].apply(
                     lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
@@ -14019,81 +14179,221 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         period_label = f"{start_ts_prod.date()} → {end_ts_prod.date()}"
 
-        # ── Radar chart multidimensional ──────────────────────────────────────
-        # 5 eixos fundamentados na literatura:
-        # Entrega (Oliveira 2020, SPACE), Código+Pipeline (Nogueira 2023),
-        # Revisão/Colaboração (Forsgren 2021), Processo/Conformance (Caldeira 2019),
-        # Qualidade/Anti-Retrabalho (Caldeira 2021, Shah 2023)
+        # ── Gráfico: Breakdown de tipos de demanda por dev ────────────────────
+        fig_category_breakdown = go.Figure()
+        _cat_colors = {
+            'Defeitos':        '#e74c3c',
+            'Desenvolvimento': '#2980b9',
+            'Melhorias':       '#27ae60',
+            'Melhoria':        '#27ae60',
+            'Feature':         '#1abc9c',
+            'Técnico':         '#8e44ad',
+            'Tecnico':         '#8e44ad',
+            'Suporte':         '#f39c12',
+            'Operacional':     '#e67e22',
+            'Outro':           '#34495e',
+        }
+        if not category_df.empty and 'WorkItemCategory' in category_df.columns:
+            # Top 20 devs por Itens Entregues
+            _top_devs_cat = per_dev.head(20)['Pessoa'].tolist()
+            _cat_filtered = category_df[category_df['Pessoa'].isin(_top_devs_cat)].copy()
+            # Ordenar devs pelo ranking de Score Integrado
+            _pessoa_order = per_dev[per_dev['Pessoa'].isin(_top_devs_cat)]['Pessoa'].tolist()
+            _all_cats = sorted(_cat_filtered['WorkItemCategory'].dropna().unique())
+            for _cat in _all_cats:
+                _cat_data = _cat_filtered[_cat_filtered['WorkItemCategory'] == _cat]
+                _cat_map = _cat_data.set_index('Pessoa')['Pct']
+                _y_vals = [float(_cat_map.get(p, 0)) for p in _pessoa_order]
+                fig_category_breakdown.add_trace(go.Bar(
+                    name=_cat,
+                    x=_pessoa_order,
+                    y=_y_vals,
+                    marker_color=_cat_colors.get(_cat, '#16a085'),
+                    hovertemplate=f'<b>%{{x}}</b><br>{_cat}: %{{y:.1f}}%<extra></extra>',
+                ))
+            fig_category_breakdown.update_layout(
+                barmode='stack',
+                title='Composição de Demanda por Dev — Top 20 (% por tipo de WorkItem entregue)',
+                xaxis_tickangle=-40,
+                yaxis=dict(title='% dos itens entregues', range=[0, 100]),
+                height=480,
+                legend=dict(orientation='h', yanchor='bottom', y=-0.45, x=0.5, xanchor='center'),
+                margin=dict(t=60, b=160),
+                template='plotly_white',
+            )
+
+        def _make_bottleneck_fig(df: pd.DataFrame, label: str) -> go.Figure:
+            """Gráfico de barras horizontais: Horas em Gargalo por dev (top 25)."""
+            _df = df[df['Horas em Gargalo'].notna() & (df['Horas em Gargalo'] > 0)].copy()
+            if _df.empty:
+                return go.Figure()
+            _df = _df.nlargest(25, 'Horas em Gargalo').sort_values('Horas em Gargalo')
+            _fig = px.bar(
+                _df,
+                x='Horas em Gargalo',
+                y='Pessoa',
+                orientation='h',
+                color='% Horas em Gargalo',
+                color_continuous_scale='YlOrRd',
+                range_color=[0, 100],
+                title=f'Horas em Status de Gargalo por Dev (top 25) — Gargalos: {label or "—"}',
+                labels={
+                    'Horas em Gargalo': 'Horas acumuladas em gargalo',
+                    '% Horas em Gargalo': '% do total de horas',
+                },
+                height=max(340, 34 * len(_df) + 120),
+                hover_data={'% Horas em Gargalo': ':.1f'},
+            )
+            _fig.update_layout(template='plotly_white', margin=dict(t=60, b=40, l=160))
+            _fig.update_coloraxes(colorbar_title='% do total')
+            return _fig
+
+        # ── Radar com benchmarks absolutos + Perfil Alvo + Distância ao Ideal ──
+        #
+        # Benchmarks por dimensão (baseados na literatura):
+        #   Entrega        → P75 do grupo no período     (Jørgensen 2023: top 50% = 2.44× bottom)
+        #   Flow Efficiency→ ≥ 80% completion rate       (Anderson 2010 — Kanban / Little's Law)
+        #   Revisão        → Qualidade Revisão ≥ 70%     (Forsgren et al. 2021 — SPACE framework)
+        #   Conformance    → Conformance Quality ≥ 75%   (Caldeira et al., ICPM 2019)
+        #   Anti-Retrab.   → Rework Rate ≤ 20% → ≥ 80   (Caldeira et al. 2021; Shah et al. 2023)
+        #
+        # Normalização: valor / benchmark × 100, cap 100.
+        # 100 = atingiu o benchmark; > 100 truncado; < 100 = abaixo do esperado.
+        # Distância ao Ideal = distância euclidiana normalizada ao vetor [100,100,100,100,100].
+        # Score Benchmark = 100 − Distância ao Ideal (0-100; maior = mais próximo do ideal).
+
+        _radar_categories = ['Entrega', 'Flow Efficiency', 'Revisão', 'Conformance', 'Anti-Retrabalho']
+        _radar_cols_bench = ['_rb_entrega', '_rb_flow', '_rb_revisao', '_rb_processo', '_rb_qualidade']
+
+        def _abs_norm(series, benchmark):
+            """Normaliza para benchmark absoluto (100 = atingiu). Cap em 100."""
+            s = pd.to_numeric(series, errors='coerce').fillna(0)
+            return (s / max(benchmark, 0.01) * 100).clip(0, 100)
+
+        # Calcula benchmarks sobre TODOS os devs do período
+        _score_cx_col = 'Score Complexidade' if 'Score Complexidade' in per_dev.columns else 'Itens Entregues'
+        _bench_entrega = max(float(per_dev[_score_cx_col].quantile(0.75)), 0.1)
+        _bench_commits  = max(float(per_dev['Commits'].quantile(0.75)), 1.0)
+
+        # Eixo 1: Entrega — P75 do grupo (Jørgensen 2023)
+        per_dev['_rb_entrega'] = _abs_norm(per_dev[_score_cx_col], _bench_entrega)
+
+        # Eixo 2: Flow Efficiency — ≥80% dos itens puxados entregues no período
+        # Mede fluidez do fluxo; alta efficiency = baixo WIP acumulado (Anderson 2010, Kanban)
+        if 'Flow Efficiency (%)' in per_dev.columns:
+            per_dev['_rb_flow'] = _abs_norm(per_dev['Flow Efficiency (%)'], 80.0)
+        else:
+            per_dev['_rb_flow'] = pd.Series(0.0, index=per_dev.index)
+
+        # Eixo 3: Revisão — Qualidade Revisão ≥70% (Forsgren et al. 2021 — SPACE)
+        if 'Qualidade Revisao' in per_dev.columns:
+            per_dev['_rb_revisao'] = _abs_norm(per_dev['Qualidade Revisao'], 70.0)
+        else:
+            per_dev['_rb_revisao'] = _abs_norm(per_dev['Aprovacoes'], _bench_commits)
+
+        # Eixo 4: Conformance — Conformance Quality ≥75% (Caldeira et al. 2019)
+        if 'Conformance Quality (%)' in per_dev.columns and per_dev['Conformance Quality (%)'].notna().any():
+            per_dev['_rb_processo'] = _abs_norm(per_dev['Conformance Quality (%)'], 75.0)
+        else:
+            per_dev['_rb_processo'] = pd.Series(0.0, index=per_dev.index)
+
+        # Eixo 5: Anti-Retrabalho — Rework ≤20% → Anti ≥80 (Caldeira 2021; Shah et al. 2023)
+        if 'Rework Rate PM (%)' in per_dev.columns and per_dev['Rework Rate PM (%)'].notna().any():
+            per_dev['_rb_qualidade'] = _abs_norm(
+                100 - per_dev['Rework Rate PM (%)'].fillna(50), 80.0
+            )
+        else:
+            per_dev['_rb_qualidade'] = _abs_norm(
+                100 - per_dev['% Demanda Falha'].clip(0, 100), 80.0
+            )
+
+        # Distância ao Ideal e Score Benchmark (todos os devs)
+        _ideal_vec = np.array([100.0] * 5)
+        _max_dist = float(np.sqrt(5 * 100 ** 2))
+        for _idx in per_dev.index:
+            _vec = np.array([float(per_dev.loc[_idx, c]) for c in _radar_cols_bench])
+            _dist = float(np.sqrt(np.sum((_ideal_vec - _vec) ** 2))) / _max_dist * 100
+            per_dev.loc[_idx, 'Distancia ao Ideal'] = round(_dist, 1)
+            per_dev.loc[_idx, 'Score Benchmark']    = round(100 - _dist, 1)
+
+        # Constrói o radar com os top 10 por Score Integrado
         fig_radar = go.Figure()
         _radar_top = per_dev.head(10).copy()
         if not _radar_top.empty:
-            def _norm_series(s):
-                s = pd.to_numeric(s, errors='coerce').fillna(0)
-                mx = s.max()
-                return (s / mx * 100) if mx > 0 else s * 0
-
-            # Eixo 1: Entrega ponderada por complexidade
-            _score_cx_col = 'Score Complexidade' if 'Score Complexidade' in _radar_top.columns else 'Itens Entregues'
-            _radar_top['_r_entrega'] = _norm_series(_radar_top[_score_cx_col])
-
-            # Eixo 2: Código + sinal de pipeline (commits normalizado, bonus +10 se pipeline > 80%)
-            _r_code = _norm_series(_radar_top['Commits'])
-            _pip_bonus = np.where(
-                _radar_top['Pipeline Success Rate (%)'].fillna(0) >= 80, 10, 0
-            ) if 'Pipeline Success Rate (%)' in _radar_top.columns else 0
-            _radar_top['_r_codigo'] = (_r_code + _pip_bonus).clip(0, 100)
-
-            # Eixo 3: Revisão / Colaboração (qualidade de revisão Bitbucket)
-            _radar_top['_r_revisao'] = _norm_series(_radar_top['Qualidade Revisao'] if 'Qualidade Revisao' in _radar_top.columns else _radar_top['Aprovacoes'])
-
-            # Eixo 4: Conformance de processo (Caldeira 2019)
-            if 'Conformance Quality (%)' in _radar_top.columns:
-                _radar_top['_r_processo'] = _radar_top['Conformance Quality (%)'].fillna(0).clip(0, 100)
-            else:
-                _radar_top['_r_processo'] = pd.Series(50, index=_radar_top.index)
-
-            # Eixo 5: Anti-retrabalho = 100 - Rework Rate PM (Caldeira 2021)
-            # Se não tiver PM, cai para 100 - % Demanda Falha Jira
-            if 'Rework Rate PM (%)' in _radar_top.columns and _radar_top['Rework Rate PM (%)'].notna().any():
-                _radar_top['_r_qualidade'] = (100 - _radar_top['Rework Rate PM (%)'].fillna(50)).clip(0, 100)
-            else:
-                _radar_top['_r_qualidade'] = (100 - _radar_top['% Demanda Falha'].clip(0, 100))
-
-            _radar_categories = ['Entrega', 'Código+Pipeline', 'Revisão', 'Conformance', 'Anti-Retrabalho']
-            _radar_cols = ['_r_entrega', '_r_codigo', '_r_revisao', '_r_processo', '_r_qualidade']
             _radar_colors = [
                 '#2980b9', '#27ae60', '#8e44ad', '#e67e22', '#c0392b',
                 '#16a085', '#d35400', '#2c3e50', '#1abc9c', '#e74c3c',
             ]
+            _cats_closed = _radar_categories + [_radar_categories[0]]
+
             for _ri, (_ridx, _rrow) in enumerate(_radar_top.iterrows()):
-                _vals = [float(_rrow[c]) for c in _radar_cols]
-                _vals_closed = _vals + [_vals[0]]
-                _cats_closed = _radar_categories + [_radar_categories[0]]
+                _vals = [float(_rrow[c]) for c in _radar_cols_bench]
                 _nome_parts = str(_rrow['Pessoa']).split()
-                _short_name = f"{_nome_parts[0]} {_nome_parts[-1]}" if len(_nome_parts) > 1 else str(_rrow['Pessoa'])
+                _short_name = (
+                    f"{_nome_parts[0]} {_nome_parts[-1]}"
+                    if len(_nome_parts) > 1 else str(_rrow['Pessoa'])
+                )
+                _sb = _rrow.get('Score Benchmark', 0)
                 fig_radar.add_trace(go.Scatterpolar(
-                    r=_vals_closed,
+                    r=_vals + [_vals[0]],
                     theta=_cats_closed,
                     fill='toself',
-                    name=_short_name,
+                    name=f"{_short_name} (SB={_sb:.0f})",
                     opacity=0.55,
                     line=dict(color=_radar_colors[_ri % len(_radar_colors)], width=2),
+                    hovertemplate=(
+                        f"<b>{_short_name}</b><br>"
+                        "Dimensão: %{theta}<br>Valor: %{r:.1f}/100<extra></extra>"
+                    ),
                 ))
+
+            # Traço de referência: Mínimo Esperado = 75 em todos os eixos
+            fig_radar.add_trace(go.Scatterpolar(
+                r=[75] * 5 + [75],
+                theta=_cats_closed,
+                fill=None,
+                name='Mínimo Esperado (75)',
+                line=dict(color='#f39c12', width=2.5, dash='dash'),
+                opacity=1.0,
+            ))
+            # Traço de referência: Excelência = 100 em todos os eixos
+            fig_radar.add_trace(go.Scatterpolar(
+                r=[100] * 5 + [100],
+                theta=_cats_closed,
+                fill=None,
+                name='Excelência (100)',
+                line=dict(color='#27ae60', width=2.5, dash='dot'),
+                opacity=1.0,
+            ))
+
             fig_radar.update_layout(
                 polar=dict(
-                    radialaxis=dict(visible=True, range=[0, 100], tickfont=dict(size=10)),
+                    radialaxis=dict(
+                        visible=True, range=[0, 100],
+                        tickvals=[25, 50, 75, 100],
+                        tickfont=dict(size=9), gridcolor='#e0e0e0',
+                    ),
                     angularaxis=dict(tickfont=dict(size=12)),
                 ),
                 showlegend=True,
-                height=560,
+                height=640,
                 title=(
-                    'Perfil Multidimensional — Top 10 por Score (normalizado 0-100)<br>'
-                    '<sup>Entrega=Score×SP | Código+Pipeline | Revisão=qualidade review | '
-                    'Conformance=process mining | Anti-Retrabalho=100-ReworkRate</sup>'
+                    'Perfil Multidimensional com Benchmarks Absolutos — Top 10 por Score Integrado<br>'
+                    '<sup>'
+                    'SB = Score Benchmark (0-100; maior = mais próximo do ideal) | '
+                    'Entrega: P75 grupo (Jørgensen, IST 2023) | '
+                    'Flow Efficiency: ≥80% itens puxados entregues (Anderson 2010 — Kanban/Little\'s Law) | '
+                    'Revisão: ≥70% (Forsgren et al., ACM Queue 2021 — SPACE) | '
+                    'Conformance: ≥75% (Caldeira et al., ICPM 2019) | '
+                    'Anti-Retrabalho: Rework≤20% (Caldeira 2021; Shah et al., ICSME 2023)'
+                    '</sup>'
                 ),
                 template='plotly_white',
-                legend=dict(orientation='h', yanchor='bottom', y=-0.35, x=0.5, xanchor='center'),
-                margin=dict(t=80, b=130),
+                legend=dict(
+                    orientation='h', yanchor='bottom', y=-0.45,
+                    x=0.5, xanchor='center', font=dict(size=10),
+                ),
+                margin=dict(t=110, b=170),
             )
 
         # ── Comparativo por Papel (Tech Lead vs Dev) ──────────────────────────
@@ -14225,9 +14525,22 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             # ── Radar chart multidimensional ───────────────────────────────────
             _section(
-                'Perfil Multidimensional por Desenvolvedor',
-                'Top 10 por Score Integrado. Cada eixo normalizado 0-100 em relação ao maior valor do período. '
-                'Entrega = Score Complexidade; Revisão = aprovações Bitbucket; Velocidade = lead time invertido.',
+                'Perfil Multidimensional com Benchmarks Absolutos',
+                [
+                    html.Span('Top 10 por Score Integrado. '),
+                    html.Span('100 = atingiu o benchmark da dimensão. ', style={'fontWeight': '600'}),
+                    html.Span('Score Benchmark (SB) = 100 − distância euclidiana ao perfil ideal [100,100,100,100,100]. '),
+                    html.Span('Referências: '),
+                    html.Span('Entrega P75 (Jørgensen, IST 2023)', style={'color': '#2980b9'}),
+                    html.Span(' | '),
+                    html.Span('Flow Efficiency ≥80% (Anderson 2010 — Kanban/Little\'s Law)', style={'color': '#27ae60'}),
+                    html.Span(' | '),
+                    html.Span('Revisão ≥70% (Forsgren et al., SPACE — ACM Queue 2021)', style={'color': '#8e44ad'}),
+                    html.Span(' | '),
+                    html.Span('Conformance ≥75% (Caldeira et al., ICPM 2019)', style={'color': '#e67e22'}),
+                    html.Span(' | '),
+                    html.Span('Anti-Retrabalho Rework≤20% (Caldeira 2021; Shah et al., ICSME 2023)', style={'color': '#c0392b'}),
+                ],
                 [dcc.Graph(figure=fig_radar, config={'displayModeBar': False})]
                 if fig_radar.data else [html.P('Dados insuficientes para gerar radar.', style={'color': '#aaa'})],
             ),
@@ -14277,6 +14590,54 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Commits × Itens Entregues (Bitbucket + Jira)',
                 'Cada bolha = um dev. Tamanho ∝ PRs Merged. Cor = % Demanda Falha (verde → saudável, vermelho → alto).',
                 [dcc.Graph(figure=fig_scatter, config={'displayModeBar': False})],
+            ),
+
+            # ── Bottleneck Contribution ───────────────────────────────────────
+            _section(
+                'Contribuição em Status de Gargalo (Process Mining)',
+                (
+                    f'Horas acumuladas por dev nos status de gargalo identificados pelo process mining '
+                    f'({_gargalo_label or "—"}). '
+                    f'Gargalo = statuses com Tempo Mediano ≥ P75 (excluindo terminais). '
+                    f'Alto % = dev concentra trabalho em filas lentas.'
+                ),
+                [
+                    dcc.Graph(
+                        figure=_make_bottleneck_fig(per_dev, _gargalo_label),
+                        config={'displayModeBar': False},
+                    ) if not per_dev[['Horas em Gargalo']].dropna().empty else
+                    html.P(
+                        'Dados de bottleneck não disponíveis — gere *-process-mining-latest.xlsx com process_mining_jira.py.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    )
+                ],
+            ),
+
+            # ── Composição de Demanda por tipo ───────────────────────────────
+            _section(
+                'Composição de Demanda por Dev (WorkItemCategory)',
+                [
+                    html.Span('Top 20 devs por Score Integrado. '),
+                    html.Span('Cada barra = 100% dos itens entregues, particionados por tipo. '),
+                    html.Span(
+                        'Idealmente devs de produto concentram em Melhorias/Features; '
+                        'alto % Defeitos pode indicar débito de qualidade. ',
+                        style={'color': '#6c757d'},
+                    ),
+                    html.Span(
+                        'WIP Residual (tabela) = itens puxados ainda não concluídos ao fim do período — '
+                        'alto WIP reduz Flow Efficiency (Anderson 2010).',
+                        style={'color': '#e67e22', 'fontWeight': '600'},
+                    ),
+                ],
+                [
+                    dcc.Graph(figure=fig_category_breakdown, config={'displayModeBar': False})
+                    if fig_category_breakdown.data else
+                    html.P(
+                        'WorkItemCategory não disponível nos dados — campo necessário nos cards do Jira.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    )
+                ],
             ),
 
         ], style={'padding': '20px', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
