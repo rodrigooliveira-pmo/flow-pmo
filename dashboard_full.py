@@ -4603,6 +4603,12 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         df['ETIQUETA'] = ''
     if 'Etiquetas' not in df.columns:
         df['Etiquetas'] = ''
+    team_col = 'Team' if 'Team' in df.columns else ('team' if 'team' in df.columns else None)
+    if team_col is None:
+        df['RoadmapTeam'] = 'Sem TEAM'
+    else:
+        df['RoadmapTeam'] = df[team_col].fillna('').astype(str).str.strip()
+        df.loc[df['RoadmapTeam'] == '', 'RoadmapTeam'] = 'Sem TEAM'
     df['ExtraOnePageLabels'] = df['ETIQUETA'].where(df['ETIQUETA'].astype(str).str.strip() != '', df['Etiquetas'])
     df['IsExtraOnePage'] = df['ExtraOnePageLabels'].apply(portfolio_has_extra_onepage_tag)
     if 'TipoNorm' not in df.columns and 'Tipo' in df.columns:
@@ -4795,32 +4801,60 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
                 html.Div(empty_label, style={'fontSize': '13px', 'color': '#666', 'fontStyle': 'italic'})
             ], style={'padding': '12px', 'border': f'1px solid {border_color}', 'borderRadius': '6px', 'minHeight': '540px'})
 
-        local_df = local_df.sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
-        running_df = local_df[local_df['RoadmapStatus'] == 'Running'].copy()
-        if not running_df.empty:
-            running_df['_pct_sort'] = pd.to_numeric(running_df['RoadmapProgressPct'], errors='coerce').fillna(-1)
-            running_df = running_df.sort_values(['_pct_sort', 'DueDate', 'Titulo'], ascending=[True, True, True], ignore_index=True)
-        planning_df = local_df[local_df['RoadmapStatus'] == 'Planning'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
-        done_df = local_df[local_df['RoadmapStatus'] == 'Done'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
-        paused_df = local_df[local_df['RoadmapStatus'] == 'Paused'].copy().sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
+        local_df = local_df.sort_values(['RoadmapTeam', 'DueDate', 'Titulo'], ascending=[True, True, True], ignore_index=True)
 
-        epic_rows = []
-        if not running_df.empty:
-            epic_rows.append(html.Div(f"Running ({int(len(running_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#1f3e46', 'margin': '4px 0'}))
-            for _, row in running_df.iterrows():
-                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
-        if not planning_df.empty:
-            epic_rows.append(html.Div(f"Planning ({int(len(planning_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#4a3e57', 'margin': '8px 0 4px 0'}))
-            for _, row in planning_df.iterrows():
-                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
-        if not done_df.empty:
-            epic_rows.append(html.Div(f"Done ({int(len(done_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#355427', 'margin': '8px 0 4px 0'}))
-            for _, row in done_df.iterrows():
-                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
-        if not paused_df.empty:
-            epic_rows.append(html.Div(f"Paused ({int(len(paused_df))})", style={'fontSize': '12px', 'fontWeight': 'bold', 'color': '#6d5a29', 'margin': '8px 0 4px 0'}))
-            for _, row in paused_df.iterrows():
-                epic_rows.append(_render_epic_row(row, highlight_missing_target=highlight_missing_target))
+        def _team_sort_key(team_name):
+            return (str(team_name or '').strip().lower() == 'sem team', str(team_name or '').strip().lower())
+
+        def _render_status_group(team_df, status_name, label_color, margin_top='8px'):
+            status_df = team_df[team_df['RoadmapStatus'] == status_name].copy()
+            if status_df.empty:
+                return []
+            if status_name == 'Running':
+                status_df['_pct_sort'] = pd.to_numeric(status_df['RoadmapProgressPct'], errors='coerce').fillna(-1)
+                status_df = status_df.sort_values(['_pct_sort', 'DueDate', 'Titulo'], ascending=[True, True, True], ignore_index=True)
+            else:
+                status_df = status_df.sort_values(['DueDate', 'Titulo'], ascending=[True, True], ignore_index=True)
+            rows = [
+                html.Div(
+                    f"{status_name} ({int(len(status_df))})",
+                    style={'fontSize': '12px', 'fontWeight': 'bold', 'color': label_color, 'margin': f'{margin_top} 0 4px 0'}
+                )
+            ]
+            for _, status_row in status_df.iterrows():
+                rows.append(_render_epic_row(status_row, highlight_missing_target=highlight_missing_target))
+            return rows
+
+        team_lanes = []
+        team_names = sorted(local_df['RoadmapTeam'].dropna().astype(str).unique(), key=_team_sort_key)
+        for team_name in team_names:
+            team_df = local_df[local_df['RoadmapTeam'] == team_name].copy()
+            lane_rows = []
+            lane_rows.extend(_render_status_group(team_df, 'Running', '#1f3e46', margin_top='4px'))
+            lane_rows.extend(_render_status_group(team_df, 'Planning', '#4a3e57'))
+            lane_rows.extend(_render_status_group(team_df, 'Done', '#355427'))
+            lane_rows.extend(_render_status_group(team_df, 'Paused', '#6d5a29'))
+            team_lanes.append(
+                html.Div([
+                    html.Div(
+                        [
+                            html.Span(str(team_name), style={'fontSize': '13px', 'fontWeight': '700', 'color': '#17343b'}),
+                            html.Span(
+                                f"{int(len(team_df))} épico(s)",
+                                style={'fontSize': '11px', 'fontWeight': '600', 'color': '#49656b'}
+                            )
+                        ],
+                        style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '6px'}
+                    ),
+                    html.Div(lane_rows)
+                ], style={
+                    'padding': '8px',
+                    'marginBottom': '10px',
+                    'border': '1px solid #d9e3e5',
+                    'borderRadius': '6px',
+                    'backgroundColor': '#f8fbfb'
+                })
+            )
 
         return html.Div([
             html.Div(title, style={'fontWeight': 'bold', 'fontSize': '22px', 'color': header_color, 'marginBottom': '8px'}),
@@ -4828,7 +4862,7 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
                 f"{counter_label}: {int(len(local_df))}",
                 style={'fontSize': '12px', 'color': '#3d3d3d', 'marginBottom': '8px'}
             ),
-            html.Div(epic_rows, style={'maxHeight': '500px', 'overflowY': 'auto'}),
+            html.Div(team_lanes, style={'maxHeight': '500px', 'overflowY': 'auto'}),
         ], style={'padding': '12px', 'border': f'1px solid {border_color}', 'borderRadius': '6px', 'minHeight': '540px'})
 
     quarter_columns = [
@@ -6365,12 +6399,44 @@ _PM_FILE_PREFIX_MAP = {
 }
 
 
+def _load_pm_excel_url_map() -> dict:
+    """Carrega FLOW_PMO_PM_EXCEL_URL_MAP: {"w1nner": "https://...", "s1nc": "https://...", ...}"""
+    raw = os.getenv('FLOW_PMO_PM_EXCEL_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return {str(k).lower().strip(): str(v).strip() for k, v in parsed.items() if v}
+    except Exception:
+        return {}
+
+
 def load_project_pm_sheet(projeto: str, sheet_name: str) -> pd.DataFrame:
     """Carrega qualquer aba do Excel de process mining mais recente para qualquer projeto.
     Retorna DataFrame vazio se não encontrado.
+    Suporta carregamento remoto via FLOW_PMO_PM_EXCEL_URL_MAP ou FLOW_PMO_PROCESS_MINING_REPORT_URL.
     """
     project_key = str(projeto or '').strip().upper()
     prefix = _PM_FILE_PREFIX_MAP.get(project_key, project_key.lower().replace(' ', '').replace('&', ''))
+
+    # 1) Tenta URL do mapa por projeto
+    url_map = _load_pm_excel_url_map()
+    url = url_map.get(prefix, '')
+    # 2) Fallback: FLOW_PMO_PROCESS_MINING_REPORT_URL para w1nner (retrocompatível)
+    if not url and prefix == 'w1nner':
+        url = os.getenv('FLOW_PMO_PROCESS_MINING_REPORT_URL', '').strip()
+    if url:
+        try:
+            path = _download_process_mining_report_from_url(url)
+            xls = pd.ExcelFile(path)
+            if sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                if not df.empty:
+                    return df
+        except Exception:
+            pass
+
+    # 3) Busca local em DATA_FOLDERS
     latest_name = f'{prefix}-process-mining-latest.xlsx'
     candidates = []
     for folder in DATA_FOLDERS:

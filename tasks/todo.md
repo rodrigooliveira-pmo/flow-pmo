@@ -1,5 +1,40 @@
 # Task Plan
 
+## Current Task (Separar o one page completo em raias por tech team)
+- [x] Localizar a montagem da visão `One Page Completo - Roadmap 2026`
+- [x] Agrupar os épicos por quarter e por `Team` do portfólio, criando raias por tech team
+- [x] Preservar a coluna `Sem target date` e o comportamento atual de status/destaques
+- [x] Validar com compilação e smoke test da renderização
+- [x] Registrar review e commit sugerido
+
+## Specification (Separar o one page completo em raias por tech team)
+- Objetivo: incluir, na visão `One Page Completo - Roadmap 2026`, uma separação em raias por tech team usando o campo `Team` do portfólio.
+- Resultado esperado:
+  - cada coluna do roadmap (`Q1..Q4` e `Sem target date`) continua existindo
+  - dentro de cada coluna, os épicos passam a ser exibidos em seções por `Team`
+  - itens sem team definido devem continuar visíveis em uma raia explícita
+- Regras:
+  - usar a coluna `Team` da base de portfólio
+  - manter os destaques já existentes (`Running`, `EXTRA-ONEPAGE`, `Highest`, `Sem target date`)
+  - não alterar a lógica de filtragem por quarter já existente
+
+## Review (Separar o one page completo em raias por tech team)
+- O que foi implementado:
+  - A função [`render_portfolio_roadmap_full_epics_view(...)` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora resolve o campo de time a partir de `Team` do portfólio, com fallback para `team` e normalização de vazios para `Sem TEAM`.
+  - Cada coluna do `One Page Completo - Roadmap 2026` passou a renderizar raias por tech team, mantendo dentro de cada raia a separação existente por status (`Running`, `Planning`, `Done`, `Paused`).
+  - A coluna `Sem target date` foi preservada e agora também respeita a separação por team.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... render_portfolio_roadmap_full_epics_view(df) ... PY`
+    - Resultado observado:
+      - `header_count = 5`
+      - `column_count = 5`
+      - `first_lane = Core Tech`
+      - `missing_lane = Core Tech`
+      - `has_sem_team = True`
+- Suggested commit message:
+  - `feat(portfolio): add team swimlanes to full roadmap one-page`
+
 ## Current Task (Ocultar projetos cancelados no one page)
 - [x] Localizar a regra de montagem do roadmap one page de portfólio
 - [x] Excluir itens/projetos cancelados das visões one page
