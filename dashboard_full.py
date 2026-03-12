@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 import platform
 
 from shared.env_utils import load_env_file, parse_json_env
-from shared.path_utils import candidate_data_folders
+from shared.path_utils import candidate_data_folders, _sanitize_os_path
 from shared.text_utils import normalize_text
 
 
