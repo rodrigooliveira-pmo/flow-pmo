@@ -21,6 +21,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from jira.client import JiraClient
+from shared.env_utils import load_env_file, parse_json_env
+
 CSV_COLUMNS = [
     "ID",
     "Titulo",
@@ -52,112 +55,6 @@ CSV_COLUMNS = [
 ]
 
 ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
-
-
-def parse_json_env(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return default
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return default
-    return parsed if isinstance(parsed, dict) else default
-
-
-def load_env_file(env_file: str, overwrite: bool = True) -> None:
-    path = Path(env_file)
-    if not path.exists():
-        return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and value and (overwrite or key not in os.environ):
-            os.environ[key] = value
-
-
-def search_issues(base_url: str, email: str, token: str, jql: str, fields: List[str], page_size: int = 100) -> List[Dict[str, Any]]:
-    session = requests.Session()
-    session.auth = (email, token)
-    session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
-
-    def enhanced_post() -> List[Dict[str, Any]]:
-        issues: List[Dict[str, Any]] = []
-        next_page_token: Optional[str] = None
-        seen = set()
-        while True:
-            payload: Dict[str, Any] = {"jql": jql, "maxResults": page_size, "fields": fields}
-            if next_page_token:
-                payload["nextPageToken"] = next_page_token
-            resp = session.post(f"{base_url}/rest/api/3/search/jql", json=payload, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            page = data.get("issues", [])
-            issues.extend(page)
-            if data.get("isLast") is True:
-                break
-            next_page_token = data.get("nextPageToken")
-            if not next_page_token or next_page_token in seen:
-                break
-            seen.add(next_page_token)
-        return issues
-
-    def enhanced_get() -> List[Dict[str, Any]]:
-        issues: List[Dict[str, Any]] = []
-        next_page_token: Optional[str] = None
-        seen = set()
-        while True:
-            params: Dict[str, Any] = {"jql": jql, "maxResults": page_size, "fields": ",".join(fields)}
-            if next_page_token:
-                params["nextPageToken"] = next_page_token
-            resp = session.get(f"{base_url}/rest/api/3/search/jql", params=params, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            page = data.get("issues", [])
-            issues.extend(page)
-            if data.get("isLast") is True:
-                break
-            next_page_token = data.get("nextPageToken")
-            if not next_page_token or next_page_token in seen:
-                break
-            seen.add(next_page_token)
-        return issues
-
-    def legacy_search() -> List[Dict[str, Any]]:
-        issues: List[Dict[str, Any]] = []
-        start_at = 0
-        while True:
-            params: Dict[str, Any] = {
-                "jql": jql,
-                "startAt": start_at,
-                "maxResults": page_size,
-                "fields": ",".join(fields),
-            }
-            resp = session.get(f"{base_url}/rest/api/3/search", params=params, timeout=60)
-            if resp.status_code in {400, 404, 405, 410}:
-                resp = session.get(f"{base_url}/rest/api/2/search", params=params, timeout=60)
-            resp.raise_for_status()
-            data = resp.json()
-            page = data.get("issues", [])
-            issues.extend(page)
-            total = int(data.get("total", 0))
-            start_at += len(page)
-            if not page or start_at >= total:
-                break
-        return issues
-
-    errors: List[str] = []
-    for name, fn in [("enhanced_post", enhanced_post), ("enhanced_get", enhanced_get), ("legacy", legacy_search)]:
-        try:
-            return fn()
-        except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else "n/a"
-            errors.append(f"{name}:{status}")
-    raise RuntimeError(f"Falha ao consultar Jira ({', '.join(errors)}).")
 
 
 def discover_field_id(base_url: str, email: str, token: str, target_name: str) -> str:
@@ -554,6 +451,8 @@ def main() -> int:
         print("Erro: defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN.", file=sys.stderr)
         return 2
 
+    client = JiraClient(base_url=base_url, email=email, api_token=token)
+
     projects = [p.strip().upper() for p in args.projects if p and p.strip()]
     if not projects:
         print("Erro: informe ao menos um projeto.", file=sys.stderr)
@@ -592,7 +491,7 @@ def main() -> int:
         fields.append(effort_tshirt_field)
 
     print(f"Consultando Jira com JQL: {jql}")
-    issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
+    issues = client.search_issues(jql=jql, fields=fields, page_size=100)
     print(f"Issues encontradas: {len(issues)}")
 
     # Se o customfield configurado para TEAM estiver incorreto, tenta autodetectar e consulta novamente.
@@ -614,7 +513,7 @@ def main() -> int:
                 old_team_field = team_field
                 team_field = discovered_team_field
                 fields = replace_field_in_list(fields, old_team_field, team_field)
-                issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
+                issues = client.search_issues(jql=jql, fields=fields, page_size=100)
                 print(f"Issues reconsultadas: {len(issues)}")
 
     # Se o customfield de Effort T-shirt Size estiver incorreto/ausente, tenta autodetectar e reconsulta.
@@ -647,7 +546,7 @@ def main() -> int:
                 old_effort_field = effort_tshirt_field
                 effort_tshirt_field = discovered_effort_field
                 fields = replace_field_in_list(fields, old_effort_field, effort_tshirt_field)
-                issues = search_issues(base_url=base_url, email=email, token=token, jql=jql, fields=fields, page_size=100)
+                issues = client.search_issues(jql=jql, fields=fields, page_size=100)
                 print(f"Issues reconsultadas (effort): {len(issues)}")
 
     issue_team_map: Dict[str, str] = {}

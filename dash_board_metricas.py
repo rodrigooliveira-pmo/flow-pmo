@@ -10,6 +10,9 @@ import platform
 from pathlib import Path
 from datetime import datetime
 
+from shared.env_utils import load_env_file, parse_json_env
+from shared.text_utils import normalize_text
+
 # Semana padrão do sistema: janelas de segunda (inclusive) até segunda (exclusiva).
 WEEK_DATE_RANGE_FREQ = 'W-MON'
 
@@ -64,36 +67,6 @@ def resolve_latest_dir(target_file):
             latest_dir = os.path.join(os.path.dirname(os.path.abspath(target_file)), "latest")
 
     return latest_dir
-
-
-def load_env_file(env_file):
-    """Load KEY=VALUE pairs into environment if file exists."""
-    p = Path(env_file)
-    if not p.exists():
-        return
-    for raw in p.read_text(encoding='utf-8').splitlines():
-        line = raw.strip()
-        if not line or line.startswith('#') or '=' not in line:
-            continue
-        k, v = line.split('=', 1)
-        os.environ[k.strip()] = v.strip()
-
-
-def parse_json_env(name, default):
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return default
-    try:
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else default
-    except json.JSONDecodeError:
-        return default
-
-
-def normalize_text(value):
-    txt = str(value or '').strip().lower()
-    translate_map = str.maketrans('áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
-    return txt.translate(translate_map)
 
 
 def load_flow_policies():

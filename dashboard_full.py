@@ -25,80 +25,11 @@ except ImportError:
     from plotly.tools import make_subplots
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-
-# --- Config ---
 import platform
-if platform.system() == 'Windows':
-    LEGACY_DATA_FOLDER = r'C:\Users\W1 TI\OneDrive - W1\Documentos\Dados'
-else:
-    LEGACY_DATA_FOLDER = os.path.join(os.path.expanduser('~'), 'Library', 'CloudStorage', 'OneDrive-W1', 'Documentos', 'Dados')
 
-
-def _is_windows_absolute_path(path_value):
-    raw = str(path_value or '').strip()
-    return bool(re.match(r'^[A-Za-z]:[\\/]', raw))
-
-
-def _is_posix_absolute_path(path_value):
-    raw = str(path_value or '').strip()
-    return raw.startswith('/')
-
-
-def _is_path_compatible_with_current_os(path_value):
-    raw = str(path_value or '').strip()
-    if not raw:
-        return False
-    if platform.system() == 'Windows':
-        return _is_windows_absolute_path(raw) or not _is_posix_absolute_path(raw)
-    return _is_posix_absolute_path(raw) or not _is_windows_absolute_path(raw)
-
-
-def _sanitize_os_path(path_value):
-    raw = str(path_value or '').strip()
-    if not raw:
-        return ''
-    return raw if _is_path_compatible_with_current_os(raw) else ''
-
-
-def _existing_dirs(paths):
-    out = []
-    seen = set()
-    for raw in paths:
-        cleaned = _sanitize_os_path(raw)
-        if not cleaned:
-            continue
-        p = os.path.abspath(cleaned)
-        if p in seen:
-            continue
-        seen.add(p)
-        if os.path.isdir(p):
-            out.append(p)
-    return out
-
-
-def _candidate_data_folders():
-    env_dirs = os.getenv('FLOW_PMO_DATA_DIRS', '').strip()
-    split_env_dirs = [p for p in env_dirs.split(os.pathsep) if p.strip()]
-    explicit_dir = os.getenv('FLOW_PMO_DATA_DIR', '').strip()
-    legacy_override = os.getenv('DATA_FOLDER', '').strip()
-    latest_dir = os.getenv('FLOW_PMO_LATEST_DIR', '').strip()
-    base_dir = os.path.dirname(__file__)
-    project_root_dir = os.path.abspath(os.path.join(base_dir, os.pardir))
-    home_dir = os.path.expanduser('~')
-    return _existing_dirs([
-        explicit_dir,
-        latest_dir,
-        legacy_override,
-        *split_env_dirs,
-        os.path.join(project_root_dir, 'dados', 'latest'),
-        os.path.join(project_root_dir, 'dados'),
-        os.path.join(base_dir, 'artifacts', 'process_mining'),
-        os.path.join(home_dir, 'Documents', 'dados'),
-        os.path.join(home_dir, 'Documents', 'Dados'),
-        os.path.join(base_dir, 'data'),
-        base_dir,
-        LEGACY_DATA_FOLDER,
-    ])
+from shared.env_utils import load_env_file, parse_json_env
+from shared.path_utils import candidate_data_folders
+from shared.text_utils import normalize_text
 
 
 def _download_model_from_url(url):
@@ -312,7 +243,7 @@ def _resolve_model_file(data_folders):
     )
 
 
-DATA_FOLDERS = _candidate_data_folders()
+DATA_FOLDERS = candidate_data_folders()
 DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
 MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
 
@@ -682,11 +613,6 @@ DEFAULT_PATTERN_RULES = {
 }
 
 
-def normalize_text(value):
-    txt = str(value or '').strip().lower()
-    translate_map = str.maketrans('áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
-    return txt.translate(translate_map)
-
 TYPE_SUPPORT = 'Suporte'
 TYPE_ISSUES = 'Issues/Defeitos/Problemas'
 TYPE_DEV = 'Desenvolvimento'
@@ -712,17 +638,6 @@ def canonicalize_demand_type(tipo, subtype=None):
 
 def is_failure_demand_type(tipo):
     return canonicalize_demand_type(tipo) == TYPE_ISSUES
-
-
-def parse_json_env(name, default):
-    raw = os.getenv(name, '').strip()
-    if not raw:
-        return default
-    try:
-        val = json.loads(raw)
-        return val if isinstance(val, dict) else default
-    except json.JSONDecodeError:
-        return default
 
 
 def _load_bitbucket_prefix_map():
@@ -2069,22 +1984,6 @@ def build_pm_commits_vs_jira_report(pm_people, pm_cases, start_ts, end_ts, respo
             ], className='six columns'),
         ], className='row', style={'marginTop': '8px'}),
     ])
-
-
-def load_env_file(env_file):
-    p = os.path.join(os.path.dirname(__file__), env_file)
-    if not os.path.exists(p):
-        return
-    try:
-        with open(p, 'r', encoding='utf-8') as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                k, v = line.split('=', 1)
-                os.environ[k.strip()] = v.strip()
-    except Exception:
-        return
 
 
 def load_pattern_rules():

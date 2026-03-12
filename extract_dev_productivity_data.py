@@ -48,6 +48,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from shared.env_utils import load_env_file
+
 # ── Constantes ────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -86,22 +88,6 @@ _ALL_PROJECTS: dict[str, dict] = {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _load_env_file(path: str) -> None:
-    """Carrega variáveis de ambiente de arquivo no formato CHAVE=VALOR."""
-    env_path = Path(path)
-    if not env_path.exists():
-        return
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and value and key not in os.environ:
-            os.environ[key] = value
-
 
 def _resolve_out_dir(out_dir_arg: str) -> Path:
     """Determina e cria a pasta de saída."""
@@ -291,7 +277,7 @@ def main() -> int:
     args = parse_args()
 
     # Carrega credenciais
-    _load_env_file(args.env_file)
+    load_env_file(args.env_file, overwrite=False)
 
     missing = _check_credentials()
     if missing:

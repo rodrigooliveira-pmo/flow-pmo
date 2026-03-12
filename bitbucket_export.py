@@ -19,6 +19,9 @@ from typing import Any, Callable, Dict, Iterable, Optional
 
 import requests
 
+from shared.env_utils import load_env_file
+from shared.text_utils import normalize_text
+
 WORK_ITEM_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
 GLOBAL_RATE_LIMIT_UNTIL = 0.0
 LAST_REQUEST_AT = 0.0
@@ -76,34 +79,12 @@ def _safe_export(output_path: Path, exporter_fn, rows: Iterable[Dict[str, Any]])
     return count
 
 
-def load_env_file(env_file: str, overwrite: bool = False) -> None:
-    path = Path(env_file)
-    if not path.exists():
-        return
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and value and (overwrite or key not in os.environ):
-            os.environ[key] = value
-
-
 def require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
         raise ValueError(f"Variável obrigatória ausente: {name}")
     return value
 
-
-def normalize_text(value: Any) -> str:
-    raw = str(value or "").strip().lower()
-    nfkd = unicodedata.normalize("NFKD", raw)
-    no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
-    return " ".join(no_accents.replace("_", " ").replace("-", " ").split())
 
 
 def normalize_project_key(project: str) -> str:

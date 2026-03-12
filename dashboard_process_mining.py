@@ -8,6 +8,8 @@ import unicodedata
 from datetime import datetime, time, timedelta
 import urllib.request
 
+from shared.path_utils import candidate_data_folders, LEGACY_DATA_FOLDER
+
 import dash
 try:
     from dash import dcc, html, dash_table, Input, Output
@@ -20,84 +22,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-
-
-if platform.system() == "Windows":
-    LEGACY_DATA_FOLDER = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados"
-else:
-    LEGACY_DATA_FOLDER = os.path.join(
-        os.path.expanduser("~"),
-        "Library",
-        "CloudStorage",
-        "OneDrive-W1",
-        "Documentos",
-        "Dados",
-    )
-
-
-def _is_windows_absolute_path(path_value):
-    raw = str(path_value or "").strip()
-    return bool(re.match(r"^[A-Za-z]:[\\/]", raw))
-
-
-def _is_posix_absolute_path(path_value):
-    raw = str(path_value or "").strip()
-    return raw.startswith("/")
-
-
-def _is_path_compatible_with_current_os(path_value):
-    raw = str(path_value or "").strip()
-    if not raw:
-        return False
-    if platform.system() == "Windows":
-        return _is_windows_absolute_path(raw) or not _is_posix_absolute_path(raw)
-    return _is_posix_absolute_path(raw) or not _is_windows_absolute_path(raw)
-
-
-def _sanitize_os_path(path_value):
-    raw = str(path_value or "").strip()
-    if not raw:
-        return ""
-    return raw if _is_path_compatible_with_current_os(raw) else ""
-
-
-def _existing_dirs(paths):
-    out = []
-    seen = set()
-    for raw in paths:
-        cleaned = _sanitize_os_path(raw)
-        if not cleaned:
-            continue
-        p = os.path.abspath(cleaned)
-        if p in seen:
-            continue
-        seen.add(p)
-        if os.path.isdir(p):
-            out.append(p)
-    return out
-
-
-def candidate_data_folders():
-    base_dir = os.path.dirname(__file__)
-    project_root_dir = os.path.abspath(os.path.join(base_dir, os.pardir))
-    home_dir = os.path.expanduser("~")
-    env_dirs = os.getenv("FLOW_PMO_DATA_DIRS", "").strip()
-    split_env_dirs = [p for p in env_dirs.split(os.pathsep) if p.strip()]
-    return _existing_dirs(
-        [
-            os.getenv("FLOW_PMO_DATA_DIR", "").strip(),
-            os.getenv("DATA_FOLDER", "").strip(),
-            *split_env_dirs,
-            os.path.join(project_root_dir, "dados", "latest"),
-            os.path.join(project_root_dir, "dados"),
-            os.path.join(base_dir, "artifacts", "process_mining"),
-            os.path.join(home_dir, "Documents", "dados"),
-            os.path.join(home_dir, "Documents", "Dados"),
-            os.path.join(base_dir, "data"),
-            base_dir,
-            LEGACY_DATA_FOLDER,
-        ]
-    )
 
 
 DATA_FOLDERS = candidate_data_folders()

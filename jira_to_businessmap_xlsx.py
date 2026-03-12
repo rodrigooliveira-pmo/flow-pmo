@@ -1,6 +1,28 @@
 #!/usr/bin/env python3
 """
-Exporta issues do Jira Cloud para planilha XLSX compatível com importação do BusinessMap.
+MÓDULO DE MIGRAÇÃO DE DADOS: Jira Cloud → BusinessMap
+
+Propósito
+---------
+Ferramenta de migração one-time (ou periódica) para exportar issues do Jira Cloud
+para planilha XLSX no formato de importação nativo do BusinessMap (Kanbanize).
+
+Este módulo NÃO faz parte do pipeline de métricas/dashboards do Flow-PMO.
+É um utilitário standalone de migração/integração entre ferramentas.
+
+Fluxo de uso típico
+-------------------
+1. Executar este script apontando para o(s) projeto(s) Jira desejados.
+2. Gerar o arquivo businessmap-import-<projeto>-<data>.xlsx.
+3. Importar o XLSX diretamente no BusinessMap via: Settings → Import Cards.
+
+Por que existe separado
+-----------------------
+- O BusinessMap usa uma estrutura de colunas própria (Board/Workflow/Lane/Column)
+  incompatível com o modelo de dados do pipeline Flow-PMO (stages de fluxo).
+- Os mapeamentos de status Jira → coluna BusinessMap (ex: BF_BUSINESSMAP_STATUS_TO_COLUMN_MAP)
+  são específicos para cada quadro do BusinessMap e não se aplicam ao restante do sistema.
+- Não deve ser integrado ao pipeline de métricas para evitar acoplamento desnecessário.
 
 Uso (PowerShell):
   $env:JIRA_BASE_URL='https://suaempresa.atlassian.net'

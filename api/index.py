@@ -1,4 +1,18 @@
-"""Vercel Python entrypoint for the Dash application."""
+"""Vercel Python entrypoint for the Dash application.
+
+Seleciona o dashboard a servir via variáveis de ambiente:
+
+  FLOW_PMO_DASH_MODULE  Nome do módulo Python a importar (padrão: dashboard_full)
+  FLOW_PMO_DASH_ATTR    Atributo do módulo que contém o app Dash (padrão: app)
+
+Dashboards disponíveis:
+  dashboard_full          Dashboard principal com Flow Metrics, Portfólio e Process Mining
+  dashboard_process_mining  Dashboard standalone dedicado ao Process Mining (análise detalhada)
+
+Exemplos de configuração no Vercel (env vars):
+  FLOW_PMO_DASH_MODULE=dashboard_full          → dashboard principal (padrão)
+  FLOW_PMO_DASH_MODULE=dashboard_process_mining → somente process mining
+"""
 
 import importlib
 import os
