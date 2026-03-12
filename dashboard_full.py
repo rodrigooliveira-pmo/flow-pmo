@@ -592,8 +592,13 @@ LEAD_TIME_END_STAGE_CANDIDATES = [
 ]
 
 LEAD_TIME_START_STAGE_PREFERENCES = [
-    'Backlog', 'Triagem', 'Ready to Start', 'In progress'
+    'Ready to Start', 'In progress', 'Development', 'Ready', 'To Do', 'Discovery'
 ]
+
+LEAD_TIME_BACKLOG_LIKE_STAGE_NAMES = {
+    'backlog',
+    'triagem',
+}
 
 PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
 PORTFOLIO_CACHE = {
@@ -6226,6 +6231,13 @@ def get_default_lead_time_start_stages(stage_cols):
             selected.append(hit)
     if selected:
         return selected
+
+    non_backlog = [
+        col for col in stage_cols
+        if str(col).strip().lower() not in LEAD_TIME_BACKLOG_LIKE_STAGE_NAMES
+    ]
+    if non_backlog:
+        return [non_backlog[0]]
     return [stage_cols[0]]
 
 
@@ -6773,6 +6785,55 @@ def build_custom_lead_time_by_selected_stages(projeto, selected_start_stages):
     return out.drop_duplicates(subset=['ItemID'], keep='first')
 
 
+def build_time_to_commit_by_selected_stages(projeto, selected_start_stages):
+    """
+    Resolve the first selected commitment stage strictly after backlog entry.
+    Returns dataframe with columns: ItemID, Commitment_Selected, TimeToCommit_Selected_Dias.
+    """
+    items_df = load_project_downstream_items_csv(projeto)
+    if items_df.empty or 'ID' not in items_df.columns:
+        return pd.DataFrame(columns=['ItemID', 'Commitment_Selected', 'TimeToCommit_Selected_Dias'])
+
+    stage_cols = get_downstream_workflow_stage_columns(items_df)
+    if not stage_cols:
+        return pd.DataFrame(columns=['ItemID', 'Commitment_Selected', 'TimeToCommit_Selected_Dias'])
+
+    selected = [c for c in (selected_start_stages or []) if c in items_df.columns]
+    if not selected:
+        selected = get_default_lead_time_start_stages(stage_cols)
+        selected = [c for c in selected if c in items_df.columns]
+    if not selected:
+        return pd.DataFrame(columns=['ItemID', 'Commitment_Selected', 'TimeToCommit_Selected_Dias'])
+
+    selected_non_backlog = [
+        c for c in selected
+        if normalize_text(c) not in LEAD_TIME_BACKLOG_LIKE_STAGE_NAMES
+    ]
+    if selected_non_backlog:
+        selected = selected_non_backlog
+
+    calc_cols = ['ID'] + [c for c in selected if c in items_df.columns]
+    if len(calc_cols) <= 1:
+        return pd.DataFrame(columns=['ItemID', 'Commitment_Selected', 'TimeToCommit_Selected_Dias'])
+
+    tmp = items_df[calc_cols].copy()
+    for col in calc_cols[1:]:
+        tmp[col] = pd.to_datetime(tmp[col], dayfirst=True, errors='coerce')
+
+    renamed = {}
+    candidate_cols = []
+    for idx, col in enumerate(calc_cols[1:]):
+        safe_col = f'CommitStage_{idx}'
+        renamed[col] = safe_col
+        candidate_cols.append(safe_col)
+    tmp = tmp.rename(columns=renamed)
+
+    out = tmp.rename(columns={'ID': 'ItemID'})
+    out['ItemID'] = out['ItemID'].astype(str)
+    out.attrs['candidate_cols'] = candidate_cols
+    return out.drop_duplicates(subset=['ItemID'], keep='first')
+
+
 def _coerce_datetime_flexible(series):
     """Parse datetime from mixed raw values, including YYYYMMDD-like numeric ids."""
     if series is None:
@@ -6911,6 +6972,83 @@ def apply_selected_lead_time_metric(df, projeto, selected_start_stages):
         'stage_count': len(selected_start_stages or []),
         'label': 'etapas selecionadas' if custom_sample > 0 else 'padrão',
         'fallback_sample': fallback_sample,
+    }
+
+
+def apply_selected_commitment_metric(df, projeto, selected_start_stages):
+    """Attach commitment milestone and time-to-commit based on selected downstream stages."""
+    if df is None or getattr(df, 'empty', True):
+        return df, {'enabled': False, 'sample': 0, 'strict_sample': 0, 'fallback_sample': 0}
+
+    out = df.copy()
+    backlog_anchor = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
+    fallback_commitment = pd.to_datetime(out.get('LeadStart_Selected'), errors='coerce')
+    fallback_days = pd.to_numeric((fallback_commitment - backlog_anchor).dt.days, errors='coerce')
+    fallback_days = fallback_days.where(fallback_days >= 0)
+
+    out['Commitment_Selected'] = fallback_commitment
+    out['TimeToCommit_Selected_Dias'] = fallback_days
+
+    if 'ItemID' not in out.columns or 'DataBacklog' not in out.columns:
+        return out, {
+            'enabled': False,
+            'sample': int(out['TimeToCommit_Selected_Dias'].notna().sum()),
+            'strict_sample': 0,
+            'fallback_sample': int(out['TimeToCommit_Selected_Dias'].notna().sum()),
+        }
+
+    commit_maps = []
+    if projeto:
+        commit_map = build_time_to_commit_by_selected_stages(projeto, selected_start_stages)
+        if not commit_map.empty:
+            commit_map = commit_map.copy()
+            commit_map['Projeto'] = str(projeto)
+            commit_maps.append(commit_map)
+    elif 'Projeto' in out.columns:
+        project_values = out['Projeto'].dropna().astype(str).str.strip().unique().tolist()
+        for project_name in project_values:
+            if not project_name:
+                continue
+            commit_map = build_time_to_commit_by_selected_stages(project_name, selected_start_stages)
+            if commit_map.empty:
+                continue
+            commit_map = commit_map.copy()
+            commit_map['Projeto'] = project_name
+            commit_maps.append(commit_map)
+
+    strict_sample = 0
+    if commit_maps:
+        commit_map = pd.concat(commit_maps, ignore_index=True)
+        candidate_cols = [c for c in commit_map.columns if c.startswith('CommitStage_')]
+        merge_keys = ['ItemID']
+        if 'Projeto' in out.columns and 'Projeto' in commit_map.columns:
+            out['Projeto'] = out['Projeto'].astype(str).str.strip()
+            commit_map['Projeto'] = commit_map['Projeto'].astype(str).str.strip()
+            merge_keys = ['Projeto', 'ItemID']
+        out['ItemID'] = out['ItemID'].astype(str)
+        out = out.merge(commit_map, how='left', on=merge_keys)
+
+        if candidate_cols:
+            candidate_frames = []
+            for col in candidate_cols:
+                stage_ts = pd.to_datetime(out.get(col), errors='coerce')
+                candidate_frames.append(stage_ts.where(stage_ts > backlog_anchor).rename(col))
+            strict_commitment = pd.concat(candidate_frames, axis=1).min(axis=1)
+            strict_days = pd.to_numeric((strict_commitment - backlog_anchor).dt.days, errors='coerce')
+            strict_days = strict_days.where(strict_days >= 0)
+            strict_sample = int(strict_days.notna().sum())
+            out['Commitment_Selected'] = strict_commitment.combine_first(out['Commitment_Selected'])
+            out['TimeToCommit_Selected_Dias'] = strict_days.combine_first(out['TimeToCommit_Selected_Dias'])
+        out.drop(columns=candidate_cols, inplace=True, errors='ignore')
+
+    out['Commitment_Selected'] = pd.to_datetime(out.get('Commitment_Selected'), errors='coerce')
+    out['TimeToCommit_Selected_Dias'] = pd.to_numeric(out.get('TimeToCommit_Selected_Dias'), errors='coerce')
+    out.loc[out['TimeToCommit_Selected_Dias'] < 0, 'TimeToCommit_Selected_Dias'] = np.nan
+    return out, {
+        'enabled': strict_sample > 0,
+        'sample': int(out['TimeToCommit_Selected_Dias'].notna().sum()),
+        'strict_sample': strict_sample,
+        'fallback_sample': int(fallback_days.notna().sum()),
     }
 
 
@@ -10159,6 +10297,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if classe_servico:
             df_signal_base = df_signal_base[df_signal_base['ClasseServico'] == classe_servico]
         df_signal_base, _ = apply_selected_lead_time_metric(df_signal_base, projeto, leadtime_stages)
+        df_signal_base, _ = apply_selected_commitment_metric(df_signal_base, projeto, leadtime_stages)
 
         # Base de referência para thresholds (projeto/tipo), independente de período e responsável.
         df_threshold_base = fato.copy()
@@ -10176,6 +10315,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         strict_stage_start = bool(leadtime_meta.get('enabled', False))
 
+        def datetime_col_or_nat(df_local, column_name):
+            if column_name in df_local.columns:
+                return pd.to_datetime(df_local[column_name], errors='coerce')
+            return pd.Series(pd.NaT, index=df_local.index, dtype='datetime64[ns]')
+
         def selected_flow_start_series(df_local):
             if df_local is None or getattr(df_local, 'empty', True):
                 return pd.Series(dtype='datetime64[ns]')
@@ -10192,22 +10336,32 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             weeks_ref = pd.date_range(start=start_ref, end=end_ref + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
             if len(weeks_ref) < 2:
                 return pd.DataFrame()
-            flow_start = selected_flow_start_series(df_source)
+            backlog_start = datetime_col_or_nat(df_source, 'DataBacklog')
+            commitment_start = datetime_col_or_nat(df_source, 'Commitment_Selected')
             for i in range(len(weeks_ref) - 1):
                 week_start = weeks_ref[i]
                 week_end = weeks_ref[i + 1]
                 arrived = df_source[
-                    (flow_start >= week_start) &
-                    (flow_start < week_end)
+                    (backlog_start >= week_start) &
+                    (backlog_start < week_end)
+                ]
+                committed = df_source[
+                    (commitment_start >= week_start) &
+                    (commitment_start < week_end)
                 ]
                 done = df_source[
                     (df_source['DataDone'] >= week_start) &
                     (df_source['DataDone'] < week_end)
                 ]
+                backlog_items = df_source[
+                    (backlog_start < week_end) &
+                    ((commitment_start >= week_end) | commitment_start.isna())
+                ]
                 wip_items = df_source[
-                    (flow_start < week_end) &
+                    (commitment_start < week_end) &
                     ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))
                 ]
+                total_system_items = pd.concat([backlog_items, wip_items], axis=0).drop_duplicates(subset=['ItemID']) if 'ItemID' in df_source.columns else pd.concat([backlog_items, wip_items], axis=0).drop_duplicates()
 
                 lt_p85 = np.nan
                 lt_p50 = np.nan
@@ -10219,13 +10373,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 done_eligible = done[done_time_eligible_mask(done)] if not done.empty else done
                 tp = len(done_eligible)
                 ar = len(arrived)
+                cm = len(committed)
+                backlog = len(backlog_items)
                 wip = len(wip_items)
+                total_system = len(total_system_items)
                 pressure_w, flow_eff_w = calculate_flow_efficiency(ar, tp)
                 rows.append({
                     'Semana': week_start.date(),
-                    'Chegadas': ar,
+                    'EntradasBacklog': ar,
+                    'Compromissos': cm,
                     'Throughput': tp,
+                    'Backlog': backlog,
                     'WIP': wip,
+                    'EstoqueTotal': total_system,
                     'WIP_Age': (week_end - pd.to_datetime(wip_items.get('LeadStart_Selected'), errors='coerce')).dt.days.mean() if wip > 0 else np.nan,
                     'LeadTime_P85': lt_p85,
                     'FlowEfficiency': flow_eff_w,
@@ -10237,28 +10397,41 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             return pd.DataFrame(rows)
 
         weekly_rows = []
-        signal_flow_start = selected_flow_start_series(df_signal_base)
+        signal_backlog_start = datetime_col_or_nat(df_signal_base, 'DataBacklog')
+        signal_commitment_start = datetime_col_or_nat(df_signal_base, 'Commitment_Selected')
         for i in range(len(weeks) - 1):
             week_start = weeks[i]
             week_end = weeks[i + 1]
             arrivals = len(df_signal_base[
-                (signal_flow_start >= week_start) &
-                (signal_flow_start < week_end)
+                (signal_backlog_start >= week_start) &
+                (signal_backlog_start < week_end)
+            ])
+            commitments = len(df_signal_base[
+                (signal_commitment_start >= week_start) &
+                (signal_commitment_start < week_end)
             ])
             done_week = df_signal_base[
                 (df_signal_base['DataDone'] >= week_start) &
                 (df_signal_base['DataDone'] < week_end)
             ]
             throughput = len(done_week[done_time_eligible_mask(done_week)]) if not done_week.empty else 0
+            backlog = len(df_signal_base[
+                (signal_backlog_start < week_end) &
+                ((signal_commitment_start >= week_end) | signal_commitment_start.isna())
+            ])
             wip = len(df_signal_base[
-                (signal_flow_start < week_end) &
+                (signal_commitment_start < week_end) &
                 ((df_signal_base['DataDone'] >= week_end) | pd.isna(df_signal_base['DataDone']))
             ])
+            total_system = backlog + wip
             weekly_rows.append({
                 'Semana': week_start.date(),
-                'Chegadas': arrivals,
+                'EntradasBacklog': arrivals,
+                'Compromissos': commitments,
                 'Throughput': throughput,
+                'Backlog': backlog,
                 'WIP': wip,
+                'EstoqueTotal': total_system,
             })
         weekly_df = pd.DataFrame(weekly_rows)
 
@@ -10281,73 +10454,118 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (df_signal_base['DataDone'] <= end_ts)
         ].copy()
         df_done_period_eligible = df_done_period[done_time_eligible_mask(df_done_period)].copy()
-        demand_date = selected_flow_start_series(df_signal_base)
+        demand_date = datetime_col_or_nat(df_signal_base, 'DataBacklog')
+        commitment_date = datetime_col_or_nat(df_signal_base, 'Commitment_Selected')
         df_arrived_period = df_signal_base[
             (demand_date >= start_ts) &
             (demand_date <= end_ts)
         ]
-        if not demand_date.dropna().empty:
-            df_demand_period = df_signal_base[
-                (demand_date >= start_ts) &
-                (demand_date <= end_ts)
-            ]
-            df_inventory_start = df_signal_base[
-                (demand_date < start_ts) &
-                ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
-            ]
-            df_inventory_end = df_signal_base[
-                (demand_date <= end_ts) &
-                ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
-            ]
-            use_backlog_for_inventory = True
-            demand_label = "itens comprometidos no período (etapas selecionadas/início)"
-        else:
-            df_demand_period = df_arrived_period
-            use_backlog_for_inventory = False
-            demand_label = "itens que iniciaram o fluxo no período"
+        df_demand_period = df_arrived_period
+        demand_label = "itens que entraram em backlog no período"
 
-        df_wip_start = df_signal_base[
+        df_backlog_start = df_signal_base[
             (demand_date < start_ts) &
-            ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
-        ]
-        df_wip_end = df_signal_base[
+            ((commitment_date >= start_ts) | commitment_date.isna())
+        ].copy()
+        df_backlog_end = df_signal_base[
             (demand_date <= end_ts) &
+            ((commitment_date > end_ts) | commitment_date.isna())
+        ].copy()
+        df_wip_start = df_signal_base[
+            (commitment_date < start_ts) &
+            ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
+        ].copy()
+        df_wip_end = df_signal_base[
+            (commitment_date <= end_ts) &
             ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
-        ]
-        if not use_backlog_for_inventory:
-            df_inventory_start = df_wip_start.copy()
-            df_inventory_end = df_wip_end.copy()
+        ].copy()
+        if 'ItemID' in df_signal_base.columns:
+            df_inventory_start = pd.concat([df_backlog_start, df_wip_start], axis=0).drop_duplicates(subset=['ItemID']).copy()
+            df_inventory_end = pd.concat([df_backlog_end, df_wip_end], axis=0).drop_duplicates(subset=['ItemID']).copy()
+        else:
+            df_inventory_start = pd.concat([df_backlog_start, df_wip_start], axis=0).drop_duplicates().copy()
+            df_inventory_end = pd.concat([df_backlog_end, df_wip_end], axis=0).drop_duplicates().copy()
 
         throughput_avg = weekly_df['Throughput'].mean() if not weekly_df.empty else np.nan
-        arrivals_avg = weekly_df['Chegadas'].mean() if not weekly_df.empty else np.nan
+        arrivals_avg = weekly_df['EntradasBacklog'].mean() if not weekly_df.empty else np.nan
+        commitment_avg = weekly_df['Compromissos'].mean() if not weekly_df.empty else np.nan
+        backlog_avg = weekly_df['Backlog'].mean() if not weekly_df.empty else np.nan
         wip_avg = weekly_df['WIP'].mean() if not weekly_df.empty else np.nan
+        total_system_avg = weekly_df['EstoqueTotal'].mean() if not weekly_df.empty else np.nan
+        backlog_current = float(weekly_df['Backlog'].iloc[-1]) if not weekly_df.empty else np.nan
         wip_current = float(weekly_df['WIP'].iloc[-1]) if not weekly_df.empty else np.nan
+        total_system_current = float(weekly_df['EstoqueTotal'].iloc[-1]) if not weekly_df.empty else np.nan
         wip_age = (
             end_ts - pd.to_datetime(df_wip_end.get('LeadStart_Selected'), errors='coerce')
         ).dt.days.mean() if not df_wip_end.empty else np.nan
         throughput_total = float(len(df_done_period_eligible))
-        inflow_total = float(len(df_arrived_period))
+        commitment_total = float(len(df_signal_base[
+            (commitment_date >= start_ts) &
+            (commitment_date <= end_ts)
+        ]))
+        inflow_total = commitment_total
         demand_total = float(len(df_demand_period))
         capacity_total = throughput_total
+        backlog_start_count = float(len(df_backlog_start))
+        backlog_end_count = float(len(df_backlog_end))
         wip_start_count = float(len(df_wip_start))
         wip_end_count = float(len(df_wip_end))
         inventory_start_count = float(len(df_inventory_start)) if isinstance(df_inventory_start, pd.DataFrame) else np.nan
         inventory_end_count = float(len(df_inventory_end)) if isinstance(df_inventory_end, pd.DataFrame) else np.nan
         inventory_growth = inventory_end_count - inventory_start_count if pd.notna(inventory_start_count) and pd.notna(inventory_end_count) else np.nan
+        backlog_growth = backlog_end_count - backlog_start_count if pd.notna(backlog_start_count) and pd.notna(backlog_end_count) else np.nan
         wip_growth = wip_end_count - wip_start_count
         weeks_count = max(1, len(weeks) - 1)
         throughput_weekly_avg = throughput_total / weeks_count if weeks_count > 0 else np.nan
+        commitment_weekly_avg = commitment_total / weeks_count if weeks_count > 0 else np.nan
         inventory_weeks = (inventory_end_count / throughput_weekly_avg) if throughput_weekly_avg > 0 and pd.notna(inventory_end_count) else np.nan
         capacity_label = "itens concluídos no período (throughput)"
 
         lead_time_p85 = np.nan
         lead_time_p50 = np.nan
         lead_time_p98 = np.nan
+        lead_time_avg_days = np.nan
+        full_system_lead_time_avg_days = np.nan
+        time_to_commit_avg_days = np.nan
         lt_done_period = time_metric_series(df_done_period, 'LeadTime_Selected_Dias', non_negative=True)
+        lt_done_period_eligible = time_metric_series(df_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
+        full_system_lt_done_period_eligible = time_metric_series(df_done_period_eligible, 'LeadTime_Dias', non_negative=True)
+        if not lt_done_period_eligible.empty:
+            lead_time_avg_days = float(lt_done_period_eligible.mean())
+        if not full_system_lt_done_period_eligible.empty:
+            full_system_lead_time_avg_days = float(full_system_lt_done_period_eligible.mean())
         if not lt_done_period.empty:
             lead_time_p85 = exact_empirical_percentile(lt_done_period, 0.85)
             lead_time_p50 = exact_empirical_percentile(lt_done_period, 0.50)
             lead_time_p98 = exact_empirical_percentile(lt_done_period, 0.98)
+
+        lead_time_avg_weeks = (lead_time_avg_days / 7.0) if pd.notna(lead_time_avg_days) else np.nan
+        full_system_lead_time_avg_weeks = (full_system_lead_time_avg_days / 7.0) if pd.notna(full_system_lead_time_avg_days) else np.nan
+        backlog_consumption_weeks = (
+            backlog_avg / commitment_avg
+            if pd.notna(backlog_avg) and pd.notna(commitment_avg) and commitment_avg > 0
+            else np.nan
+        )
+        wip_consumption_weeks = (
+            wip_avg / throughput_avg
+            if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0
+            else np.nan
+        )
+        total_system_consumption_weeks = (
+            total_system_avg / throughput_avg
+            if pd.notna(total_system_avg) and pd.notna(throughput_avg) and throughput_avg > 0
+            else np.nan
+        )
+        throughput_needed_for_wip = (
+            wip_avg / lead_time_avg_weeks
+            if pd.notna(wip_avg) and pd.notna(lead_time_avg_weeks) and lead_time_avg_weeks > 0
+            else np.nan
+        )
+        throughput_needed_for_total_system = (
+            total_system_avg / full_system_lead_time_avg_weeks
+            if pd.notna(total_system_avg) and pd.notna(full_system_lead_time_avg_weeks) and full_system_lead_time_avg_weeks > 0
+            else np.nan
+        )
 
         pressure_ratio, queue_efficiency = calculate_flow_efficiency(arrivals_avg, throughput_avg)
         wip_tp_ratio = wip_avg / throughput_avg if pd.notna(wip_avg) and pd.notna(throughput_avg) and throughput_avg > 0 else np.nan
@@ -10357,16 +10575,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
         commit_times = pd.Series(dtype='float64')
-        if not df_arrived_period.empty:
-            # Tempo para Commit = da entrada base (backlog) até a etapa de compromisso selecionada.
-            if {'DataBacklog', 'LeadStart_Selected'}.issubset(df_arrived_period.columns):
-                commit_times = (
-                    pd.to_datetime(df_arrived_period['LeadStart_Selected'], errors='coerce') -
-                    pd.to_datetime(df_arrived_period['DataBacklog'], errors='coerce')
-                ).dt.days
-            commit_times = pd.to_numeric(commit_times, errors='coerce').dropna()
+        commit_date = datetime_col_or_nat(df_signal_base, 'Commitment_Selected')
+        df_commit_period = df_signal_base[
+            (commit_date >= start_ts) &
+            (commit_date <= end_ts)
+        ].copy()
+        if not df_commit_period.empty and 'TimeToCommit_Selected_Dias' in df_commit_period.columns:
+            commit_times = pd.to_numeric(df_commit_period['TimeToCommit_Selected_Dias'], errors='coerce').dropna()
             commit_times = commit_times[commit_times >= 0]
+            if not commit_times.empty:
+                time_to_commit_avg_days = float(commit_times.mean())
         time_to_commit_p85 = exact_empirical_percentile(commit_times, 0.85) if not commit_times.empty else np.nan
+        time_to_commit_avg_weeks = (time_to_commit_avg_days / 7.0) if pd.notna(time_to_commit_avg_days) else np.nan
+        commitment_needed_for_backlog = (
+            backlog_avg / time_to_commit_avg_weeks
+            if pd.notna(backlog_avg) and pd.notna(time_to_commit_avg_weeks) and time_to_commit_avg_weeks > 0
+            else np.nan
+        )
 
         tipo_demanda = df_done_period_eligible['TipoDemanda'] if 'TipoDemanda' in df_done_period_eligible.columns else pd.Series(dtype='object')
         tp_valor = int((tipo_demanda == TYPE_DEV).sum()) if not tipo_demanda.empty else 0
@@ -10456,10 +10681,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 return ('CRÍTICO', '#c62828')
             return ('EXTREMAMENTE CRÍTICO', '#7f0000')
 
+        backlog_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Backlog', pd.Series(dtype=float))))
         wip_cv_status = classify_cv(cv_percent(weekly_hist_df.get('WIP', pd.Series(dtype=float))))
+        total_system_cv_status = classify_cv(cv_percent(weekly_hist_df.get('EstoqueTotal', pd.Series(dtype=float))))
         lt_cv_status = classify_cv(cv_percent(weekly_hist_df.get('LeadTime_P85', pd.Series(dtype=float))))
         throughput_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Throughput', pd.Series(dtype=float))))
-        arrivals_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Chegadas', pd.Series(dtype=float))))
+        arrivals_cv_status = classify_cv(cv_percent(weekly_hist_df.get('EntradasBacklog', pd.Series(dtype=float))))
+        commitment_cv_status = classify_cv(cv_percent(weekly_hist_df.get('Compromissos', pd.Series(dtype=float))))
         predictability_status = classify_direction(predictability, 1.8, 2.2, lower_is_better=True)
 
         tp_relacao_display = (
@@ -10477,68 +10705,185 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'inflow_vs_outflow_pct': {'value': inflow_vs_outflow_pct},
             'inventory_growth': {'value': inventory_growth},
             'wip_growth': {'value': wip_growth},
-            'inventory_size': {
-                'title': 'Tamanho do Inventário',
+            'backlog_uncommitted_current': {
+                'title': 'Backlog não comprometido',
+                'value': backlog_end_count,
+                'format': '{:.0f}',
+                'unit': 'itens de fluxo',
+                'note': (
+                    f"(fim do período; Little backlog médio: {backlog_avg:.1f} / {commitment_avg:.1f} = {backlog_consumption_weeks:.1f} semanas)"
+                    if pd.notna(backlog_avg) and pd.notna(commitment_avg) and pd.notna(backlog_consumption_weeks)
+                    else "(fim do período; sem base para Little de backlog)"
+                ),
+            },
+            'wip_in_progress_current': {
+                'title': 'WIP',
+                'value': wip_end_count,
+                'format': '{:.0f}',
+                'unit': 'itens de fluxo',
+                'note': (
+                    f"(fim do período; Little WIP médio: {wip_avg:.1f} / {throughput_avg:.1f} = {wip_consumption_weeks:.1f} semanas)"
+                    if pd.notna(wip_avg) and pd.notna(throughput_avg) and pd.notna(wip_consumption_weeks)
+                    else "(fim do período; sem base para Little de WIP)"
+                ),
+            },
+            'total_system_current': {
+                'title': 'Estoque total do sistema',
                 'value': inventory_end_count,
                 'format': '{:.0f}',
                 'unit': 'itens de fluxo',
-                'note': f"({inventory_weeks:.1f} semanas de inventário)" if pd.notna(inventory_weeks) else "(sem base de semanas de inventário)",
+                'note': (
+                    f"(backlog {backlog_end_count:.0f} + WIP {wip_end_count:.0f}; Little estoque médio: {total_system_avg:.1f} / {throughput_avg:.1f} = {total_system_consumption_weeks:.1f} semanas)"
+                    if pd.notna(total_system_avg) and pd.notna(throughput_avg) and pd.notna(total_system_consumption_weeks)
+                    else "(backlog + WIP; sem base para Little do sistema)"
+                ),
             },
-            'commitment_rate': {
-                'title': 'Taxa de Comprometimento',
-                'value': commitment_rate,
-                'format': '{:.0f}%',
-                'unit': 'throughput / demanda',
+            'backlog_little_weeks': {
+                'title': 'Tempo médio até compromisso',
+                'value': backlog_consumption_weeks,
+                'format': '{:.1f}',
+                'unit': 'semanas',
+                'note': (
+                    f"Lei de Little: backlog médio {backlog_avg:.1f} / taxa média de compromisso {commitment_avg:.1f}"
+                    if pd.notna(backlog_avg) and pd.notna(commitment_avg)
+                    else 'Lei de Little: backlog médio / taxa média de compromisso'
+                ),
+            },
+            'wip_little_weeks': {
+                'title': 'Tempo médio para concluir WIP',
+                'value': wip_consumption_weeks,
+                'format': '{:.1f}',
+                'unit': 'semanas',
+                'note': (
+                    f"Lei de Little: WIP médio {wip_avg:.1f} / vazão média {throughput_avg:.1f}"
+                    if pd.notna(wip_avg) and pd.notna(throughput_avg)
+                    else 'Lei de Little: WIP médio / vazão média'
+                ),
+            },
+            'total_system_little_weeks': {
+                'title': 'Tempo médio total no sistema',
+                'value': total_system_consumption_weeks,
+                'format': '{:.1f}',
+                'unit': 'semanas',
+                'note': (
+                    f"Lei de Little: estoque médio {total_system_avg:.1f} / vazão média {throughput_avg:.1f}"
+                    if pd.notna(total_system_avg) and pd.notna(throughput_avg)
+                    else 'Lei de Little: estoque médio / vazão média'
+                ),
+            },
+            'backlog_required_rate': {
+                'title': 'Taxa necessária para comprometer backlog',
+                'value': commitment_needed_for_backlog,
+                'format': '{:.1f}',
+                'unit': 'itens/semana',
+                'note': (
+                    f"Lei de Little: {backlog_avg:.1f} / {time_to_commit_avg_weeks:.1f} = {commitment_needed_for_backlog:.1f} itens/sem"
+                    if pd.notna(backlog_avg) and pd.notna(time_to_commit_avg_weeks) and pd.notna(commitment_needed_for_backlog)
+                    else 'Lei de Little: backlog médio / tempo médio até compromisso'
+                ),
+            },
+            'wip_required_rate': {
+                'title': 'Vazão necessária para concluir WIP',
+                'value': throughput_needed_for_wip,
+                'format': '{:.1f}',
+                'unit': 'itens/semana',
+                'note': (
+                    f"Lei de Little: {wip_avg:.1f} / {lead_time_avg_weeks:.1f} = {throughput_needed_for_wip:.1f} itens/sem"
+                    if pd.notna(wip_avg) and pd.notna(lead_time_avg_weeks) and pd.notna(throughput_needed_for_wip)
+                    else 'Lei de Little: WIP médio semanal / Lead Time médio (semanas)'
+                ),
+            },
+            'total_system_required_rate': {
+                'title': 'Vazão necessária para o estoque total',
+                'value': throughput_needed_for_total_system,
+                'format': '{:.1f}',
+                'unit': 'itens/semana',
+                'note': (
+                    f"Lei de Little: {total_system_avg:.1f} / {full_system_lead_time_avg_weeks:.1f} = {throughput_needed_for_total_system:.1f} itens/sem"
+                    if pd.notna(total_system_avg) and pd.notna(full_system_lead_time_avg_weeks) and pd.notna(throughput_needed_for_total_system)
+                    else 'Lei de Little: estoque médio / tempo médio total no sistema'
+                ),
+            },
+            'throughput_total': {
+                'title': 'Throughput total (Done s/ cancel.)',
+                'value': throughput_total,
+                'format': '{:.0f}',
+                'unit': 'itens de fluxo',
+                'note': (
+                    f"(período selecionado, elegíveis para tempo; média semanal: {throughput_avg:.1f} itens/sem)"
+                    if pd.notna(throughput_avg)
+                    else '(período selecionado, elegíveis para tempo)'
+                ),
             },
             'time_to_commit_p85': {
                 'title': 'Tempo para Commit (P85)',
                 'value': time_to_commit_p85,
                 'format': '{:.0f}',
                 'unit': 'dias',
+                'status': classify_direction(time_to_commit_p85, 7.0, 14.0, lower_is_better=True),
             },
             'wip_age_avg': {
                 'title': 'WIP Age (médio)',
                 'value': wip_age,
                 'format': '{:.0f}',
                 'unit': 'dias',
+                'status': classify_direction(wip_age, 14.0, 28.0, lower_is_better=True),
             },
-            'throughput_total': {
-                'title': 'Throughput (Done s/ cancel.)',
-                'value': throughput_total,
-                'format': '{:.0f}',
-                'unit': 'itens de fluxo',
-                'note': '(período selecionado, elegíveis para tempo)',
+            'commitment_rate': {
+                'title': 'Taxa de Comprometimento',
+                'value': commitment_rate,
+                'format': '{:.0f}%',
+                'unit': 'throughput / demanda',
+                'status': classify_direction(commitment_rate, 100.0, 85.0, lower_is_better=False),
             },
+            'backlog_avg_week': {'title': 'Backlog médio (semana)', 'value': backlog_avg, 'format': '{:.1f} itens', 'status': backlog_cv_status},
+            'commitment_avg_week': {'title': 'Compromissos médios/semana', 'value': commitment_avg, 'format': '{:.1f} itens/sem', 'status': commitment_cv_status},
             'wip_avg_week': {'title': 'WIP médio (semana)', 'value': wip_avg, 'format': '{:.1f} itens', 'status': wip_cv_status},
+            'total_system_avg_week': {'title': 'Estoque médio do sistema', 'value': total_system_avg, 'format': '{:.1f} itens', 'status': total_system_cv_status},
             'lead_time_p85': {'title': 'Lead Time P85', 'value': lead_time_p85, 'format': '{:.1f} dias', 'status': lt_cv_status},
             'throughput_avg_week': {'title': 'Vazão média semanal', 'value': throughput_avg, 'format': '{:.1f} itens/sem', 'status': throughput_cv_status},
-            'arrivals_avg_week': {'title': 'Taxa de chegada média', 'value': arrivals_avg, 'format': '{:.1f} itens/sem', 'status': arrivals_cv_status},
+            'arrivals_avg_week': {'title': 'Entradas em backlog/semana', 'value': arrivals_avg, 'format': '{:.1f} itens/sem', 'status': arrivals_cv_status},
             'flow_efficiency': {'title': 'Eficiência (1 - ρ)', 'value': queue_efficiency, 'format': '{:.2f}', 'status': classify_efficiency(queue_efficiency)},
             'flow_pressure': {'title': 'Pressão de fluxo (chegada/vazão)', 'value': pressure_ratio, 'format': '{:.2f}', 'status': classify_pressure(pressure_ratio)},
             'predictability': {'title': 'Previsibilidade (P85/P50)', 'value': predictability, 'format': '{:.2f}', 'status': predictability_status},
+            'backlog_current': {'title': 'Backlog atual', 'value': backlog_current, 'format': '{:.0f} itens', 'status': backlog_cv_status},
             'wip_current': {'title': 'WIP atual (fim do período)', 'value': wip_current, 'format': '{:.0f} itens', 'status': wip_cv_status},
+            'total_system_current_exec': {'title': 'Estoque total atual', 'value': total_system_current, 'format': '{:.0f} itens', 'status': total_system_cv_status},
             'forecast_risk': {'title': 'Risco Forecasting (P98/Mediana)', 'value': risk_forecasting_ratio, 'format': '{:.2f}', 'status': classify_forecasting_risk(risk_forecasting_ratio)},
             'throughput_mix': {'title': 'Throughput valor x falha (%)', 'value': tp_relacao_display, 'format': '{}', 'status': tp_relacao_status},
         }
 
         reference_metric_ids = [
-            'inventory_size',
-            'commitment_rate',
-            'time_to_commit_p85',
-            'wip_age_avg',
+            'backlog_uncommitted_current',
+            'wip_in_progress_current',
+            'total_system_current',
+            'backlog_little_weeks',
+            'wip_little_weeks',
+            'total_system_little_weeks',
+            'backlog_required_rate',
+            'wip_required_rate',
+            'total_system_required_rate',
             'throughput_total',
         ]
         executive_metric_ids = [
+            'backlog_avg_week',
+            'commitment_avg_week',
             'wip_avg_week',
+            'total_system_avg_week',
             'lead_time_p85',
             'throughput_avg_week',
             'arrivals_avg_week',
             'flow_efficiency',
             'flow_pressure',
             'predictability',
+            'backlog_current',
             'wip_current',
+            'total_system_current_exec',
             'forecast_risk',
             'throughput_mix',
+            'time_to_commit_p85',
+            'wip_age_avg',
+            'commitment_rate',
         ]
         reference_metric_set = set(reference_metric_ids)
         executive_metric_ids = [mid for mid in executive_metric_ids if mid not in reference_metric_set]
@@ -10691,7 +11036,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     indicator_dots(dot_orange),
                     html.P("Entrada vs Saída", style={'fontSize': '28px', 'color': title_txt, 'marginBottom': '10px'}),
                     html.P(
-                        "Entrada = itens comprometidos no período (etapas selecionadas). Saída = itens concluídos no período.",
+                        "Entrada = itens comprometidos no período. Saída = itens concluídos no período.",
                         style={'fontSize': '12px', 'color': '#5f6e7b', 'marginTop': '-6px', 'marginBottom': '8px'}
                     ),
                     html.Div([

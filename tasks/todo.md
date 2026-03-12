@@ -1,5 +1,202 @@
 # Task Plan
 
+## Current Task (Separar backlog, WIP e estoque total no Painel Fluxo)
+- [x] Mapear no código os conceitos atuais de backlog, compromisso e WIP para definir os três estoques corretamente
+- [x] Implementar novos cards e cálculos distintos para backlog não comprometido, WIP em progresso e estoque total do sistema
+- [x] Validar a renderização e registrar revisão
+
+## Specification (Separar backlog, WIP e estoque total no Painel Fluxo)
+- Objetivo: deixar explícita na aba `Painel Fluxo` a diferença entre `backlog não comprometido`, `WIP em progresso` e `estoque total do sistema`.
+- Regras:
+  - `Backlog não comprometido`: item em backlog até o fim do período e ainda sem `Commitment_Selected`
+  - `WIP em progresso`: item já comprometido até o fim do período e ainda não concluído
+  - `Estoque total do sistema`: `backlog não comprometido + WIP em progresso`
+  - atualizar os cálculos associados pela Lei de Little com a taxa compatível para cada conceito
+
+## Review (Separar backlog, WIP e estoque total no Painel Fluxo)
+- O que foi implementado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a calcular snapshots semanais e finais separados para `Backlog`, `Compromissos`, `WIP` e `EstoqueTotal`.
+  - O painel agora exibe três cards de estoque distintos:
+    - `Backlog não comprometido`
+    - `WIP`
+    - `Estoque total do sistema`
+  - A Lei de Little foi desdobrada em três conjuntos coerentes:
+    - backlog médio / taxa média de compromisso
+    - WIP médio / vazão média semanal
+    - estoque médio total / vazão média semanal
+  - Também foram adicionadas as taxas necessárias correspondentes:
+    - para comprometer backlog
+    - para concluir WIP
+    - para consumir o estoque total
+  - Os textos de apoio da UI passaram a deixar claro qual média e qual taxa estão sendo usadas em cada card.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... render_tab(main_view='services', tab='tab-painel-3x3', ...) ... PY`
+    - Resultado observado:
+      - `found = ['Backlog não comprometido', 'Estoque total do sistema', 'Taxa necessária para comprometer backlog', 'Tempo médio até compromisso', 'Tempo médio para concluir WIP', 'Tempo médio total no sistema', 'Vazão necessária para concluir WIP', 'Vazão necessária para o estoque total', 'WIP']`
+      - `missing = []`
+      - `count = 9`
+- Suggested commit message:
+  - `feat(flow): split backlog, wip and total stock indicators in flow panel`
+
+## Current Task (Separar inventário atual de WIP médio no Painel Fluxo)
+- [x] Revisar no código as definições de inventário final, WIP médio semanal e tempos derivados
+- [x] Ajustar a UI para distinguir estoque final vs média semanal e explicitar as fórmulas
+- [x] Validar a renderização/strings resultantes e registrar review
+
+## Specification (Separar inventário atual de WIP médio no Painel Fluxo)
+- Objetivo: eliminar a ambiguidade entre `inventário atual no fim do período` e `WIP médio semanal no período` na aba `Painel Fluxo`.
+- Regras:
+  - o card de inventário deve deixar claro que representa o estoque final do recorte
+  - os cards baseados na Lei de Little devem deixar claro que usam `WIP médio semanal`, não o estoque final
+  - manter as fórmulas existentes, apenas alinhando a semântica exibida
+
+## Review (Separar inventário atual de WIP médio no Painel Fluxo)
+- O que foi implementado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora rotula o card de estoque como `Inventário atual (fim do período)` e explicita na nota que ele usa o estoque final.
+  - Os cards de Little foram renomeados para `Tempo para consumir WIP médio` e `Vazão necessária para consumir WIP médio`, deixando explícito que usam `WIP médio` do período.
+  - As notas agora mostram as contas com a mesma semântica dos cards, reduzindo a ambiguidade entre `108` itens finais e `127.5` itens médios.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 - <<'PY' ... checks = ['Inventário atual (fim do período)', 'Tempo para consumir WIP médio', 'Vazão necessária para consumir WIP médio', 'estoque final:', 'Lei de Little no período: WIP médio'] ... PY`
+    - Resultado observado:
+      - todos os checks retornaram `True`
+- Suggested commit message:
+  - `fix(flow): distinguish ending inventory from average wip in flow panel`
+
+## Current Task (Ajustar default de `Tempo para Commit (P85)`)
+- [x] Mapear uma regra padrão de etapas de compromisso que represente compromisso real sem quebrar projetos com workflows diferentes
+- [x] Implementar a nova heurística no código e registrar o plano em `tasks/todo.md`
+- [x] Validar o KPI recalculado no modelo local e documentar o resultado
+
+## Specification (Ajustar default de `Tempo para Commit (P85)`)
+- Objetivo: evitar que o KPI `Tempo para Commit (P85)` zere artificialmente por usar `Backlog`/`Triagem` como marco padrão de compromisso.
+- Estratégia:
+  - priorizar etapas que representam compromisso mais real (`Ready to Start`, `In progress`, `Development`, `Ready`, `To Do`, `Discovery`)
+  - só cair para etapas tipo backlog quando não existir alternativa no workflow
+- Regras:
+  - preservar compatibilidade com projetos de workflow diferente
+  - não alterar o cálculo do KPI; apenas a heurística padrão de seleção das etapas
+
+## Review (Ajustar default de `Tempo para Commit (P85)`)
+- O que foi implementado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) passou a priorizar, por padrão, etapas de compromisso mais fortes: `Ready to Start`, `In progress`, `Development`, `Ready`, `To Do` e `Discovery`.
+  - A função [`get_default_lead_time_start_stages(...)` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora evita cair em etapas tipo backlog (`Backlog`/`Triagem`) quando existe uma etapa posterior mais representativa de compromisso.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - Validação local com o modelo `PowerBI_Model_20260310_160357.xlsx`:
+    - defaults resolvidos:
+      - `BEFINANCE` -> `['Ready to Start', 'In progress']`
+      - `S1NC` -> `['Ready to Start', 'In progress']`
+      - `W1NNER` -> `['Ready to Start', 'In progress']`
+      - `DATA&ANALYTICS` -> `['Development', 'To Do', 'Discovery']`
+    - resultado agregado no recorte padrão:
+      - antes: `Tempo para Commit (P85) = 0 dias`
+      - depois: `Tempo para Commit (P85) = 2 dias`
+- Suggested commit message:
+  - `fix(flow): use real commitment stages for time-to-commit default`
+
+## Current Task (Corrigir `Tempo para Commit (P85)` com seleção explícita de backlog/triagem)
+- [x] Reproduzir o cenário do print e medir o `Tempo para Commit (P85)` com as etapas atualmente selecionadas
+- [x] Ajustar o cálculo para usar um marco de compromisso real mesmo quando o filtro inclui etapas de backlog/triagem
+- [x] Validar o novo resultado no cenário do print e registrar revisão
+
+## Specification (Corrigir `Tempo para Commit (P85)` com seleção explícita de backlog/triagem)
+- Objetivo: impedir que o KPI `Tempo para Commit (P85)` zere artificialmente quando o usuário mantém `Backlog`/`Triagem` entre as etapas selecionadas.
+- Estratégia:
+  - manter o lead time usando a semântica atual do filtro
+  - calcular `Tempo para Commit` com a primeira etapa selecionada que acontece estritamente depois de `DataBacklog`
+  - ignorar `Backlog`/`Triagem` como marco efetivo de compromisso quando houver etapas posteriores selecionadas
+- Regras:
+  - preservar fallback para projetos sem downstream ou sem datas suficientes
+  - usar o período do próprio marco de compromisso, não o `LeadStart_Selected`
+
+## Review (Corrigir `Tempo para Commit (P85)` com seleção explícita de backlog/triagem)
+- O que foi implementado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) ganhou os helpers `build_time_to_commit_by_selected_stages(...)` e `apply_selected_commitment_metric(...)`.
+  - O KPI `Tempo para Commit (P85)` deixou de usar `LeadStart_Selected - DataBacklog` como proxy direta e passou a usar a primeira etapa selecionada que ocorre estritamente após `DataBacklog`.
+  - Quando existirem datas downstream suficientes, `Backlog` e `Triagem` deixam de colapsar o KPI em zero; quando não existirem, o cálculo ainda recai para o fallback anterior.
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - Reprodução exata do cenário do print:
+    - `Projeto = W1NNER`
+    - `Período = 2026-02-01 a 2026-02-28`
+    - etapas selecionadas = `Ready to Start`, `In progress`, `Triagem`, `Backlog`, `ready code review`, `Code review`, `ready testing/Qa`, `Testing/QA`, `ready homolog`, `Homolog`, `ready for production`
+  - Resultado observado:
+    - cálculo direto: `P85 = 3 dias`
+    - smoke test de renderização: `['Tempo para Commit (P85)', '3', 'dias']`
+- Suggested commit message:
+  - `fix(flow): compute time to commit after backlog entry`
+
+## Current Task (Diagnosticar `Tempo para Commit (P85) = 0 dias`)
+- [x] Localizar a montagem do KPI `Tempo para Commit (P85)` no `Painel Fluxo`
+- [x] Verificar quais colunas, filtros e regras de elegibilidade alimentam o cálculo
+- [x] Confirmar com os dados locais por que o valor exibido ficou zerado
+- [x] Registrar review com explicação do funcionamento e commit sugerido
+
+## Specification (Diagnosticar `Tempo para Commit (P85) = 0 dias`)
+- Objetivo: explicar por que o card `Tempo para Commit (P85)` aparece como `0 dias` e documentar como essa métrica é calculada no dashboard.
+- Escopo:
+  - identificar a fórmula aplicada no código
+  - mapear a origem dos campos usados no cálculo
+  - validar se o zero vem de ausência de base, de arredondamento visual ou de tempos efetivamente iguais a zero
+- Regras:
+  - usar o recorte e a lógica real do `Painel Fluxo`
+  - não alterar comportamento do código; apenas diagnosticar e explicar com evidências
+
+## Review (Diagnosticar `Tempo para Commit (P85) = 0 dias`)
+- O que foi confirmado:
+  - O KPI é calculado em [`dashboard_full.py:10375`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L10375) como a diferença, em dias, entre `LeadStart_Selected` e `DataBacklog` para os itens que entraram no período (`df_arrived_period`).
+  - O percentil usado é o percentil empírico exato sem interpolação definido em [`dashboard_full.py:5055`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L5055).
+  - No estado padrão do painel, a seleção automática de etapas de comprometimento prioriza `Backlog`, `Triagem`, `Ready to Start` e `In progress`, conforme [`dashboard_full.py:594`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L594) e [`dashboard_full.py:6217`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L6217).
+  - Com o modelo local atual (`PowerBI_Model_20260310_160357.xlsx`), o recorte padrão gerou `471` tempos válidos para esse KPI e todos foram `0` dias; por isso o P85 também ficou `0`.
+  - A causa estrutural é que, para a maior parte dos itens válidos, `LeadStart_Selected` cai na mesma data de `DataBacklog`, então a fórmula `LeadStart_Selected - DataBacklog` resulta em zero.
+- Evidências adicionais:
+  - A resolução do início selecionado é refeita por [`apply_selected_lead_time_metric(...)` em `dashboard_full.py:6817`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L6817), e a origem dominante no recorte atual é `etapas`.
+  - Globalmente, se a etapa for forçada apenas para `In progress`, o mesmo cálculo deixa de ser zero agregado e passa para `P85 = 1 dia`, o que confirma que o zero atual decorre da definição de etapa de comprometimento usada no painel.
+- Suggested commit message:
+  - `docs(flow): record diagnosis for zero time-to-commit p85`
+
+## Current Task (Adicionar cálculo de tempo para consumir WIP no Painel Fluxo)
+- [x] Localizar os cálculos já usados pelo `Painel Fluxo` para `WIP`, `Lead Time` e `Vazão`
+- [x] Adicionar no painel os indicadores de semanas para consumir o WIP e vazão semanal necessária via Lei de Little
+- [x] Garantir que os cálculos usem apenas o dataset filtrado pela tela
+- [x] Validar com compilação/smoke test e registrar review + commit sugerido
+
+## Specification (Adicionar cálculo de tempo para consumir WIP no Painel Fluxo)
+- Objetivo: incluir na tela `Painel Fluxo` a estimativa de quanto tempo, em semanas, levará para consumir o estoque em progresso (`WIP`) e a vazão média semanal necessária para isso, usando a Lei de Little.
+- Fórmulas:
+  - `Lead Time Médio (semanas) = WIP médio semanal / Vazão média semanal`
+  - `Vazão média necessária (itens/semana) = WIP médio semanal / Lead Time médio (semanas)`
+- Regras:
+  - usar os mesmos filtros ativos da tela (`projeto`, `tipo`, `classe de serviço`, `responsável`, período e seleção de etapas de lead time)
+  - usar escala de semanas
+  - usar `WIP médio semanal` e `vazão média semanal` já coerentes com o recorte do painel
+  - usar `Lead Time médio` do recorte filtrado, não percentil
+
+## Review (Adicionar cálculo de tempo para consumir WIP no Painel Fluxo)
+- O que foi implementado:
+- [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora calcula `Lead Time médio` em semanas a partir do recorte filtrado e elegível para tempo do `Painel Fluxo`.
+- A tela `Painel Fluxo` passou a exibir dois novos indicadores de referência:
+  - `Tempo para consumir WIP` = `WIP médio semanal / vazão média semanal`
+  - `Vazão necessária para consumir WIP` = `WIP médio semanal / Lead Time médio (semanas)`
+- Os dois indicadores reutilizam o mesmo dataset já filtrado por período, projeto, tipo, classe de serviço, responsável e seleção de etapas de lead time.
+- Após validação do caso reportado, o cálculo foi mantido e a UI foi esclarecida: o card de throughput agora explicita que mostra o total do período e informa a média semanal usada nas fórmulas em semanas; os cards de inventário/WIP passam a mostrar a conta aberta na nota.
+- Evidências de validação:
+- `python3 -m py_compile dashboard_full.py`
+- `python3 - <<'PY' ... render_tab(main_view='services', tab='tab-painel-3x3', start_date='2026-01-01', end_date='2026-02-28', ...) ... PY`
+  - Resultado observado:
+    - `found_titles = ['Tempo para consumir WIP', 'Vazão necessária para consumir WIP']`
+    - `count = 2`
+- `python3 - <<'PY' wip=48; throughput_week=6; print(wip/throughput_week) PY`
+  - Resultado observado:
+    - `expected_weeks = 8.0`
+- Conclusão da validação:
+  - `16.0 semanas` só é compatível com vazão média semanal de `3.0 itens/semana`
+  - o `6` visto no card anterior era `throughput total do período`, não `vazão semanal`
+- Suggested commit message:
+- `feat(flow): add little law wip depletion indicators to flow panel`
+
 ## Current Task (Separar o one page completo em raias por tech team)
 - [x] Localizar a montagem da visão `One Page Completo - Roadmap 2026`
 - [x] Agrupar os épicos por quarter e por `Team` do portfólio, criando raias por tech team

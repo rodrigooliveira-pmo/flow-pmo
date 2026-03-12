@@ -11,6 +11,18 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-12
+- Context: Nomeação dos novos cards de fluxo ao separar backlog, WIP e estoque total no `Painel Fluxo`.
+- User correction: Apontou que `WIP em progresso` é pleonástico, porque `WIP` já significa `Work In Progress`.
+- Root cause: Ao tentar tornar o card autoexplicativo, eu expandi a sigla sem checar que a própria expansão já está embutida no termo operacional usado na área.
+- Prevention rule: Em métricas de fluxo, não expandir siglas consagradas de forma redundante (`WIP em progresso`, `Lead Time de tempo`, etc.); preferir o termo canônico do domínio.
+- Action added to workflow: Ao revisar nomenclatura de KPIs, validar se o rótulo ficou semanticamente mais claro sem duplicar o significado técnico da sigla.
+- Date: 2026-03-12
+- Context: Primeira correção do KPI `Tempo para Commit (P85)` no Painel Fluxo após usuário reportar que o valor seguia zerado no cenário real do print.
+- User correction: Mostrou que, mesmo após ajustar o default, o KPI continuava `0` porque o filtro ativo ainda incluía explicitamente `Backlog` e `Triagem`.
+- Root cause: Eu corrigi apenas a heurística padrão das etapas, mas mantive o cálculo do KPI dependente da menor data selecionada (`LeadStart_Selected`), o que continua colapsando em zero quando backlog-like stages permanecem selecionadas pelo usuário.
+- Prevention rule: Quando um KPI usa um subconjunto semântico do mesmo filtro de lead time, validar não só o default do filtro, mas também o comportamento com combinações explícitas que incluam etapas iniciais (`Backlog`, `Triagem`, etc.).
+- Action added to workflow: Em ajustes de métricas baseadas em workflow selecionável, sempre reproduzir o cenário real do usuário com a seleção exata das etapas antes de concluir a correção.
 - Date: 2026-03-09
 - Context: Ajuste da governança de `Expedite` após orientação sobre prioridade `HIGEST`.
 - User correction: Pediu que itens classificados com prioridade `HIGEST` fossem tratados como `Expedite`.
