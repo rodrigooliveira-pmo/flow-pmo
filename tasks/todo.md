@@ -28,6 +28,7 @@
     - para comprometer backlog
     - para concluir WIP
     - para consumir o estoque total
+  - Após validar o caso em que `Backlog atual = 0` mas `Backlog médio > 0`, os cards de estoque deixaram de misturar o valor atual com a conta da Lei de Little na mesma nota; a nota agora mostra apenas a média semanal do período, e os cálculos de Little ficam nos cards próprios.
   - Os textos de apoio da UI passaram a deixar claro qual média e qual taxa estão sendo usadas em cada card.
 - Evidências de validação:
   - `python3 -m py_compile dashboard_full.py`

@@ -10711,9 +10711,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'format': '{:.0f}',
                 'unit': 'itens de fluxo',
                 'note': (
-                    f"(fim do período; Little backlog médio: {backlog_avg:.1f} / {commitment_avg:.1f} = {backlog_consumption_weeks:.1f} semanas)"
-                    if pd.notna(backlog_avg) and pd.notna(commitment_avg) and pd.notna(backlog_consumption_weeks)
-                    else "(fim do período; sem base para Little de backlog)"
+                    f"(fim do período; média semanal no período: {backlog_avg:.1f} itens)"
+                    if pd.notna(backlog_avg)
+                    else "(fim do período)"
                 ),
             },
             'wip_in_progress_current': {
@@ -10722,9 +10722,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'format': '{:.0f}',
                 'unit': 'itens de fluxo',
                 'note': (
-                    f"(fim do período; Little WIP médio: {wip_avg:.1f} / {throughput_avg:.1f} = {wip_consumption_weeks:.1f} semanas)"
-                    if pd.notna(wip_avg) and pd.notna(throughput_avg) and pd.notna(wip_consumption_weeks)
-                    else "(fim do período; sem base para Little de WIP)"
+                    f"(fim do período; média semanal no período: {wip_avg:.1f} itens)"
+                    if pd.notna(wip_avg)
+                    else "(fim do período)"
                 ),
             },
             'total_system_current': {
@@ -10733,9 +10733,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'format': '{:.0f}',
                 'unit': 'itens de fluxo',
                 'note': (
-                    f"(backlog {backlog_end_count:.0f} + WIP {wip_end_count:.0f}; Little estoque médio: {total_system_avg:.1f} / {throughput_avg:.1f} = {total_system_consumption_weeks:.1f} semanas)"
-                    if pd.notna(total_system_avg) and pd.notna(throughput_avg) and pd.notna(total_system_consumption_weeks)
-                    else "(backlog + WIP; sem base para Little do sistema)"
+                    f"(backlog {backlog_end_count:.0f} + WIP {wip_end_count:.0f}; média semanal no período: {total_system_avg:.1f} itens)"
+                    if pd.notna(total_system_avg)
+                    else f"(backlog {backlog_end_count:.0f} + WIP {wip_end_count:.0f})"
                 ),
             },
             'backlog_little_weeks': {
