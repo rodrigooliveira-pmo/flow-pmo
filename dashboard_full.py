@@ -8276,14 +8276,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             })
 
         titulo = f"Performance da Entrega do Serviço: {projeto}" if projeto else "Performance da Entrega do Serviço"
-        contributor_section = build_bitbucket_contributor_section(
-            projeto,
-            start_ts,
-            end_ts,
-            jira_df=df_proj,
-            top_n_people=capacity_top_n,
-            weekly_metric=capacity_weekly_metric,
-        )
         df_scope = fato.copy()
         if projeto:
             df_scope = df_scope[df_scope['Projeto'] == projeto]
@@ -8442,7 +8434,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style_table={'overflowX': 'auto'},
             ),
             html.Div(id='performance-metric-chart'),
-            contributor_section,
         ])
 
     if tab == 'tab-lead-time':
@@ -14065,15 +14056,36 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_prod_base = df_prod_base[df_prod_base['ClasseServico'] == classe_servico]
         df_prod_base, _ = apply_selected_lead_time_metric(df_prod_base, projeto, leadtime_stages)
 
+        contributor_section = build_bitbucket_contributor_section(
+            projeto,
+            start_ts_prod,
+            end_ts_prod,
+            jira_df=df_prod_base if not df_prod_base.empty else None,
+            top_n_people=capacity_top_n,
+            weekly_metric=capacity_weekly_metric,
+        )
+
         if df_prod_base.empty or 'Responsavel' not in df_prod_base.columns:
-            return html.Div('Sem dados de responsável disponíveis para o período e filtros selecionados.',
-                            style={'padding': '30px', 'textAlign': 'center', 'color': '#888'})
+            return html.Div([
+                html.Div('Sem dados de responsável disponíveis para o período e filtros selecionados.',
+                         style={'padding': '30px', 'textAlign': 'center', 'color': '#888'}),
+                html.Div([
+                    html.H4('Contribuições Bitbucket e Capacidade Cruzada', style={'marginBottom': '10px'}),
+                    contributor_section,
+                ], style={'padding': '0 20px 20px 20px'}),
+            ])
 
         per_dev, complexity_df, category_df = build_dev_productivity_metrics(df_prod_base, start_ts_prod, end_ts_prod)
 
         if per_dev.empty:
-            return html.Div('Sem dados de produtividade individual para o período selecionado.',
-                            style={'padding': '30px', 'textAlign': 'center', 'color': '#888'})
+            return html.Div([
+                html.Div('Sem dados de produtividade individual para o período selecionado.',
+                         style={'padding': '30px', 'textAlign': 'center', 'color': '#888'}),
+                html.Div([
+                    html.H4('Contribuições Bitbucket e Capacidade Cruzada', style={'marginBottom': '10px'}),
+                    contributor_section,
+                ], style={'padding': '0 20px 20px 20px'}),
+            ])
 
         # Enriquecer com métricas do Bitbucket
         # W1NNER e S1NC compartilham o mesmo repositório; a BU (people_config.json) separa os times
@@ -14816,6 +14828,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             # ── BU Banner ─────────────────────────────────────────────────────
             bu_selector,
+
+            # ── Bitbucket + capacidade cruzada ───────────────────────────────
+            _section(
+                'Contribuições Bitbucket e Capacidade Cruzada',
+                'Relatórios movidos da aba Performance do Serviço para centralizar a leitura técnica por pessoa.',
+                [contributor_section],
+            ),
 
             # ── Resumo por BU ─────────────────────────────────────────────────
             _section(

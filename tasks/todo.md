@@ -5576,3 +5576,31 @@
   - `git diff -- run_all_projects_macos.sh run_all_projects.ps1 tasks/todo.md`
 - Suggested commit message:
   - `fix(run-all): keep portfolio and metrics generation running when bitbucket export fails`
+
+## Current Task (Dashboard Full: mover relatórios Bitbucket para Produtividade Dev)
+- [x] Localizar onde os relatórios `Contribuições Bitbucket (CSV)` e `Capacidade Cruzada (Jira + Bitbucket)` são renderizados
+- [x] Remover esses blocos da aba `Performance do Serviço`
+- [x] Renderizar os mesmos relatórios na aba `Produtividade Dev`
+- [x] Validar sintaxe e registrar review com evidências
+
+## Specification (Dashboard Full: mover relatórios Bitbucket para Produtividade Dev)
+- Objetivo: deixar a aba `Performance do Serviço` focada nos indicadores operacionais do serviço e concentrar os relatórios técnicos por pessoa na aba `Produtividade Dev`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `Contribuições Bitbucket (CSV)` deixa de aparecer em `tab-performance`.
+  - `Capacidade Cruzada (Jira + Bitbucket)` deixa de aparecer em `tab-performance`.
+  - Os dois relatórios passam a aparecer em `tab-produtividade-dev` com os mesmos filtros ativos do período/projeto.
+
+## Review (Dashboard Full: mover relatórios Bitbucket para Produtividade Dev)
+- What was validated:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) deixou de anexar `build_bitbucket_contributor_section(...)` ao retorno da `tab-performance`.
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora monta o mesmo bloco dentro da `tab-produtividade-dev`, usando os filtros ativos de período/projeto e o mesmo `jira_df` filtrado da aba.
+  - Os retornos antecipados da aba `Produtividade Dev` também passaram a incluir o bloco movido; assim, o relatório continua visível mesmo quando a parte de produtividade individual não tem dados suficientes no filtro atual.
+  - A mudança foi restrita à composição das abas; o conteúdo da função `build_bitbucket_contributor_section(...)` permaneceu intacto.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile dashboard_full.py`
+  - `git diff -- dashboard_full.py tasks/todo.md`
+- Suggested commit message:
+  - `refactor(dashboard): move bitbucket contribution reports to produtividade dev tab`

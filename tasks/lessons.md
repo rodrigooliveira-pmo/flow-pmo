@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-12
+- Context: Movimentação dos relatórios Bitbucket/capacidade cruzada da aba `Performance do Serviço` para `Produtividade Dev`.
+- User correction: Informou que os relatórios saíram da aba antiga, mas não apareceram na aba `Produtividade Dev`.
+- Root cause: Eu movi a renderização para dentro do fluxo principal da aba de produtividade, mas mantive retornos antecipados que encerravam a aba antes do bloco novo ser exibido quando não havia dados de produtividade individual.
+- Prevention rule: Ao mover blocos entre abas, revisar todos os `return` antecipados do destino e garantir que o novo bloco continue visível nos estados vazios/degradados relevantes.
+- Action added to workflow: Em mudanças de navegação/layout, validar explicitamente o cenário `com dados` e `sem dados da seção principal` para confirmar que blocos movidos continuam renderizando.
+- Date: 2026-03-12
 - Context: Nomeação dos novos cards de fluxo ao separar backlog, WIP e estoque total no `Painel Fluxo`.
 - User correction: Apontou que `WIP em progresso` é pleonástico, porque `WIP` já significa `Work In Progress`.
 - Root cause: Ao tentar tornar o card autoexplicativo, eu expandi a sigla sem checar que a própria expansão já está embutida no termo operacional usado na área.
