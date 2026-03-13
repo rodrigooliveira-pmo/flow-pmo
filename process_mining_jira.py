@@ -53,21 +53,25 @@ PROJECT_PROCESS_MINING_CONFIG = {
         "aliases": {"w1nner", "w1nnr"},
         "default_prefix": "w1nner-process-mining",
         "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
+        "default_issue_types": ["História", "Task", "Bug"],
     },
     "S1NC": {
         "aliases": {"s1nc", "w1sft"},
         "default_prefix": "s1nc-process-mining",
         "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
+        "default_issue_types": ["História", "Task", "Bug"],
     },
     "BEFINANCE": {
         "aliases": {"befinance", "bf"},
         "default_prefix": "befinance-process-mining",
         "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
+        "default_issue_types": ["História", "Task", "Bug"],
     },
     "DATA&ANALYTICS": {
         "aliases": {"data analytics", "data&analytics", "data analitics", "data&analitics", "dt", "da"},
         "default_prefix": "dataanalytics-process-mining",
         "expected_flow": DATA_ANALYTICS_EXPECTED_FLOW,
+        "default_issue_types": ["Feature", "Ad-hoc", "Bug/Incident", "Tech Task"],
     },
 }
 
@@ -88,6 +92,10 @@ ISSUE_TYPE_ALIASES = {
     "tarefa": {"task", "tarefa"},
     "bug": {"bug", "problema", "problem", "incident", "incidente"},
     "problema": {"bug", "problema", "problem", "incident", "incidente"},
+    "feature": {"feature"},
+    "ad hoc": {"ad hoc", "adhoc", "ad-hoc"},
+    "bug incident": {"bug incident", "bug/incident", "incident", "incidente", "bug"},
+    "tech task": {"tech task", "task tecnica", "tarefa tecnica", "technical task"},
 }
 
 WINDOWS_DEFAULT_LATEST_DIR = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
@@ -129,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input", required=True, help="CSV de changelog detalhado do Jira")
     p.add_argument("--out-dir", default="", help="Diretório de saída (default: pasta do input)")
     p.add_argument("--project", default="W1NNR", help="Projeto alvo (ex.: W1NNR, S1NC, BF, DT)")
-    p.add_argument("--issue-types", nargs="*", default=["História", "Task", "Bug"])
+    p.add_argument("--issue-types", nargs="*", default=None)
     p.add_argument("--expected-flow", nargs="*", default=None)
     p.add_argument("--done-status", nargs="*", default=None)
     p.add_argument("--prefix", default="")
@@ -1006,11 +1014,12 @@ def main() -> int:
     out_dir = Path(args.out_dir) if str(args.out_dir).strip() else in_path.parent
 
     project_config = resolve_project_process_mining_config(args.project)
+    issue_types = list(args.issue_types) if args.issue_types else list(project_config.get("default_issue_types", ["História", "Task", "Bug"]))
     expected_flow = list(args.expected_flow) if args.expected_flow else list(project_config.get("expected_flow", LEGACY_PRODUCTS_EXPECTED_FLOW))
     done_status = list(args.done_status) if args.done_status else ["Done", "Itens concluídos", "Concluído"]
     prefix = str(args.prefix).strip() or str(project_config.get("default_prefix") or "process-mining")
 
-    events = load_events(str(in_path), args.project, args.issue_types)
+    events = load_events(str(in_path), args.project, issue_types)
     if events.empty:
         print(f"Nenhum evento após filtros ({project_config['canonical_project']} + tipos selecionados).")
         return 1

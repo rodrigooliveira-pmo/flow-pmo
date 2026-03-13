@@ -1,5 +1,122 @@
 # Task Plan
 
+## Current Task (Ajustar defaults de issue types para DT no process mining)
+- [ ] Mapear onde `process_mining_jira.py` define os `issue types` padrão
+- [ ] Implementar defaults automáticos por projeto, com regra explícita para `DT`
+- [ ] Preservar override manual via `--issue-types`
+- [ ] Validar a resolução dos defaults e registrar revisão
+
+## Specification (Ajustar defaults de issue types para DT no process mining)
+- Objetivo: fazer o `process_mining_jira.py` usar automaticamente os tipos corretos do projeto `DT` no runner em lote, sem necessidade de passar `--issue-types` manualmente.
+- Estratégia:
+  - mover o default de `issue types` para a configuração por projeto
+  - manter o CLI aceitando override explícito quando necessário
+- Regras:
+  - `DT` deve cobrir `Feature`, `Ad-hoc`, `Bug/Incident` e `Tech Task`
+  - não quebrar o comportamento atual de `W1NNER`, `S1NC` e `BEFINANCE`
+
+## Review (Ajustar defaults de issue types para DT no process mining)
+- O que foi implementado:
+  - [`process_mining_jira.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/process_mining_jira.py) passou a resolver `default_issue_types` por projeto dentro de `PROJECT_PROCESS_MINING_CONFIG`.
+  - `DT` agora usa automaticamente `Feature`, `Ad-hoc`, `Bug/Incident` e `Tech Task`.
+  - `W1NNER`, `S1NC` e `BEFINANCE` mantiveram o default anterior: `História`, `Task`, `Bug`.
+  - o argumento `--issue-types` continua funcionando como override manual; quando omitido, o script usa o default do projeto.
+  - também foram adicionados aliases normalizados para tipos de `DT`, reduzindo fragilidade em variações textuais como `Ad-hoc`/`ad hoc` e `Bug/Incident`.
+- Evidências de validação:
+  - `python3 -m py_compile process_mining_jira.py`
+  - `python3 - <<'PY' ... resolve_project_process_mining_config(...) ... PY`
+    - `W1NNR -> W1NNER ['História', 'Task', 'Bug']`
+    - `DT -> DATA&ANALYTICS ['Feature', 'Ad-hoc', 'Bug/Incident', 'Tech Task']`
+- Suggested commit message:
+  - `fix(process-mining): use project-specific default issue types for dt`
+
+## Current Task (Permitir recorte JQL no runner em lote de process mining)
+- [ ] Adicionar suporte a `--jql-extra` no script base `run_process_mining_projects_macos.sh`
+- [ ] Propagar `--jql-extra` para o wrapper explícito dos quatro projetos
+- [ ] Validar ajuda e o repasse correto do parâmetro
+
+## Specification (Permitir recorte JQL no runner em lote de process mining)
+- Objetivo: permitir executar o lote `W1NNER + S1NC + BF + DT` com um filtro JQL adicional para reduzir volume de busca no Jira quando necessário.
+- Estratégia:
+  - adicionar um parâmetro opcional `--jql-extra`
+  - repassar esse parâmetro ao `jira_to_pipeline_csv.py` apenas quando informado
+- Regras:
+  - manter compatibilidade com a execução atual sem `--jql-extra`
+  - não alterar o fluxo dos exports de process mining e Bitbucket
+
+## Review (Permitir recorte JQL no runner em lote de process mining)
+- O que foi implementado:
+  - [`run_process_mining_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects_macos.sh) agora aceita `--jql-extra` e repassa esse filtro ao `jira_to_pipeline_csv.py`.
+  - o runner exibe o filtro adicional no log quando o parâmetro é usado.
+  - o wrapper [`run_process_mining_w1nner_s1nc_bf_dt_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_w1nner_s1nc_bf_dt_macos.sh) também passou a documentar e aceitar `--jql-extra`.
+- Evidências de validação:
+  - `bash run_process_mining_projects_macos.sh --help`
+  - `bash run_process_mining_w1nner_s1nc_bf_dt_macos.sh --help`
+- Suggested commit message:
+  - `feat(data): allow extra JQL filter in process mining batch runners`
+
+## Current Task (Criar entrypoint único para W1NNER + S1NC + BF + DT)
+- [ ] Confirmar se o script atual já executa exatamente `W1NNR`, `S1NC`, `BF` e `DT`
+- [ ] Criar um script wrapper explícito para esse conjunto de projetos
+- [ ] Validar o entrypoint novo e registrar revisão com comando de uso
+
+## Specification (Criar entrypoint único para W1NNER + S1NC + BF + DT)
+- Objetivo: disponibilizar um script único, explícito e fácil de executar para gerar downstream, process mining e Bitbucket de `W1NNER`, `S1NC`, `BEFINANCE` e `DATA&ANALYTICS`.
+- Estratégia:
+  - reaproveitar o pipeline existente em vez de duplicar a lógica de exportação
+  - criar um wrapper com nome claro e parâmetros repassados ao script base
+- Regras:
+  - não alterar a lógica funcional do pipeline existente sem necessidade
+  - manter compatibilidade com os parâmetros já aceitos pelo script base
+
+## Review (Criar entrypoint único para W1NNER + S1NC + BF + DT)
+- O que foi implementado:
+  - confirmei que [`run_process_mining_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects_macos.sh) já processa exatamente `W1NNR`, `S1NC`, `BF` e `DT`.
+  - adicionei o wrapper [`run_process_mining_w1nner_s1nc_bf_dt_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_w1nner_s1nc_bf_dt_macos.sh), que delega para o script base e deixa explícito o entrypoint recomendado para esse lote.
+  - o novo arquivo foi marcado como executável para uso direto com `./run_process_mining_w1nner_s1nc_bf_dt_macos.sh`.
+- Evidências de validação:
+  - `bash run_process_mining_w1nner_s1nc_bf_dt_macos.sh --help`
+  - `chmod +x run_process_mining_w1nner_s1nc_bf_dt_macos.sh`
+- Suggested commit message:
+  - `chore(data): add explicit runner for w1nner s1nc bf dt process mining batch`
+
+## Current Task (Mapear rotinas de geração para process mining e produtividade dev)
+- [ ] Identificar quais artefatos o `dashboard_process_mining.py` consome
+- [ ] Identificar quais artefatos alimentam a aba `Produtividade Dev` no `dashboard_full.py`
+- [ ] Localizar as rotinas/scripts que geram esses artefatos e levantar os parâmetros relevantes
+- [ ] Registrar revisão com a sequência recomendada de execução e commit sugerido
+
+## Specification (Mapear rotinas de geração para process mining e produtividade dev)
+- Objetivo: responder quais rotinas devem ser executadas para gerar os dados de process mining do `dashboard_process_mining` e os dados usados na aba `Produtividade Dev` do `dashboard_full`, incluindo os parâmetros/variáveis relevantes.
+- Escopo:
+  - mapear fontes de dados lidas pelos dashboards
+  - localizar scripts/entrypoints de geração correspondentes
+  - documentar a ordem de execução recomendada e os parâmetros aceitos
+- Regras:
+  - não alterar comportamento funcional do projeto
+  - usar o código local como fonte da resposta
+
+## Review (Mapear rotinas de geração para process mining e produtividade dev)
+- O que foi confirmado:
+  - [`dashboard_process_mining.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py) consome o arquivo mais recente `w1nner-process-mining-*.xlsx` e também CSVs Bitbucket via `load_project_bitbucket_logs("W1NNER")`.
+  - A aba [`Produtividade Dev` em `dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) depende de três fontes:
+    - `PowerBI_Model_*.xlsx` para base Jira consolidada
+    - `*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv` para métricas Bitbucket
+    - `*-process-mining-latest.xlsx` para colunas de conformance/rework/QA return e contribuição em gargalo
+  - [`run_process_mining_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects_macos.sh) já encadeia:
+    - `jira_to_pipeline_csv.py` com `--detailed-changelog-out`
+    - `process_mining_jira.py`
+    - `bitbucket_export.py`
+  - O modelo `PowerBI_Model_*.xlsx` é gerado por [`dash_board_metricas.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dash_board_metricas.py), que usa apenas variáveis de ambiente (`FLOW_PMO_DATA_DIR` ou `DATA_FOLDER`) e publica aliases `latest`.
+- Evidências de validação:
+  - leitura dos entrypoints e dos parsers CLI em `run_process_mining_projects_macos.sh`, `jira_to_pipeline_csv.py`, `process_mining_jira.py`, `bitbucket_export.py` e `dash_board_metricas.py`
+  - leitura dos loaders em `dashboard_process_mining.py` e `dashboard_full.py`
+- Sequência recomendada:
+  - `run_process_mining_projects_macos.sh` para gerar downstream + process mining + Bitbucket
+  - `dash_board_metricas.py` para consolidar o `PowerBI_Model_*.xlsx`
+- Suggested commit message:
+  - `docs(data): map generation routines for process mining and dev productivity inputs`
+
 ## Current Task (Separar backlog, WIP e estoque total no Painel Fluxo)
 - [x] Mapear no código os conceitos atuais de backlog, compromisso e WIP para definir os três estoques corretamente
 - [x] Implementar novos cards e cálculos distintos para backlog não comprometido, WIP em progresso e estoque total do sistema
@@ -5604,3 +5721,94 @@
   - `git diff -- dashboard_full.py tasks/todo.md`
 - Suggested commit message:
   - `refactor(dashboard): move bitbucket contribution reports to produtividade dev tab`
+# Current Task (Rastrear logs Bitbucket e identificação de tickets Jira)
+- [x] Localizar no projeto onde os logs do Bitbucket são extraídos e carregados
+- [x] Verificar se commits/PRs carregam ou derivam algum identificador de ticket Jira
+- [x] Consolidar evidências do rastreio e registrar review
+
+# Specification (Rastrear logs Bitbucket e identificação de tickets Jira)
+- Objetivo: identificar no código onde o projeto recupera logs do Bitbucket e confirmar se existe associação explícita com IDs/chaves de tickets Jira.
+- Escopo:
+  - extração Bitbucket
+  - carregamento dos CSVs derivados
+  - funções de cruzamento Jira + Bitbucket
+- Regras:
+  - não alterar comportamento do projeto
+  - responder com evidências de código e caminhos de arquivo
+
+# Review (Rastrear logs Bitbucket e identificação de tickets Jira)
+- O que foi confirmado:
+  - A recuperação dos logs do Bitbucket é feita por [`bitbucket_export.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py), consultando a API do Bitbucket para `commits`, `pullrequests` e `pipelines`.
+  - O projeto já tem identificação explícita de tickets Jira nesses logs:
+    - regex de chave: [`WORK_ITEM_KEY_RE` em `bitbucket_export.py:25`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L25)
+    - prefixos aceitos por projeto: [`PROJECT_BITBUCKET_DEFAULTS` em `bitbucket_export.py:32`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L32)
+    - extração das chaves em texto livre: [`extract_work_item_keys(...)` em `bitbucket_export.py:196`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L196)
+    - filtro por projeto usando prefixo Jira: [`row_matches_project(...)` em `bitbucket_export.py:763`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L763)
+  - As chaves Jira são persistidas nos CSVs exportados:
+    - commits: colunas `work_item_keys` e `primary_work_item_key` em [`bitbucket_export.py:343`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L343)
+    - pull requests: mesmas colunas em [`bitbucket_export.py:367`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L367)
+    - pipelines: mesmas colunas em [`bitbucket_export.py:576`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/bitbucket_export.py#L576)
+  - O carregamento posterior desses logs ocorre em:
+    - [`dashboard_full.py:911`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L911)
+    - [`dashboard_process_mining.py:378`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py#L378)
+  - O vínculo Bitbucket -> Jira é efetivamente usado no analytics:
+    - o dashboard agrega `work_item_keys`/`primary_work_item_key` dos logs Bitbucket para formar `tech_keys` em [`dashboard_process_mining.py:549`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py#L549)
+    - depois compara essas chaves com `Issue Key` dos casos Jira para calcular `Itens c/ Evidencia Tecnica` e `Cobertura Tecnica (%)` em [`dashboard_process_mining.py:572`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py#L572)
+    - há lógica equivalente no dashboard principal, comparando `ItemID/ID` do Jira com as chaves extraídas do Bitbucket em [`dashboard_full.py:1161`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L1161) e [`dashboard_full.py:1775`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L1775)
+  - O script [`scripts/generate_commits_vs_jira_chart.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/scripts/generate_commits_vs_jira_chart.py) consome exatamente esse cruzamento via `load_project_bitbucket_logs(...)` + `compute_pm_bitbucket_cross_metrics(...)`.
+- Conclusão:
+  - Sim, existe identificação de ID/chave de ticket Jira nos logs Bitbucket.
+  - Essa identificação não vem de um campo nativo da API Bitbucket ligado ao Jira; ela é inferida por padrão textual (`ABC-123`) em commit message, título de PR, source/destination branch e nome da ref de pipeline.
+  - Depois de inferida, a chave é armazenada e usada para cruzar com `Issue Key` do Jira no dashboard/process mining.
+- Suggested commit message:
+  - `docs(bitbucket): record jira issue-key linkage in bitbucket log flow`
+
+# Current Task (Mostrar exemplos reais de sucesso e falha no vínculo Jira x Bitbucket)
+- [ ] Localizar os artefatos locais consumidos pelo dashboard para Jira e Bitbucket
+- [ ] Extrair exemplos de `Issue Key` com evidência técnica no Bitbucket
+- [ ] Extrair exemplos de `Issue Key` concluídas no Jira sem evidência técnica
+- [ ] Registrar review com os exemplos encontrados
+
+# Specification (Mostrar exemplos reais de sucesso e falha no vínculo Jira x Bitbucket)
+- Objetivo: demonstrar com dados locais exemplos concretos em que o relacionamento por `Issue Key` funcionou e exemplos em que falhou.
+- Escopo:
+  - artefatos locais de process mining / Jira
+  - CSVs Bitbucket carregados pelo dashboard
+  - vínculo por `Issue Key`/`work_item_keys`
+- Regras:
+  - não alterar comportamento
+  - priorizar exemplos do recorte usado pelos dashboards
+
+# Review (Mostrar exemplos reais de sucesso e falha no vínculo Jira x Bitbucket)
+- Artefatos usados:
+  - [`artifacts/process_mining/w1nner-process-mining-latest.xlsx`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-latest.xlsx)
+  - [`w1nner_commits.csv`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/w1nner_commits.csv)
+  - [`w1nner_pullrequests.csv`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/w1nner_pullrequests.csv)
+- Método:
+  - Recorte validado: `2026-02-12` a `2026-03-13`.
+  - Critério de sucesso: `Issue Key` concluída no Jira e também presente em `work_item_keys`/`primary_work_item_key` de commits ou PRs do Bitbucket.
+  - Critério de falha: item concluído no Jira sem nenhuma chave correspondente no Bitbucket no recorte, ou chave no Bitbucket sem item concluído correspondente no recorte.
+- Resultado agregado do recorte:
+  - `114` cards concluídos no Jira.
+  - `5` com evidência técnica no Bitbucket.
+  - `109` sem evidência técnica no Bitbucket.
+- Exemplos de sucesso:
+  - `W1NNR-2161`: concluído em `2026-03-03`, autor final `Lara Junqueira Alvarenga`; apareceu no commit `W1NNR-2161 Fix analysis views crash on contact routes (missing client_id)` e no PR `W1NNR-2161 Fix analysis views crash on contact routes (missing client_id)`.
+  - `W1NNR-2110`: concluído em `2026-02-24`; apareceu em commits `W1NNR-2110 Fix pipeline specs errors` e `W1NNR-2110 Fix client match service`.
+  - `W1NNR-2144`: concluído em `2026-02-23`; apareceu no commit `W1NNR-2144 Prevents CommercialProposal...` e em PR com a mesma chave.
+  - `W1NNR-2157`: concluído em `2026-02-23`; apareceu em dois commits e em um PR com a chave `W1NNR-2157`.
+  - `W1NNR-2147`: concluído em `2026-02-20`; apareceu em commit e PR com a chave `W1NNR-2147`.
+- Exemplos de falha (Jira concluído sem evidência Bitbucket no recorte):
+  - `W1NNR-22`: concluído em `2026-03-06`, sem ocorrência da chave nos logs Bitbucket do recorte.
+  - `W1NNR-13`: concluído em `2026-03-06`, sem ocorrência da chave nos logs Bitbucket do recorte.
+  - `W1NNR-407`: concluído em `2026-03-06`, sem ocorrência da chave nos logs Bitbucket do recorte.
+  - `W1NNR-409`: concluído em `2026-03-06`, sem ocorrência da chave nos logs Bitbucket do recorte.
+  - `W1NNR-410`: concluído em `2026-03-06`, sem ocorrência da chave nos logs Bitbucket do recorte.
+- Exemplos de falha no sentido oposto (atividade Bitbucket sem item concluído correspondente no recorte):
+  - `W1NNR-2124`: apareceu em commit no Bitbucket em `2026-02-27`, mas não entre os cards concluídos do recorte.
+  - `W1NNR-2173`: apareceu em commit no Bitbucket em `2026-02-27`, mas não entre os cards concluídos do recorte.
+  - `W1NNR-2172`: apareceu em commit no Bitbucket em `2026-02-27`, mas não entre os cards concluídos do recorte.
+  - `W1NNR-2040`: apareceu em commit no Bitbucket em `2026-02-27`, mas não entre os cards concluídos do recorte.
+  - `S1NC-1958`: apareceu em commit no Bitbucket em `2026-02-27` e nem existe na planilha Jira `ConformidadeCasos` carregada para esse relatório W1NNER.
+- Suggested commit message:
+  - `docs(traceability): record local success and failure examples for jira-bitbucket linkage`

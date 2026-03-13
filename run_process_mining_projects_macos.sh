@@ -9,6 +9,7 @@ LATEST_DIR="${FLOW_PMO_LATEST_DIR:-$LATEST_DIR_DEFAULT}"
 DATE_TAG="$(date +%Y%m%d)"
 ENV_FILE="${SCRIPT_DIR}/jira_env.txt"
 WORKERS=8
+JQL_EXTRA=""
 PROCESS_MINING_FAILURES=()
 BITBUCKET_FAILURES=()
 
@@ -22,6 +23,7 @@ Opcoes:
   --date-tag YYYYMMDD Tag de data para os arquivos (padrao: data atual)
   --env-file PATH     Arquivo com variaveis JIRA_*
   --workers N         Numero de workers para exportacao (padrao: 8)
+  --jql-extra JQL     Filtro JQL adicional repassado ao export Jira
   -h, --help          Mostra esta ajuda
 EOF_HELP
 }
@@ -46,6 +48,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --workers)
             WORKERS="$2"
+            shift 2
+            ;;
+        --jql-extra)
+            JQL_EXTRA="$2"
             shift 2
             ;;
         -h|--help)
@@ -145,6 +151,9 @@ echo "Base URL: ${JIRA_BASE_URL}"
 echo "Saida changelog: ${OUT_DIR}"
 echo "Saida process mining: ${PROCESS_MINING_OUT_DIR}"
 echo "Data: ${DATE_TAG}"
+if [[ -n "${JQL_EXTRA}" ]]; then
+    echo "Filtro JQL adicional: ${JQL_EXTRA}"
+fi
 
 ORIGINAL_JIRA_STATUS_MAP="${JIRA_STATUS_MAP-}"
 if [[ -n "${JIRA_STATUS_MAP-}" ]]; then
@@ -164,12 +173,19 @@ for i in "${!PROJECT_KEYS[@]}"; do
     echo "Projeto: ${key}"
     echo "Changelog detalhado: ${detailed_changelog_out}"
 
-    "$PYTHON_BIN" "$SCRIPT_PATH" \
-        --projects "$key" \
-        --out "${OUT_DIR}/${prefix}-${DATE_TAG}-data.csv" \
-        --env-file "$ENV_FILE" \
-        --workers "$WORKERS" \
+    jira_cmd=(
+        "$PYTHON_BIN" "$SCRIPT_PATH"
+        --projects "$key"
+        --out "${OUT_DIR}/${prefix}-${DATE_TAG}-data.csv"
+        --env-file "$ENV_FILE"
+        --workers "$WORKERS"
         --detailed-changelog-out "$detailed_changelog_out"
+    )
+    if [[ -n "${JQL_EXTRA}" ]]; then
+        jira_cmd+=(--jql-extra "$JQL_EXTRA")
+    fi
+
+    "${jira_cmd[@]}"
 
     if [[ -f "$detailed_changelog_out" ]]; then
         cp -f "$detailed_changelog_out" "$detailed_changelog_latest"
