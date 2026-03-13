@@ -719,13 +719,15 @@ def build_pm4py_model_artifacts(
     if net is not None and im is not None and fm is not None and tbr_diag is not None and dot_ok:
         def _try_save_petri_variant(img_path: Path, variant_name: str, meta_ok_key: str, meta_err_key: str) -> bool:
             try:
-                pm4py.save_vis_petri_net(net, im, fm, str(img_path), variant=variant_name, diagnostics=tbr_diag)
+                pm4py.save_vis_petri_net(net, im, fm, str(img_path), variant_str=variant_name, log=pm_df)
                 extra_files[meta_ok_key] = str(img_path)
                 meta_rows.append({"Metrica": meta_ok_key, "Valor": str(img_path)})
                 return True
             except Exception as exc1:
                 # Fallbacks for API differences across PM4Py versions
                 fallback_attempts = [
+                    {"variant_str": variant_name, "log": pm_df},
+                    {"variant": variant_name, "log": pm_df},
                     {"variant": variant_name, "aggregated_statistics": tbr_diag},
                     {"variant": variant_name},
                 ]

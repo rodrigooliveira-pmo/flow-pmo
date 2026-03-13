@@ -1,5 +1,37 @@
 # Task Plan
 
+## Current Task (Diagnosticar gráficos de process mining com imagens repetidas)
+- [x] Mapear a geração dos PNGs de process mining e os nomes de saída por tipo de gráfico
+- [x] Verificar se a repetição acontece na exportação (`process_mining_jira.py`) ou no carregamento da UI (`dashboard_process_mining.py`)
+- [x] Confirmar a causa raiz com evidência de código e registrar a revisão
+
+## Specification (Diagnosticar gráficos de process mining com imagens repetidas)
+- Objetivo: identificar por que múltiplos gráficos de process mining estão sendo gerados com nomes diferentes, mas exibem a mesma imagem/conteúdo.
+- Estratégia:
+  - inspecionar a rotina que escreve os PNGs no export
+  - inspecionar a rotina que resolve e embute esses arquivos na UI
+  - comparar os caminhos e objetos usados em cada exportação
+- Regras:
+  - priorizar causa raiz no código local, sem assumir problema visual apenas pela UI
+  - não alterar comportamento antes de confirmar exatamente onde ocorre a duplicação
+
+## Review (Diagnosticar gráficos de process mining com imagens repetidas)
+- O que foi confirmado:
+  - [`dashboard_process_mining.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py#L216) apenas carrega cada PNG por sufixo fixo; a UI não reaponta múltiplos cards para o mesmo arquivo.
+  - A duplicação estava na exportação em [`process_mining_jira.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/process_mining_jira.py): a rotina chamava `pm4py.save_vis_petri_net(..., variant=..., diagnostics=...)`, mas a versão instalada do PM4Py (`2.7.18`) usa `variant_str` e `log`.
+  - Como `variant` e `diagnostics` eram ignorados nessa assinatura, o PM4Py caía no default `wo_decoration`, gravando a mesma Rede de Petri em `petri.png`, `petri-token-freq.png` e `petri-token-perf.png`.
+  - O código foi ajustado para usar `variant_str=...` e `log=pm_df`, com fallbacks compatíveis para APIs antigas.
+- Evidências de validação:
+  - `python3 -m py_compile process_mining_jira.py`
+  - comparação dos artefatos exportados já existentes:
+    - nos arquivos `*-latest`, `petri.png`, `petri-token-freq.png` e `petri-token-perf.png` tinham exatamente o mesmo hash em todos os projetos
+  - replay local com a aba `EventosFiltrados` de [`w1nner-process-mining-latest.xlsx`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/../flow-pmo/artifacts/process_mining/w1nner-process-mining-latest.xlsx):
+    - `plain`: `1416707 bytes` / hash `738d0ee5...`
+    - `freq`: `1566876 bytes` / hash `0e788080...`
+    - `perf`: `1543541 bytes` / hash `80db63d7...`
+- Suggested commit message:
+  - `fix(process-mining): avoid duplicated images across exported graph views`
+
 ## Current Task (Ajustar defaults de issue types para DT no process mining)
 - [ ] Mapear onde `process_mining_jira.py` define os `issue types` padrão
 - [ ] Implementar defaults automáticos por projeto, com regra explícita para `DT`
