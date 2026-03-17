@@ -53,19 +53,19 @@ PROJECT_PROCESS_MINING_CONFIG = {
         "aliases": {"w1nner", "w1nnr"},
         "default_prefix": "w1nner-process-mining",
         "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
-        "default_issue_types": ["História", "Task", "Bug"],
+        "default_issue_types": ["História", "User Story", "Task", "Bug"],
     },
     "S1NC": {
         "aliases": {"s1nc", "w1sft"},
         "default_prefix": "s1nc-process-mining",
         "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
-        "default_issue_types": ["História", "Task", "Bug"],
+        "default_issue_types": ["História", "User Story", "Task", "Bug"],
     },
     "BEFINANCE": {
         "aliases": {"befinance", "bf"},
         "default_prefix": "befinance-process-mining",
         "expected_flow": LEGACY_PRODUCTS_EXPECTED_FLOW,
-        "default_issue_types": ["História", "Task", "Bug"],
+        "default_issue_types": ["História", "User Story", "Task", "Bug"],
     },
     "DATA&ANALYTICS": {
         "aliases": {"data analytics", "data&analytics", "data analitics", "data&analitics", "dt", "da"},
@@ -86,8 +86,9 @@ REQUIRED_COLS = {
 }
 
 ISSUE_TYPE_ALIASES = {
-    "historia": {"historia", "história", "story"},
-    "story": {"historia", "história", "story"},
+    "historia": {"historia", "história", "story", "user story"},
+    "story": {"historia", "história", "story", "user story"},
+    "user story": {"historia", "história", "story", "user story"},
     "task": {"task", "tarefa"},
     "tarefa": {"task", "tarefa"},
     "bug": {"bug", "problema", "problem", "incident", "incidente"},
@@ -176,7 +177,7 @@ def load_events(path: str, project: str, issue_types: Sequence[str]) -> pd.DataF
     allowed_projects = set(project_config.get("aliases", set()))
     allowed_projects.add(normalize_text(project))
     df = df[df["Projeto"].map(normalize_text).isin(allowed_projects)].copy()
-    allowed_types = expand_issue_type_filters(issue_types) or {"historia", "story", "task", "tarefa", "bug", "problema"}
+    allowed_types = expand_issue_type_filters(issue_types) or {"historia", "story", "user story", "task", "tarefa", "bug", "problema"}
     df = df[df["Tipo de Problema"].map(normalize_text).isin(allowed_types)].copy()
     if df.empty:
         return df
@@ -1016,7 +1017,7 @@ def main() -> int:
     out_dir = Path(args.out_dir) if str(args.out_dir).strip() else in_path.parent
 
     project_config = resolve_project_process_mining_config(args.project)
-    issue_types = list(args.issue_types) if args.issue_types else list(project_config.get("default_issue_types", ["História", "Task", "Bug"]))
+    issue_types = list(args.issue_types) if args.issue_types else list(project_config.get("default_issue_types", ["História", "User Story", "Task", "Bug"]))
     expected_flow = list(args.expected_flow) if args.expected_flow else list(project_config.get("expected_flow", LEGACY_PRODUCTS_EXPECTED_FLOW))
     done_status = list(args.done_status) if args.done_status else ["Done", "Itens concluídos", "Concluído"]
     prefix = str(args.prefix).strip() or str(project_config.get("default_prefix") or "process-mining")

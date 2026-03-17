@@ -5844,3 +5844,28 @@
   - `S1NC-1958`: apareceu em commit no Bitbucket em `2026-02-27` e nem existe na planilha Jira `ConformidadeCasos` carregada para esse relatório W1NNER.
 - Suggested commit message:
   - `docs(traceability): record local success and failure examples for jira-bitbucket linkage`
+
+## Current Task (Incluir `User Story` na recuperação dos itens)
+- [x] Localizar o filtro/lista de tipos usado na recuperação padrão dos itens
+- [x] Incluir `User Story` sem alterar os demais tipos já suportados
+- [x] Validar a resolução do filtro e registrar a revisão
+
+## Specification (Incluir `User Story` na recuperação dos itens)
+- Objetivo: garantir que a recuperação padrão de itens também considere o `work item type` `User Story`.
+- Estratégia:
+  - ajustar apenas a lista padrão de tipos no fluxo que atualmente considera `História`, `Task` e `Bug`
+  - manter compatibilidade com aliases e override manual existentes
+- Regras:
+  - não remover tipos já suportados
+  - evitar mudanças colaterais fora do fluxo de recuperação afetado
+
+## Review (Incluir `User Story` na recuperação dos itens)
+- O que foi implementado:
+  - [`process_mining_jira.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/process_mining_jira.py) agora inclui `User Story` nos `default_issue_types` dos projetos legados `W1NNER`, `S1NC` e `BEFINANCE`.
+  - O mapa `ISSUE_TYPE_ALIASES` também passou a tratar `User Story` como equivalente de `História`/`story`, preservando compatibilidade com os nomes já usados no CSV.
+  - O fallback defensivo de `allowed_types` e o fallback de `default_issue_types` no `main()` também foram atualizados para não deixar `User Story` de fora em cenários sem configuração explícita.
+- Evidências de validação:
+  - leitura do diff em [`process_mining_jira.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/process_mining_jira.py), confirmando a inclusão em quatro pontos do fluxo de filtro
+  - Limitação: a validação automatizada com `python -m py_compile process_mining_jira.py` não pôde ser executada neste ambiente porque o executável `python.exe` não iniciou (`ResourceUnavailable` no launcher do Windows).
+- Suggested commit message:
+  - `fix(process-mining): include user story in default item recovery`
