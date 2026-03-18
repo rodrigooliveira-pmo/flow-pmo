@@ -1426,6 +1426,28 @@ def _unified_complexity_weight(sp_val, tshirt_val=None):
     return 0.5  # sem estimativa
 
 
+def _unified_sp_bucket(sp_val, tshirt_val=None):
+    """Faixa de complexidade usando SP ou T-shirt como fallback.
+
+    Prioridade: SP numérico > T-shirt size equalizado > 'Sem estimativa'.
+    Elimina a categoria 'Sem estimativa' para itens que têm T-shirt configurado.
+    Equalização: P/S=2SP, M=5SP, G/L=8SP, GG/XL=13SP (Kitchenham & Mendes, TSE 2004).
+    """
+    try:
+        sp = float(sp_val)
+    except (TypeError, ValueError):
+        sp = 0.0
+    if sp > 0:
+        return _sp_bucket(sp)
+    # Fallback para T-shirt size
+    if tshirt_val is not None:
+        key = str(tshirt_val).lower().strip()
+        sp_eq = _TSHIRT_TO_SP_EQUIV.get(key)
+        if sp_eq is not None:
+            return _sp_bucket(sp_eq)
+    return 'Sem estimativa'
+
+
 def build_dev_productivity_metrics(df, start_ts, end_ts):
     """
     Calcula métricas de produtividade individual por desenvolvedor.
@@ -1552,12 +1574,22 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     else:
         per_dev['Lead Time Mediano (dias)'] = 0.0
 
-    # Cartões puxados por faixa de complexidade (Story Points)
+    # Cartões puxados por faixa de complexidade — estimativa unificada (SP ou T-shirt).
+    # Usa _unified_sp_bucket() para eliminar "Sem estimativa" em itens com T-shirt size.
     complexity_df = pd.DataFrame()
-    if not started_window.empty and 'StoryPoints' in started_window.columns:
+    if not started_window.empty:
         sw = started_window.copy()
-        sw['StoryPoints'] = pd.to_numeric(sw['StoryPoints'], errors='coerce').fillna(0)
-        sw['SP_Bucket'] = sw['StoryPoints'].apply(_sp_bucket)
+        _has_sp_cx = 'StoryPoints' in sw.columns
+        _has_ts_cx = 'EffortTShirtSize' in sw.columns
+        if _has_sp_cx:
+            sw['StoryPoints'] = pd.to_numeric(sw['StoryPoints'], errors='coerce').fillna(0)
+        else:
+            sw['StoryPoints'] = 0.0
+        _ts_cx = sw['EffortTShirtSize'] if _has_ts_cx else [''] * len(sw)
+        sw['SP_Bucket'] = [
+            _unified_sp_bucket(sp, ts)
+            for sp, ts in zip(sw['StoryPoints'], _ts_cx)
+        ]
         complexity_df = (
             sw.groupby(['_Pessoa', 'SP_Bucket']).size()
             .reset_index(name='Qtd')
@@ -14788,30 +14820,42 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
             fig_bu_summary.update_layout(xaxis_tickangle=-30, margin=dict(b=100), legend_title='Métrica')
 
-        # ── Gráfico: Cartões puxados por complexidade (SP bucket, stacked) ───
+        # ── Gráfico: Cartões puxados por complexidade (estimativa unificada) ──
+        # Usa _unified_sp_bucket(): SP numérico ou T-shirt equalizado (P=2SP, M=5SP, G=8SP).
+        # "Sem estimativa" só aparece para itens sem nenhum dos dois formatos.
         fig_complexity = go.Figure()
         if not complexity_df.empty:
-            bucket_order = ['Sem estimativa', '1-3 SP (pequeno)', '5-8 SP (médio)', '13+ SP (grande)']
+            bucket_order = ['1-3 SP (pequeno)', '5-8 SP (médio)', '13+ SP (grande)', 'Sem estimativa']
             bucket_colors = {
-                'Sem estimativa': '#aec7e8',
                 '1-3 SP (pequeno)': '#98df8a',
                 '5-8 SP (médio)': '#ffbb78',
                 '13+ SP (grande)': '#ff9896',
+                'Sem estimativa': '#c8c8c8',  # cinza discreto — só aparece se realmente sem estimativa
             }
             top_people_complexity = per_dev['Pessoa'].head(top_n_prod).tolist()
             cdf = complexity_df[complexity_df['Pessoa'].isin(top_people_complexity)].copy()
             # garante todas as faixas para todos os devs (pivot + melt)
             cdf_pivot = cdf.pivot_table(index='Pessoa', columns='SP_Bucket', values='Qtd', aggfunc='sum', fill_value=0).reset_index()
             cdf_melted = cdf_pivot.melt(id_vars='Pessoa', var_name='SP_Bucket', value_name='Qtd')
+            # remove linhas com Qtd=0 para não inflar a legenda
+            cdf_melted = cdf_melted[cdf_melted['Qtd'] > 0]
             # ordena devs pelo total
             person_totals_cx = cdf_melted.groupby('Pessoa')['Qtd'].sum().sort_values(ascending=False)
             people_ordered_cx = person_totals_cx.index.tolist()
+            # conta itens ainda "Sem estimativa" para incluir no subtítulo
+            _sem_est_total = int(cdf_melted.loc[cdf_melted['SP_Bucket'] == 'Sem estimativa', 'Qtd'].sum())
+            _total_cx = int(cdf_melted['Qtd'].sum())
+            _sem_est_pct = round(_sem_est_total / _total_cx * 100, 1) if _total_cx > 0 else 0.0
+            _cx_subtitle = (
+                f'Estimativa unificada: SP numérico ou T-shirt equalizado (P=2SP, M=5SP, G=8SP — Kitchenham & Mendes, TSE 2004). '
+                f'Sem estimativa: {_sem_est_total} itens ({_sem_est_pct:.1f}%)'
+            )
             fig_complexity = px.bar(
                 cdf_melted,
                 x='Pessoa',
                 y='Qtd',
                 color='SP_Bucket',
-                title='Cartões Puxados por Complexidade (Story Points)',
+                title=f'Cartões Puxados por Complexidade (Estimativa Unificada)<br><sup>{_cx_subtitle}</sup>',
                 category_orders={'SP_Bucket': bucket_order, 'Pessoa': people_ordered_cx},
                 color_discrete_map=bucket_colors,
                 height=520,
@@ -14819,8 +14863,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
             fig_complexity.update_layout(
                 xaxis_tickangle=-45,
-                margin=dict(b=140),
+                margin=dict(b=140, t=90),
                 legend_title='Complexidade',
+                template='plotly_white',
             )
 
         # ── Gráfico: Demanda de Falha por Dev ─────────────────────────────────
@@ -15307,11 +15352,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             # ── Complexidade ──────────────────────────────────────────────────
             _section(
-                'Cartões Puxados por Complexidade (Story Points)',
-                'Faixas de SP dos itens iniciados no período por desenvolvedor.',
+                'Cartões Puxados por Complexidade (Estimativa Unificada)',
+                [
+                    html.Span('Itens iniciados no período classificados por complexidade. '),
+                    html.Span('SP numérico tem prioridade; ', style={'fontWeight': '600'}),
+                    html.Span('itens sem SP usam T-shirt size equalizado: '),
+                    html.Span('P = 2SP | M = 5SP | G = 8SP | GG/XL = 13SP', style={'fontFamily': 'monospace', 'color': '#2980b9'}),
+                    html.Span(' (Kitchenham & Mendes, TSE 2004). '),
+                    html.Span('"Sem estimativa" só aparece se o item não tem nem SP nem T-shirt.', style={'color': '#e67e22'}),
+                ],
                 [dcc.Graph(figure=fig_complexity, config={'displayModeBar': False})]
                 if not complexity_df.empty else [
-                    html.P('Story Points não disponíveis nos dados — os cartões do Jira precisam ter SP preenchido.',
+                    html.P('Sem dados de estimativa (SP ou T-shirt) para o período com os filtros ativos.',
                            style={'color': '#aaa', 'fontStyle': 'italic'})
                 ],
             ),
