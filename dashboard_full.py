@@ -15006,12 +15006,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # "Sem estimativa" só aparece para itens sem nenhum dos dois formatos.
         fig_complexity = go.Figure()
         if not complexity_df.empty:
-            bucket_order = ['1-3 SP (pequeno)', '5-8 SP (médio)', '13+ SP (grande)', 'Sem estimativa']
+            bucket_order = ['1-3 SP (pequeno)', '5-8 SP (médio)', '13+ SP (grande)']
             bucket_colors = {
                 '1-3 SP (pequeno)': '#98df8a',
                 '5-8 SP (médio)': '#ffbb78',
                 '13+ SP (grande)': '#ff9896',
-                'Sem estimativa': '#c8c8c8',  # cinza discreto — só aparece se realmente sem estimativa
             }
             top_people_complexity = per_dev['Pessoa'].head(top_n_prod).tolist()
             cdf = complexity_df[complexity_df['Pessoa'].isin(top_people_complexity)].copy()
@@ -15020,16 +15019,27 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             cdf_melted = cdf_pivot.melt(id_vars='Pessoa', var_name='SP_Bucket', value_name='Qtd')
             # remove linhas com Qtd=0 para não inflar a legenda
             cdf_melted = cdf_melted[cdf_melted['Qtd'] > 0]
-            # ordena devs pelo total
-            person_totals_cx = cdf_melted.groupby('Pessoa')['Qtd'].sum().sort_values(ascending=False)
-            people_ordered_cx = person_totals_cx.index.tolist()
-            # conta itens ainda "Sem estimativa" para incluir no subtítulo
+            # Conta "Sem estimativa" ANTES de remover — reporta no subtítulo
             _sem_est_total = int(cdf_melted.loc[cdf_melted['SP_Bucket'] == 'Sem estimativa', 'Qtd'].sum())
             _total_cx = int(cdf_melted['Qtd'].sum())
             _sem_est_pct = round(_sem_est_total / _total_cx * 100, 1) if _total_cx > 0 else 0.0
+
+            # Remove "Sem estimativa" do gráfico — itens sem SP nem T-shirt
+            # não contribuem para análise de complexidade (preencha SP ou T-shirt no Jira)
+            cdf_melted = cdf_melted[cdf_melted['SP_Bucket'] != 'Sem estimativa']
+
+            # Remove devs que ficaram sem nenhum item estimado após o filtro
+            _devs_com_estimativa = cdf_melted.groupby('Pessoa')['Qtd'].sum()
+            _devs_com_estimativa = _devs_com_estimativa[_devs_com_estimativa > 0].index.tolist()
+            cdf_melted = cdf_melted[cdf_melted['Pessoa'].isin(_devs_com_estimativa)]
+
+            # ordena devs pelo total estimado
+            person_totals_cx = cdf_melted.groupby('Pessoa')['Qtd'].sum().sort_values(ascending=False)
+            people_ordered_cx = person_totals_cx.index.tolist()
+
             _cx_subtitle = (
                 f'Estimativa unificada: SP numérico ou T-shirt equalizado (P=2SP, M=5SP, G=8SP — Kitchenham & Mendes, TSE 2004). '
-                f'Sem estimativa: {_sem_est_total} itens ({_sem_est_pct:.1f}%)'
+                f'Excluídos do gráfico: {_sem_est_total} itens sem estimativa ({_sem_est_pct:.1f}%) — preencha SP ou T-shirt no Jira.'
             )
             fig_complexity = px.bar(
                 cdf_melted,
