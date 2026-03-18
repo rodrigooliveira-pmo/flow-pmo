@@ -1426,6 +1426,83 @@ def _unified_complexity_weight(sp_val, tshirt_val=None):
     return 0.5  # sem estimativa
 
 
+def _build_sp_inference_model(base_df: pd.DataFrame) -> dict:
+    """Constrói modelo de inferência de SP por mediana condicional em cascata.
+
+    Usado para itens sem SP nem T-shirt registrados.
+    Cascata:
+      1. Mediana SP por TipoDemanda   (mín. 3 amostras — mais específico)
+      2. Mediana SP por WorkItemCategory (mín. 2 amostras — fallback intermediário)
+      3. Mediana SP global            (fallback final)
+
+    Retorna dict com chaves:
+      'tipo'     → {TipoDemanda: median_sp}
+      'category' → {WorkItemCategory: median_sp}
+      'global'   → float
+      'n_source' → int  (qtd itens com SP usados para construir o modelo)
+    """
+    model: dict = {'tipo': {}, 'category': {}, 'global': 2.0, 'n_source': 0}
+    if base_df is None or base_df.empty or 'StoryPoints' not in base_df.columns:
+        return model
+
+    sp_series = pd.to_numeric(base_df['StoryPoints'], errors='coerce').fillna(0)
+    has_sp = sp_series > 0
+    model['n_source'] = int(has_sp.sum())
+
+    if model['n_source'] == 0:
+        return model
+
+    model['global'] = float(sp_series[has_sp].median())
+
+    if 'TipoDemanda' in base_df.columns:
+        for tipo, grp in base_df[has_sp].groupby('TipoDemanda', dropna=True):
+            if len(grp) >= 3:
+                model['tipo'][str(tipo)] = float(
+                    pd.to_numeric(grp['StoryPoints'], errors='coerce').median()
+                )
+
+    if 'WorkItemCategory' in base_df.columns:
+        for cat, grp in base_df[has_sp].groupby('WorkItemCategory', dropna=True):
+            if len(grp) >= 2:
+                model['category'][str(cat)] = float(
+                    pd.to_numeric(grp['StoryPoints'], errors='coerce').median()
+                )
+
+    return model
+
+
+def _infer_sp(sp_val, tshirt_val, tipo: str, category: str, model: dict):
+    """Retorna (sp_efetivo, is_inferred) para um item.
+
+    Prioridade:
+      1. SP numérico original (> 0)
+      2. T-shirt size reconhecido  → SP equivalente (não é inferência, é normalização)
+      3. Mediana por TipoDemanda   (model['tipo'])
+      4. Mediana por WorkItemCategory (model['category'])
+      5. Mediana global            (model['global'])
+    """
+    try:
+        sp = float(sp_val)
+    except (TypeError, ValueError):
+        sp = 0.0
+
+    if sp > 0:
+        return sp, False  # estimativa real — não inferida
+
+    # T-shirt disponível → normalização, não inferência
+    if tshirt_val is not None:
+        key = str(tshirt_val).lower().strip()
+        if key and _TSHIRT_TO_SP_EQUIV.get(key) is not None:
+            return float(_TSHIRT_TO_SP_EQUIV[key]), False
+
+    # Sem estimativa — inferir por mediana condicional
+    if tipo and tipo in model.get('tipo', {}):
+        return model['tipo'][tipo], True
+    if category and category in model.get('category', {}):
+        return model['category'][category], True
+    return model.get('global', 2.0), True
+
+
 def _unified_sp_bucket(sp_val, tshirt_val=None):
     """Faixa de complexidade usando SP ou T-shirt como fallback.
 
@@ -1489,6 +1566,45 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     started_window = base[
         (base['DataInProgress'] >= start_ts) & (base['DataInProgress'] < end_ts)
     ].copy() if 'DataInProgress' in base.columns else pd.DataFrame()
+
+    # ── Modelo de inferência de SP (mediana condicional em cascata) ───────────
+    # Construído a partir de TODOS os itens da base com SP preenchido.
+    # Cascata: TipoDemanda (≥3 amostras) → WorkItemCategory (≥2) → global.
+    # Usado apenas no bucketing e peso de complexidade — SP Entregues não é alterado.
+    _sp_model = _build_sp_inference_model(base)
+
+    def _apply_inference_to_window(window_df: pd.DataFrame) -> pd.DataFrame:
+        """Aplica inferência de SP ao DataFrame e adiciona colunas _SP_Efetivo e _SP_Inferido."""
+        if window_df.empty:
+            return window_df
+        w = window_df.copy()
+        _has_sp  = 'StoryPoints' in w.columns
+        _has_ts  = 'EffortTShirtSize' in w.columns
+        _has_tpo = 'TipoDemanda' in w.columns
+        _has_cat = 'WorkItemCategory' in w.columns
+        if _has_sp:
+            w['StoryPoints'] = pd.to_numeric(w['StoryPoints'], errors='coerce').fillna(0)
+        else:
+            w['StoryPoints'] = 0.0
+        sp_ef, inf_flag = [], []
+        for _, row in w.iterrows():
+            sp, is_inf = _infer_sp(
+                row['StoryPoints'],
+                row.get('EffortTShirtSize') if _has_ts else None,
+                str(row.get('TipoDemanda', '') or '') if _has_tpo else '',
+                str(row.get('WorkItemCategory', '') or '') if _has_cat else '',
+                _sp_model,
+            )
+            sp_ef.append(sp)
+            inf_flag.append(is_inf)
+        w['_SP_Efetivo']  = sp_ef
+        w['_SP_Inferido'] = inf_flag
+        return w
+
+    if not done_window.empty:
+        done_window    = _apply_inference_to_window(done_window)
+    if not started_window.empty:
+        started_window = _apply_inference_to_window(started_window)
 
     all_people = sorted(base['_Pessoa'].unique())
     per_dev = pd.DataFrame({'Pessoa': all_people})
@@ -1579,22 +1695,16 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     complexity_df = pd.DataFrame()
     if not started_window.empty:
         sw = started_window.copy()
-        _has_sp_cx = 'StoryPoints' in sw.columns
-        _has_ts_cx = 'EffortTShirtSize' in sw.columns
-        if _has_sp_cx:
-            sw['StoryPoints'] = pd.to_numeric(sw['StoryPoints'], errors='coerce').fillna(0)
-        else:
-            sw['StoryPoints'] = 0.0
-        _ts_cx = sw['EffortTShirtSize'] if _has_ts_cx else [''] * len(sw)
-        sw['SP_Bucket'] = [
-            _unified_sp_bucket(sp, ts)
-            for sp, ts in zip(sw['StoryPoints'], _ts_cx)
-        ]
+        # _SP_Efetivo já foi calculado por _apply_inference_to_window():
+        # SP numérico → T-shirt equalizado → mediana condicional por tipo/categoria/global.
+        sw['SP_Bucket'] = sw['_SP_Efetivo'].apply(_unified_sp_bucket)
+        _n_inferred_cx = int(sw['_SP_Inferido'].sum()) if '_SP_Inferido' in sw.columns else 0
         complexity_df = (
             sw.groupby(['_Pessoa', 'SP_Bucket']).size()
             .reset_index(name='Qtd')
             .rename(columns={'_Pessoa': 'Pessoa'})
         )
+        complexity_df.attrs['n_inferred'] = _n_inferred_cx
 
     # Breakdown por tipo de demanda (WorkItemCategory) dos itens entregues
     # Retorna category_df com colunas: Pessoa, WorkItemCategory, Qtd, Pct
@@ -1622,17 +1732,8 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     # Peso: sem estimativa=0.5, P(1-3 SP)=1.0, M(5-8 SP)=2.0, G(13+ SP)=3.0
     if not done_window.empty:
         dw_cx = done_window.copy()
-        _has_sp_dw = 'StoryPoints' in dw_cx.columns
-        _has_ts_dw = 'EffortTShirtSize' in dw_cx.columns
-        if _has_sp_dw:
-            dw_cx['StoryPoints'] = pd.to_numeric(dw_cx['StoryPoints'], errors='coerce').fillna(0)
-        else:
-            dw_cx['StoryPoints'] = 0.0
-        _ts_series_dw = dw_cx['EffortTShirtSize'] if _has_ts_dw else [''] * len(dw_cx)
-        dw_cx['_Unified_Weight'] = [
-            _unified_complexity_weight(sp, ts)
-            for sp, ts in zip(dw_cx['StoryPoints'], _ts_series_dw)
-        ]
+        # _SP_Efetivo: SP original > T-shirt equalizado > inferência por mediana condicional.
+        dw_cx['_Unified_Weight'] = dw_cx['_SP_Efetivo'].apply(_sp_weight)
         per_dev['Score Complexidade'] = per_dev['Pessoa'].map(
             dw_cx.groupby('_Pessoa')['_Unified_Weight'].sum()
         ).fillna(0).round(1)
@@ -1643,17 +1744,8 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     # "De todo o trabalho estimado comprometido (puxado), quanto foi efetivamente entregue?"
     if not started_window.empty:
         sw_cx = started_window.copy()
-        _has_sp_sw = 'StoryPoints' in sw_cx.columns
-        _has_ts_sw = 'EffortTShirtSize' in sw_cx.columns
-        if _has_sp_sw:
-            sw_cx['StoryPoints'] = pd.to_numeric(sw_cx['StoryPoints'], errors='coerce').fillna(0)
-        else:
-            sw_cx['StoryPoints'] = 0.0
-        _ts_series_sw = sw_cx['EffortTShirtSize'] if _has_ts_sw else [''] * len(sw_cx)
-        sw_cx['_Unified_Weight'] = [
-            _unified_complexity_weight(sp, ts)
-            for sp, ts in zip(sw_cx['StoryPoints'], _ts_series_sw)
-        ]
+        # _SP_Efetivo: SP original > T-shirt equalizado > inferência por mediana condicional.
+        sw_cx['_Unified_Weight'] = sw_cx['_SP_Efetivo'].apply(_sp_weight)
         per_dev['Score Complexidade Puxado'] = per_dev['Pessoa'].map(
             sw_cx.groupby('_Pessoa')['_Unified_Weight'].sum()
         ).fillna(0).round(1)
@@ -15154,9 +15246,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             person_totals_cx = cdf_melted.groupby('Pessoa')['Qtd'].sum().sort_values(ascending=False)
             people_ordered_cx = person_totals_cx.index.tolist()
 
+            _n_inf_cx = complexity_df.attrs.get('n_inferred', 0)
+            _inf_note = (
+                f' | {_n_inf_cx} itens com estimativa inferida por mediana condicional.' if _n_inf_cx > 0 else ''
+            )
             _cx_subtitle = (
-                f'Estimativa unificada: SP numérico ou T-shirt equalizado (P=2SP, M=5SP, G=8SP — Kitchenham & Mendes, TSE 2004). '
-                f'Excluídos do gráfico: {_sem_est_total} itens sem estimativa ({_sem_est_pct:.1f}%) — preencha SP ou T-shirt no Jira.'
+                f'Estimativa unificada: SP numérico > T-shirt equalizado > inferência por mediana condicional '
+                f'(Kitchenham & Mendes, TSE 2004).{_inf_note}'
+                + (f' Excluídos: {_sem_est_total} sem estimativa ({_sem_est_pct:.1f}%).' if _sem_est_total > 0 else '')
             )
             fig_complexity = px.bar(
                 cdf_melted,
