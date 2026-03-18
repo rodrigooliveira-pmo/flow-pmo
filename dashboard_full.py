@@ -14433,6 +14433,26 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # para a taxa de conclusão (EEE) e Lead Time para velocidade (VEL).
         per_dev = _compute_ied(per_dev)
 
+        # ── Índice de Entrega Focado (IEF = 0.70×NDS + 0.30×EEE) ─────────────
+        # Foco exclusivo em volume de entrega ajustado por complexidade e taxa de
+        # conclusão do trabalho comprometido — sem penalização de velocidade ou qualidade.
+        if '_ied_nds' in per_dev.columns and '_ied_eee' in per_dev.columns:
+            per_dev['IEF'] = (
+                per_dev['_ied_nds'] * 0.70 +
+                per_dev['_ied_eee'] * 0.30
+            ).round(1)
+            per_dev.loc[per_dev['Itens Entregues'] == 0, 'IEF'] = 0.0
+        else:
+            per_dev['IEF'] = 0.0
+
+        def _ief_classe(v):
+            if v >= 85: return 'Excelente'
+            if v >= 70: return 'Bom'
+            if v >= 50: return 'Regular'
+            if v >= 30: return 'Abaixo do Esperado'
+            return 'Crítico'
+        per_dev['IEF Classe'] = per_dev['IEF'].apply(_ief_classe)
+
         # Filtro por BU (inline, sem necessidade de novo callback)
         bus_disponiveis = sorted(per_dev['BU'].dropna().unique().tolist())
         bus_disponiveis = [b for b in bus_disponiveis if b]  # remove vazios
@@ -14538,6 +14558,103 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'marginBottom': '14px', 'display': 'flex', 'flexWrap': 'wrap',
                 'alignItems': 'center', 'gap': '2px',
             },
+        )
+
+        # ── IEF — Índice de Entrega Focado (0.70×NDS + 0.30×EEE) ─────────────
+        # Foco exclusivo em: volume/complexidade entregue + taxa de conclusão do estimado.
+        # Exclui velocidade (VEL) e qualidade (QUA) para isolar a dimensão de entrega pura.
+        _ief_df = per_dev[per_dev['IEF'] > 0].copy()
+        _ief_df = _ief_df.sort_values('IEF', ascending=True).head(40)
+
+        fig_ief = go.Figure()
+
+        if not _ief_df.empty:
+            def _ief_bar_color(v):
+                if v >= 85: return '#27ae60'
+                if v >= 70: return '#2ecc71'
+                if v >= 50: return '#f39c12'
+                if v >= 30: return '#e67e22'
+                return '#e74c3c'
+
+            _ief_colors = [_ief_bar_color(v) for v in _ief_df['IEF']]
+
+            # Faixas de fundo
+            for x0, x1, label, fill in [
+                (0,  30,  'Crítico',           'rgba(231,76,60,0.07)'),
+                (30, 50,  'Abaixo do Esperado','rgba(230,126,34,0.07)'),
+                (50, 70,  'Regular',            'rgba(243,156,18,0.07)'),
+                (70, 85,  'Bom',                'rgba(46,204,113,0.07)'),
+                (85, 105, 'Excelente',          'rgba(39,174,96,0.12)'),
+            ]:
+                fig_ief.add_vrect(
+                    x0=x0, x1=x1, fillcolor=fill, line_width=0,
+                    annotation_text=label, annotation_position='top',
+                    annotation_font_size=9, annotation_font_color='#666',
+                )
+
+            _ief_hover_cols = ['_ied_nds', '_ied_eee', 'IEF Classe',
+                               'Score Complexidade', 'Score Complexidade Puxado', 'Flow Efficiency (%)']
+            _ief_hover_avail = [c for c in _ief_hover_cols if c in _ief_df.columns]
+            _ief_custom = _ief_df[_ief_hover_avail].values if _ief_hover_avail else None
+
+            _nds_i = _ief_hover_avail.index('_ied_nds')              if '_ied_nds'               in _ief_hover_avail else None
+            _eee_i = _ief_hover_avail.index('_ied_eee')              if '_ied_eee'               in _ief_hover_avail else None
+            _cls_i = _ief_hover_avail.index('IEF Classe')            if 'IEF Classe'             in _ief_hover_avail else None
+            _cx_i  = _ief_hover_avail.index('Score Complexidade')    if 'Score Complexidade'     in _ief_hover_avail else None
+            _pux_i = _ief_hover_avail.index('Score Complexidade Puxado') if 'Score Complexidade Puxado' in _ief_hover_avail else None
+            _fe_i  = _ief_hover_avail.index('Flow Efficiency (%)')   if 'Flow Efficiency (%)'    in _ief_hover_avail else None
+
+            _ht = ['<b>%{y}</b><br>', 'IEF: <b>%{x:.1f}/100</b>']
+            if _cls_i is not None: _ht.append(f' (%{{customdata[{_cls_i}]}})')
+            _ht.append('<br>')
+            if _nds_i is not None: _ht.append(f'NDS — Entrega/Complexidade (70%): %{{customdata[{_nds_i}]:.1f}}/100<br>')
+            if _eee_i is not None: _ht.append(f'EEE — Taxa Conclusão Estimado (30%): %{{customdata[{_eee_i}]:.1f}}/100<br>')
+            if _cx_i  is not None: _ht.append(f'Score Complexidade Entregue: %{{customdata[{_cx_i}]:.1f}}<br>')
+            if _pux_i is not None: _ht.append(f'Score Complexidade Puxado: %{{customdata[{_pux_i}]:.1f}}<br>')
+            if _fe_i  is not None: _ht.append(f'Flow Efficiency: %{{customdata[{_fe_i}]:.1f}}%')
+            _ht.append('<extra></extra>')
+
+            fig_ief.add_trace(go.Bar(
+                y=_ief_df['Pessoa'],
+                x=_ief_df['IEF'],
+                orientation='h',
+                marker_color=_ief_colors,
+                marker_line_width=0,
+                text=[f"{v:.0f}" for v in _ief_df['IEF']],
+                textposition='outside',
+                textfont=dict(size=11, color='#444'),
+                customdata=_ief_custom,
+                hovertemplate=''.join(_ht),
+            ))
+
+            for y_val, dash, color, label in [
+                (85, 'dot',  '#1abc9c', 'Excelente (85)'),
+                (70, 'dash', '#27ae60', 'Bom (70)'),
+                (50, 'dot',  '#f39c12', 'Regular (50)'),
+            ]:
+                fig_ief.add_vline(
+                    x=y_val, line_dash=dash, line_color=color, line_width=1.5,
+                    annotation_text=label, annotation_position='bottom right',
+                    annotation_font_size=10, annotation_font_color=color,
+                )
+
+        fig_ief.update_layout(
+            title=(
+                'Índice de Entrega Focado (IEF) — 0.70×NDS + 0.30×EEE<br>'
+                '<sup>'
+                'NDS (70%): volume de entregas ponderado por complexidade vs P75 do grupo. '
+                'EEE (30%): taxa de conclusão do trabalho comprometido (entregue / puxado por complexidade). '
+                'SP e T-shirt equalizados (Kitchenham &amp; Mendes, TSE 2004). '
+                'Faixas: Excelente ≥85 | Bom ≥70 | Regular ≥50 | Abaixo ≥30 | Crítico &lt;30'
+                '</sup>'
+            ),
+            xaxis=dict(range=[0, 110], title='IEF (0–100)', showgrid=True, gridcolor='#eee'),
+            yaxis=dict(title='', automargin=True),
+            template='plotly_white',
+            height=max(400, 30 * max(len(_ief_df), 1) + 140),
+            margin=dict(t=90, b=50, l=180, r=80),
+            bargap=0.25,
+            plot_bgcolor='#fafafa',
         )
 
         # ── Régua IED — gráfico de barras horizontais com faixas de classificação ──
@@ -15444,6 +15561,30 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             # ── BU Banner ─────────────────────────────────────────────────────
             bu_selector,
+
+            # ── IEF — Índice de Entrega Focado (0.70×NDS + 0.30×EEE) ────────
+            _section(
+                'Índice de Entrega Focado (IEF) — Volume × Conclusão',
+                [
+                    html.Span('Régua simplificada de entrega pura: '),
+                    html.Span('IEF = 0.70×NDS + 0.30×EEE', style={'fontWeight': '700', 'fontFamily': 'monospace'}),
+                    html.Br(),
+                    html.Span('NDS (70%)', style={'color': '#2980b9', 'fontWeight': '600'}),
+                    html.Span(' — volume de entregas ponderado por complexidade (SP ou T-shirt) vs P75 do grupo. '),
+                    html.Span('EEE (30%)', style={'color': '#8e44ad', 'fontWeight': '600'}),
+                    html.Span(' — taxa de conclusão do trabalho comprometido: Score Complexidade Entregue / Score Complexidade Puxado. '),
+                    html.Span(
+                        'Exclui velocidade e qualidade — foco exclusivo em quanto foi entregue vs quanto foi comprometido, '
+                        'ajustado pela complexidade estimada (Kitchenham & Mendes, TSE 2004).',
+                        style={'color': '#6c757d'},
+                    ),
+                ],
+                [
+                    dcc.Graph(figure=fig_ief, config={'displayModeBar': False})
+                    if fig_ief.data else
+                    html.P('Sem dados para calcular o IEF no período selecionado.', style={'color': '#aaa'}),
+                ],
+            ),
 
             # ── IED — Índice de Entrega do Desenvolvedor (régua principal) ────
             _section(
