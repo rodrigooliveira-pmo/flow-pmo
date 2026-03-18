@@ -14625,6 +14625,73 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             plot_bgcolor='#fafafa',
         )
 
+        # ── Radar IED — comparação multidimensional dos componentes por dev ──
+        _radar_cols_map = [
+            ('_ied_nds', 'NDS (Entrega 40%)'),
+            ('_ied_eee', 'EEE (Conclusão 30%)'),
+            ('_ied_vel', 'VEL (Velocidade 20%)'),
+            ('_ied_qua', 'QUA (Qualidade 10%)'),
+        ]
+        _radar_col_keys  = [c   for c, _ in _radar_cols_map if c in per_dev.columns]
+        _radar_col_lbls  = [lbl for c, lbl in _radar_cols_map if c in per_dev.columns]
+
+        _radar_src = per_dev[['Pessoa', 'IED'] + _radar_col_keys].copy()
+        _radar_src = _radar_src[_radar_src['IED'] > 0].sort_values('IED', ascending=False).head(15)
+
+        _radar_palette = [
+            '#27ae60', '#2ecc71', '#3498db', '#9b59b6', '#e74c3c',
+            '#e67e22', '#f39c12', '#1abc9c', '#e91e63', '#00bcd4',
+            '#8bc34a', '#ff5722', '#607d8b', '#795548', '#ff9800',
+        ]
+
+        fig_ied_radar = go.Figure()
+        if not _radar_src.empty and _radar_col_keys:
+            for _ri, (_, _rrow) in enumerate(_radar_src.iterrows()):
+                _rvals = [float(_rrow.get(c, 0) or 0) for c in _radar_col_keys]
+                _rcol  = _radar_palette[_ri % len(_radar_palette)]
+                _rh    = _rcol.lstrip('#')
+                _rfill = 'rgba({},{},{},0.13)'.format(
+                    int(_rh[0:2], 16), int(_rh[2:4], 16), int(_rh[4:6], 16)
+                )
+                fig_ied_radar.add_trace(go.Scatterpolar(
+                    r=_rvals + [_rvals[0]],
+                    theta=_radar_col_lbls + [_radar_col_lbls[0]],
+                    fill='toself',
+                    fillcolor=_rfill,
+                    line=dict(color=_rcol, width=2),
+                    name=str(_rrow['Pessoa']),
+                    hovertemplate=(
+                        '<b>' + str(_rrow['Pessoa']) + '</b><br>'
+                        '%{theta}: <b>%{r:.1f}/100</b><extra></extra>'
+                    ),
+                ))
+        fig_ied_radar.update_layout(
+            title=(
+                'IED — Radar de Componentes por Desenvolvedor<br>'
+                '<sup>Comparação multidimensional dos 4 eixos do IED (top 15 por score). '
+                'Quanto maior a área, melhor o desempenho agregado.</sup>'
+            ),
+            polar=dict(
+                radialaxis=dict(
+                    range=[0, 100], showticklabels=True,
+                    tickfont=dict(size=9), gridcolor='#ddd',
+                    tickvals=[0, 25, 50, 75, 100],
+                ),
+                angularaxis=dict(tickfont=dict(size=12, color='#2c3e50')),
+                bgcolor='#fafafa',
+            ),
+            template='plotly_white',
+            height=560,
+            margin=dict(t=100, b=60, l=60, r=220),
+            legend=dict(
+                orientation='v', x=1.02, y=0.5,
+                font=dict(size=10),
+                bgcolor='rgba(255,255,255,0.92)',
+                bordercolor='#ddd', borderwidth=1,
+            ),
+            showlegend=True,
+        )
+
         # ── Tabela de componentes do IED (breakdown por dev) ──────────────────
         _ied_comp_cols = ['Pessoa', 'IED', 'IED Classe', '_ied_nds', '_ied_eee', '_ied_vel', '_ied_qua']
         _ied_comp_avail = [c for c in _ied_comp_cols if c in per_dev.columns]
@@ -15278,6 +15345,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 [
                     dcc.Graph(figure=fig_ied, config={'displayModeBar': False})
                     if fig_ied.data else html.P('Sem dados para calcular o IED no período selecionado.', style={'color': '#aaa'}),
+                    dcc.Graph(figure=fig_ied_radar, config={'displayModeBar': False})
+                    if fig_ied_radar.data else html.P('Sem dados suficientes para o radar de componentes.', style={'color': '#aaa'}),
                     html.Details([
                         html.Summary('Detalhamento dos Componentes do IED por Desenvolvedor',
                                      style={'fontWeight': '600', 'cursor': 'pointer',
