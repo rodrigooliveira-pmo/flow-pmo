@@ -1371,6 +1371,61 @@ def _sp_weight(sp):
     return 3.0
 
 
+# ── T-shirt size → Story Points equivalência ──────────────────────────────────
+# Equaliza estimativas em SP e T-shirt para um peso único de complexidade.
+# Mapeamento baseado em convenções comuns de times ágeis:
+#   XS/XP = 1 SP | P/S = 2 SP | M = 5 SP | G/L = 8 SP | GG/XL = 13 SP | XGG/XXL = 21 SP
+# Fonte: Kitchenham & Mendes (TSE 2004) — AdjustedSize combinando múltiplas medidas.
+_TSHIRT_TO_SP_EQUIV: dict = {
+    'xs': 1.0, 'xp': 1.0,
+    'p': 2.0, 's': 2.0, 'small': 2.0, 'pequeno': 2.0,
+    'm': 5.0, 'medium': 5.0, 'médio': 5.0, 'medio': 5.0,
+    'g': 8.0, 'l': 8.0, 'large': 8.0, 'grande': 8.0,
+    'gg': 13.0, 'xl': 13.0, 'xg': 13.0, 'x-large': 13.0, 'muito grande': 13.0,
+    'xgg': 21.0, 'xxl': 21.0, 'xxg': 21.0,
+}
+
+
+def _tshirt_to_weight(size_str):
+    """Converte T-shirt size (P/M/G/XS/XL) para peso de complexidade equivalente em SP.
+
+    Retorna None se o valor não for reconhecido — o chamador decide o fallback.
+    """
+    if size_str is None:
+        return None
+    try:
+        import math
+        if math.isnan(float(size_str)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    key = str(size_str).lower().strip()
+    if not key:
+        return None
+    sp_eq = _TSHIRT_TO_SP_EQUIV.get(key)
+    return _sp_weight(sp_eq) if sp_eq is not None else None
+
+
+def _unified_complexity_weight(sp_val, tshirt_val=None):
+    """Peso unificado de complexidade, combinando SP e T-shirt size.
+
+    Prioridade: SP numérico > T-shirt size > sem estimativa (0.5).
+    Equaliza os dois formatos de estimativa (Kitchenham & Mendes, TSE 2004).
+    """
+    try:
+        sp = float(sp_val)
+    except (TypeError, ValueError):
+        sp = 0.0
+    if sp > 0:
+        return _sp_weight(sp)
+    # Fallback para T-shirt size quando SP não disponível
+    if tshirt_val is not None:
+        w = _tshirt_to_weight(tshirt_val)
+        if w is not None:
+            return w
+    return 0.5  # sem estimativa
+
+
 def build_dev_productivity_metrics(df, start_ts, end_ts):
     """
     Calcula métricas de produtividade individual por desenvolvedor.
@@ -1530,17 +1585,48 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     role_index = _load_person_role_map()
     per_dev['Papel'] = per_dev['Pessoa'].apply(lambda p: _person_role(p, role_index=role_index))
 
-    # Score de Complexidade: itens entregues ponderados pelo peso de SP
-    # Peso: sem estimativa=0.5, pequeno(1-3)=1.0, médio(5-8)=2.0, grande(13+)=3.0
-    if not done_window.empty and 'StoryPoints' in done_window.columns:
+    # Score de Complexidade Unificado: itens ENTREGUES ponderados por SP ou T-shirt.
+    # Equaliza os dois formatos de estimativa (Kitchenham & Mendes, TSE 2004).
+    # Peso: sem estimativa=0.5, P(1-3 SP)=1.0, M(5-8 SP)=2.0, G(13+ SP)=3.0
+    if not done_window.empty:
         dw_cx = done_window.copy()
-        dw_cx['StoryPoints'] = pd.to_numeric(dw_cx['StoryPoints'], errors='coerce').fillna(0)
-        dw_cx['_SP_Weight'] = dw_cx['StoryPoints'].apply(_sp_weight)
+        _has_sp_dw = 'StoryPoints' in dw_cx.columns
+        _has_ts_dw = 'EffortTShirtSize' in dw_cx.columns
+        if _has_sp_dw:
+            dw_cx['StoryPoints'] = pd.to_numeric(dw_cx['StoryPoints'], errors='coerce').fillna(0)
+        else:
+            dw_cx['StoryPoints'] = 0.0
+        _ts_series_dw = dw_cx['EffortTShirtSize'] if _has_ts_dw else [''] * len(dw_cx)
+        dw_cx['_Unified_Weight'] = [
+            _unified_complexity_weight(sp, ts)
+            for sp, ts in zip(dw_cx['StoryPoints'], _ts_series_dw)
+        ]
         per_dev['Score Complexidade'] = per_dev['Pessoa'].map(
-            dw_cx.groupby('_Pessoa')['_SP_Weight'].sum()
+            dw_cx.groupby('_Pessoa')['_Unified_Weight'].sum()
         ).fillna(0).round(1)
     else:
         per_dev['Score Complexidade'] = per_dev['Itens Entregues'].astype(float)
+
+    # Score de Complexidade dos itens PUXADOS — denominador para a taxa de conclusão (EEE no IED).
+    # "De todo o trabalho estimado comprometido (puxado), quanto foi efetivamente entregue?"
+    if not started_window.empty:
+        sw_cx = started_window.copy()
+        _has_sp_sw = 'StoryPoints' in sw_cx.columns
+        _has_ts_sw = 'EffortTShirtSize' in sw_cx.columns
+        if _has_sp_sw:
+            sw_cx['StoryPoints'] = pd.to_numeric(sw_cx['StoryPoints'], errors='coerce').fillna(0)
+        else:
+            sw_cx['StoryPoints'] = 0.0
+        _ts_series_sw = sw_cx['EffortTShirtSize'] if _has_ts_sw else [''] * len(sw_cx)
+        sw_cx['_Unified_Weight'] = [
+            _unified_complexity_weight(sp, ts)
+            for sp, ts in zip(sw_cx['StoryPoints'], _ts_series_sw)
+        ]
+        per_dev['Score Complexidade Puxado'] = per_dev['Pessoa'].map(
+            sw_cx.groupby('_Pessoa')['_Unified_Weight'].sum()
+        ).fillna(0).round(1)
+    else:
+        per_dev['Score Complexidade Puxado'] = 0.0
 
     per_dev = per_dev[per_dev['Pessoa'].astype(str).str.strip().ne('')]
     per_dev = per_dev.sort_values(
@@ -1556,6 +1642,113 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
         category_df['BU'] = category_df['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
 
     return per_dev, complexity_df, category_df
+
+
+def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
+    """Calcula o Índice de Entrega do Desenvolvedor (IED) — 0 a 100.
+
+    Fórmula (baseada em Maspupah et al. 2023 + Kitchenham & Mendes 2004 + SPACE Forsgren 2021):
+
+        IED = 0.40 × NDS + 0.30 × EEE + 0.20 × VEL + 0.10 × QUA
+
+    Componentes
+    -----------
+    NDS — Normalized Delivery Score (40 %)
+        Score_Complexidade_Entregue / P75(grupo) × 100.
+        Volume de entregas ponderado por complexidade em relação ao grupo.
+        Fonte: Jørgensen (IST 2023) — P75 como referência de entrega.
+
+    EEE — Eficiência Estimativa→Entrega (30 %)
+        Score_Complexidade_Entregue / Score_Complexidade_Puxado × 100.
+        "De todo o trabalho estimado que o dev comprometeu (puxou), quanto foi entregue?"
+        Fallback: Flow Efficiency (%) quando Score Complexidade Puxado = 0.
+        Fonte: Kitchenham & Mendes (TSE 2004) — AdjustedSize/Esforço.
+
+    VEL — Velocidade relativa (20 %)
+        Mediana_LT_grupo / LT_dev × 100 — menor lead time = maior velocidade.
+        Fonte: Flournoy et al. (EMSE 2025) — cycle time como proxy de produtividade.
+
+    QUA — Qualidade (10 %)
+        100 − % Demanda Falha — penaliza alto volume de defeitos no output.
+        Fonte: Forsgren et al. (SPACE, ACM Queue 2021).
+
+    Classificação
+    -------------
+    85–100 : Excelente
+    70–84  : Bom
+    50–69  : Regular
+    30–49  : Abaixo do Esperado
+    0–29   : Crítico
+    """
+    df = per_dev.copy()
+
+    # ── NDS: Volume ajustado por complexidade vs P75 do grupo ─────────────────
+    _cx_col = 'Score Complexidade'
+    _cx_p75 = max(float(df[_cx_col].quantile(0.75)) if _cx_col in df.columns else 1.0, 0.1)
+    _cx_vals = pd.to_numeric(df.get(_cx_col, 0), errors='coerce').fillna(0)
+    df['_ied_nds'] = (_cx_vals / _cx_p75 * 100).clip(0, 100).round(1)
+
+    # ── EEE: Taxa de conclusão do trabalho estimado comprometido ──────────────
+    _cx_pux_col = 'Score Complexidade Puxado'
+    if _cx_pux_col in df.columns:
+        _cx_pux = pd.to_numeric(df[_cx_pux_col], errors='coerce').fillna(0)
+        _flow_eff = pd.to_numeric(df.get('Flow Efficiency (%)', 50.0), errors='coerce').fillna(50.0)
+        df['_ied_eee'] = np.where(
+            _cx_pux > 0,
+            (_cx_vals / _cx_pux * 100).clip(0, 100),
+            _flow_eff.clip(0, 100),
+        ).round(1)
+    elif 'Flow Efficiency (%)' in df.columns:
+        df['_ied_eee'] = pd.to_numeric(df['Flow Efficiency (%)'], errors='coerce').fillna(50.0).clip(0, 100).round(1)
+    else:
+        df['_ied_eee'] = 50.0
+
+    # ── VEL: Velocidade relativa (menor LT = mais produtivo) ──────────────────
+    if 'Lead Time Mediano (dias)' in df.columns:
+        _lt = pd.to_numeric(df['Lead Time Mediano (dias)'], errors='coerce').fillna(0)
+        _lt_positivos = _lt[_lt > 0]
+        _lt_median_grupo = max(float(_lt_positivos.median()) if not _lt_positivos.empty else 1.0, 0.5)
+        df['_ied_vel'] = np.where(
+            _lt > 0,
+            (_lt_median_grupo / _lt * 100).clip(0, 100),
+            50.0,  # sem lead time → velocidade neutra
+        ).round(1)
+    else:
+        df['_ied_vel'] = 50.0
+
+    # ── QUA: Qualidade (penaliza demanda de falha) ─────────────────────────────
+    if '% Demanda Falha' in df.columns:
+        df['_ied_qua'] = (100 - pd.to_numeric(df['% Demanda Falha'], errors='coerce').fillna(0).clip(0, 100)).round(1)
+    else:
+        df['_ied_qua'] = 80.0
+
+    # ── IED Final ──────────────────────────────────────────────────────────────
+    df['IED'] = (
+        df['_ied_nds'] * 0.40 +
+        df['_ied_eee'] * 0.30 +
+        df['_ied_vel'] * 0.20 +
+        df['_ied_qua'] * 0.10
+    ).round(1)
+
+    # Devs sem nenhuma entrega ficam com IED = 0 (sem base de cálculo válida)
+    _sem_entrega = pd.to_numeric(df.get('Itens Entregues', 0), errors='coerce').fillna(0) == 0
+    df.loc[_sem_entrega, 'IED'] = 0.0
+
+    # ── Classificação ──────────────────────────────────────────────────────────
+    def _ied_classe(v):
+        if v >= 85:
+            return 'Excelente'
+        if v >= 70:
+            return 'Bom'
+        if v >= 50:
+            return 'Regular'
+        if v >= 30:
+            return 'Abaixo do Esperado'
+        return 'Crítico'
+
+    df['IED Classe'] = df['IED'].apply(_ied_classe)
+
+    return df
 
 
 def build_bitbucket_contributor_section(
@@ -14203,6 +14396,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         per_dev = per_dev.sort_values('Score Integrado', ascending=False).reset_index(drop=True)
 
+        # ── Índice de Entrega do Desenvolvedor (IED) ──────────────────────────
+        # Computa após todos os enriquecimentos; usa Score Complexidade Puxado
+        # para a taxa de conclusão (EEE) e Lead Time para velocidade (VEL).
+        per_dev = _compute_ied(per_dev)
+
         # Filtro por BU (inline, sem necessidade de novo callback)
         bus_disponiveis = sorted(per_dev['BU'].dropna().unique().tolist())
         bus_disponiveis = [b for b in bus_disponiveis if b]  # remove vazios
@@ -14216,6 +14414,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         total_prs = int(per_dev['PRs Merged'].sum())
         pct_falha_geral = round(total_defeitos / total_entregues * 100, 1) if total_entregues > 0 else 0.0
         devs_ativos = int((per_dev['Itens Entregues'] > 0).sum())
+
+        # IED — mediana dos devs com entregas (IED=0 excluídos da mediana)
+        _ied_ativos = per_dev.loc[per_dev['IED'] > 0, 'IED']
+        ied_mediano = round(float(_ied_ativos.median()), 0) if not _ied_ativos.empty else 0.0
+        ied_color = '#27ae60' if ied_mediano >= 70 else '#e67e22' if ied_mediano >= 50 else '#e74c3c'
 
         def _mini_kpi(label, value, color='#2c3e50', bg='#f8f9fa', border_color='#dee2e6'):
             falha_bg = '#fff5f5' if '% Demanda' in label and isinstance(value, str) and float(value.replace('%','') or 0) >= 30 else bg
@@ -14239,6 +14442,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         falha_color = '#e74c3c' if pct_falha_geral >= 30 else '#e67e22' if pct_falha_geral >= 15 else '#27ae60'
         kpi_row = html.Div([
             _mini_kpi('Devs Ativos', devs_ativos, color='#2980b9'),
+            _mini_kpi('IED Mediano', f'{ied_mediano:.0f}/100', color=ied_color,
+                      bg='#f0fff4' if ied_mediano >= 70 else '#fffbf0' if ied_mediano >= 50 else '#fff5f5',
+                      border_color='#b2dfdb' if ied_mediano >= 70 else '#ffe082' if ied_mediano >= 50 else '#ffcdd2'),
             _mini_kpi('Itens Entregues', total_entregues, color='#27ae60'),
             _mini_kpi('Itens Puxados', total_puxados, color='#2980b9'),
             _mini_kpi('SP Entregues', total_sp, color='#8e44ad'),
@@ -14278,6 +14484,165 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             },
         )
 
+        # ── Régua IED — gráfico de barras horizontais com faixas de classificação ──
+        # Mostra o IED de cada dev com cor por faixa e linhas de referência.
+        _ied_df = per_dev[per_dev['IED'] > 0].copy()
+        _ied_df = _ied_df.sort_values('IED', ascending=True).head(40)
+
+        def _ied_bar_color(v):
+            if v >= 85:
+                return '#27ae60'
+            if v >= 70:
+                return '#2ecc71'
+            if v >= 50:
+                return '#f39c12'
+            if v >= 30:
+                return '#e67e22'
+            return '#e74c3c'
+
+        fig_ied = go.Figure()
+
+        if not _ied_df.empty:
+            # Faixas de fundo por classificação
+            for x0, x1, label, fill in [
+                (0,  30,  'Crítico',           'rgba(231,76,60,0.07)'),
+                (30, 50,  'Abaixo do Esperado','rgba(230,126,34,0.07)'),
+                (50, 70,  'Regular',            'rgba(243,156,18,0.07)'),
+                (70, 85,  'Bom',                'rgba(46,204,113,0.07)'),
+                (85, 105, 'Excelente',          'rgba(39,174,96,0.12)'),
+            ]:
+                fig_ied.add_vrect(
+                    x0=x0, x1=x1, fillcolor=fill, line_width=0,
+                    annotation_text=label, annotation_position='top',
+                    annotation_font_size=9, annotation_font_color='#666',
+                )
+
+            _bar_colors = [_ied_bar_color(v) for v in _ied_df['IED']]
+            _hover_cols = ['_ied_nds', '_ied_eee', '_ied_vel', '_ied_qua', 'IED Classe',
+                           'Score Complexidade', 'Score Complexidade Puxado',
+                           'Flow Efficiency (%)', 'Lead Time Mediano (dias)']
+            _hover_cols_avail = [c for c in _hover_cols if c in _ied_df.columns]
+            _custom = _ied_df[_hover_cols_avail].values if _hover_cols_avail else None
+
+            _nds_idx  = _hover_cols_avail.index('_ied_nds')  if '_ied_nds'  in _hover_cols_avail else None
+            _eee_idx  = _hover_cols_avail.index('_ied_eee')  if '_ied_eee'  in _hover_cols_avail else None
+            _vel_idx  = _hover_cols_avail.index('_ied_vel')  if '_ied_vel'  in _hover_cols_avail else None
+            _qua_idx  = _hover_cols_avail.index('_ied_qua')  if '_ied_qua'  in _hover_cols_avail else None
+            _cls_idx  = _hover_cols_avail.index('IED Classe') if 'IED Classe' in _hover_cols_avail else None
+
+            _ht_parts = ['<b>%{y}</b><br>', 'IED: <b>%{x:.1f}/100</b>']
+            if _cls_idx is not None:
+                _ht_parts.append(f' (%{{customdata[{_cls_idx}]}})')
+            _ht_parts.append('<br>')
+            if _nds_idx is not None:
+                _ht_parts.append(f'Entrega (NDS 40%): %{{customdata[{_nds_idx}]:.1f}}/100<br>')
+            if _eee_idx is not None:
+                _ht_parts.append(f'Taxa Conclusão Estimado (EEE 30%): %{{customdata[{_eee_idx}]:.1f}}/100<br>')
+            if _vel_idx is not None:
+                _ht_parts.append(f'Velocidade (VEL 20%): %{{customdata[{_vel_idx}]:.1f}}/100<br>')
+            if _qua_idx is not None:
+                _ht_parts.append(f'Qualidade (QUA 10%): %{{customdata[{_qua_idx}]:.1f}}/100')
+            _ht_parts.append('<extra></extra>')
+
+            fig_ied.add_trace(go.Bar(
+                y=_ied_df['Pessoa'],
+                x=_ied_df['IED'],
+                orientation='h',
+                marker_color=_bar_colors,
+                marker_line_width=0,
+                text=[f"{v:.0f}" for v in _ied_df['IED']],
+                textposition='outside',
+                textfont=dict(size=11, color='#444'),
+                customdata=_custom,
+                hovertemplate=''.join(_ht_parts),
+            ))
+
+            # Linhas de referência
+            fig_ied.add_vline(
+                x=70, line_dash='dash', line_color='#27ae60', line_width=1.5,
+                annotation_text='Bom (70)', annotation_position='bottom right',
+                annotation_font_size=10, annotation_font_color='#27ae60',
+            )
+            fig_ied.add_vline(
+                x=50, line_dash='dot', line_color='#f39c12', line_width=1.5,
+                annotation_text='Regular (50)', annotation_position='bottom right',
+                annotation_font_size=10, annotation_font_color='#f39c12',
+            )
+            fig_ied.add_vline(
+                x=85, line_dash='dot', line_color='#1abc9c', line_width=1.5,
+                annotation_text='Excelente (85)', annotation_position='top right',
+                annotation_font_size=10, annotation_font_color='#1abc9c',
+            )
+
+        fig_ied.update_layout(
+            title=(
+                'Índice de Entrega do Desenvolvedor (IED) — Régua de Produtividade<br>'
+                '<sup>'
+                'IED = 0.40×NDS (volume/complexidade) + 0.30×EEE (taxa conclusão estimado) '
+                '+ 0.20×VEL (velocidade) + 0.10×QUA (qualidade) | '
+                'SP e T-shirt equalizados (Kitchenham & Mendes, TSE 2004) | '
+                'Referências: Jørgensen (IST 2023), Flournoy et al. (EMSE 2025), Forsgren et al. (SPACE 2021)'
+                '</sup>'
+            ),
+            xaxis=dict(range=[0, 110], title='IED (0–100)', showgrid=True, gridcolor='#eee'),
+            yaxis=dict(title='', automargin=True),
+            template='plotly_white',
+            height=max(400, 30 * max(len(_ied_df), 1) + 140),
+            margin=dict(t=90, b=50, l=180, r=80),
+            bargap=0.25,
+            plot_bgcolor='#fafafa',
+        )
+
+        # ── Tabela de componentes do IED (breakdown por dev) ──────────────────
+        _ied_comp_cols = ['Pessoa', 'IED', 'IED Classe', '_ied_nds', '_ied_eee', '_ied_vel', '_ied_qua']
+        _ied_comp_avail = [c for c in _ied_comp_cols if c in per_dev.columns]
+        _ied_comp_display = per_dev[_ied_comp_avail].head(30).copy()
+        _ied_col_rename = {
+            '_ied_nds': 'NDS (Entrega, 40%)',
+            '_ied_eee': 'EEE (Conclusão Estimado, 30%)',
+            '_ied_vel': 'VEL (Velocidade, 20%)',
+            '_ied_qua': 'QUA (Qualidade, 10%)',
+        }
+        _ied_comp_display = _ied_comp_display.rename(columns=_ied_col_rename)
+        for _rc in list(_ied_col_rename.values()) + ['IED']:
+            if _rc in _ied_comp_display.columns:
+                _ied_comp_display[_rc] = _ied_comp_display[_rc].apply(
+                    lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+                )
+
+        _ied_comp_table_cols = [c for c in _ied_comp_display.columns]
+        ied_breakdown_table = dash_table.DataTable(
+            columns=[{"name": c, "id": c} for c in _ied_comp_table_cols],
+            data=_ied_comp_display.to_dict('records'),
+            style_table={'overflowX': 'auto'},
+            style_cell={
+                'textAlign': 'center', 'padding': '7px 12px',
+                'fontSize': '13px', 'whiteSpace': 'nowrap',
+            },
+            style_cell_conditional=[
+                {'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'minWidth': '140px'},
+                {'if': {'column_id': 'IED Classe'}, 'fontWeight': '600'},
+            ],
+            style_header={
+                'backgroundColor': '#2c3e50', 'color': 'white',
+                'fontWeight': '600', 'fontSize': '12px',
+                'textTransform': 'uppercase', 'letterSpacing': '0.3px',
+            },
+            style_data_conditional=[
+                {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                {'if': {'filter_query': '{IED Classe} = "Excelente"'},
+                 'backgroundColor': '#f0fff4', 'color': '#155724'},
+                {'if': {'filter_query': '{IED Classe} = "Bom"'},
+                 'backgroundColor': '#f0faf8', 'color': '#0c5460'},
+                {'if': {'filter_query': '{IED Classe} = "Crítico"'},
+                 'backgroundColor': '#fff5f5', 'color': '#721c24'},
+                {'if': {'filter_query': '{IED Classe} = "Abaixo do Esperado"'},
+                 'backgroundColor': '#fffbf0', 'color': '#856404'},
+            ],
+            sort_action='native',
+            page_size=15,
+        )
+
         # ── Tabela resumo por dev ─────────────────────────────────────────────
         table_col_order = [
             'BU', 'Papel', 'Pessoa',
@@ -14301,6 +14666,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Score Benchmark', 'Distancia ao Ideal',
             # Score
             'Score Integrado',
+            # Índice de Entrega do Desenvolvedor
+            'IED', 'IED Classe',
+            # Componentes do IED (detalhamento)
+            'Score Complexidade Puxado',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
 
@@ -14344,6 +14713,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 {'if': {'filter_query': '{BU} = "Sistemas - S1NC"'}, 'borderLeft': '3px solid #9b59b6'},
                 {'if': {'filter_query': '{BU} = "BeFinance"'}, 'borderLeft': '3px solid #e67e22'},
                 {'if': {'filter_query': '{BU} = "Dados"'}, 'borderLeft': '3px solid #1abc9c'},
+                # IED Classe — cor de fundo para facilitar leitura rápida
+                {'if': {'filter_query': '{IED Classe} = "Excelente"', 'column_id': 'IED'},
+                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                {'if': {'filter_query': '{IED Classe} = "Bom"', 'column_id': 'IED'},
+                 'backgroundColor': '#d1ecf1', 'color': '#0c5460', 'fontWeight': '700'},
+                {'if': {'filter_query': '{IED Classe} = "Regular"', 'column_id': 'IED'},
+                 'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
+                {'if': {'filter_query': '{IED Classe} = "Abaixo do Esperado"', 'column_id': 'IED'},
+                 'backgroundColor': '#ffe5b4', 'color': '#7d4500', 'fontWeight': '700'},
+                {'if': {'filter_query': '{IED Classe} = "Crítico"', 'column_id': 'IED'},
+                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
             ],
         )
 
@@ -14828,6 +15208,39 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             # ── BU Banner ─────────────────────────────────────────────────────
             bu_selector,
+
+            # ── IED — Índice de Entrega do Desenvolvedor (régua principal) ────
+            _section(
+                'Índice de Entrega do Desenvolvedor (IED)',
+                [
+                    html.Span('Régua unificada de produtividade: '),
+                    html.Span('IED = 0.40×NDS + 0.30×EEE + 0.20×VEL + 0.10×QUA', style={'fontWeight': '700', 'fontFamily': 'monospace'}),
+                    html.Br(),
+                    html.Span('NDS', style={'color': '#2980b9', 'fontWeight': '600'}),
+                    html.Span(' — Volume de entregas ajustado por complexidade (SP ou T-shirt) vs P75 do grupo. '),
+                    html.Span('EEE', style={'color': '#8e44ad', 'fontWeight': '600'}),
+                    html.Span(' — Taxa de conclusão do trabalho comprometido (entregas / puxados ponderados por complexidade). '),
+                    html.Span('VEL', style={'color': '#16a085', 'fontWeight': '600'}),
+                    html.Span(' — Velocidade relativa ao grupo (mediana Lead Time do grupo / Lead Time do dev). '),
+                    html.Span('QUA', style={'color': '#e74c3c', 'fontWeight': '600'}),
+                    html.Span(' — Qualidade (100 − % Demanda Falha). '),
+                    html.Span(
+                        'SP e T-shirt equalizados via peso funcional (Kitchenham & Mendes, TSE 2004). '
+                        'Faixas: Excelente ≥85 | Bom ≥70 | Regular ≥50 | Abaixo ≥30 | Crítico <30.',
+                        style={'color': '#6c757d'},
+                    ),
+                ],
+                [
+                    dcc.Graph(figure=fig_ied, config={'displayModeBar': False})
+                    if fig_ied.data else html.P('Sem dados para calcular o IED no período selecionado.', style={'color': '#aaa'}),
+                    html.Details([
+                        html.Summary('Detalhamento dos Componentes do IED por Desenvolvedor',
+                                     style={'fontWeight': '600', 'cursor': 'pointer',
+                                            'fontSize': '13px', 'marginTop': '12px', 'color': '#2c3e50'}),
+                        html.Div(ied_breakdown_table, style={'marginTop': '10px'}),
+                    ]),
+                ],
+            ),
 
             # ── Bitbucket + capacidade cruzada ───────────────────────────────
             _section(
