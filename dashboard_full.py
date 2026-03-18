@@ -14447,6 +14447,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         pct_falha_geral = round(total_defeitos / total_entregues * 100, 1) if total_entregues > 0 else 0.0
         devs_ativos = int((per_dev['Itens Entregues'] > 0).sum())
 
+        # ── Métricas QSM-derivadas ────────────────────────────────────────────
+        # Referência: QSM Benchmark Tables — Business Systems FP/PM
+        # (https://www.qsm.com/resources/qsm-benchmark-tables, n≈330 projetos)
+        # SP/mês ≈ FP/PM como proxy de produtividade (1 SP ≈ 1 FP, calibração equipe)
+        _n_meses = max((end_ts_prod - start_ts_prod).days / 30.44, 0.1)
+        sp_por_dev_por_mes = round(total_sp / devs_ativos / _n_meses, 1) if devs_ativos > 0 else 0.0
+        per_dev['SP_por_Mes'] = (
+            pd.to_numeric(per_dev['SP Entregues'], errors='coerce').fillna(0) / _n_meses
+        ).round(1)
+
+        # Posicionamento do time vs QSM Avg Staff quartis (Business Systems FP)
+        # Q1=1.49 | Mediana=4.38 | Q3=9.17  (Fonte: QSM Benchmark Tables)
+        _qsm_staff_band = (
+            'abaixo Q1 QSM (<2)'   if devs_ativos < 2  else
+            'Q1–Mediana QSM (2–4)' if devs_ativos < 5  else
+            'Mediana–Q3 QSM (5–9)' if devs_ativos < 10 else
+            'acima Q3 QSM (≥10)'
+        )
+
         # IED — mediana dos devs com entregas (IED=0 excluídos da mediana)
         _ied_ativos = per_dev.loc[per_dev['IED'] > 0, 'IED']
         ied_mediano = round(float(_ied_ativos.median()), 0) if not _ied_ativos.empty else 0.0
@@ -14471,15 +14490,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'textAlign': 'center', 'boxShadow': '0 1px 3px rgba(0,0,0,.06)',
             })
 
+        # SP/Dev/Mês vs QSM benchmark: ≥7.47 = mediana indústria (Business Systems FP/PM)
+        _sppm_color = '#27ae60' if sp_por_dev_por_mes >= 7.47 else '#e67e22' if sp_por_dev_por_mes >= 5.0 else '#e74c3c'
         falha_color = '#e74c3c' if pct_falha_geral >= 30 else '#e67e22' if pct_falha_geral >= 15 else '#27ae60'
         kpi_row = html.Div([
-            _mini_kpi('Devs Ativos', devs_ativos, color='#2980b9'),
+            _mini_kpi('Devs Ativos', f'{devs_ativos} ({_qsm_staff_band})', color='#2980b9'),
             _mini_kpi('IED Mediano', f'{ied_mediano:.0f}/100', color=ied_color,
                       bg='#f0fff4' if ied_mediano >= 70 else '#fffbf0' if ied_mediano >= 50 else '#fff5f5',
                       border_color='#b2dfdb' if ied_mediano >= 70 else '#ffe082' if ied_mediano >= 50 else '#ffcdd2'),
             _mini_kpi('Itens Entregues', total_entregues, color='#27ae60'),
             _mini_kpi('Itens Puxados', total_puxados, color='#2980b9'),
             _mini_kpi('SP Entregues', total_sp, color='#8e44ad'),
+            _mini_kpi('SP/Dev/Mês', f'{sp_por_dev_por_mes:.1f}', color=_sppm_color,
+                      bg='#f0fff4' if sp_por_dev_por_mes >= 7.47 else '#fffbf0' if sp_por_dev_por_mes >= 5.0 else '#fff5f5',
+                      border_color='#b2dfdb' if sp_por_dev_por_mes >= 7.47 else '#ffe082' if sp_por_dev_por_mes >= 5.0 else '#ffcdd2'),
             _mini_kpi('Defeitos Entregues', total_defeitos, color='#c0392b'),
             _mini_kpi('% Demanda Falha', f'{pct_falha_geral:.1f}%', color=falha_color),
             _mini_kpi('Commits', total_commits, color='#16a085'),
@@ -14824,6 +14848,96 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 {'if': {'filter_query': '{IED Classe} = "Crítico"', 'column_id': 'IED'},
                  'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
             ],
+        )
+
+        # ── Gráfico: Velocidade de Entrega (SP/Dev/Mês) com benchmarks QSM ───
+        # Referência externa: QSM Benchmark Tables — Business Systems Function Points
+        # (https://www.qsm.com/resources/qsm-benchmark-tables, n≈330 projetos IT)
+        # Proxy: 1 SP ≈ 1 FP (calibração interna necessária para precisão)
+        # Benchmarks QSM Business Systems FP/PM:
+        #   Q1 median: 5.00 | Global median: 7.47 | Q4 median: 11.55
+        _QSM_Q1_FP_PM     = 5.00   # Q1 (projetos pequenos, ~30 FP) — mínimo esperado
+        _QSM_MEDIAN_FP_PM = 7.47   # Mediana global Business Systems
+        _QSM_Q4_FP_PM     = 11.55  # Q4 (projetos grandes, ~686 FP) — alta performance
+
+        _vel_df = per_dev[per_dev['SP_por_Mes'] > 0].copy().sort_values('SP_por_Mes', ascending=False).head(30)
+        fig_velocity = go.Figure()
+
+        if not _vel_df.empty:
+            # Cor por faixa QSM
+            def _vel_color(v):
+                if v >= _QSM_Q4_FP_PM:  return '#1abc9c'
+                if v >= _QSM_MEDIAN_FP_PM: return '#27ae60'
+                if v >= _QSM_Q1_FP_PM:  return '#f39c12'
+                return '#e74c3c'
+
+            _vel_colors = [_vel_color(v) for v in _vel_df['SP_por_Mes']]
+            _p75_interno = float(per_dev['SP_por_Mes'].quantile(0.75))
+
+            fig_velocity.add_trace(go.Bar(
+                x=_vel_df['Pessoa'],
+                y=_vel_df['SP_por_Mes'],
+                marker_color=_vel_colors,
+                marker_line_width=0,
+                text=[f'{v:.1f}' for v in _vel_df['SP_por_Mes']],
+                textposition='outside',
+                textfont=dict(size=11, color='#444'),
+                customdata=_vel_df[['BU', 'Papel', 'Itens Entregues', 'SP Entregues']].values
+                    if all(c in _vel_df.columns for c in ['BU', 'Papel', 'Itens Entregues', 'SP Entregues'])
+                    else None,
+                hovertemplate=(
+                    '<b>%{x}</b><br>'
+                    'SP/Mês: <b>%{y:.1f}</b><br>'
+                    'BU: %{customdata[0]}<br>'
+                    'Papel: %{customdata[1]}<br>'
+                    'Itens Entregues: %{customdata[2]}<br>'
+                    'SP Entregues: %{customdata[3]}<extra></extra>'
+                ) if _vel_df.shape[0] > 0 and all(c in _vel_df.columns for c in ['BU', 'Papel', 'Itens Entregues', 'SP Entregues']) else None,
+                name='SP/Mês por dev',
+            ))
+
+            # Linha: P75 interno do grupo
+            fig_velocity.add_hline(
+                y=_p75_interno, line_dash='dash', line_color='#2980b9', line_width=1.5,
+                annotation_text=f'P75 grupo ({_p75_interno:.1f} SP/mês)',
+                annotation_position='right', annotation_font_size=10, annotation_font_color='#2980b9',
+            )
+            # Linha QSM Q1 — floor de referência
+            fig_velocity.add_hline(
+                y=_QSM_Q1_FP_PM, line_dash='dot', line_color='#e67e22', line_width=1.5,
+                annotation_text=f'QSM Q1 — 5.0 FP/PM (proj. pequenos)',
+                annotation_position='right', annotation_font_size=10, annotation_font_color='#e67e22',
+            )
+            # Linha QSM Mediana global
+            fig_velocity.add_hline(
+                y=_QSM_MEDIAN_FP_PM, line_dash='dash', line_color='#27ae60', line_width=2,
+                annotation_text=f'QSM Mediana — 7.47 FP/PM (Business Systems)',
+                annotation_position='right', annotation_font_size=10, annotation_font_color='#27ae60',
+            )
+            # Linha QSM Q4 — alta performance
+            fig_velocity.add_hline(
+                y=_QSM_Q4_FP_PM, line_dash='dot', line_color='#1abc9c', line_width=1.5,
+                annotation_text=f'QSM Q4 — 11.55 FP/PM (proj. grandes)',
+                annotation_position='right', annotation_font_size=10, annotation_font_color='#1abc9c',
+            )
+
+        fig_velocity.update_layout(
+            title=(
+                f'Velocidade de Entrega por Dev — SP/Mês (proxy FP/PM)<br>'
+                f'<sup>'
+                f'Período: {_n_meses:.1f} meses. '
+                f'Referência: QSM Benchmark Tables — Business Systems Function Points '
+                f'(https://www.qsm.com/resources/qsm-benchmark-tables, n≈330 projetos IT). '
+                f'Proxy: 1 SP ≈ 1 FP — calibração interna necessária para comparação precisa.'
+                f'</sup>'
+            ),
+            xaxis=dict(title='', tickangle=-40),
+            yaxis=dict(title='SP por mês (proxy FP/PM)', showgrid=True, gridcolor='#eee'),
+            template='plotly_white',
+            height=max(420, 22 * len(_vel_df) + 200) if not _vel_df.empty else 300,
+            margin=dict(t=100, b=120, r=280),
+            showlegend=False,
+            plot_bgcolor='#fafafa',
         )
 
         # ── Gráfico: Entregues vs Puxados por BU (barras agrupadas) ──────────
@@ -15409,6 +15523,32 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     papel_kpi_section,
                     dcc.Graph(figure=fig_papel, config={'displayModeBar': False})
                     if fig_papel.data else html.P('Papel não configurado ou sem dados.', style={'color': '#aaa'}),
+                ],
+            ),
+
+            # ── Velocidade de Entrega (SP/Mês) com benchmarks QSM ────────────
+            _section(
+                'Velocidade de Entrega por Dev (SP/Mês)',
+                [
+                    html.Span('Story Points entregues por desenvolvedor por mês no período. '),
+                    html.Span('Usado como proxy de FP/PM ', style={'fontWeight': '600'}),
+                    html.Span('(1 SP ≈ 1 FP — calibração interna necessária). '),
+                    html.Span('Linhas de referência: ', style={'fontWeight': '600'}),
+                    html.Span('QSM Business Systems — Q1: 5.0 | Mediana: 7.47 | Q4: 11.55 FP/PM ', style={'color': '#27ae60'}),
+                    html.Span('(QSM Benchmark Tables, '),
+                    html.A('qsm.com/resources/qsm-benchmark-tables',
+                           href='https://www.qsm.com/resources/qsm-benchmark-tables',
+                           target='_blank', style={'color': '#2980b9', 'fontSize': '12px'}),
+                    html.Span(f', n≈330 projetos IT). '),
+                    html.Span(
+                        'Benchmarks refletem produtividade de equipe, não individual — use como referência de ordem de grandeza.',
+                        style={'color': '#e67e22', 'fontSize': '12px'},
+                    ),
+                ],
+                [
+                    dcc.Graph(figure=fig_velocity, config={'displayModeBar': False})
+                    if fig_velocity.data else
+                    html.P('Sem dados de Story Points no período para calcular SP/mês.', style={'color': '#aaa'}),
                 ],
             ),
 
