@@ -11,7 +11,8 @@
       "Bash(pip3 show:*)",
       "WebFetch(domain:codepen.io)",
       "Bash(grep -E \"\\\\.py$\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\(''dashboard_full.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''dashboard_full.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python -c \":*)"
     ]
   }
 }

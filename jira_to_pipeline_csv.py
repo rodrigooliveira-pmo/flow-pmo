@@ -113,6 +113,7 @@ METADATA_COLUMNS = [
     "Flagged",
     "Story Points",
     "Story point estimate",
+    "EffortTShirtSize",
     "Epic Name",
     "Team",
     "Organizations",
@@ -428,6 +429,63 @@ def get_embedded_changelog(issue: Dict[str, Any]) -> tuple[List[Dict[str, Any]],
     return histories, max(total, len(histories))
 
 
+def _discover_tshirt_field_id(base_url: str, email: str, token: str) -> str:
+    """Descobre o ID do campo T-shirt size na instância Jira via /rest/api/3/field.
+
+    Usa a mesma lógica de descoberta de jira_portfolio_to_csv.py:
+    1. Match exato no nome normalizado (ex.: "t shirt size", "effort tshirt size")
+    2. Match parcial por palavras-chave (size + shirt + effort)
+    3. Fallback por schema custom (contém "tshirt" ou "t-shirt")
+
+    Retorna o field ID (ex.: "customfield_10042") ou "" se não encontrado.
+    Suporte a override via JIRA_FIELD_MAP: effort_tshirt_size=customfield_XXXXX
+    """
+    try:
+        resp = requests.get(
+            f"{base_url}/rest/api/3/field",
+            auth=(email, token),
+            headers={"Accept": "application/json"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        field_defs = resp.json()
+    except Exception:
+        return ""
+
+    if not isinstance(field_defs, list):
+        return ""
+
+    def _norm(txt: str) -> str:
+        return " ".join(str(txt or "").strip().lower().replace("-", " ").split())
+
+    exact_targets = {"effort t shirt size", "effort tshirt size", "t shirt size", "tshirt size"}
+
+    # 1) Match exato no nome normalizado
+    for f in field_defs:
+        name = _norm((f or {}).get("name") or "")
+        fid = str((f or {}).get("id") or "").strip()
+        if name in exact_targets and fid:
+            return fid
+
+    # 2) Match parcial: size + shirt + effort
+    for f in field_defs:
+        name = _norm((f or {}).get("name") or "")
+        fid = str((f or {}).get("id") or "").strip()
+        if not fid:
+            continue
+        if "size" in name and ("shirt" in name or "tshirt" in name) and "effort" in name:
+            return fid
+
+    # 3) Fallback por schema custom
+    for f in field_defs:
+        schema_custom = str(((f or {}).get("schema") or {}).get("custom") or "").strip().lower()
+        fid = str((f or {}).get("id") or "").strip()
+        if fid and ("tshirt" in schema_custom or "t-shirt" in schema_custom):
+            return fid
+
+    return ""
+
+
 def build_issue_row(
     base_url: str,
     issue: Dict[str, Any],
@@ -518,6 +576,7 @@ def build_issue_row(
     principal_value = custom_as_text("principal")
     story_points_value = custom_as_number_text("story_points", ["customfield_10026", "customfield_10028"])
     story_point_estimate_value = custom_as_number_text("story_point_estimate", ["customfield_10016"])
+    effort_tshirt_size_value = custom_as_text("effort_tshirt_size")
     start_date_value = custom_as_date_text("start_date", ["startdate"])
 
     # Defensive fix for field-map semantic inversion:
@@ -587,6 +646,7 @@ def build_issue_row(
         "Flagged": flagged_str,
         "Story Points": story_points_value,
         "Story point estimate": story_point_estimate_value,
+        "EffortTShirtSize": effort_tshirt_size_value,
         "Epic Name": epic_name,
         "Team": custom_as_text("team"),
         "Organizations": custom_as_text("organizations"),
@@ -871,6 +931,19 @@ def main() -> int:
         return 2
 
     field_map = parse_json_env("JIRA_FIELD_MAP", default={})
+
+    # ── Descoberta automática do campo T-shirt size ────────────────────────────
+    # Tenta via JIRA_FIELD_MAP (override manual) antes de chamar a API de campos.
+    if not field_map.get("effort_tshirt_size"):
+        _tshirt_fid = _discover_tshirt_field_id(base_url, email, token)
+        if _tshirt_fid:
+            field_map["effort_tshirt_size"] = _tshirt_fid
+            print(f"T-shirt size field descoberto automaticamente: {_tshirt_fid}")
+        else:
+            print("T-shirt size field não encontrado na instância Jira (EffortTShirtSize ficará vazio).")
+    else:
+        print(f"T-shirt size field configurado via JIRA_FIELD_MAP: {field_map['effort_tshirt_size']}")
+
     status_map = resolve_status_map(args.projects)
     stage_order = list(status_map.keys())
     csv_columns = build_csv_columns(stage_order)
@@ -907,6 +980,8 @@ def main() -> int:
     for logical_name, jira_field in field_map.items():
         if jira_field and jira_field not in fields_to_fetch:
             fields_to_fetch.append(jira_field)
+            if logical_name == "effort_tshirt_size":
+                print(f"Adicionado {jira_field} (EffortTShirtSize) ao fetch de campos.")
 
     excluded_issue_types = resolve_excluded_issue_types()
     if excluded_issue_types:
