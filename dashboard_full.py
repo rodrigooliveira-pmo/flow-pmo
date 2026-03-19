@@ -1070,6 +1070,11 @@ def compute_jira_person_capacity_metrics(jira_df, start_ts, end_ts, alias_index=
         return pd.DataFrame(), {}
 
     df = jira_df.copy()
+    # DevExecutor (autor do PR/commit no Bitbucket) tem prioridade sobre Responsavel (assignee Jira).
+    if 'DevExecutor' in df.columns:
+        _exec = df['DevExecutor'].astype(str).str.strip()
+        _assi = df['Responsavel'].astype(str).str.strip()
+        df['Responsavel'] = _exec.where(_exec.ne('') & _exec.ne('nan'), _assi)
     df['Responsavel'] = df['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
     df = df[df['Responsavel'].astype(str).str.strip().ne('')]
     if df.empty:
@@ -1188,7 +1193,14 @@ def compute_cross_source_capacity_metrics(jira_df, bitbucket_logs, start_ts, end
                 (jira_df['DataDone'] >= start_ts) &
                 (jira_df['DataDone'] < end_ts)
             ].copy()
-            done_window['Pessoa'] = done_window['Responsavel'].apply(
+            # DevExecutor (autor do PR) tem prioridade sobre Responsavel (assignee Jira).
+            if 'DevExecutor' in done_window.columns:
+                _exec = done_window['DevExecutor'].astype(str).str.strip()
+                _assi = done_window['Responsavel'].astype(str).str.strip()
+                _fonte = _exec.where(_exec.ne('') & _exec.ne('nan'), _assi)
+            else:
+                _fonte = done_window['Responsavel'].astype(str).str.strip()
+            done_window['Pessoa'] = _fonte.apply(
                 lambda x: _canonical_person_name(x, alias_index=alias_index)
             )
             done_window = done_window[done_window['Pessoa'].astype(str).str.strip().ne('')]
@@ -1251,7 +1263,14 @@ def compute_cross_source_capacity_weekly_metrics(jira_df, bitbucket_logs, start_
             (jira_done['DataDone'] >= start_ts) &
             (jira_done['DataDone'] < end_ts)
         ].copy()
-        jira_done['Pessoa'] = jira_done['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+        # DevExecutor (autor do PR) tem prioridade sobre Responsavel (assignee Jira).
+        if 'DevExecutor' in jira_done.columns:
+            _exec = jira_done['DevExecutor'].astype(str).str.strip()
+            _assi = jira_done['Responsavel'].astype(str).str.strip()
+            _fonte = _exec.where(_exec.ne('') & _exec.ne('nan'), _assi)
+        else:
+            _fonte = jira_done['Responsavel'].astype(str).str.strip()
+        jira_done['Pessoa'] = _fonte.apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
         jira_done = jira_done[jira_done['Pessoa'].astype(str).str.strip().ne('')]
         jira_done['DataDone'] = pd.to_datetime(jira_done['DataDone'], errors='coerce')
         jira_done = jira_done.dropna(subset=['DataDone'])
@@ -1539,7 +1558,15 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     alias_index = _load_person_alias_index()
 
     base = df.copy()
-    base['_Pessoa'] = base['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    # DevExecutor: autor real do PR/commit (via Bitbucket), quando disponível.
+    # Fallback para Responsavel (assignee do Jira) quando DevExecutor estiver vazio.
+    if 'DevExecutor' in base.columns:
+        _executor = base['DevExecutor'].astype(str).str.strip()
+        _assignee  = base['Responsavel'].astype(str).str.strip()
+        _fonte = _executor.where(_executor.ne('') & _executor.ne('nan'), _assignee)
+    else:
+        _fonte = base['Responsavel'].astype(str).str.strip()
+    base['_Pessoa'] = _fonte.apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
     base = base[base['_Pessoa'].astype(str).str.strip().ne('')]
     if base.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()

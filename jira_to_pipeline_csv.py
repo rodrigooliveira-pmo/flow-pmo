@@ -128,6 +128,7 @@ METADATA_COLUMNS = [
     "EpicLinkID",
     "EpicLinkTipo",
     "EpicLinkName",
+    "DevExecutor",
 ]
 
 DEFAULT_EXCLUDED_ISSUE_TYPES = ["Épico", "Epic", "Iniciativa", "Initiative"]
@@ -486,6 +487,88 @@ def _discover_tshirt_field_id(base_url: str, email: str, token: str) -> str:
     return ""
 
 
+_JIRA_KEY_RE = re.compile(r'\b([A-Z][A-Z0-9_]*-\d+)\b')
+
+
+def _fetch_bitbucket_pr_author_index(
+    workspace: str,
+    repos: List[str],
+    username: str,
+    app_password: str,
+) -> Dict[str, str]:
+    """Constrói índice {issue_key_jira: author_display_name} a partir de PRs merged no Bitbucket.
+
+    Estratégia:
+    1. Busca TODOS os PRs merged de cada repositório (paginado).
+    2. Para cada PR, extrai chaves Jira do título e do nome do branch de origem.
+    3. Se múltiplos PRs referenciam a mesma issue, usa o autor mais frequente (moda).
+
+    Configuração via env vars:
+        BITBUCKET_WORKSPACE  — workspace slug (ex.: "minha-empresa")
+        BITBUCKET_REPOS      — repos separados por vírgula (ex.: "backend,frontend,mobile")
+        BITBUCKET_USERNAME   — email ou username Bitbucket
+        BITBUCKET_APP_PASSWORD — App Password gerado em Bitbucket > Settings > App passwords
+
+    Retorna dict vazio se configuração ausente ou falha de conexão.
+    """
+    if not workspace or not repos or not username or not app_password:
+        return {}
+
+    auth = (username, app_password)
+    headers = {"Accept": "application/json"}
+    base_api = "https://api.bitbucket.org/2.0"
+
+    # issue_key -> {author -> count}
+    author_votes: Dict[str, Dict[str, int]] = {}
+
+    for repo in repos:
+        repo = repo.strip()
+        if not repo:
+            continue
+        url: Optional[str] = (
+            f"{base_api}/repositories/{workspace}/{repo}/pullrequests"
+            f"?state=MERGED&fields=values.id,values.title,values.author.display_name,"
+            f"values.source.branch.name&pagelen=50"
+        )
+        page = 0
+        while url:
+            try:
+                resp = requests.get(url, auth=auth, headers=headers, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                print(f"[Bitbucket] Erro ao buscar PRs de {repo} (página {page}): {exc}")
+                break
+
+            for pr in data.get("values", []):
+                author_name = (pr.get("author") or {}).get("display_name", "").strip()
+                if not author_name:
+                    continue
+
+                # Extrai chaves Jira do título e do branch
+                title  = pr.get("title") or ""
+                branch = (pr.get("source") or {}).get("branch", {}).get("name") or ""
+                found_keys: set = set()
+                for text in (title, branch):
+                    for m in _JIRA_KEY_RE.finditer(text):
+                        found_keys.add(m.group(1))
+
+                for jira_key in found_keys:
+                    votes = author_votes.setdefault(jira_key, {})
+                    votes[author_name] = votes.get(author_name, 0) + 1
+
+            url = data.get("next")  # None quando não há mais páginas
+            page += 1
+
+    # Resolve moda: autor com mais PRs por issue key
+    result: Dict[str, str] = {}
+    for jira_key, votes in author_votes.items():
+        result[jira_key] = max(votes, key=lambda a: votes[a])
+
+    print(f"[Bitbucket] Índice de autores de PR construído: {len(result)} issues mapeadas.")
+    return result
+
+
 def build_issue_row(
     base_url: str,
     issue: Dict[str, Any],
@@ -494,6 +577,7 @@ def build_issue_row(
     stage_order: List[str],
     csv_columns: List[str],
     cancelled_date: str = "",
+    pr_author_index: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
     fields = issue.get("fields", {})
 
@@ -661,6 +745,7 @@ def build_issue_row(
         "EpicLinkID": epic_link_id,
         "EpicLinkTipo": epic_link_tipo,
         "EpicLinkName": epic_link_name,
+        "DevExecutor": (pr_author_index or {}).get(key, ""),
     }
 
     for stage in stage_order:
@@ -944,6 +1029,39 @@ def main() -> int:
     else:
         print(f"T-shirt size field configurado via JIRA_FIELD_MAP: {field_map['effort_tshirt_size']}")
 
+    # ── Enriquecimento com autor de PR do Bitbucket (DevExecutor) ─────────────
+    # Ativo apenas quando as 4 env vars BITBUCKET_* estiverem definidas.
+    # Rastreia quem realmente fez o commit/PR vs. quem fechou o card no Jira.
+    #
+    # Configuração:
+    #   BITBUCKET_WORKSPACE   — workspace slug (ex.: "minha-empresa")
+    #   BITBUCKET_REPOS       — repos separados por vírgula (ex.: "backend,frontend")
+    #   BITBUCKET_USERNAME    — email ou username Bitbucket
+    #   BITBUCKET_APP_PASSWORD — App Password: Bitbucket > Settings > App passwords
+    _bb_workspace  = os.getenv("BITBUCKET_WORKSPACE", "").strip()
+    _bb_repos_raw  = os.getenv("BITBUCKET_REPOS", "").strip()
+    _bb_username   = os.getenv("BITBUCKET_USERNAME", "").strip()
+    _bb_app_pwd    = os.getenv("BITBUCKET_APP_PASSWORD", "").strip()
+    _bb_repos      = [r.strip() for r in _bb_repos_raw.split(",") if r.strip()]
+
+    pr_author_index: Dict[str, str] = {}
+    if _bb_workspace and _bb_repos and _bb_username and _bb_app_pwd:
+        print(
+            f"[Bitbucket] Buscando PRs merged em {len(_bb_repos)} repo(s): {', '.join(_bb_repos)} "
+            f"(workspace: {_bb_workspace})"
+        )
+        pr_author_index = _fetch_bitbucket_pr_author_index(
+            workspace=_bb_workspace,
+            repos=_bb_repos,
+            username=_bb_username,
+            app_password=_bb_app_pwd,
+        )
+    else:
+        print(
+            "[Bitbucket] Enriquecimento de DevExecutor desabilitado "
+            "(defina BITBUCKET_WORKSPACE, BITBUCKET_REPOS, BITBUCKET_USERNAME e BITBUCKET_APP_PASSWORD)."
+        )
+
     status_map = resolve_status_map(args.projects)
     stage_order = list(status_map.keys())
     csv_columns = build_csv_columns(stage_order)
@@ -1075,6 +1193,7 @@ def main() -> int:
                 stage_order=stage_order,
                 csv_columns=csv_columns,
                 cancelled_date=cancelled_date,
+                pr_author_index=pr_author_index,
             )
             changelog_rows = []
             if detailed_changelog_enabled:
