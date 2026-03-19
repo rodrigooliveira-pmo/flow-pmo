@@ -36,6 +36,16 @@ ENV_FILE    = "jira_env.txt"
 
 JIRA_KEY_RE = re.compile(r'\b([A-Z][A-Z0-9_]*-\d+)\b')
 PROJECT_RE  = re.compile(r'^([A-Z][A-Z0-9_]+)-\d+')
+
+# Padrões de título que indicam itens de processo/gestão sem entrega de código.
+# A cobertura de DevExecutor é estruturalmente impossível para esses itens.
+# Configurável via env NO_CODE_TITLE_PATTERNS (separado por |).
+_NO_CODE_PATTERNS_DEFAULT = [
+    re.compile(r'^\s*\[?libera', re.IGNORECASE),   # [Liberação] ou Liberação (com/sem colchete)
+    re.compile(r'^\s*\[?lan[çc]amento', re.IGNORECASE),
+    re.compile(r'^\s*\[?release', re.IGNORECASE),
+    re.compile(r'\[ad-hoc\]', re.IGNORECASE),
+]
 # ---------------------------------------------------------------------------
 
 
@@ -94,6 +104,14 @@ def _project_prefix(issue_id: str) -> str:
 # ===========================================================================
 # PARTE A: analise dos CSVs
 # ===========================================================================
+def _is_no_code_item(title: str, patterns: list) -> bool:
+    """Retorna True se o título indica item de processo/gestão sem entrega de código."""
+    for pat in patterns:
+        if pat.search(title):
+            return True
+    return False
+
+
 def analyze_csv_coverage(df: pd.DataFrame, start: str, end: str) -> None:
     start_ts = pd.Timestamp(start)
     end_ts   = pd.Timestamp(end) + pd.Timedelta(days=1)
@@ -119,25 +137,50 @@ def analyze_csv_coverage(df: pd.DataFrame, start: str, end: str) -> None:
 
     periodo["_Projeto"] = periodo.get("ID", pd.Series("", index=periodo.index)).apply(_project_prefix)
 
-    total = len(periodo)
-    com   = int(periodo["_DevExecutor"].ne("").sum())
-    sem   = total - com
+    # Detecta itens sem código (processo/gestão) — cobertura estruturalmente impossível
+    raw_patterns = os.getenv("NO_CODE_TITLE_PATTERNS", "").strip()
+    if raw_patterns:
+        no_code_patterns = [re.compile(p.strip(), re.IGNORECASE) for p in raw_patterns.split("|") if p.strip()]
+    else:
+        no_code_patterns = _NO_CODE_PATTERNS_DEFAULT
+
+    title_col = next((c for c in ("Title", "Summary", "Titulo", "Título") if c in periodo.columns), None)
+    if title_col:
+        periodo["_IsNoCode"] = periodo[title_col].fillna("").apply(
+            lambda t: _is_no_code_item(str(t), no_code_patterns)
+        )
+    else:
+        periodo["_IsNoCode"] = False
+
+    total     = len(periodo)
+    com       = int(periodo["_DevExecutor"].ne("").sum())
+    sem       = total - com
+    no_code_n = int(periodo["_IsNoCode"].sum())
+    codigo    = periodo[~periodo["_IsNoCode"]]
+    total_cod = len(codigo)
+    com_cod   = int(codigo["_DevExecutor"].ne("").sum())
 
     print(f"\n  Total itens Done ({start[:7]} a {end[:7]}): {total:,}")
     print(f"  Com DevExecutor : {com:,}  ({com/total*100:.1f}%)")
     print(f"  Sem DevExecutor : {sem:,}  ({sem/total*100:.1f}%)")
+    print(f"\n  Itens processo/gestao (sem codigo esperado): {no_code_n:,}  ({no_code_n/total*100:.1f}%)")
+    if total_cod:
+        print(f"  Cobertura ajustada (somente itens de codigo): {com_cod:,}/{total_cod:,}  ({com_cod/total_cod*100:.1f}%)")
 
     # -- por projeto
-    print(f"\n  {'Projeto':<14}  {'Total':>7}  {'c/Exec':>7}  {'Cobert':>7}  Obs")
-    print(f"  {'-'*14}  {'-'*7}  {'-'*7}  {'-'*7}  {'-'*30}")
+    print(f"\n  {'Projeto':<14}  {'Total':>7}  {'c/Exec':>7}  {'Cobert':>7}  {'AjustCobert':>11}  Obs")
+    print(f"  {'-'*14}  {'-'*7}  {'-'*7}  {'-'*7}  {'-'*11}  {'-'*30}")
     for proj, grp in sorted(periodo.groupby("_Projeto")):
-        n  = len(grp)
-        nc = int(grp["_DevExecutor"].ne("").sum())
-        pct = nc / n * 100 if n else 0
-        # pega primeiro arquivo fonte para contextualizar
-        src = str(grp["_fonte"].iloc[0])[:30] if "_fonte" in grp.columns else ""
-        obs = "OK" if pct >= 20 else ("sem PRs? verifique BB_REPOS" if pct == 0 else "baixa cobertura")
-        print(f"  {proj:<14}  {n:>7,}  {nc:>7,}  {pct:>6.1f}%  {obs}")
+        n    = len(grp)
+        nc   = int(grp["_DevExecutor"].ne("").sum())
+        pct  = nc / n * 100 if n else 0
+        grp_cod  = grp[~grp["_IsNoCode"]]
+        n_cod    = len(grp_cod)
+        nc_cod   = int(grp_cod["_DevExecutor"].ne("").sum())
+        pct_cod  = nc_cod / n_cod * 100 if n_cod else 0
+        adj_str  = f"{pct_cod:>5.1f}%" if n_cod != n else "  n/a  "
+        obs = "OK" if pct_cod >= 20 else ("sem PRs? verifique BB_REPOS" if pct == 0 else "baixa cobertura")
+        print(f"  {proj:<14}  {n:>7,}  {nc:>7,}  {pct:>6.1f}%  {adj_str:>11}  {obs}")
 
     # -- por tipo de item (se coluna Issue Type existir)
     type_col = next((c for c in ("Issue Type", "IssueType", "Tipo") if c in periodo.columns), None)
@@ -151,9 +194,9 @@ def analyze_csv_coverage(df: pd.DataFrame, start: str, end: str) -> None:
             pct = nc / n * 100 if n else 0
             print(f"  {str(tipo):<28}  {n:>6,}  {nc:>6,}  {pct:>5.1f}%")
 
-    # -- amostra dos itens sem DevExecutor (20 mais recentes)
-    sem_exec = periodo[periodo["_DevExecutor"].eq("")].copy()
-    print(f"\n  Amostra de itens sem DevExecutor (ate 20, mais recentes):")
+    # -- amostra dos itens sem DevExecutor (20 mais recentes) — apenas os de código
+    sem_exec = periodo[periodo["_DevExecutor"].eq("") & ~periodo["_IsNoCode"]].copy()
+    print(f"\n  Amostra de itens SEM DevExecutor (codigo esperado, ate 20, mais recentes):")
     print(f"  {'ID':<18}  {'Projeto':<10}  {'Responsavel':<28}  {'Done':<12}  Titulo")
     print(f"  {'-'*18}  {'-'*10}  {'-'*28}  {'-'*12}  {'-'*40}")
     for _, row in sem_exec.sort_values("_DataDone", ascending=False).head(20).iterrows():

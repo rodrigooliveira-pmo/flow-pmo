@@ -669,6 +669,45 @@ def _fetch_bitbucket_commit_author_index(
     return result
 
 
+# Nomes de status que representam "em desenvolvimento" — usados para inferir DevExecutor
+# via changelog Jira quando não há PR nem commit mapeado.
+# Configurável via BB_JIRA_INPROGRESS_STATUSES (vírgulas) em jira_env.txt.
+_INPROGRESS_STATUSES_DEFAULT: frozenset[str] = frozenset({
+    "in progress",
+    "in development",
+    "em desenvolvimento",
+    "em andamento",
+    "desenvolvimento",
+    "development",
+    "doing",
+    "wip",
+})
+
+
+def extract_inprogress_actor_from_changelog(
+    changelog: List[Dict[str, Any]],
+    inprogress_statuses: frozenset,
+) -> str:
+    """Retorna o autor da transição mais recente para um status IN PROGRESS/DEVELOPMENT.
+
+    Itera o changelog em ordem cronológica e atualiza o candidato a cada
+    transição que bate com `inprogress_statuses`, ficando com o mais recente
+    (a pessoa que estava ativa na etapa de desenvolvimento antes do Done).
+    """
+    actor = ""
+    for history in sorted(changelog, key=lambda h: h.get("created") or ""):
+        for item in history.get("items", []):
+            if item.get("field") != "status":
+                continue
+            to_status = str(item.get("toString") or "").strip().lower()
+            if to_status not in inprogress_statuses:
+                continue
+            name = str((history.get("author") or {}).get("displayName") or "").strip()
+            if name:
+                actor = name  # mantém o mais recente
+    return actor
+
+
 def build_issue_row(
     base_url: str,
     issue: Dict[str, Any],
@@ -678,6 +717,7 @@ def build_issue_row(
     csv_columns: List[str],
     cancelled_date: str = "",
     pr_author_index: Optional[Dict[str, str]] = None,
+    changelog_inprogress_actor: str = "",
 ) -> Dict[str, str]:
     fields = issue.get("fields", {})
 
@@ -845,7 +885,7 @@ def build_issue_row(
         "EpicLinkID": epic_link_id,
         "EpicLinkTipo": epic_link_tipo,
         "EpicLinkName": epic_link_name,
-        "DevExecutor": (pr_author_index or {}).get(key, ""),
+        "DevExecutor": (pr_author_index or {}).get(key, "") or changelog_inprogress_actor,
     }
 
     for stage in stage_order:
@@ -1178,17 +1218,31 @@ def main() -> int:
 
         # Mescla: PR author tem prioridade sobre commit author
         # commit_index preenche lacunas; pr_index sobrescreve onde há PR
+        # changelog IN PROGRESS actor é a 3ª camada (fallback quando não há PR nem commit)
         pr_author_index = {**_commit_index, **_pr_index}
+        _only_commit = len(_commit_index) - len(set(_commit_index) & set(_pr_index))
         print(
             f"[Bitbucket] Indice final (PR + commits): {len(pr_author_index)} issues mapeadas "
-            f"({len(_pr_index)} via PR, {len(_commit_index) - len(set(_commit_index) & set(_pr_index))} "
-            f"somente via commit)."
+            f"({len(_pr_index)} via PR, {_only_commit} somente via commit). "
+            f"Lacunas preenchidas pelo changelog IN PROGRESS em tempo de processamento."
         )
     else:
         print(
             "[Bitbucket] Enriquecimento de DevExecutor desabilitado "
             "(defina BB_WORKSPACE, BB_REPOS, BB_EMAIL e BB_TOKEN em jira_env.txt)."
         )
+
+    # Statuses que indicam "em desenvolvimento" — usados para inferir DevExecutor via changelog.
+    # Configurável via BB_JIRA_INPROGRESS_STATUSES (lista separada por vírgula).
+    _raw_inprogress = os.getenv("BB_JIRA_INPROGRESS_STATUSES", "").strip()
+    if _raw_inprogress:
+        _inprogress_statuses: frozenset[str] = frozenset(
+            s.strip().lower() for s in _raw_inprogress.split(",") if s.strip()
+        )
+        print(f"[Changelog] Statuses IN PROGRESS customizados: {sorted(_inprogress_statuses)}")
+    else:
+        _inprogress_statuses = _INPROGRESS_STATUSES_DEFAULT
+        print(f"[Changelog] Statuses IN PROGRESS (default): {sorted(_inprogress_statuses)}")
 
     status_map = resolve_status_map(args.projects)
     stage_order = list(status_map.keys())
@@ -1313,6 +1367,9 @@ def main() -> int:
                 changelog,
                 ["Cancelled", "Canceled", "Cancelado", "Cancelada"],
             )
+            changelog_actor = extract_inprogress_actor_from_changelog(
+                changelog, _inprogress_statuses
+            )
             row = build_issue_row(
                 base_url=base_url,
                 issue=issue_data,
@@ -1322,6 +1379,7 @@ def main() -> int:
                 csv_columns=csv_columns,
                 cancelled_date=cancelled_date,
                 pr_author_index=pr_author_index,
+                changelog_inprogress_actor=changelog_actor,
             )
             changelog_rows = []
             if detailed_changelog_enabled:

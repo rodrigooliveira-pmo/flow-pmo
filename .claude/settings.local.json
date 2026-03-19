@@ -15,7 +15,9 @@
       "Bash(python -c \":*)",
       "Bash(python validate_dev_executor.py --start 2026-02-01 --end 2026-03-31)",
       "Bash(python diag_bitbucket.py)",
-      "Bash(python diag_bitbucket.py --repo s1nc_ruby --limit 10)"
+      "Bash(python diag_bitbucket.py --repo s1nc_ruby --limit 10)",
+      "Bash(python diag_dev_executor_coverage.py --start 2026-02-01 --end 2026-03-31 --skip-bitbucket)",
+      "Bash(python diag_dev_executor_coverage.py --start 2026-02-01 --end 2026-03-31)"
     ]
   }
 }
