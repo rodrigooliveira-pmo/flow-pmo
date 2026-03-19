@@ -525,15 +525,17 @@ def _fetch_bitbucket_pr_author_index(
         repo = repo.strip()
         if not repo:
             continue
+        # Sem filtro de campos (fields=...) para não suprimir o link "next" de paginação.
+        # pagelen=50 é o máximo aceito pela API do Bitbucket Cloud.
         url: Optional[str] = (
             f"{base_api}/repositories/{workspace}/{repo}/pullrequests"
-            f"?state=MERGED&fields=values.id,values.title,values.author.display_name,"
-            f"values.source.branch.name&pagelen=50"
+            f"?state=MERGED&pagelen=50"
         )
         page = 0
+        repo_prs = 0
         while url:
             try:
-                resp = requests.get(url, auth=auth, headers=headers, timeout=30)
+                resp = requests.get(url, auth=auth, headers=headers, timeout=60)
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as exc:
@@ -557,15 +559,22 @@ def _fetch_bitbucket_pr_author_index(
                     votes = author_votes.setdefault(jira_key, {})
                     votes[author_name] = votes.get(author_name, 0) + 1
 
-            url = data.get("next")  # None quando não há mais páginas
+                repo_prs += 1
+
+            next_url = data.get("next")
             page += 1
+            if page % 5 == 0:
+                print(f"[Bitbucket]   {repo}: {repo_prs} PRs processados (página {page})...")
+            url = next_url  # None encerra o loop
+
+        print(f"[Bitbucket]   {repo}: {repo_prs} PRs merged processados ({page} página(s)).")
 
     # Resolve moda: autor com mais PRs por issue key
     result: Dict[str, str] = {}
     for jira_key, votes in author_votes.items():
         result[jira_key] = max(votes, key=lambda a: votes[a])
 
-    print(f"[Bitbucket] Índice de autores de PR construído: {len(result)} issues mapeadas.")
+    print(f"[Bitbucket] Indice de autores de PR construido: {len(result)} issues mapeadas.")
     return result
 
 
