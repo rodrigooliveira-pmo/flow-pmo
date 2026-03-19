@@ -335,3 +335,10 @@ Use this file after any user correction.
 - Root cause: Eu usei datasets agregados da planilha de process mining para alguns gráficos sem recomputar após os filtros de data no dashboard.
 - Prevention rule: Em dashboards com filtros temporais, evitar usar agregados pré-computados sem recorte; preferir recomputar no runtime a partir da base filtrada.
 - Action added to workflow: Para cada gráfico novo/alterado, validar explicitamente: `fonte pós-filtro`, `janela temporal aplicada` e `consistência com a seleção de datas da UI`.
+
+- Date: 2026-03-19
+- Context: Execução do `run_process_mining_projects.ps1` falhou com mensagem genérica no primeiro projeto, apesar de o `jira_to_pipeline_csv.py` ter concluído com sucesso e gerado os artefatos.
+- User correction: Compartilhou a saída completa mostrando que o CSV e o changelog detalhado foram gerados antes do throw do runner.
+- Root cause: A função PowerShell que encapsulava os scripts Python retornava o `exit code`, mas também deixava o stdout do comando seguir pelo success stream; ao atribuir o resultado da função, o caller recebia um array com logs + `0` e interpretava isso como falha.
+- Prevention rule: Em wrappers PowerShell que retornam `exit code`, nunca deixar stdout/stderr da chamada nativa compor o valor retornado quando o caller faz atribuição; enviar logs para `Host` e retornar apenas o inteiro final.
+- Action added to workflow: Ao criar helpers `Invoke-*` para comandos nativos no PowerShell, validar explicitamente dois cenários: `resultado atribuído a variável` e `resultado não atribuído`, confirmando que o retorno lógico continua sendo apenas o `exit code`.

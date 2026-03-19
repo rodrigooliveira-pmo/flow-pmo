@@ -232,8 +232,16 @@ function Invoke-PythonScript {
     }
 
     try {
-        & $script:PythonInvoker.Command @fullArgs
-        return $LASTEXITCODE
+        & $script:PythonInvoker.Command @fullArgs 2>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                Write-Host $_.ToString() -ForegroundColor Red
+            }
+            else {
+                Write-Host $_
+            }
+        }
+        $exitCode = $LASTEXITCODE
+        return [int]$exitCode
     }
     catch {
         $labelText = if ($Label) { " [$Label]" } else { "" }

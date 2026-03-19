@@ -1,5 +1,32 @@
 # Task Plan
 
+## Current Task (Corrigir falso erro no run_process_mining_projects.ps1 ao capturar stdout)
+- [x] Registrar a causa do falso negativo no runner
+- [x] Corrigir a invocação PowerShell para separar log do comando e exit code
+- [x] Validar parser/help e registrar revisão
+
+## Specification (Corrigir falso erro no run_process_mining_projects.ps1 ao capturar stdout)
+- Objetivo: impedir que o runner PowerShell interprete a saída textual de um comando Python bem-sucedido como se fosse o valor de retorno/exit code da função.
+- Estratégia:
+  - manter a saída do comando visível no terminal
+  - impedir que stdout/stderr da chamada nativa vá para o valor atribuído pela função
+  - continuar retornando apenas o exit code numérico para as verificações do runner
+- Regras:
+  - não remover logs do comando
+  - preservar o diagnóstico já adicionado recentemente
+
+## Review (Corrigir falso erro no run_process_mining_projects.ps1 ao capturar stdout)
+- O que foi implementado:
+  - `run_process_mining_projects.ps1` deixou de retornar stdout/stderr do comando Python no valor lógico da função `Invoke-PythonScript`.
+  - a saída continua visível no terminal, mas agora o runner recebe apenas o `exit code` inteiro para decidir se houve falha.
+  - isso elimina o falso negativo em que um comando bem-sucedido era tratado como erro só porque seus logs foram capturados na atribuição.
+- Evidências de validação:
+  - parser PowerShell sem erros
+  - `.\run_process_mining_projects.ps1 -Help` executado com sucesso
+  - revisão do diff restrita à função `Invoke-PythonScript`
+- Suggested commit message:
+  - `fix(runner): stop treating python stdout as exit code`
+
 ## Current Task (Melhorar diagnóstico de falhas no run_process_mining_projects.ps1)
 - [x] Registrar o ponto de falha e a deficiência de observabilidade no runner
 - [x] Ajustar o runner para exibir comando e exit code real das chamadas Python
