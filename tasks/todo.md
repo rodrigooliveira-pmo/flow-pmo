@@ -1,5 +1,31 @@
 # Task Plan
 
+## Current Task (Melhorar diagnóstico de falhas no run_process_mining_projects.ps1)
+- [x] Registrar o ponto de falha e a deficiência de observabilidade no runner
+- [x] Ajustar o runner para exibir comando e exit code real das chamadas Python
+- [x] Validar help/parser e registrar revisão
+
+## Specification (Melhorar diagnóstico de falhas no run_process_mining_projects.ps1)
+- Objetivo: evitar que o runner PowerShell interrompa com mensagem genérica sem expor a causa raiz da falha do script Python chamado.
+- Estratégia:
+  - centralizar a formatação do comando executado
+  - logar a chamada antes da execução
+  - incluir o exit code e o comando no erro lançado
+- Regras:
+  - não mudar o comportamento funcional do pipeline quando ele roda com sucesso
+  - manter mensagens curtas, mas suficientes para diagnóstico operacional
+
+## Review (Melhorar diagnóstico de falhas no run_process_mining_projects.ps1)
+- O que foi implementado:
+  - `run_process_mining_projects.ps1` agora loga explicitamente o comando Python executado em cada etapa (`jira_to_pipeline_csv`, `process_mining_jira`, `bitbucket_export` e `dash_board_metricas`).
+  - falhas de inicialização do comando Python passaram a incluir o comando formatado e a mensagem original da exceção.
+  - a falha do export Jira passou a informar o `exit code` real, em vez de encerrar só com a mensagem genérica por projeto.
+- Evidências de validação:
+  - parser PowerShell sem erros após a correção
+  - `.\run_process_mining_projects.ps1 -Help` executado com sucesso
+- Suggested commit message:
+  - `fix(runner): improve python command failure diagnostics`
+
 ## Current Task (Fortalecer run_process_mining_projects.ps1 para refresh completo do dashboard)
 - [x] Revisar o runner atual e confirmar pontos de extensão seguros
 - [x] Implementar fallback robusto de interpretador Python no PowerShell

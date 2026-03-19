@@ -196,14 +196,49 @@ function Resolve-PythonInvoker {
     throw "Nao foi possivel localizar um interpretador Python funcional. Use -PythonBin <caminho|comando>."
 }
 
-function Invoke-PythonScript {
+function Format-CommandForDisplay {
     param(
-        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [Parameter(Mandatory = $true)][string]$Command,
         [string[]]$Arguments = @()
     )
 
-    & $script:PythonInvoker.Command @($script:PythonInvoker.PrefixArgs + @($ScriptPath) + $Arguments)
-    return $LASTEXITCODE
+    $parts = @($Command) + $Arguments
+    $display = foreach ($part in $parts) {
+        $text = [string]$part
+        if ($text -match '\s' -or $text -match '"') {
+            '"' + ($text -replace '"', '\"') + '"'
+        }
+        else {
+            $text
+        }
+    }
+    return ($display -join ' ')
+}
+
+function Invoke-PythonScript {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [string[]]$Arguments = @(),
+        [string]$Label = ""
+    )
+
+    $fullArgs = @($script:PythonInvoker.PrefixArgs + @($ScriptPath) + $Arguments)
+    $display = Format-CommandForDisplay -Command $script:PythonInvoker.DisplayName -Arguments $fullArgs
+    if ($Label) {
+        Write-Host "Executando [$Label]: $display" -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "Executando: $display" -ForegroundColor DarkGray
+    }
+
+    try {
+        & $script:PythonInvoker.Command @fullArgs
+        return $LASTEXITCODE
+    }
+    catch {
+        $labelText = if ($Label) { " [$Label]" } else { "" }
+        throw "Falha ao iniciar comando Python${labelText}: $display`n$($_.Exception.Message)"
+    }
 }
 
 Import-EnvFile -Path $EnvFile -OverrideExisting $true
@@ -291,9 +326,9 @@ foreach ($p in $projects) {
         $jiraArgs += @('--jql-extra', $JqlExtra)
     }
 
-    $jiraExit = Invoke-PythonScript -ScriptPath $scriptPath -Arguments $jiraArgs
+    $jiraExit = Invoke-PythonScript -ScriptPath $scriptPath -Arguments $jiraArgs -Label "jira_to_pipeline_csv $($p.Key)"
     if ($jiraExit -ne 0) {
-        throw "Falha na exportação downstream detalhada do projeto $($p.Key)."
+        throw "Falha na exportação downstream detalhada do projeto $($p.Key) (exit $jiraExit). Consulte a saída do comando acima."
     }
 
     if (Test-Path $detailedChangelogOut) {
@@ -308,7 +343,7 @@ foreach ($p in $projects) {
         '--out-dir', $processMiningOutDir,
         '--project', $p.Key,
         '--prefix', $p.ProcessMiningPrefix
-    )
+    ) -Label "process_mining_jira $($p.Key)"
     if ($pmExit -eq 0) {
         Sync-LatestArtifactsFromOutDir -SourceDir $processMiningOutDir -LatestDir $LatestDir
     }
@@ -322,7 +357,7 @@ foreach ($p in $projects) {
     $bbExit = Invoke-PythonScript -ScriptPath $bitbucketScript -Arguments @(
         '--project', $p.BitbucketProject,
         '--out-dir', $OutDir
-    )
+    ) -Label "bitbucket_export $($p.BitbucketProject)"
     if ($bbExit -eq 0) {
         foreach ($suffix in @('commits', 'pullrequests', 'pipelines')) {
             $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p.FilePrefix.Replace('-downstream', ''), $suffix)
@@ -354,7 +389,7 @@ if ($RunDashboardModel) {
         $env:DATA_FOLDER = $OutDir
         $env:FLOW_PMO_LATEST_DIR = $LatestDir
 
-        $dashboardExit = Invoke-PythonScript -ScriptPath $dashboardMetricsScript
+        $dashboardExit = Invoke-PythonScript -ScriptPath $dashboardMetricsScript -Label "dash_board_metricas"
         if ($dashboardExit -ne 0) {
             throw "Falha ao atualizar PowerBI_Model_latest.xlsx (exit $dashboardExit)."
         }
