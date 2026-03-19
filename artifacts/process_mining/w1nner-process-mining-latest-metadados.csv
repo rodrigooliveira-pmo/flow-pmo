@@ -1,19 +1,19 @@
 ﻿Metrica,Valor
 pm4py_available,True
-pm4py_events,7316
-pm4py_cases,1001
-pm4py_activities,36
-pm4py_dfg_edges,139
-pm4py_start_activities,17
-pm4py_end_activities,8
-graphviz_dot_available,True
-graphviz_dot_path,/opt/homebrew/bin/dot
-pm4py_dfg_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-dfg.png
-pm4py_dfg_performance_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-dfg-performance.png
-pm4py_heuristics_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-heuristics.png
-pm4py_inductive_tree_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-inductive-tree.png
-pm4py_petri_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-petri.png
-pm4py_petri_token_freq_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-petri-token-freq.png
-pm4py_petri_token_perf_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260313_160250-pm4py-petri-token-perf.png
+pm4py_events,7425
+pm4py_cases,1014
+pm4py_activities,38
+pm4py_dfg_edges,140
+pm4py_start_activities,19
+pm4py_end_activities,10
+graphviz_dot_available,False
+graphviz_dot_path,dot_not_found | checked: C:\ProgramData\anaconda3\Library\bin
+pm4py_dfg_vis_error,Graphviz 'dot' não encontrado no PATH
+pm4py_dfg_performance_vis_error,Graphviz 'dot' não encontrado no PATH
+pm4py_heuristics_error,Graphviz 'dot' não encontrado no PATH
+pm4py_inductive_tree_error,Graphviz 'dot' não encontrado no PATH
+pm4py_petri_error,Graphviz 'dot' não encontrado no PATH
+pm4py_petri_token_freq_error,Graphviz 'dot' não encontrado no PATH
+pm4py_petri_token_perf_error,Graphviz 'dot' não encontrado no PATH
 pm4py_alignments_max_cases,0
 pm4py_alignments_skipped,disabled_by_limit
