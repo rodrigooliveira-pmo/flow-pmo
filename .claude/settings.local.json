@@ -14,7 +14,8 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\(''dashboard_full.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(python -c \":*)",
       "Bash(python validate_dev_executor.py --start 2026-02-01 --end 2026-03-31)",
-      "Bash(python diag_bitbucket.py)"
+      "Bash(python diag_bitbucket.py)",
+      "Bash(python diag_bitbucket.py --repo s1nc_ruby --limit 10)"
     ]
   }
 }

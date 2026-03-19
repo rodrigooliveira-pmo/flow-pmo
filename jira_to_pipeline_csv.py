@@ -578,6 +578,97 @@ def _fetch_bitbucket_pr_author_index(
     return result
 
 
+def _fetch_bitbucket_commit_author_index(
+    workspace: str,
+    repos: List[str],
+    username: str,
+    app_password: str,
+    max_commits_per_repo: int = 500,
+) -> Dict[str, str]:
+    """Constrói índice {issue_key_jira: author_display_name} a partir de mensagens de commit.
+
+    Complementa o índice de PRs: cobre repositórios que fazem push direto sem abrir PR.
+    Para cada commit, extrai chaves Jira da mensagem e registra o autor.
+    Usa moda (autor mais frequente) quando múltiplos commits referenciam a mesma issue.
+
+    O autor do Bitbucket (display_name) tem prioridade; fallback para o git raw "Nome <email>".
+    """
+    if not workspace or not repos or not username or not app_password:
+        return {}
+
+    auth = (username, app_password)
+    headers = {"Accept": "application/json"}
+    base_api = "https://api.bitbucket.org/2.0"
+
+    author_votes: Dict[str, Dict[str, int]] = {}
+
+    for repo in repos:
+        repo = repo.strip()
+        if not repo:
+            continue
+        url: Optional[str] = (
+            f"{base_api}/repositories/{workspace}/{repo}/commits"
+            f"?pagelen=100"
+        )
+        page = 0
+        repo_commits = 0
+        repo_mapped = 0
+
+        while url and repo_commits < max_commits_per_repo:
+            try:
+                resp = requests.get(url, auth=auth, headers=headers, timeout=60)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                print(f"[Bitbucket] Erro ao buscar commits de {repo} (página {page}): {exc}")
+                break
+
+            for commit in data.get("values", []):
+                if repo_commits >= max_commits_per_repo:
+                    break
+
+                # Prefere display_name do Bitbucket; fallback para git raw "Nome <email>"
+                author_info = commit.get("author") or {}
+                user_info   = author_info.get("user") or {}
+                author_name = user_info.get("display_name", "").strip()
+                if not author_name:
+                    raw = author_info.get("raw", "")
+                    author_name = raw.split("<")[0].strip() if raw else ""
+                if not author_name:
+                    repo_commits += 1
+                    continue
+
+                message = commit.get("message") or ""
+                found_keys: set = set()
+                for m in _JIRA_KEY_RE.finditer(message):
+                    found_keys.add(m.group(1))
+
+                for jira_key in found_keys:
+                    votes = author_votes.setdefault(jira_key, {})
+                    votes[author_name] = votes.get(author_name, 0) + 1
+                    repo_mapped += 1
+
+                repo_commits += 1
+
+            next_url = data.get("next")
+            page += 1
+            if page % 5 == 0:
+                print(f"[Bitbucket]   {repo} commits: {repo_commits} processados (página {page})...")
+            url = next_url
+
+        print(
+            f"[Bitbucket]   {repo}: {repo_commits} commits processados "
+            f"({page} pág.) -> {repo_mapped} refs Jira encontradas."
+        )
+
+    result: Dict[str, str] = {}
+    for jira_key, votes in author_votes.items():
+        result[jira_key] = max(votes, key=lambda a: votes[a])
+
+    print(f"[Bitbucket] Indice de autores de commit construido: {len(result)} issues mapeadas.")
+    return result
+
+
 def build_issue_row(
     base_url: str,
     issue: Dict[str, Any],
@@ -1057,15 +1148,41 @@ def main() -> int:
 
     pr_author_index: Dict[str, str] = {}
     if _bb_workspace and _bb_repos and _bb_username and _bb_app_pwd:
+        # Profundidade de commits por repo (padrão 500; configure com BB_COMMIT_DEPTH)
+        _commit_depth = int(os.getenv("BB_COMMIT_DEPTH", "500"))
+
+        # 1) Índice por commits — cobre repos sem PRs (push direto) e gaps entre PRs
         print(
-            f"[Bitbucket] Buscando PRs merged em {len(_bb_repos)} repo(s): {', '.join(_bb_repos)} "
-            f"(workspace: {_bb_workspace})"
+            f"[Bitbucket] Buscando commits em {len(_bb_repos)} repo(s) "
+            f"(ate {_commit_depth} commits/repo)..."
         )
-        pr_author_index = _fetch_bitbucket_pr_author_index(
+        _commit_index = _fetch_bitbucket_commit_author_index(
             workspace=_bb_workspace,
             repos=_bb_repos,
             username=_bb_username,
             app_password=_bb_app_pwd,
+            max_commits_per_repo=_commit_depth,
+        )
+
+        # 2) Índice por PRs merged — maior confiança (autor do PR é o responsável pela revisão)
+        print(
+            f"[Bitbucket] Buscando PRs merged em {len(_bb_repos)} repo(s): {', '.join(_bb_repos)} "
+            f"(workspace: {_bb_workspace})"
+        )
+        _pr_index = _fetch_bitbucket_pr_author_index(
+            workspace=_bb_workspace,
+            repos=_bb_repos,
+            username=_bb_username,
+            app_password=_bb_app_pwd,
+        )
+
+        # Mescla: PR author tem prioridade sobre commit author
+        # commit_index preenche lacunas; pr_index sobrescreve onde há PR
+        pr_author_index = {**_commit_index, **_pr_index}
+        print(
+            f"[Bitbucket] Indice final (PR + commits): {len(pr_author_index)} issues mapeadas "
+            f"({len(_pr_index)} via PR, {len(_commit_index) - len(set(_commit_index) & set(_pr_index))} "
+            f"somente via commit)."
         )
     else:
         print(

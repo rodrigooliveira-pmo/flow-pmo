@@ -3,9 +3,9 @@
 Validação do enriquecimento DevExecutor via PRs do Bitbucket.
 
 Evidências geradas:
-  1. Cobertura global — quantos itens Done têm DevExecutor preenchido
-  2. Divergências — itens onde DevExecutor ≠ Responsável (a virada de atribuição)
-  3. Resumo por dev — antes vs depois da nova atribuição
+  1. Cobertura global -- quantos itens Done têm DevExecutor preenchido
+  2. Divergências -- itens onde DevExecutor != Responsável (a virada de atribuição)
+  3. Resumo por dev -- antes vs depois da nova atribuição
   4. Amostra dos 20 maiores casos de divergência no período
 
 Uso:
@@ -81,7 +81,7 @@ def run_validation(df: pd.DataFrame, start: str, end: str) -> None:
 
     # ── Evidência 1: coluna DevExecutor existe? ───────────────────────────────
     print("\n" + "=" * 60)
-    print("EVIDÊNCIA 1 — Presença da coluna DevExecutor")
+    print("EVIDÊNCIA 1 -- Presença da coluna DevExecutor")
     print("=" * 60)
     if EXEC_COL not in df.columns:
         print(
@@ -92,18 +92,26 @@ def run_validation(df: pd.DataFrame, start: str, end: str) -> None:
         return
     print(f"\n  OK  Coluna '{EXEC_COL}' encontrada.")
 
-    # ── Filtra itens Done no período ──────────────────────────────────────────
-    done_col_found = next((c for c in (DONE_COL, "DataDone") if c in df.columns), None)
-    if done_col_found is None:
-        print("\n[ERRO] Coluna Done/DataDone não encontrada.", file=sys.stderr)
+    # ── Detecta e combina colunas de Done de múltiplos projetos ──────────────
+    # W1NNR/S1NC/BF usam "Itens concluídos"; DT usa "Done"; pós-processamento usa "DataDone".
+    done_cols = [c for c in df.columns if c in ("Done", "DataDone") or "conclu" in c.lower()]
+    if not done_cols:
+        print("\n[ERRO] Nenhuma coluna Done encontrada. Colunas:", list(df.columns[:10]), file=sys.stderr)
         sys.exit(1)
 
-    df["_DataDone"] = _parse_date(df, done_col_found)
+    print(f"\n  Colunas Done detectadas: {done_cols}")
+    # Combina: pega a primeira data não-nula entre as colunas candidatas
+    combined = pd.Series(pd.NaT, index=df.index)
+    for col in done_cols:
+        parsed = _parse_date(df, col)
+        combined = combined.where(combined.notna(), parsed)
+    df["_DataDone"] = combined
+
     periodo = df[
         (df["_DataDone"] >= start_ts) & (df["_DataDone"] < end_ts)
     ].copy()
-    print(f"\n  Periodo de análise: {start} -> {end}")
-    print(f"  Itens Done no período: {len(periodo):,}")
+    print(f"  Periodo de analise: {start} -> {end}")
+    print(f"  Itens Done no periodo: {len(periodo):,}")
 
     if periodo.empty:
         print("\n  Nenhum item Done encontrado no período informado.")
@@ -114,7 +122,7 @@ def run_validation(df: pd.DataFrame, start: str, end: str) -> None:
 
     # ── Evidência 2: Cobertura ────────────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("EVIDÊNCIA 2 — Cobertura do DevExecutor")
+    print("EVIDÊNCIA 2 -- Cobertura do DevExecutor")
     print("=" * 60)
     total      = len(periodo)
     com_exec   = (periodo["_DevExecutor"].ne("")).sum()
@@ -134,9 +142,9 @@ def run_validation(df: pd.DataFrame, start: str, end: str) -> None:
         return
     print("\n  OK  Enriquecimento Bitbucket ativo.")
 
-    # ── Evidência 3: Divergências (Responsavel ≠ DevExecutor) ────────────────
+    # ── Evidência 3: Divergências (Responsavel != DevExecutor) ────────────────
     print("\n" + "=" * 60)
-    print("EVIDÊNCIA 3 — Divergências: DevExecutor ≠ Responsável")
+    print("EVIDÊNCIA 3 -- Divergências: DevExecutor != Responsável")
     print("=" * 60)
     diverg = periodo[
         periodo["_DevExecutor"].ne("") &
@@ -162,7 +170,7 @@ def run_validation(df: pd.DataFrame, start: str, end: str) -> None:
 
     # ── Evidência 4: Resumo antes vs depois por dev ───────────────────────────
     print("\n" + "=" * 60)
-    print("EVIDÊNCIA 4 — Impacto por desenvolvedor (Antes vs Depois)")
+    print("EVIDÊNCIA 4 -- Impacto por desenvolvedor (Antes vs Depois)")
     print("=" * 60)
 
     # "Antes" = contagem por Responsavel
