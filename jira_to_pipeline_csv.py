@@ -1030,19 +1030,21 @@ def main() -> int:
         print(f"T-shirt size field configurado via JIRA_FIELD_MAP: {field_map['effort_tshirt_size']}")
 
     # ── Enriquecimento com autor de PR do Bitbucket (DevExecutor) ─────────────
-    # Ativo apenas quando as 4 env vars BITBUCKET_* estiverem definidas.
     # Rastreia quem realmente fez o commit/PR vs. quem fechou o card no Jira.
     #
-    # Configuração:
-    #   BITBUCKET_WORKSPACE   — workspace slug (ex.: "minha-empresa")
-    #   BITBUCKET_REPOS       — repos separados por vírgula (ex.: "backend,frontend")
-    #   BITBUCKET_USERNAME    — email ou username Bitbucket
-    #   BITBUCKET_APP_PASSWORD — App Password: Bitbucket > Settings > App passwords
-    _bb_workspace  = os.getenv("BITBUCKET_WORKSPACE", "").strip()
-    _bb_repos_raw  = os.getenv("BITBUCKET_REPOS", "").strip()
-    _bb_username   = os.getenv("BITBUCKET_USERNAME", "").strip()
-    _bb_app_pwd    = os.getenv("BITBUCKET_APP_PASSWORD", "").strip()
-    _bb_repos      = [r.strip() for r in _bb_repos_raw.split(",") if r.strip()]
+    # Configuração em jira_env.txt (padrão BB_* já existente no projeto):
+    #   BB_WORKSPACE  — workspace slug
+    #   BB_REPOS      — repos separados por vírgula (fallback: BB_REPO singular)
+    #   BB_EMAIL      — email/username Bitbucket
+    #   BB_TOKEN      — App Password do Bitbucket
+    _bb_workspace = os.getenv("BB_WORKSPACE", "").strip()
+    _bb_repos_raw = (
+        os.getenv("BB_REPOS", "").strip()
+        or os.getenv("BB_REPO", "").strip()   # fallback para singular já existente
+    )
+    _bb_username  = os.getenv("BB_EMAIL", "").strip()
+    _bb_app_pwd   = os.getenv("BB_TOKEN", "").strip()
+    _bb_repos     = [r.strip() for r in _bb_repos_raw.split(",") if r.strip()]
 
     pr_author_index: Dict[str, str] = {}
     if _bb_workspace and _bb_repos and _bb_username and _bb_app_pwd:
@@ -1059,7 +1061,7 @@ def main() -> int:
     else:
         print(
             "[Bitbucket] Enriquecimento de DevExecutor desabilitado "
-            "(defina BITBUCKET_WORKSPACE, BITBUCKET_REPOS, BITBUCKET_USERNAME e BITBUCKET_APP_PASSWORD)."
+            "(defina BB_WORKSPACE, BB_REPOS, BB_EMAIL e BB_TOKEN em jira_env.txt)."
         )
 
     status_map = resolve_status_map(args.projects)
