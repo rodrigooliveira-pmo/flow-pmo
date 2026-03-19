@@ -1,5 +1,101 @@
 # Task Plan
 
+## Current Task (Fortalecer run_process_mining_projects.ps1 para refresh completo do dashboard)
+- [x] Revisar o runner atual e confirmar pontos de extensão seguros
+- [x] Implementar fallback robusto de interpretador Python no PowerShell
+- [x] Adicionar suporte a `JQL extra` e ajuda de uso
+- [x] Adicionar chamada opcional de `dash_board_metricas.py` no final
+- [x] Validar sintaxe/ajuda do runner e registrar revisão
+
+## Specification (Fortalecer run_process_mining_projects.ps1 para refresh completo do dashboard)
+- Objetivo: fazer o `run_process_mining_projects.ps1` suportar resolução robusta de Python, aceitar filtro JQL extra no export Jira e, opcionalmente, acionar o refresh do `PowerBI_Model_latest.xlsx` para virar um runner mais completo do `dashboard_full`.
+- Estratégia:
+  - reaproveitar o fluxo atual de downstream + process mining + Bitbucket
+  - centralizar a resolução do interpretador Python em helper próprio
+  - manter a atualização do modelo consolidado como passo opt-in no final do script
+- Regras:
+  - não quebrar a execução atual sem parâmetros
+  - preservar publicação dos artefatos `latest`
+  - garantir que o refresh opcional do modelo use `OutDir`/`LatestDir` coerentes com o restante do runner
+
+## Review (Fortalecer run_process_mining_projects.ps1 para refresh completo do dashboard)
+- O que foi implementado:
+  - `run_process_mining_projects.ps1` ganhou resolução robusta de Python com fallback por `python`, `python3`, `py -3`, além de caminhos comuns de instalação no Windows.
+  - o runner agora aceita `-JqlExtra` e repassa esse filtro para `jira_to_pipeline_csv.py`.
+  - foi adicionada ajuda explícita com `-Help`, sem alterar o comportamento padrão do script quando executado sem parâmetros.
+  - o runner agora aceita `-RunDashboardModel`, configurando `FLOW_PMO_DATA_DIR`, `DATA_FOLDER` e `FLOW_PMO_LATEST_DIR` para chamar `dash_board_metricas.py` no final e atualizar o `PowerBI_Model_latest.xlsx`.
+- Evidências de validação:
+  - parser PowerShell sem erros em `run_process_mining_projects.ps1`
+  - execução de `.\run_process_mining_projects.ps1 -Help` com saída esperada
+  - inspeção do diff em `run_process_mining_projects.ps1` e `tasks/todo.md`
+- Suggested commit message:
+  - `feat(runner): add python fallback jql filter and optional dashboard model refresh`
+
+## Current Task (Medir retornos para desenvolvimento e cycle time dev)
+- [x] Confirmar o melhor ponto de cálculo a partir do changelog detalhado / eventos filtrados
+- [x] Implementar métricas de cycle time em `In Progress` / `In Development` no pipeline de process mining
+- [x] Implementar relatório de ida e volta `QA/Test/Homolog -> Dev` no pipeline de process mining
+- [x] Acrescentar as novas métricas na aba `Produtividade Dev`
+- [x] Validar comportamento e registrar revisão
+
+## Specification (Medir retornos para desenvolvimento e cycle time dev)
+- Objetivo: extrair dos logs do Jira métricas operacionais de desenvolvimento para apoiar um relatório de retorno para desenvolvimento e enriquecer a aba `Produtividade Dev`.
+- Estratégia:
+  - usar o changelog detalhado real do Jira já consolidado em `EventosFiltrados`
+  - tratar `In Progress`, `In Development`, `Development`, `Doing` e equivalentes como etapa de desenvolvimento
+  - tratar status com pistas de `QA`, `test`, `homolog` e `validation` como etapas de teste/validação para detecção de retorno
+  - medir o `cycle time` de desenvolvimento pela soma do tempo alocado em etapas de desenvolvimento
+  - medir a `ida e volta` pelo intervalo entre a saída de desenvolvimento para teste/QA e o retorno subsequente para desenvolvimento
+- Regras:
+  - preferir cálculo no pipeline (`process_mining_jira.py`) e consumo simples no dashboard
+  - manter a lógica aderente aos timestamps reais do changelog, sem aproximações por datas agregadas
+  - expor schema estável mesmo quando não houver ocorrências
+
+## Review (Medir retornos para desenvolvimento e cycle time dev)
+- O que foi implementado:
+  - `process_mining_jira.py` agora gera datasets explícitos para fluxo de desenvolvimento: `DevFlowResumo`, `DevFlowItens` e `DevFlowRetornos`, todos derivados do changelog real.
+  - o cálculo de retorno QA->Dev passou a medir o intervalo entre a entrada em teste/QA/homologação e o retorno subsequente para desenvolvimento, em vez de reaproveitar tempo do status após o retorno.
+  - `dashboard_full.py` passou a consumir esses datasets novos com fallback para recálculo a partir de `EventosFiltrados`, preservando compatibilidade com artefatos antigos.
+  - a aba `Produtividade Dev` ganhou métricas agregadas por pessoa (`Cycle Time Dev`, `Retornos QA->Dev`, `% cards com retorno`) e um relatório tabular por card com cada loop QA->Dev.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - `python -m py_compile process_mining_jira.py` executado fora do sandbox após bloqueio do launcher do Python no ambiente restrito
+  - revisão do diff local em `process_mining_jira.py` e `dashboard_full.py`
+- Suggested commit message:
+  - `feat(produtividade-dev): add dev cycle time and qa-to-dev return reporting`
+
+# Task Plan
+
+## Current Task (Portfólio: excluir cancelados de alertas e KPIs)
+- [x] Mapear quais KPIs e alertas do módulo de portfólio contam itens cancelados hoje
+- [x] Ajustar o snapshot para que KPIs e alertas usem somente itens não cancelados
+- [x] Validar estruturalmente a exclusão de cancelados e registrar a limitação do ambiente
+- [x] Registrar review com evidências e commit sugerido
+
+## Specification (Portfólio: excluir cancelados de alertas e KPIs)
+- Objetivo: fazer com que os alertas e KPIs do dashboard de portfólio considerem apenas itens não cancelados.
+- Estratégia:
+  - reutilizar a regra central `portfolio_is_cancelled_item(...)`
+  - aplicar o filtro no snapshot antes das agregações de épicos/features/filhos
+  - propagar o mesmo universo para KPIs, alertas e estruturas derivadas da aba
+- Regras:
+  - `Features sem story/task` deve ignorar features canceladas
+  - `Épicos sem features` deve ignorar épicos cancelados
+  - alertas de portfólio não devem abrir ocorrência para item cancelado
+
+## Review (Portfólio: excluir cancelados de alertas e KPIs)
+- O que foi implementado:
+  - [`dashboard_full.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py#L3018) agora filtra itens cancelados dentro de `compute_portfolio_snapshot(...)` antes de derivar `epics`, `features` e `children`.
+  - a exclusão reutiliza o helper [`portfolio_is_cancelled_item(...)`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py#L4677), mantendo a mesma semântica já usada nas visões de roadmap.
+  - com isso, contagens como `Épicos sem features`, `Features sem filhos` e os dataframes de alertas passam a nascer do mesmo universo sem cancelados.
+- Evidências:
+  - o filtro base ficou antes da decomposição: [`dashboard_full.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py#L3187), [`dashboard_full.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py#L3188), [`dashboard_full.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py#L3190)
+  - o CSV atual contém itens cancelados reais, por exemplo [`portfolio-bt-ns-latest-data.csv`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/portfolio-bt-ns-latest-data.csv#L9), [`portfolio-bt-ns-latest-data.csv`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/portfolio-bt-ns-latest-data.csv#L55), [`portfolio-bt-ns-latest-data.csv`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/portfolio-bt-ns-latest-data.csv#L206), [`portfolio-bt-ns-latest-data.csv`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/portfolio-bt-ns-latest-data.csv#L208)
+- Limitação de validação:
+  - não foi possível executar um smoke test em runtime porque este ambiente não tem um `python.exe` funcional e o `venv` local aponta para um interpretador inexistente em `/opt/homebrew/...`.
+- Suggested commit message:
+  - `fix(portfolio): exclude cancelled items from portfolio kpis and alerts`
+
 ## Current Task (Diagnosticar gráficos de process mining com imagens repetidas)
 - [x] Mapear a geração dos PNGs de process mining e os nomes de saída por tipo de gráfico
 - [x] Verificar se a repetição acontece na exportação (`process_mining_jira.py`) ou no carregamento da UI (`dashboard_process_mining.py`)
@@ -5869,3 +5965,35 @@
   - Limitação: a validação automatizada com `python -m py_compile process_mining_jira.py` não pôde ser executada neste ambiente porque o executável `python.exe` não iniciou (`ResourceUnavailable` no launcher do Windows).
 - Suggested commit message:
   - `fix(process-mining): include user story in default item recovery`
+
+## Current Task (Produtividade Dev: retorno para desenvolvimento e cycle time dev)
+- [x] Confirmar a melhor fonte para medir ida e volta QA/teste -> desenvolvimento e o cycle time de desenvolvimento
+- [x] Implementar agregação das novas métricas por pessoa sem quebrar a aba `Produtividade Dev`
+- [x] Expor as métricas novas na tabela/KPIs da aba `Produtividade Dev`
+- [x] Validar com compilação, inspeção do diff e registrar review
+
+## Specification (Produtividade Dev: retorno para desenvolvimento e cycle time dev)
+- Objetivo: avaliar e implementar a extração, a partir dos logs/histórico Jira já processados pelo projeto, de métricas de retorno para desenvolvimento após teste/QA e de cycle time de desenvolvimento, exibindo o resultado na aba `Produtividade Dev`.
+- Estratégia:
+  - reutilizar os artefatos de process mining/Jira já consumidos pelo dashboard em vez de introduzir uma fonte paralela na UI
+  - medir por desenvolvedor os retornos QA/teste -> desenvolvimento e o tempo acumulado em etapas de desenvolvimento
+  - integrar essas métricas ao `per_dev` da aba `tab-produtividade-dev`
+- Regras:
+  - manter compatibilidade com os filtros atuais da aba
+  - evitar dupla contagem quando o mesmo item passa mais de uma vez por desenvolvimento
+  - preservar as métricas já existentes e limitar o impacto ao fluxo de produtividade dev
+
+## Review (Produtividade Dev: retorno para desenvolvimento e cycle time dev)
+- O que foi implementado:
+  - `process_mining_jira.py` passou a gerar métricas por item para `Cycle Time Dev` e para o loop completo de retorno `QA/Test/Homolog -> Dev`, além do detalhe `RetornoDevLoops` para relatório.
+  - `dashboard_full.py` passou a reutilizar uma função única de resolução da pessoa do dev (`DevExecutor` com fallback para `Responsavel`) tanto na base Jira quanto no cruzamento com process mining.
+  - A aba `Produtividade Dev` agora consolida `ConformidadeCasos` e `EventosFiltrados` dos relatórios `*-process-mining-latest.xlsx` para calcular:
+    - `Cycle Time Dev Mediano (dias)` e `Cycle Time Dev Médio (dias)` a partir da soma de `TempoStatusDias` nas etapas normalizadas de desenvolvimento (`In Progress`, `In Development`, `Development`, `Doing` e equivalentes).
+    - `Retornos QA->Dev`, `Cards com Retorno QA->Dev`, `% Cards com Retorno QA->Dev` e `Tempo Retorno QA->Dev Mediano (dias)` a partir do intervalo completo entre a saída de desenvolvimento para teste/QA e o retorno subsequente para desenvolvimento.
+  - Os novos indicadores foram adicionados aos mini-KPIs do topo e à tabela/ranking da aba `Produtividade Dev`, sem alterar a lógica de score existente (`Score Integrado`, `IED`, `IEF`).
+- Evidências de validação:
+  - inspeção do diff em `process_mining_jira.py`, `dashboard_full.py` e `tasks/todo.md`
+  - revisão estática dos trechos alterados para confirmar o encadeamento `Dev -> QA/Teste -> Dev` e a soma de `TempoStatusDias` em estágios de desenvolvimento
+  - Limitação: nem `python -m py_compile` nem o smoke test sintético via `python -` puderam ser executados neste ambiente por falha do launcher `C:\\Users\\W1 TI\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe` (`ResourceUnavailable`).
+- Suggested commit message:
+  - `feat(produtividade-dev): add development cycle and qa return metrics`

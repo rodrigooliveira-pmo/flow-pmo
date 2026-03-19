@@ -531,6 +531,11 @@ LEAD_TIME_BACKLOG_LIKE_STAGE_NAMES = {
     'triagem',
 }
 
+# Default stages considered "active WIP" for the Etapa de Fluxo filter.
+WIP_FLOW_STAGE_DEFAULTS = [
+    'ready to start', 'in progress', 'ready to code review', 'code review',
+]
+
 PORTFOLIO_CACHE_TTL = timedelta(minutes=10)
 PORTFOLIO_CACHE = {
     'fetched_at': None,
@@ -1544,6 +1549,36 @@ def _unified_sp_bucket(sp_val, tshirt_val=None):
     return 'Sem estimativa'
 
 
+def _resolve_dev_person_series(df: pd.DataFrame, alias_index=None) -> pd.Series:
+    """Resolve a pessoa responsável pelo trabalho técnico na mesma semântica da aba dev."""
+    if df is None or df.empty or 'Responsavel' not in df.columns:
+        return pd.Series(dtype='object')
+    if alias_index is None:
+        alias_index = _load_person_alias_index()
+
+    if 'DevExecutor' in df.columns:
+        executor = df['DevExecutor'].astype(str).str.strip()
+        assignee = df['Responsavel'].astype(str).str.strip()
+        source = executor.where(executor.ne('') & executor.ne('nan'), assignee)
+    else:
+        source = df['Responsavel'].astype(str).str.strip()
+
+    return source.apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+
+
+def _build_dev_item_person_map(df: pd.DataFrame, alias_index=None) -> dict[str, str]:
+    """Mapeia ItemID -> pessoa canônica do dev para alinhar PM e base Jira filtrada."""
+    if df is None or df.empty or 'ItemID' not in df.columns or 'Responsavel' not in df.columns:
+        return {}
+    tmp = df[['ItemID', 'Responsavel'] + (['DevExecutor'] if 'DevExecutor' in df.columns else [])].copy()
+    tmp['Pessoa'] = _resolve_dev_person_series(tmp, alias_index=alias_index)
+    tmp['ItemID'] = tmp['ItemID'].astype(str).str.strip()
+    tmp = tmp[tmp['ItemID'].ne('') & tmp['Pessoa'].astype(str).str.strip().ne('')]
+    if tmp.empty:
+        return {}
+    return tmp.drop_duplicates(subset=['ItemID'], keep='first').set_index('ItemID')['Pessoa'].to_dict()
+
+
 def build_dev_productivity_metrics(df, start_ts, end_ts):
     """
     Calcula métricas de produtividade individual por desenvolvedor.
@@ -1558,15 +1593,7 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     alias_index = _load_person_alias_index()
 
     base = df.copy()
-    # DevExecutor: autor real do PR/commit (via Bitbucket), quando disponível.
-    # Fallback para Responsavel (assignee do Jira) quando DevExecutor estiver vazio.
-    if 'DevExecutor' in base.columns:
-        _executor = base['DevExecutor'].astype(str).str.strip()
-        _assignee  = base['Responsavel'].astype(str).str.strip()
-        _fonte = _executor.where(_executor.ne('') & _executor.ne('nan'), _assignee)
-    else:
-        _fonte = base['Responsavel'].astype(str).str.strip()
-    base['_Pessoa'] = _fonte.apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    base['_Pessoa'] = _resolve_dev_person_series(base, alias_index=alias_index)
     base = base[base['_Pessoa'].astype(str).str.strip().ne('')]
     if base.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
@@ -3159,6 +3186,11 @@ def compute_portfolio_snapshot(df, updated_at_label):
     df['ProjetoNorm'] = df['Projeto'].map(normalize_text)
     df['StatusNorm'] = df['Status'].map(normalize_text)
     df['ParentID'] = df['ParentID'].fillna('').astype(str)
+
+    # O snapshot de portfólio trabalha apenas com itens não cancelados para que
+    # decomposição, KPIs e alertas compartilhem o mesmo universo de análise.
+    df['IsCancelled'] = df['Status'].apply(lambda value: portfolio_is_cancelled_item(value, ''))
+    df = df[~df['IsCancelled']].copy()
 
     epic_types = {'epic', 'epico'}
     feature_types = {'feature', 'funcionalidade'}
@@ -6556,6 +6588,30 @@ def get_downstream_done_stage_column(stage_cols):
     return stage_cols[-1] if stage_cols else None
 
 
+def compute_current_stage_map(projeto):
+    """Returns {str(item_id): stage_name} where stage_name is the last stage column
+    (in CSV order) with a non-null date for each item in the downstream CSV."""
+    items_df = load_project_downstream_items_csv(projeto)
+    if items_df is None or items_df.empty or 'ID' not in items_df.columns:
+        return {}
+    stage_cols = _detect_stage_date_columns(items_df)
+    if not stage_cols:
+        return {}
+    result = {}
+    for _, row in items_df.iterrows():
+        item_id = str(row['ID']).strip()
+        if not item_id:
+            continue
+        last_stage = None
+        for col in stage_cols:
+            val = pd.to_datetime(row.get(col), dayfirst=True, errors='coerce')
+            if pd.notna(val):
+                last_stage = col
+        if last_stage is not None:
+            result[item_id] = last_stage
+    return result
+
+
 def _find_latest_w1nner_process_mining_excel():
     report_url = os.getenv('FLOW_PMO_PROCESS_MINING_REPORT_URL', '').strip()
     if report_url:
@@ -6726,11 +6782,161 @@ def load_project_pm_case_df(projeto: str) -> pd.DataFrame:
     return load_project_pm_sheet(projeto, 'ConformidadeCasos')
 
 
+_PM_DEV_STATUS_NAMES = frozenset({
+    'in progress',
+    'in development',
+    'em desenvolvimento',
+    'em andamento',
+    'desenvolvimento',
+    'development',
+    'doing',
+    'wip',
+})
+_PM_QA_STATUS_HINTS = ('qa', 'test', 'homolog', 'valid')
+
+
+def _pm_is_dev_status(value) -> bool:
+    return normalize_text(value) in _PM_DEV_STATUS_NAMES
+
+
+def _pm_is_qa_status(value) -> bool:
+    norm = normalize_text(value)
+    return any(token in norm for token in _PM_QA_STATUS_HINTS)
+
+
+def _pm_summarize_dev_flow_from_events(events_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    item_cols = [
+        'Issue Key', 'Projeto', 'Tipo de Problema',
+        'Primeira Entrada Dev', 'Ultima Entrada Dev', 'Segmentos Dev',
+        'Cycle Time Dev (dias)', 'Retornos QA->Dev',
+        'Tempo Retorno QA->Dev Total (dias)', 'Tempo Retorno QA->Dev Medio (dias)',
+        'Tempo Retorno QA->Dev Mediano (dias)',
+    ]
+    return_cols = [
+        'Issue Key', 'Projeto', 'Tipo de Problema', 'Retorno Seq',
+        'Dev Owner Antes QA', 'Entrada QA/Teste Em', 'Retorno Dev Em',
+        'Status Entrada QA/Teste', 'Status Retorno Dev', 'Tempo Retorno QA->Dev (dias)',
+    ]
+    if events_df is None or events_df.empty or 'Issue Key' not in events_df.columns or 'History Created' not in events_df.columns:
+        return pd.DataFrame(columns=item_cols), pd.DataFrame(columns=return_cols)
+
+    events = events_df.copy()
+    for col in ['Projeto', 'Tipo de Problema', 'Author', 'From Status', 'To Status']:
+        if col not in events.columns:
+            events[col] = ''
+        events[col] = events[col].fillna('').astype(str).str.strip()
+    events['Issue Key'] = events['Issue Key'].fillna('').astype(str).str.strip()
+    events['History Created'] = pd.to_datetime(events['History Created'], errors='coerce')
+    if 'TempoStatusDias' not in events.columns:
+        events['TempoStatusDias'] = np.nan
+    events['TempoStatusDias'] = pd.to_numeric(events['TempoStatusDias'], errors='coerce')
+    events['To Status Norm'] = events.get('To Status Norm', events.get('To Status', '')).apply(normalize_text)
+    events['From Status Norm'] = events.get('From Status Norm', events.get('From Status', '')).apply(normalize_text)
+    events = events[events['Issue Key'].ne('') & events['History Created'].notna()].copy()
+    if events.empty:
+        return pd.DataFrame(columns=item_cols), pd.DataFrame(columns=return_cols)
+
+    sort_cols = ['Issue Key', 'History Created']
+    if 'Event Seq' in events.columns:
+        sort_cols.append('Event Seq')
+    events = events.sort_values(sort_cols).reset_index(drop=True)
+
+    item_rows = []
+    return_rows = []
+
+    for issue_key, group in events.groupby('Issue Key', sort=False):
+        g = group.sort_values(sort_cols[1:]).reset_index(drop=True)
+        projeto = str(g['Projeto'].iloc[0]) if 'Projeto' in g.columns else ''
+        tipo = str(g['Tipo de Problema'].iloc[0]) if 'Tipo de Problema' in g.columns else ''
+        dev_entries = []
+        dev_durations = []
+        return_durations = []
+        last_dev_context = None
+        open_qa_cycle = None
+
+        for _, row in g.iterrows():
+            ts = row['History Created']
+            to_status = str(row.get('To Status') or '')
+            to_status_norm = str(row.get('To Status Norm') or '')
+            author = str(row.get('Author') or '') or 'Sem Autor'
+
+            if _pm_is_dev_status(to_status_norm):
+                dev_entries.append(ts)
+                duration = row.get('TempoStatusDias')
+                if pd.notna(duration) and float(duration) >= 0:
+                    dev_durations.append(float(duration))
+                if open_qa_cycle is not None:
+                    qa_enter_ts = open_qa_cycle.get('qa_enter_ts')
+                    if pd.notna(qa_enter_ts) and ts >= qa_enter_ts:
+                        roundtrip_days = max((ts - qa_enter_ts).total_seconds() / 86400.0, 0.0)
+                        return_durations.append(roundtrip_days)
+                        return_rows.append({
+                            'Issue Key': issue_key,
+                            'Projeto': projeto,
+                            'Tipo de Problema': tipo,
+                            'Retorno Seq': len(return_durations),
+                            'Dev Owner Antes QA': str(open_qa_cycle.get('dev_owner') or 'Sem Autor'),
+                            'Entrada QA/Teste Em': qa_enter_ts,
+                            'Retorno Dev Em': ts,
+                            'Status Entrada QA/Teste': str(open_qa_cycle.get('qa_status') or ''),
+                            'Status Retorno Dev': to_status,
+                            'Tempo Retorno QA->Dev (dias)': round(float(roundtrip_days), 4),
+                        })
+                    open_qa_cycle = None
+                last_dev_context = {'author': author, 'timestamp': ts}
+                continue
+
+            if _pm_is_qa_status(to_status_norm):
+                if open_qa_cycle is None and last_dev_context is not None:
+                    last_dev_ts = last_dev_context.get('timestamp')
+                    if pd.notna(last_dev_ts) and ts >= last_dev_ts:
+                        open_qa_cycle = {
+                            'qa_enter_ts': ts,
+                            'qa_status': to_status,
+                            'dev_owner': str(last_dev_context.get('author') or 'Sem Autor'),
+                        }
+                continue
+
+        if not dev_entries and not return_durations:
+            continue
+
+        total_dev_cycle = float(sum(dev_durations)) if dev_durations else 0.0
+        total_return = float(sum(return_durations)) if return_durations else 0.0
+        item_rows.append({
+            'Issue Key': issue_key,
+            'Projeto': projeto,
+            'Tipo de Problema': tipo,
+            'Primeira Entrada Dev': dev_entries[0] if dev_entries else pd.NaT,
+            'Ultima Entrada Dev': dev_entries[-1] if dev_entries else pd.NaT,
+            'Segmentos Dev': int(len(dev_entries)),
+            'Cycle Time Dev (dias)': round(total_dev_cycle, 4),
+            'Retornos QA->Dev': int(len(return_durations)),
+            'Tempo Retorno QA->Dev Total (dias)': round(total_return, 4),
+            'Tempo Retorno QA->Dev Medio (dias)': round(float(np.mean(return_durations)), 4) if return_durations else 0.0,
+            'Tempo Retorno QA->Dev Mediano (dias)': round(float(np.median(return_durations)), 4) if return_durations else 0.0,
+        })
+
+    return pd.DataFrame(item_rows, columns=item_cols), pd.DataFrame(return_rows, columns=return_cols)
+
+
+def _pm_extract_dev_flow_datasets(
+    item_df: pd.DataFrame | None,
+    return_df: pd.DataFrame | None,
+    events_df: pd.DataFrame | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    has_item_summary = item_df is not None and not item_df.empty and 'Cycle Time Dev (dias)' in item_df.columns
+    has_return_summary = return_df is not None and not return_df.empty and 'Tempo Retorno QA->Dev (dias)' in return_df.columns
+    if has_item_summary:
+        return item_df.copy(), return_df.copy() if has_return_summary else pd.DataFrame()
+    return _pm_summarize_dev_flow_from_events(events_df if events_df is not None else pd.DataFrame())
+
+
 def compute_pm_dev_metrics(
     case_df: pd.DataFrame,
     start_ts,
     end_ts,
     alias_index: dict | None = None,
+    item_person_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Calcula métricas de process mining por desenvolvedor a partir de ConformidadeCasos.
 
@@ -6750,13 +6956,20 @@ def compute_pm_dev_metrics(
     # Filtra por período (itens concluídos no janela)
     mask = df['Done Final Date'].notna() & (df['Done Final Date'] >= start_ts) & (df['Done Final Date'] < end_ts)
     df = df[mask].copy()
+    if item_person_map:
+        allowed_keys = {str(k).strip() for k in item_person_map.keys() if str(k).strip()}
+        df['Issue Key'] = df.get('Issue Key', pd.Series('', index=df.index)).astype(str).str.strip()
+        df = df[df['Issue Key'].isin(allowed_keys)].copy()
     if df.empty:
         return pd.DataFrame()
 
     # Normaliza autor
     if alias_index is None:
         alias_index = _load_person_alias_index()
-    df['Pessoa'] = df['Done Final Author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+    if item_person_map:
+        df['Pessoa'] = df['Issue Key'].map(item_person_map).fillna('')
+    else:
+        df['Pessoa'] = df['Done Final Author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
     df = df[df['Pessoa'].astype(str).str.strip().ne('') & df['Pessoa'].str.lower().ne('sem autor')]
 
     for col in ['Conformance Score', 'Rework Score', 'QA Returns']:
@@ -6778,6 +6991,121 @@ def compute_pm_dev_metrics(
             'Complexidade Variante': round(float(variant_len_avg), 1),
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def compute_pm_dev_flow_metrics(
+    item_df: pd.DataFrame,
+    return_df: pd.DataFrame,
+    start_ts,
+    end_ts,
+    alias_index: dict | None = None,
+    item_person_map: dict[str, str] | None = None,
+    events_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Calcula retorno QA/teste -> desenvolvimento e cycle time em desenvolvimento por dev."""
+    summary_df, returns_df = _pm_extract_dev_flow_datasets(item_df, return_df, events_df)
+    if summary_df.empty or 'Issue Key' not in summary_df.columns:
+        return pd.DataFrame()
+
+    if alias_index is None:
+        alias_index = _load_person_alias_index()
+
+    summary_df = summary_df.copy()
+    summary_df['Issue Key'] = summary_df['Issue Key'].astype(str).str.strip()
+    if item_person_map:
+        allowed_keys = {str(k).strip() for k in item_person_map.keys() if str(k).strip()}
+        summary_df = summary_df[summary_df['Issue Key'].isin(allowed_keys)].copy()
+        summary_df['Pessoa'] = summary_df['Issue Key'].map(item_person_map).fillna('')
+    else:
+        summary_df['Pessoa'] = ''
+    summary_df = summary_df[
+        summary_df['Pessoa'].astype(str).str.strip().ne('') &
+        summary_df['Pessoa'].str.lower().ne('sem autor')
+    ].copy()
+    if summary_df.empty:
+        return pd.DataFrame()
+
+    returns_df = returns_df.copy()
+    if not returns_df.empty and 'Issue Key' in returns_df.columns:
+        returns_df['Issue Key'] = returns_df['Issue Key'].astype(str).str.strip()
+        returns_df = returns_df[returns_df['Issue Key'].isin(set(summary_df['Issue Key']))].copy()
+        item_people = summary_df[['Issue Key', 'Pessoa']].drop_duplicates(subset=['Issue Key'], keep='first')
+        returns_df = returns_df.merge(item_people, on='Issue Key', how='left')
+        returns_df = returns_df[returns_df['Pessoa'].astype(str).str.strip().ne('')].copy()
+
+    rows = []
+    for pessoa, group in summary_df.groupby('Pessoa', dropna=False):
+        dev_cycle_by_item = pd.to_numeric(group.get('Cycle Time Dev (dias)'), errors='coerce').dropna()
+        return_counts = pd.to_numeric(group.get('Retornos QA->Dev'), errors='coerce').fillna(0)
+        cards_with_return = int((return_counts > 0).sum())
+        total_items = int(group['Issue Key'].nunique())
+        total_returns = int(return_counts.sum())
+        if not returns_df.empty:
+            qa_return_times = pd.to_numeric(
+                returns_df.loc[returns_df['Pessoa'] == pessoa, 'Tempo Retorno QA->Dev (dias)'],
+                errors='coerce',
+            ).dropna()
+        else:
+            qa_return_times = pd.to_numeric(group.get('Tempo Retorno QA->Dev Mediano (dias)'), errors='coerce').dropna()
+
+        rows.append({
+            'Pessoa': pessoa,
+            'Cycle Time Dev Mediano (dias)': round(float(dev_cycle_by_item.median()), 1) if not dev_cycle_by_item.empty else np.nan,
+            'Cycle Time Dev Médio (dias)': round(float(dev_cycle_by_item.mean()), 1) if not dev_cycle_by_item.empty else np.nan,
+            'Retornos QA->Dev': total_returns,
+            'Cards com Retorno QA->Dev': cards_with_return,
+            '% Cards com Retorno QA->Dev': round(cards_with_return / total_items * 100.0, 1) if total_items > 0 else np.nan,
+            'Tempo Retorno QA->Dev Mediano (dias)': round(float(qa_return_times.median()), 1) if not qa_return_times.empty else np.nan,
+            'Tempo Retorno QA->Dev Total (dias)': round(float(qa_return_times.sum()), 1) if not qa_return_times.empty else 0.0,
+        })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def build_pm_dev_return_report(
+    item_df: pd.DataFrame,
+    return_df: pd.DataFrame,
+    item_person_map: dict[str, str] | None = None,
+    events_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    summary_df, returns_df = _pm_extract_dev_flow_datasets(item_df, return_df, events_df)
+    if returns_df.empty or 'Issue Key' not in returns_df.columns:
+        return pd.DataFrame()
+
+    report = returns_df.copy()
+    report['Issue Key'] = report['Issue Key'].astype(str).str.strip()
+    if item_person_map:
+        allowed_keys = {str(k).strip() for k in item_person_map.keys() if str(k).strip()}
+        report = report[report['Issue Key'].isin(allowed_keys)].copy()
+        report['Pessoa'] = report['Issue Key'].map(item_person_map).fillna('')
+    else:
+        report['Pessoa'] = report.get('Dev Owner Antes QA', pd.Series('', index=report.index)).fillna('').astype(str)
+    report = report[report['Pessoa'].astype(str).str.strip().ne('')].copy()
+    if report.empty:
+        return pd.DataFrame()
+
+    if not summary_df.empty and {'Issue Key', 'Cycle Time Dev (dias)', 'Retornos QA->Dev'}.issubset(summary_df.columns):
+        summary_cols = summary_df[['Issue Key', 'Cycle Time Dev (dias)', 'Retornos QA->Dev']].drop_duplicates(subset=['Issue Key'], keep='first')
+        report = report.merge(summary_cols, on='Issue Key', how='left')
+
+    for col in ['Entrada QA/Teste Em', 'Retorno Dev Em']:
+        if col in report.columns:
+            report[col] = pd.to_datetime(report[col], errors='coerce')
+    if 'Tempo Retorno QA->Dev (dias)' in report.columns:
+        report['Tempo Retorno QA->Dev (dias)'] = pd.to_numeric(report['Tempo Retorno QA->Dev (dias)'], errors='coerce')
+
+    preferred_cols = [
+        'Pessoa', 'Issue Key', 'Projeto', 'Tipo de Problema', 'Retorno Seq',
+        'Entrada QA/Teste Em', 'Retorno Dev Em',
+        'Status Entrada QA/Teste', 'Status Retorno Dev',
+        'Tempo Retorno QA->Dev (dias)', 'Cycle Time Dev (dias)', 'Retornos QA->Dev',
+    ]
+    preferred_cols = [c for c in preferred_cols if c in report.columns]
+    return report[preferred_cols].sort_values(
+        ['Tempo Retorno QA->Dev (dias)', 'Retorno Dev Em'],
+        ascending=[False, False],
+        na_position='last',
+    ).reset_index(drop=True)
 
 
 def compute_pipeline_success_rate(
@@ -7977,7 +8305,8 @@ def _format_change_lead_time(days_value):
     return f"{float(days_value):.1f}d"
 
 
-def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias', projeto=None):
+def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias', projeto=None,
+                                   wip_stage_map=None, wip_stage_filter=None):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
     metric_names = [
         'Taxa de chegada / semana',
@@ -8012,6 +8341,11 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
             (df_projeto['DataInProgress'] < week_end) &
             ((df_projeto['DataDone'] >= week_end) | pd.isna(df_projeto['DataDone']))
         ]
+        if wip_stage_map and wip_stage_filter and 'ItemID' in wip.columns:
+            stage_filter_lower = {s.strip().lower() for s in wip_stage_filter}
+            wip = wip[wip['ItemID'].astype(str).str.strip().map(
+                lambda iid: wip_stage_map.get(iid, '').strip().lower() in stage_filter_lower
+            )]
 
         finished_eligible = finished[done_time_eligible_mask(finished)] if not finished.empty else finished
         tp_total = len(finished_eligible)
@@ -8216,6 +8550,16 @@ app.layout = html.Div([
             )
         ], style={'width':'30%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'340px'}),
         html.Div([
+            html.Label('Etapa de Fluxo (WIP):'),
+            dcc.Dropdown(
+                id='filter-etapa-fluxo',
+                options=[],
+                value=[],
+                multi=True,
+                placeholder='Filtra WIP por etapa atual no fluxo'
+            )
+        ], style={'width':'28%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'300px'}),
+        html.Div([
             html.Label('Top N Capacidade:'),
             dcc.Dropdown(
                 id='filter-capacity-top-n',
@@ -8401,6 +8745,32 @@ def update_leadtime_stage_filter_options(projeto, current_value):
     return options, get_default_lead_time_start_stages(start_candidates)
 
 
+@app.callback(
+    Output('filter-etapa-fluxo', 'options'),
+    Output('filter-etapa-fluxo', 'value'),
+    Input('filter-projeto', 'value'),
+    State('filter-etapa-fluxo', 'value'),
+)
+def update_etapa_fluxo_filter_options(projeto, current_value):
+    projeto = normalize_project_filter_value(projeto)
+    stage_cols, source = get_leadtime_stage_filter_columns(projeto)
+    if not stage_cols:
+        return [], []
+    done_col = get_downstream_done_stage_column(stage_cols) if source == 'downstream' else get_explicit_done_stage_column(stage_cols)
+    candidates = [c for c in stage_cols if c != done_col]
+    options = [{'label': c, 'value': c} for c in candidates]
+    preserved = [v for v in (current_value or []) if v in candidates]
+    if preserved:
+        return options, preserved
+    available_lower = {str(c).strip().lower(): c for c in candidates}
+    defaults = []
+    for pref in WIP_FLOW_STAGE_DEFAULTS:
+        hit = available_lower.get(pref.strip().lower())
+        if hit and hit not in defaults:
+            defaults.append(hit)
+    return options, defaults
+
+
 def _work_item_age_health_label(age_days, cycle_p50, cycle_p85):
     age = pd.to_numeric(pd.Series([age_days]), errors='coerce').iloc[0]
     p50 = pd.to_numeric(pd.Series([cycle_p50]), errors='coerce').iloc[0]
@@ -8500,6 +8870,7 @@ def update_main_navigation_layout(main_view):
     Input('filter-classe-servico', 'value'),
     Input('filter-responsavel', 'value'),
     Input('filter-leadtime-stages', 'value'),
+    Input('filter-etapa-fluxo', 'value'),
     Input('filter-capacity-top-n', 'value'),
     Input('filter-capacity-weekly-metric', 'value'),
     Input('filter-portfolio-team', 'value'),
@@ -8515,7 +8886,7 @@ def update_main_navigation_layout(main_view):
     optional_input('estatistica-lsl', 'value'),
     optional_input('estatistica-usl', 'value'),
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
                estatistica_lsl=None, estatistica_usl=None):
@@ -8595,7 +8966,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if len(weeks) < 2:
             return html.Div('Período muito curto para análise semanal.')
 
-        metric_names, rows = compute_weekly_service_metrics(df_proj, weeks, lead_time_col='LeadTime_Selected_Dias', projeto=projeto)
+        wip_stage_map = compute_current_stage_map(projeto) if projeto and etapa_fluxo else {}
+        metric_names, rows = compute_weekly_service_metrics(
+            df_proj, weeks,
+            lead_time_col='LeadTime_Selected_Dias',
+            projeto=projeto,
+            wip_stage_map=wip_stage_map if etapa_fluxo else None,
+            wip_stage_filter=etapa_fluxo or None,
+        )
         week_labels = [str(weeks[i].date()) for i in range(len(weeks) - 1)]
 
         table_data = []
@@ -11766,10 +12144,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_flow),
             dcc.Graph(figure=fig_wip_trend),
             html.Hr(style={'margin': '30px 0'}),
-            render_tab(main_view, 'tab-estabilidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
+            render_tab(main_view, 'tab-estabilidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
             html.Hr(style={'margin': '30px 0'}),
-            render_tab(main_view, 'tab-qualidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
+            render_tab(main_view, 'tab-qualidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
         ])
 
@@ -11857,13 +12235,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style={'textAlign': 'center', 'color': '#666', 'marginTop': '-8px'}
             ),
             html.Hr(),
-            render_tab(main_view, 'tab-dim', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
+            render_tab(main_view, 'tab-dim', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
             html.Hr(),
-            render_tab(main_view, 'tab-tipos', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
+            render_tab(main_view, 'tab-tipos', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
             html.Hr(),
-            render_tab(main_view, 'tab-eficiencia', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, capacity_top_n, capacity_weekly_metric, portfolio_team,
+            render_tab(main_view, 'tab-eficiencia', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
                        pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
         ])
 
@@ -14435,6 +14813,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # W1NNER e S1NC compartilham o mesmo repositório; a BU (people_config.json) separa os times
         alias_index_prod = _load_person_alias_index()
         bu_index_prod = _load_person_bu_map()
+        pm_item_person_map = _build_dev_item_person_map(df_prod_base, alias_index=alias_index_prod)
 
         def _load_bb_for_projects(projects: list[str]) -> tuple[pd.DataFrame, dict]:
             """Carrega Bitbucket de um ou mais projetos e consolida."""
@@ -14482,32 +14861,74 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 per_dev[col] = 0
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce').fillna(0).astype(int)
 
-        # ── Métricas de Process Mining (Conformance Quality, Rework Rate, QA Return Rate) ──
-        # Carrega ConformidadeCasos para todos os projetos relevantes e agrega por dev
-        pm_frames = []
+        # ── Métricas de Process Mining (qualidade + retorno para desenvolvimento) ──
+        pm_case_frames = []
+        pm_event_frames = []
+        pm_dev_item_frames = []
+        pm_dev_return_frames = []
         for _pm_proj in bb_projects:
             _case_df = load_project_pm_case_df(_pm_proj)
             if not _case_df.empty:
-                _pm_metrics = compute_pm_dev_metrics(
-                    _case_df, start_ts_prod, end_ts_prod, alias_index=alias_index_prod
-                )
-                if not _pm_metrics.empty:
-                    pm_frames.append(_pm_metrics)
-        if pm_frames:
-            pm_combined = pd.concat(pm_frames, ignore_index=True)
-            if 'Pessoa' in pm_combined.columns:
+                pm_case_frames.append(_case_df)
+            _dev_item_df = load_project_pm_sheet(_pm_proj, 'DevFlowItens')
+            if not _dev_item_df.empty:
+                pm_dev_item_frames.append(_dev_item_df)
+            _dev_return_df = load_project_pm_sheet(_pm_proj, 'DevFlowRetornos')
+            if not _dev_return_df.empty:
+                pm_dev_return_frames.append(_dev_return_df)
+            _events_df = load_project_pm_sheet(_pm_proj, 'EventosFiltrados')
+            if not _events_df.empty:
+                pm_event_frames.append(_events_df)
+
+        pm_event_combined = pd.concat(pm_event_frames, ignore_index=True) if pm_event_frames else pd.DataFrame()
+        pm_flow_item_combined = pd.concat(pm_dev_item_frames, ignore_index=True) if pm_dev_item_frames else pd.DataFrame()
+        pm_flow_return_combined = pd.concat(pm_dev_return_frames, ignore_index=True) if pm_dev_return_frames else pd.DataFrame()
+        pm_dev_return_report = pd.DataFrame()
+
+        if pm_case_frames:
+            pm_case_combined = pd.concat(pm_case_frames, ignore_index=True)
+            pm_combined = compute_pm_dev_metrics(
+                pm_case_combined,
+                start_ts_prod,
+                end_ts_prod,
+                alias_index=alias_index_prod,
+                item_person_map=pm_item_person_map,
+            )
+            if not pm_combined.empty and 'Pessoa' in pm_combined.columns:
                 _pm_num_cols = [c for c in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)', 'Complexidade Variante'] if c in pm_combined.columns]
-                _pm_agg = {c: 'mean' for c in _pm_num_cols}
-                if _pm_agg:
-                    pm_combined = pm_combined.groupby('Pessoa').agg(_pm_agg).reset_index()
-                    for c in _pm_num_cols:
-                        pm_combined[c] = pm_combined[c].round(1)
+                for c in _pm_num_cols:
+                    pm_combined[c] = pd.to_numeric(pm_combined[c], errors='coerce').round(1)
                 per_dev = pd.merge(per_dev, pm_combined, on='Pessoa', how='left')
 
-        for col in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)', 'Complexidade Variante']:
+        pm_flow_metrics = compute_pm_dev_flow_metrics(
+            pm_flow_item_combined,
+            pm_flow_return_combined,
+            start_ts_prod,
+            end_ts_prod,
+            alias_index=alias_index_prod,
+            item_person_map=pm_item_person_map,
+            events_df=pm_event_combined if not pm_event_combined.empty else None,
+        )
+        if not pm_flow_metrics.empty and 'Pessoa' in pm_flow_metrics.columns:
+            per_dev = pd.merge(per_dev, pm_flow_metrics, on='Pessoa', how='left')
+        pm_dev_return_report = build_pm_dev_return_report(
+            pm_flow_item_combined,
+            pm_flow_return_combined,
+            item_person_map=pm_item_person_map,
+            events_df=pm_event_combined if not pm_event_combined.empty else None,
+        )
+
+        for col in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)', 'Complexidade Variante',
+                    'Cycle Time Dev Mediano (dias)', 'Cycle Time Dev Médio (dias)',
+                    'Tempo Retorno QA->Dev Mediano (dias)', 'Tempo Retorno QA->Dev Total (dias)',
+                    '% Cards com Retorno QA->Dev']:
             if col not in per_dev.columns:
                 per_dev[col] = np.nan
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce')
+        for col in ['Retornos QA->Dev', 'Cards com Retorno QA->Dev']:
+            if col not in per_dev.columns:
+                per_dev[col] = 0
+            per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce').fillna(0).astype(int)
 
         # ── Pipeline Success Rate (Bitbucket pipelines × commits) ──────────────
         pip_df = compute_pipeline_success_rate(bb_projects, start_ts_prod, end_ts_prod, alias_index=alias_index_prod)
@@ -14583,8 +15004,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         total_defeitos = int(per_dev['Defeitos Entregues'].sum())
         total_commits = int(per_dev['Commits'].sum())
         total_prs = int(per_dev['PRs Merged'].sum())
+        total_qa_dev_returns = int(per_dev['Retornos QA->Dev'].sum()) if 'Retornos QA->Dev' in per_dev.columns else 0
+        cards_with_qa_dev_return = int(per_dev['Cards com Retorno QA->Dev'].sum()) if 'Cards com Retorno QA->Dev' in per_dev.columns else 0
         pct_falha_geral = round(total_defeitos / total_entregues * 100, 1) if total_entregues > 0 else 0.0
         devs_ativos = int((per_dev['Itens Entregues'] > 0).sum())
+        dev_cycle_median_series = pd.to_numeric(per_dev.get('Cycle Time Dev Mediano (dias)'), errors='coerce').dropna()
+        dev_cycle_median = round(float(dev_cycle_median_series.median()), 1) if not dev_cycle_median_series.empty else 0.0
 
         # ── Métricas QSM-derivadas ────────────────────────────────────────────
         # Referência: QSM Benchmark Tables — Business Systems FP/PM
@@ -14645,6 +15070,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                       border_color='#b2dfdb' if sp_por_dev_por_mes >= 7.47 else '#ffe082' if sp_por_dev_por_mes >= 5.0 else '#ffcdd2'),
             _mini_kpi('Defeitos Entregues', total_defeitos, color='#c0392b'),
             _mini_kpi('% Demanda Falha', f'{pct_falha_geral:.1f}%', color=falha_color),
+            _mini_kpi('Retornos QA->Dev', total_qa_dev_returns, color='#d35400'),
+            _mini_kpi('Cards com Retorno', cards_with_qa_dev_return, color='#8e44ad'),
+            _mini_kpi('CT Dev Mediano', f'{dev_cycle_median:.1f} d', color='#16a085'),
             _mini_kpi('Commits', total_commits, color='#16a085'),
             _mini_kpi('PRs Merged', total_prs, color='#2980b9'),
         ], style={
@@ -15019,6 +15447,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # Process Mining — qualidade de processo
             'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
             'Complexidade Variante',
+            'Cycle Time Dev Mediano (dias)', 'Cycle Time Dev Médio (dias)',
+            'Retornos QA->Dev', 'Cards com Retorno QA->Dev',
+            '% Cards com Retorno QA->Dev', 'Tempo Retorno QA->Dev Mediano (dias)',
             # Process Mining — bottleneck
             'Horas em Gargalo', '% Horas em Gargalo',
             # Benchmark multidimensional
@@ -15036,7 +15467,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         prod_display = per_dev[table_cols_prod].head(80).copy()
         for _pct_col in ['% Demanda Falha', 'Qualidade Revisao', 'Pipeline Success Rate (%)',
                          'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
-                         '% Horas em Gargalo', 'Flow Efficiency (%)']:
+                         '% Horas em Gargalo', 'Flow Efficiency (%)', '% Cards com Retorno QA->Dev']:
             if _pct_col in prod_display.columns:
                 prod_display[_pct_col] = prod_display[_pct_col].apply(
                     lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
@@ -15085,6 +15516,51 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                  'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
             ],
         )
+
+        pm_dev_return_table = html.P(
+            'Sem ocorrências QA->Dev no período ou sem artefato de process mining compatível.',
+            style={'color': '#aaa', 'fontStyle': 'italic'},
+        )
+        if not pm_dev_return_report.empty:
+            pm_dev_return_display = pm_dev_return_report.head(80).copy()
+            for _dt_col in ['Entrada QA/Teste Em', 'Retorno Dev Em']:
+                if _dt_col in pm_dev_return_display.columns:
+                    pm_dev_return_display[_dt_col] = pd.to_datetime(pm_dev_return_display[_dt_col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
+                    pm_dev_return_display[_dt_col] = pm_dev_return_display[_dt_col].fillna('—')
+            for _num_col in ['Tempo Retorno QA->Dev (dias)', 'Cycle Time Dev (dias)']:
+                if _num_col in pm_dev_return_display.columns:
+                    pm_dev_return_display[_num_col] = pm_dev_return_display[_num_col].apply(
+                        lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+                    )
+            pm_dev_return_cols = [c for c in [
+                'Pessoa', 'Issue Key', 'Projeto', 'Tipo de Problema', 'Retorno Seq',
+                'Entrada QA/Teste Em', 'Retorno Dev Em',
+                'Status Entrada QA/Teste', 'Status Retorno Dev',
+                'Tempo Retorno QA->Dev (dias)', 'Cycle Time Dev (dias)', 'Retornos QA->Dev',
+            ] if c in pm_dev_return_display.columns]
+            pm_dev_return_table = dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in pm_dev_return_cols],
+                data=pm_dev_return_display[pm_dev_return_cols].to_dict('records'),
+                style_table={'overflowX': 'auto'},
+                style_cell={
+                    'textAlign': 'left', 'padding': '8px 12px',
+                    'fontSize': '13px', 'whiteSpace': 'nowrap',
+                    'overflow': 'hidden', 'textOverflow': 'ellipsis',
+                    'maxWidth': '220px',
+                },
+                style_header={
+                    'backgroundColor': '#6c4f3d', 'color': 'white',
+                    'fontWeight': '600', 'fontSize': '12px',
+                    'textTransform': 'uppercase', 'letterSpacing': '0.4px',
+                    'padding': '10px 12px',
+                },
+                style_data_conditional=[
+                    {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                    {'if': {'column_id': 'Tempo Retorno QA->Dev (dias)'}, 'fontWeight': '700', 'color': '#d35400'},
+                ],
+                sort_action='native',
+                page_size=12,
+            )
 
         # ── Gráfico: Velocidade de Entrega (SP/Dev/Mês) com benchmarks QSM ───
         # Referência externa: QSM Benchmark Tables — Business Systems Function Points
@@ -15763,9 +16239,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # ── Tabela de devs ─────────────────────────────────────────────────
             _section(
                 'Ranking de Desenvolvedores',
-                'Ordenado por Score Integrado. Colunas de Process Mining (Conformance Quality, Rework Rate PM, QA Return Rate) '
-                'provêm dos arquivos *-process-mining-latest.xlsx. Filtre por BU ou Papel.',
+                'Ordenado por Score Integrado. Colunas de Process Mining (Conformance Quality, Rework Rate PM, QA Return Rate, '
+                'Cycle Time Dev e retornos QA->Dev) provêm dos arquivos *-process-mining-latest.xlsx. Filtre por BU ou Papel.',
                 [prod_table],
+            ),
+
+            _section(
+                'Relatório QA->Dev por Card',
+                'Cada linha representa uma ida para QA/Teste/Homologação seguida de retorno para desenvolvimento. '
+                'Quando o artefato novo de process mining ainda não existir, a tela recalcula o relatório a partir de EventosFiltrados.',
+                [pm_dev_return_table],
             ),
 
             # ── Radar chart multidimensional ───────────────────────────────────

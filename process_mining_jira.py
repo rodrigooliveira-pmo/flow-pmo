@@ -11,6 +11,7 @@ import glob
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from statistics import mean, median
 from typing import Any, Iterable, Sequence
 
 import numpy as np
@@ -47,6 +48,8 @@ DATA_ANALYTICS_EXPECTED_FLOW = [
 DEFAULT_DONE_STATUSES = {"itens concluidos", "itens concluídos", "done", "concluido", "concluído"}
 QA_HINTS = ("qa", "test", "homolog", "valid")
 DEV_HINTS = ("progress", "develop", "desenvol", "code review")
+DEV_EXECUTION_HINTS = ("progress", "develop", "desenvol", "em andamento")
+DEV_EXECUTION_EXACT = {"doing", "wip"}
 
 PROJECT_PROCESS_MINING_CONFIG = {
     "W1NNER": {
@@ -113,6 +116,29 @@ def normalize_text(value: Any) -> str:
     nfkd = unicodedata.normalize("NFKD", raw)
     no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
     return " ".join(no_accents.replace("_", " ").replace("-", " ").split())
+
+
+DEV_STAGE_STATUS_EQUIVALENTS = {
+    normalize_text(v)
+    for v in (
+        "In Progress",
+        "In Development",
+        "Development",
+        "Doing",
+        "Desenvolvimento",
+        "Em Progresso",
+    )
+}
+QA_STAGE_HINTS = tuple(dict.fromkeys(QA_HINTS + ("validat",)))
+
+
+def is_development_status(value: Any) -> bool:
+    return normalize_text(value) in DEV_STAGE_STATUS_EQUIVALENTS
+
+
+def is_qa_status(value: Any) -> bool:
+    normalized = normalize_text(value)
+    return bool(normalized) and any(hint in normalized for hint in QA_STAGE_HINTS)
 
 
 def resolve_project_process_mining_config(project: str) -> dict[str, Any]:
@@ -213,6 +239,134 @@ def enrich_events(df: pd.DataFrame, expected_flow: Sequence[str], done_statuses:
     dur = (out["Next Timestamp"] - out["History Created"]).dt.total_seconds() / 86400.0
     out["TempoStatusDias"] = dur.where(dur.notna() & (dur >= 0))
     return out, idx_map, done_norm
+
+
+def _is_dev_execution_status(value: Any) -> bool:
+    status_norm = normalize_text(value)
+    if not status_norm:
+        return False
+    return status_norm in DEV_EXECUTION_EXACT or any(hint in status_norm for hint in DEV_EXECUTION_HINTS)
+
+
+def _is_validation_status(value: Any) -> bool:
+    status_norm = normalize_text(value)
+    return bool(status_norm) and any(hint in status_norm for hint in QA_HINTS)
+
+
+def summarize_dev_stage_flow(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    case_columns = [
+        "Issue Key",
+        "Entradas Desenvolvimento",
+        "Cycle Time Dev Total (dias)",
+        "Cycle Time Dev Medio (dias)",
+        "Cycle Time Dev Mediano (dias)",
+        "Retornos para Desenvolvimento",
+        "Tempo Ida e Volta Dev Total (dias)",
+        "Tempo Ida e Volta Dev Medio (dias)",
+        "Tempo Ida e Volta Dev Mediano (dias)",
+    ]
+    loop_columns = [
+        "Issue Key",
+        "Loop Index",
+        "Saida Dev Em",
+        "Status Saida Dev",
+        "Status Validacao",
+        "Retorno Dev Em",
+        "Status Retorno Dev",
+        "Tempo Ida e Volta Dev (dias)",
+    ]
+    if events.empty:
+        return pd.DataFrame(columns=case_columns), pd.DataFrame(columns=loop_columns)
+
+    base = events.copy()
+    for col in ["Issue Key", "From Status", "To Status", "From Status Norm", "To Status Norm"]:
+        if col not in base.columns:
+            base[col] = ""
+        base[col] = base[col].fillna("").astype(str)
+    if "History Created" not in base.columns:
+        base["History Created"] = pd.NaT
+    base["History Created"] = pd.to_datetime(base["History Created"], utc=True, errors="coerce")
+    if "TempoStatusDias" not in base.columns:
+        base["TempoStatusDias"] = np.nan
+    base["TempoStatusDias"] = pd.to_numeric(base["TempoStatusDias"], errors="coerce")
+
+    case_rows: list[dict[str, Any]] = []
+    loop_rows: list[dict[str, Any]] = []
+
+    for issue_key, g in base.groupby("Issue Key", sort=False):
+        g = g.sort_values(["History Created", "Event Seq"] if "Event Seq" in g.columns else ["History Created"]).reset_index(drop=True)
+
+        dev_events = g[g["To Status Norm"].apply(_is_dev_execution_status)].copy()
+        dev_durations = pd.to_numeric(dev_events["TempoStatusDias"], errors="coerce").dropna()
+        dev_durations = dev_durations[dev_durations >= 0]
+
+        if dev_events.empty:
+            dev_entries = 0
+        else:
+            dev_entries = int((~dev_events["From Status Norm"].apply(_is_dev_execution_status)).sum())
+
+        issue_loop_durations: list[float] = []
+        open_return_started_at = pd.NaT
+        open_from_status = ""
+        open_validation_status = ""
+
+        for _, row in g.iterrows():
+            from_norm = str(row.get("From Status Norm") or "")
+            to_norm = str(row.get("To Status Norm") or "")
+            event_ts = pd.to_datetime(row.get("History Created"), utc=True, errors="coerce")
+
+            from_is_dev = _is_dev_execution_status(from_norm)
+            to_is_dev = _is_dev_execution_status(to_norm)
+            from_is_validation = _is_validation_status(from_norm)
+            to_is_validation = _is_validation_status(to_norm)
+
+            if pd.notna(open_return_started_at):
+                if from_is_validation and to_is_dev and pd.notna(event_ts):
+                    duration_days = (event_ts - open_return_started_at).total_seconds() / 86400.0
+                    if duration_days >= 0:
+                        issue_loop_durations.append(float(duration_days))
+                        loop_rows.append(
+                            {
+                                "Issue Key": issue_key,
+                                "Loop Index": int(len(issue_loop_durations)),
+                                "Saida Dev Em": open_return_started_at.tz_convert(None),
+                                "Status Saida Dev": open_from_status,
+                                "Status Validacao": open_validation_status,
+                                "Retorno Dev Em": event_ts.tz_convert(None),
+                                "Status Retorno Dev": str(row.get("To Status") or ""),
+                                "Tempo Ida e Volta Dev (dias)": round(float(duration_days), 4),
+                            }
+                        )
+                    open_return_started_at = pd.NaT
+                    open_from_status = ""
+                    open_validation_status = ""
+                elif not to_is_validation and not to_is_dev:
+                    open_return_started_at = pd.NaT
+                    open_from_status = ""
+                    open_validation_status = ""
+
+            if from_is_dev and to_is_validation and pd.notna(event_ts):
+                open_return_started_at = event_ts
+                open_from_status = str(row.get("From Status") or "")
+                open_validation_status = str(row.get("To Status") or "")
+
+        case_rows.append(
+            {
+                "Issue Key": issue_key,
+                "Entradas Desenvolvimento": int(dev_entries),
+                "Cycle Time Dev Total (dias)": round(float(dev_durations.sum()), 4) if not dev_durations.empty else np.nan,
+                "Cycle Time Dev Medio (dias)": round(float(dev_durations.mean()), 4) if not dev_durations.empty else np.nan,
+                "Cycle Time Dev Mediano (dias)": round(float(dev_durations.median()), 4) if not dev_durations.empty else np.nan,
+                "Retornos para Desenvolvimento": int(len(issue_loop_durations)),
+                "Tempo Ida e Volta Dev Total (dias)": round(float(sum(issue_loop_durations)), 4) if issue_loop_durations else np.nan,
+                "Tempo Ida e Volta Dev Medio (dias)": round(float(pd.Series(issue_loop_durations).mean()), 4) if issue_loop_durations else np.nan,
+                "Tempo Ida e Volta Dev Mediano (dias)": round(float(pd.Series(issue_loop_durations).median()), 4) if issue_loop_durations else np.nan,
+            }
+        )
+
+    case_df = pd.DataFrame(case_rows, columns=case_columns) if case_rows else pd.DataFrame(columns=case_columns)
+    loop_df = pd.DataFrame(loop_rows, columns=loop_columns) if loop_rows else pd.DataFrame(columns=loop_columns)
+    return case_df, loop_df
 
 
 def summarize_cases(events: pd.DataFrame, done_norm: set[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -394,6 +548,184 @@ def summarize_person_hours(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     por_status["HorasNoFluxo"] = pd.to_numeric(por_status["HorasNoFluxo"], errors="coerce").fillna(0).round(2)
     por_status = por_status.sort_values("HorasNoFluxo", ascending=False).reset_index(drop=True)
     return resumo, por_status
+
+
+def summarize_development_flow(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    item_cols = [
+        "Issue Key",
+        "Projeto",
+        "Tipo de Problema",
+        "Primeira Entrada Dev",
+        "Ultima Entrada Dev",
+        "Segmentos Dev",
+        "Cycle Time Dev (dias)",
+        "Retornos QA->Dev",
+        "Tempo Retorno QA->Dev Total (dias)",
+        "Tempo Retorno QA->Dev Medio (dias)",
+        "Tempo Retorno QA->Dev Mediano (dias)",
+    ]
+    return_cols = [
+        "Issue Key",
+        "Projeto",
+        "Tipo de Problema",
+        "Retorno Seq",
+        "Dev Owner Antes QA",
+        "Entrada QA/Teste Em",
+        "Retorno Dev Em",
+        "Status Entrada QA/Teste",
+        "Status Retorno Dev",
+        "Tempo Retorno QA->Dev (dias)",
+    ]
+    summary_cols = ["Metrica", "Valor"]
+
+    if events.empty or "Issue Key" not in events.columns or "History Created" not in events.columns:
+        return (
+            pd.DataFrame(columns=item_cols),
+            pd.DataFrame(columns=return_cols),
+            pd.DataFrame(columns=summary_cols),
+        )
+
+    df = events.copy()
+    for col in ["Projeto", "Tipo de Problema", "Author", "From Status", "To Status"]:
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("").astype(str).str.strip()
+    if "From Status Norm" not in df.columns:
+        df["From Status Norm"] = df["From Status"].map(normalize_text)
+    else:
+        df["From Status Norm"] = df["From Status Norm"].fillna("").astype(str).map(normalize_text)
+    if "To Status Norm" not in df.columns:
+        df["To Status Norm"] = df["To Status"].map(normalize_text)
+    else:
+        df["To Status Norm"] = df["To Status Norm"].fillna("").astype(str).map(normalize_text)
+    if "TempoStatusDias" not in df.columns:
+        df["TempoStatusDias"] = np.nan
+    df["TempoStatusDias"] = pd.to_numeric(df["TempoStatusDias"], errors="coerce")
+    df["History Created"] = pd.to_datetime(df["History Created"], utc=True, errors="coerce")
+    df["Issue Key"] = df["Issue Key"].fillna("").astype(str).str.strip()
+    df = df[df["Issue Key"].ne("") & df["History Created"].notna()].copy()
+    if df.empty:
+        return (
+            pd.DataFrame(columns=item_cols),
+            pd.DataFrame(columns=return_cols),
+            pd.DataFrame(columns=summary_cols),
+        )
+
+    sort_cols = ["Issue Key", "History Created"]
+    if "Event Seq" in df.columns:
+        sort_cols.append("Event Seq")
+    df = df.sort_values(sort_cols).reset_index(drop=True)
+
+    item_rows: list[dict[str, Any]] = []
+    return_rows: list[dict[str, Any]] = []
+
+    for issue_key, group in df.groupby("Issue Key", sort=False):
+        g = group.sort_values(sort_cols[1:]).reset_index(drop=True)
+        projeto = str(g["Projeto"].iloc[0]) if "Projeto" in g.columns else ""
+        issue_type = str(g["Tipo de Problema"].iloc[0]) if "Tipo de Problema" in g.columns else ""
+        dev_entries: list[pd.Timestamp] = []
+        dev_durations: list[float] = []
+        return_durations: list[float] = []
+        last_dev_context: dict[str, Any] | None = None
+        open_qa_cycle: dict[str, Any] | None = None
+
+        for idx, row in g.iterrows():
+            history_created = row["History Created"]
+            to_status_norm = str(row.get("To Status Norm") or "")
+            to_status = str(row.get("To Status") or "")
+            author = str(row.get("Author") or "") or "Sem Autor"
+
+            if is_development_status(to_status_norm):
+                dev_entries.append(history_created)
+                duration = row.get("TempoStatusDias")
+                if pd.notna(duration) and float(duration) >= 0:
+                    dev_durations.append(float(duration))
+
+                if open_qa_cycle is not None:
+                    qa_enter_ts = open_qa_cycle.get("qa_enter_ts")
+                    if pd.notna(qa_enter_ts) and history_created >= qa_enter_ts:
+                        roundtrip_days = max((history_created - qa_enter_ts).total_seconds() / 86400.0, 0.0)
+                        return_durations.append(roundtrip_days)
+                        return_rows.append(
+                            {
+                                "Issue Key": issue_key,
+                                "Projeto": projeto,
+                                "Tipo de Problema": issue_type,
+                                "Retorno Seq": len(return_durations),
+                                "Dev Owner Antes QA": str(open_qa_cycle.get("dev_owner") or "Sem Autor"),
+                                "Entrada QA/Teste Em": qa_enter_ts.tz_convert(None) if getattr(qa_enter_ts, "tzinfo", None) else qa_enter_ts,
+                                "Retorno Dev Em": history_created.tz_convert(None) if getattr(history_created, "tzinfo", None) else history_created,
+                                "Status Entrada QA/Teste": str(open_qa_cycle.get("qa_status") or ""),
+                                "Status Retorno Dev": to_status,
+                                "Tempo Retorno QA->Dev (dias)": round(float(roundtrip_days), 4),
+                            }
+                        )
+                    open_qa_cycle = None
+
+                last_dev_context = {
+                    "author": author,
+                    "status": to_status,
+                    "timestamp": history_created,
+                    "row_idx": idx,
+                }
+                continue
+
+            if is_qa_status(to_status_norm):
+                if open_qa_cycle is None and last_dev_context is not None:
+                    last_dev_ts = last_dev_context.get("timestamp")
+                    if pd.notna(last_dev_ts) and history_created >= last_dev_ts:
+                        open_qa_cycle = {
+                            "qa_enter_ts": history_created,
+                            "qa_status": to_status,
+                            "dev_owner": str(last_dev_context.get("author") or "Sem Autor"),
+                        }
+                continue
+
+        if not dev_entries and not return_durations:
+            continue
+
+        total_dev_cycle = float(sum(dev_durations)) if dev_durations else 0.0
+        total_return = float(sum(return_durations)) if return_durations else 0.0
+        item_rows.append(
+            {
+                "Issue Key": issue_key,
+                "Projeto": projeto,
+                "Tipo de Problema": issue_type,
+                "Primeira Entrada Dev": (
+                    dev_entries[0].tz_convert(None) if dev_entries and getattr(dev_entries[0], "tzinfo", None) else (dev_entries[0] if dev_entries else pd.NaT)
+                ),
+                "Ultima Entrada Dev": (
+                    dev_entries[-1].tz_convert(None) if dev_entries and getattr(dev_entries[-1], "tzinfo", None) else (dev_entries[-1] if dev_entries else pd.NaT)
+                ),
+                "Segmentos Dev": int(len(dev_entries)),
+                "Cycle Time Dev (dias)": round(total_dev_cycle, 4),
+                "Retornos QA->Dev": int(len(return_durations)),
+                "Tempo Retorno QA->Dev Total (dias)": round(total_return, 4),
+                "Tempo Retorno QA->Dev Medio (dias)": round(float(mean(return_durations)), 4) if return_durations else 0.0,
+                "Tempo Retorno QA->Dev Mediano (dias)": round(float(median(return_durations)), 4) if return_durations else 0.0,
+            }
+        )
+
+    item_df = pd.DataFrame(item_rows, columns=item_cols)
+    return_df = pd.DataFrame(return_rows, columns=return_cols)
+
+    cycle_vals = pd.to_numeric(item_df.get("Cycle Time Dev (dias)", pd.Series(dtype=float)), errors="coerce").dropna()
+    return_vals = pd.to_numeric(return_df.get("Tempo Retorno QA->Dev (dias)", pd.Series(dtype=float)), errors="coerce").dropna()
+    summary_df = pd.DataFrame(
+        [
+            {"Metrica": "Itens com etapa dev", "Valor": int(len(item_df))},
+            {"Metrica": "Segmentos dev", "Valor": int(pd.to_numeric(item_df.get("Segmentos Dev", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())},
+            {"Metrica": "Retornos QA->Dev", "Valor": int(len(return_df))},
+            {"Metrica": "Itens com retorno QA->Dev", "Valor": int((pd.to_numeric(item_df.get("Retornos QA->Dev", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())},
+            {"Metrica": "Cycle time dev medio (dias)", "Valor": round(float(cycle_vals.mean()), 4) if not cycle_vals.empty else 0.0},
+            {"Metrica": "Cycle time dev mediano (dias)", "Valor": round(float(cycle_vals.median()), 4) if not cycle_vals.empty else 0.0},
+            {"Metrica": "Tempo retorno QA->Dev medio (dias)", "Valor": round(float(return_vals.mean()), 4) if not return_vals.empty else 0.0},
+            {"Metrica": "Tempo retorno QA->Dev mediano (dias)", "Valor": round(float(return_vals.median()), 4) if not return_vals.empty else 0.0},
+        ],
+        columns=summary_cols,
+    )
+
+    return item_df, return_df, summary_df
 
 
 def summarize_variants(case_df: pd.DataFrame, max_top: int) -> pd.DataFrame:
@@ -948,11 +1280,15 @@ def write_outputs(out_dir: Path, prefix: str, datasets: dict[str, pd.DataFrame],
         "ResumoConformidade": datasets["conformidade_resumo"],
         "ConformidadeCasos": datasets["conformidade_casos"],
         "RetrabalhoItens": datasets["retrabalho_itens"],
+        "RetornoDevLoops": datasets.get("retorno_dev_loops", pd.DataFrame()),
         "TemposPorStatus": datasets["tempos_status"],
         "VazaoPessoaSemanal": datasets["vazao_pessoa_semanal"],
         "VazaoPessoaResumo": datasets["vazao_pessoa_resumo"],
         "HorasPessoaResumo": datasets.get("horas_pessoa_resumo", pd.DataFrame()),
         "HorasPessoaStatus": datasets.get("horas_pessoa_status", pd.DataFrame()),
+        "DevFlowResumo": datasets.get("dev_flow_summary", pd.DataFrame()),
+        "DevFlowItens": datasets.get("dev_flow_items", pd.DataFrame()),
+        "DevFlowRetornos": datasets.get("dev_flow_returns", pd.DataFrame()),
         "VariantesTop": datasets["variantes_top"],
         "EventosFiltrados": datasets["eventos_filtrados"],
         "PM4PyDFGEdges": datasets.get("pm4py_dfg_edges", pd.DataFrame()),
@@ -1028,10 +1364,17 @@ def main() -> int:
         return 1
     events_feat, _, done_norm = enrich_events(events, expected_flow, done_status)
     case_df, conf_sum = summarize_cases(events_feat, done_norm)
+    dev_case_metrics, dev_return_loops = summarize_dev_stage_flow(events_feat)
+    if not case_df.empty:
+        case_df = case_df.merge(dev_case_metrics, on="Issue Key", how="left")
+    else:
+        case_df = dev_case_metrics.copy()
     rework_df = case_df[[
         c for c in [
             "Issue Key", "Tipo de Problema", "Rework Score", "Reopen Count", "Backward Moves",
-            "QA Returns", "Revisitas Status", "Conformance Score", "Conforme Basico",
+            "QA Returns", "Revisitas Status", "Entradas Desenvolvimento",
+            "Retornos para Desenvolvimento", "Tempo Ida e Volta Dev Mediano (dias)",
+            "Cycle Time Dev Total (dias)", "Cycle Time Dev Mediano (dias)", "Conformance Score", "Conforme Basico",
             "Lead Time Fluxo (dias)", "Done Final Author", "Done Final Date", "Variant"
         ] if c in case_df.columns
     ]].copy()
@@ -1039,6 +1382,7 @@ def main() -> int:
     tempos_status = summarize_status_times(events_feat)
     vazao_sem, vazao_res = summarize_people(case_df)
     horas_resumo, horas_status = summarize_person_hours(events_feat)
+    dev_flow_items, dev_flow_returns, dev_flow_summary = summarize_development_flow(events_feat)
     variantes = summarize_variants(case_df, max_top=max(5, int(args.max_top)))
     metadados = build_pm4py_meta(events_feat)
 
@@ -1052,11 +1396,15 @@ def main() -> int:
         "conformidade_resumo": conf_sum,
         "conformidade_casos": case_df,
         "retrabalho_itens": rework_df,
+        "retorno_dev_loops": dev_return_loops,
         "tempos_status": tempos_status,
         "vazao_pessoa_semanal": vazao_sem,
         "vazao_pessoa_resumo": vazao_res,
         "horas_pessoa_resumo": horas_resumo,
         "horas_pessoa_status": horas_status,
+        "dev_flow_summary": dev_flow_summary,
+        "dev_flow_items": dev_flow_items,
+        "dev_flow_returns": dev_flow_returns,
         "variantes_top": variantes,
         "eventos_filtrados": export_events,
     }
