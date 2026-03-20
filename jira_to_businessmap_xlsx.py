@@ -106,6 +106,8 @@ BF_BUSINESSMAP_STATUS_TO_COLUMN_MAP: Dict[str, str] = {
     "Sprint Backlog": "BACKLOG",
     "Ready to Start": "READY TO START",
     "Ready to start": "READY TO START",
+    "READY FOR DEVELOPMENT": "READY TO START",
+    "Ready for development": "READY TO START",
     "Ready for development": "READY TO START",
     "Ready For Development": "READY TO START",
     "In Progress": "IN PROGRESS",
@@ -152,6 +154,8 @@ BF_BUSINESSMAP_STATUS_TO_COLUMN_MAP: Dict[str, str] = {
     "Done": "DONE",
     "Concluído": "DONE",
     "Concluido": "DONE",
+    "Cancelled": "DONE",
+    "Cancelada": "DONE",
     # Statuses de discovery/portfolio/design observados no BF
     "Discovery & Definition": "TRIAGEM",
     "Discovery and Definition": "TRIAGEM",
@@ -169,6 +173,8 @@ BF_BUSINESSMAP_STATUS_TO_LANE_MAP: Dict[str, str] = {}
 BF_BUSINESSMAP_TYPE_NAME_MAP: Dict[str, str] = {
     "Task": "História",
     "Tarefa": "História",
+    "Story": "História",
+    "User Story": "História",
 }
 
 
@@ -726,8 +732,14 @@ def choose_size_field(field_map: Dict[str, Any], size_source: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Exporta Jira para XLSX compatível com import do BusinessMap.")
-    parser.add_argument("--projects", nargs="+", required=True, help="Projetos Jira para exportar (ex.: W1NNR DT)")
+    parser.add_argument(
+        "--projects",
+        nargs="+",
+        default=[],
+        help="Projetos Jira para exportar (ex.: W1NNR DT). Opcional quando --jql completo for informado.",
+    )
     parser.add_argument("--out", default="", help="Caminho do XLSX de saída")
+    parser.add_argument("--jql", default="", help="JQL completa; quando informada, tem precedência sobre --projects/--jql-extra")
     parser.add_argument("--jql-extra", default="", help="Filtro JQL adicional opcional")
     parser.add_argument(
         "--split-size",
@@ -843,9 +855,10 @@ def main() -> int:
         print("Erro: defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN.", file=sys.stderr)
         return 2
 
+    raw_jql = str(args.jql or "").strip()
     projects = [p.strip().upper() for p in args.projects if p and p.strip()]
-    if not projects:
-        print("Erro: informe ao menos um projeto.", file=sys.stderr)
+    if not projects and not raw_jql:
+        print("Erro: informe ao menos um projeto em --projects ou uma consulta completa em --jql.", file=sys.stderr)
         return 2
 
     if args.board_name and args.board_id:
@@ -934,10 +947,13 @@ def main() -> int:
         if custom_field and custom_field not in requested_fields:
             requested_fields.append(custom_field)
 
-    proj_clause = ", ".join(projects)
-    jql = f"project in ({proj_clause}) ORDER BY created ASC"
-    if args.jql_extra.strip():
-        jql = f"project in ({proj_clause}) AND ({args.jql_extra.strip()}) ORDER BY created ASC"
+    if raw_jql:
+        jql = raw_jql
+    else:
+        proj_clause = ", ".join(projects)
+        jql = f"project in ({proj_clause}) ORDER BY created ASC"
+        if args.jql_extra.strip():
+            jql = f"project in ({proj_clause}) AND ({args.jql_extra.strip()}) ORDER BY created ASC"
 
     out_path = args.out.strip() or default_out_path(projects)
     tag_sources = [part.strip() for part in str(args.tag_sources or "").split(",") if part.strip()]

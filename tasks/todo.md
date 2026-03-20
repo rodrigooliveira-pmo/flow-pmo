@@ -1,4 +1,69 @@
 
+## Current Task (BusinessMap BF/BT: aceitar JQL completa no exportador)
+- [x] Revisar a limitação atual de `--projects` + `--jql-extra` frente à query real de BeFinance
+- [x] Ajustar o exportador para aceitar JQL completa com precedência sobre a montagem automática
+- [x] Validar help/import/sintaxe e registrar o comando recomendado para a query `BT + BF`
+- [x] Registrar review e sugestão de commit
+
+## Specification (BusinessMap BF/BT: aceitar JQL completa no exportador)
+- Objetivo: permitir rodar a migração BusinessMap com a JQL exata informada para BeFinance, incluindo `project IN (BT, BF)`, filtro de `issuetype`, filtro de `team[team]` e `ORDER BY` próprio.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador aceita `--jql` completa sem reescrever `project in (...)`.
+  - `--jql` tem precedência sobre `--projects` e `--jql-extra`.
+  - CLI/help/import/sintaxe continuam válidos.
+
+## Review (BusinessMap BF/BT: aceitar JQL completa no exportador)
+- What was validated:
+  - [`jira_to_businessmap_xlsx.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_to_businessmap_xlsx.py) agora aceita `--jql` completa com precedência sobre a montagem automática por `--projects` + `--jql-extra`.
+  - `--projects` deixou de ser obrigatório quando a consulta completa já vem em `--jql`; quando informado, continua sendo útil para nome de saída/preset.
+  - O preset de tipo BF também passou a converter `Story` e `User Story` para `História`, alinhando o export com o recorte real informado.
+  - A query real de BeFinance foi executada com sucesso em `2026-03-20`: `248` issues retornadas, com `Column name` somente em `BACKLOG`, `DONE`, `IN PROGRESS`, `READY CODE REVIEW`, `READY TESTING/QA`, `READY TO START`, `STAGING`, `TRIAGEM`.
+  - Após o ajuste de tipo, o XLSX dessa query ficou com `Type name` em `História=247` e `Tech=1`; `User Story` deixou de vazar como tipo bruto.
+- Evidence (tests/logs/diff):
+  - `python3 jira_to_businessmap_xlsx.py --help`
+  - `python3 -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 jira_to_businessmap_xlsx.py --projects BF BT --mapping-preset bf --jql 'project IN (BT, BF) AND issuetype IN (Bug, Story, Spike, Support, Task, Tech, "User Story") AND "team[team]" = b87876b2-78cd-4b67-bbcf-37ba395e5f39 ORDER BY created DESC' --out /tmp/businessmap-import-befinance-bt-bf-validation.xlsx`
+  - `python3 - <<'PY' ... pd.read_excel('/tmp/businessmap-import-befinance-bt-bf-validation.xlsx') ... PY`
+- Comando recomendado:
+  - `python3 jira_to_businessmap_xlsx.py --projects BF BT --mapping-preset bf --jql 'project IN (BT, BF) AND issuetype IN (Bug, Story, Spike, Support, Task, Tech, "User Story") AND "team[team]" = b87876b2-78cd-4b67-bbcf-37ba395e5f39 ORDER BY created DESC' --out /tmp/businessmap-import-befinance-bt-bf.xlsx`
+- Suggested commit message:
+  - `feat(integration): support full jql for businessmap export`
+
+## Current Task (BusinessMap BF: alinhar preset aos status reais do Jira)
+- [x] Revisar o preset BF do exportador BusinessMap contra os status reais do projeto `BF` no Jira
+- [x] Ajustar o preset para cobrir aliases hoje ativos que gerariam coluna inválida
+- [x] Validar sintaxe/import e executar um export real amostral para confirmar as colunas geradas
+- [x] Registrar review e sugestão de commit
+
+## Specification (BusinessMap BF: alinhar preset aos status reais do Jira)
+- Objetivo: garantir que a migração Jira -> BusinessMap do projeto `BF` não gere `Column name` inválida por lacunas no preset embutido.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Preset `bf` cobre os status reais atualmente usados em `BF` que hoje escapam do mapeamento.
+  - Validação local (`--help`, import, sintaxe) permanece OK.
+  - Um export real do projeto `BF` não deixa `READY FOR DEVELOPMENT`, `Cancelled` ou `Cancelada` como `Column name` bruta.
+
+## Review (BusinessMap BF: alinhar preset aos status reais do Jira)
+- What was validated:
+  - O preset embutido do BF em [`jira_to_businessmap_xlsx.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_to_businessmap_xlsx.py) passou a cobrir explicitamente `READY FOR DEVELOPMENT -> READY TO START` e `Cancelled/Cancelada -> DONE`.
+  - A validação contra o Jira do projeto `BF` em `2026-03-20` mostrou 291 issues com estes status reais: `Backlog`, `Triagem`, `READY FOR DEVELOPMENT`, `In Progess`, `Cancelada`, `Ready for code review`, `READY FOR TESTING/QA`, `Staging`, `Concluído`, `Cancelled`, `Development`.
+  - O export real gerado em `/tmp/businessmap-import-bf-validation.xlsx` saiu com apenas estas colunas de destino: `BACKLOG`, `DONE`, `IN PROGRESS`, `READY CODE REVIEW`, `READY TESTING/QA`, `READY TO START`, `STAGING`, `TRIAGEM`; não sobrou nenhuma linha com `Column name = READY FOR DEVELOPMENT`, `Cancelled` ou `Cancelada`.
+  - Risco remanescente: o BF hoje exporta `Type name` com distribuição `História=233`, `Épico=44`, `Iniciativa=13`, `Tech=1`. Se o board de destino no BusinessMap não tiver esses tipos cadastrados, será preciso passar `--type-name-map` adicional no comando.
+- Evidence (tests/logs/diff):
+  - `python3 jira_to_businessmap_xlsx.py --help`
+  - `python3 -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 jira_to_businessmap_xlsx.py --projects BF --out /tmp/businessmap-import-bf-validation.xlsx`
+  - `python3 - <<'PY' ... pd.read_excel('/tmp/businessmap-import-bf-validation.xlsx') ... PY`
+- Suggested commit message:
+  - `fix(integration): map current BF jira statuses in businessmap preset`
+
 ## Current Task (Avaliar arquitetura de dados e plano de migração de CSV para banco)
 - [x] Revisar instruções do projeto e memória operacional relevante
 - [x] Mapear fontes atuais de dados, artefatos intermediários e pontos de leitura no dashboard
