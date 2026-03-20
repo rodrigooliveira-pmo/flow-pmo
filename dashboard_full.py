@@ -1806,6 +1806,18 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     else:
         per_dev['Score Complexidade Puxado'] = 0.0
 
+    # ECR — Estimation Coverage Rate: % de itens puxados com estimativa real (não inferida).
+    # Mede confiabilidade do IED/IEF: devs com ECR baixo têm scores baseados em inferência estatística.
+    # Referência: Kitchenham & Mendes (TSE 2004) — estimativa como pré-requisito de comparabilidade.
+    if not started_window.empty and '_SP_Inferido' in started_window.columns:
+        _n_inf = started_window.groupby('_Pessoa')['_SP_Inferido'].sum()
+        _n_tot = started_window.groupby('_Pessoa').size()
+        per_dev['ECR'] = per_dev['Pessoa'].map(
+            (1 - _n_inf / _n_tot.clip(lower=1)) * 100
+        ).fillna(100.0).clip(0, 100).round(1)
+    else:
+        per_dev['ECR'] = 100.0
+
     per_dev = per_dev[per_dev['Pessoa'].astype(str).str.strip().ne('')]
     per_dev = per_dev.sort_values(
         ['Itens Entregues', 'Itens Puxados', 'Pessoa'],
@@ -15020,6 +15032,45 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             return 'Crítico'
         per_dev['IEF Classe'] = per_dev['IEF'].apply(_ief_classe)
 
+        # ── Novos Indicadores ────────────────────────────────────────────────────
+        # DD/FP — Defect Density por Function Point (Capers Jones / Namcook Analytics, IFPUG 2017)
+        # Benchmarks: Excelente <0.10 | Bom 0.10–0.30 | Médio 0.30–0.60 | Crítico >0.60
+        per_dev['DD_FP'] = (
+            pd.to_numeric(per_dev['Defeitos Entregues'], errors='coerce').fillna(0) /
+            pd.to_numeric(per_dev['Score Complexidade'], errors='coerce').fillna(1).clip(lower=0.1)
+        ).round(3)
+
+        # KCR — Knowledge Concentration Risk (Ricca et al., ICSE 2019 — Truck Factor)
+        # KCR > 40% = dev concentra >40% da produção técnica → risco de bus factor
+        _total_commits_kpi = max(int(per_dev['Commits'].sum()), 1)
+        per_dev['KCR'] = (per_dev['Commits'] / _total_commits_kpi * 100).round(1)
+
+        # Estabilidade de Throughput — (1 − CV_semanal) × 100
+        # CV = desvio_padrão / média do throughput semanal (itens concluídos/semana)
+        # Benchmark: Estabilidade ≥70 → previsível (CV ≤ 0.5) (Anderson 2010; Magennis 2016)
+        _done_cv = df_prod_base.copy()
+        _done_cv['_Pessoa'] = _resolve_dev_person_series(_done_cv, alias_index=alias_index_prod)
+        if 'DataDone' in _done_cv.columns:
+            _done_cv['DataDone'] = pd.to_datetime(_done_cv['DataDone'], errors='coerce')
+            _done_cv = _done_cv[
+                (_done_cv['DataDone'] >= start_ts_prod) &
+                (_done_cv['DataDone'] < end_ts_prod) &
+                _done_cv['_Pessoa'].astype(str).str.strip().ne('')
+            ]
+            if not _done_cv.empty:
+                _done_cv['_week'] = _done_cv['DataDone'].dt.to_period('W')
+                _weekly_tp = _done_cv.groupby(['_Pessoa', '_week']).size().reset_index(name='_cnt')
+                def _stability(dev):
+                    s = _weekly_tp[_weekly_tp['_Pessoa'] == dev]['_cnt']
+                    if len(s) < 2:
+                        return 100.0
+                    return float(np.clip((1.0 - float(s.std()) / max(float(s.mean()), 0.01)) * 100.0, 0.0, 100.0))
+                per_dev['Estabilidade_Throughput'] = per_dev['Pessoa'].apply(_stability).round(1)
+            else:
+                per_dev['Estabilidade_Throughput'] = 100.0
+        else:
+            per_dev['Estabilidade_Throughput'] = 100.0
+
         # Filtro por BU (inline, sem necessidade de novo callback)
         bus_disponiveis = sorted(per_dev['BU'].dropna().unique().tolist())
         bus_disponiveis = [b for b in bus_disponiveis if b]  # remove vazios
@@ -15084,6 +15135,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # SP/Dev/Mês vs QSM benchmark: ≥7.47 = mediana indústria (Business Systems FP/PM)
         _sppm_color = '#27ae60' if sp_por_dev_por_mes >= 7.47 else '#e67e22' if sp_por_dev_por_mes >= 5.0 else '#e74c3c'
         falha_color = '#e74c3c' if pct_falha_geral >= 30 else '#e67e22' if pct_falha_geral >= 15 else '#27ae60'
+
+        # KPIs dos novos indicadores
+        _kcr_max_row = per_dev.nlargest(1, 'KCR').iloc[0] if not per_dev.empty and 'KCR' in per_dev.columns else None
+        if _kcr_max_row is not None and _kcr_max_row['KCR'] > 0:
+            _kcr_first = str(_kcr_max_row['Pessoa']).split()[0]
+            _kcr_max_label = f"{_kcr_first} ({_kcr_max_row['KCR']:.0f}%)"
+            _kcr_color = '#e74c3c' if _kcr_max_row['KCR'] > 40 else '#e67e22' if _kcr_max_row['KCR'] > 25 else '#27ae60'
+        else:
+            _kcr_max_label = '—'
+            _kcr_color = '#6c757d'
+        _ecr_series = per_dev.loc[per_dev.get('ECR', pd.Series(dtype=float)) > 0, 'ECR'] if 'ECR' in per_dev.columns else pd.Series(dtype=float)
+        _ecr_med = round(float(_ecr_series.median()), 0) if not _ecr_series.empty else 100.0
+        _ecr_color = '#27ae60' if _ecr_med >= 85 else '#e67e22' if _ecr_med >= 60 else '#e74c3c'
+        _estab_series = per_dev['Estabilidade_Throughput'] if 'Estabilidade_Throughput' in per_dev.columns else pd.Series(dtype=float)
+        _estab_med = round(float(_estab_series.median()), 0) if not _estab_series.empty else 0.0
+        _estab_color = '#27ae60' if _estab_med >= 70 else '#e67e22' if _estab_med >= 50 else '#e74c3c'
+
         kpi_row = html.Div([
             _mini_kpi('Devs Ativos', f'{devs_ativos} ({_qsm_staff_band})', color='#2980b9'),
             _mini_kpi('IED Mediano', f'{ied_mediano:.0f}/100', color=ied_color,
@@ -15102,6 +15170,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             _mini_kpi('CT Dev Mediano', f'{dev_cycle_median:.1f} d', color='#16a085'),
             _mini_kpi('Commits', total_commits, color='#16a085'),
             _mini_kpi('PRs Merged', total_prs, color='#2980b9'),
+            _mini_kpi('Concentração Commits', _kcr_max_label, color=_kcr_color),
+            _mini_kpi('ECR Mediano', f'{_ecr_med:.0f}%', color=_ecr_color,
+                      bg='#f0fff4' if _ecr_med >= 85 else '#fffbf0' if _ecr_med >= 60 else '#fff5f5',
+                      border_color='#b2dfdb' if _ecr_med >= 85 else '#ffe082' if _ecr_med >= 60 else '#ffcdd2'),
+            _mini_kpi('Estabilidade TP', f'{_estab_med:.0f}/100', color=_estab_color,
+                      bg='#f0fff4' if _estab_med >= 70 else '#fffbf0' if _estab_med >= 50 else '#fff5f5',
+                      border_color='#b2dfdb' if _estab_med >= 70 else '#ffe082' if _estab_med >= 50 else '#ffcdd2'),
         ], style={
             'display': 'flex', 'flexWrap': 'wrap', 'gap': '10px',
             'marginBottom': '20px', 'marginTop': '10px',
@@ -15407,6 +15482,94 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             showlegend=True,
         )
 
+        # ── Radar Produtividade 360° — combina IED + Estabilidade + ECR ────────
+        # Extensão do IED radar com 6 eixos: os 4 componentes do IED + 2 novos indicadores.
+        # Top 15 por IED. Referências: Anderson (2010), Kitchenham & Mendes (TSE 2004).
+        _p360_axes = [
+            ('_ied_nds',              'Entrega (NDS)'),
+            ('_ied_eee',              'Conclusão (EEE)'),
+            ('_ied_vel',              'Velocidade (VEL)'),
+            ('_ied_qua',              'Qualidade (QUA)'),
+            ('Estabilidade_Throughput', 'Estabilidade'),
+            ('ECR',                   'Cobertura Estimativa (ECR)'),
+        ]
+        _p360_keys = [k for k, _ in _p360_axes if k in per_dev.columns]
+        _p360_lbls = [l for k, l in _p360_axes if k in per_dev.columns]
+
+        _p360_src = per_dev[['Pessoa', 'IED'] + _p360_keys].copy()
+        _p360_src = _p360_src[_p360_src['IED'] > 0].sort_values('IED', ascending=False).head(15)
+
+        fig_prod_360 = go.Figure()
+        if not _p360_src.empty and len(_p360_keys) >= 3:
+            for _ri, (_, _row) in enumerate(_p360_src.iterrows()):
+                _vals = [float(_row.get(k, 0) or 0) for k in _p360_keys]
+                _col = _radar_palette[_ri % len(_radar_palette)]
+                _rh = _col.lstrip('#')
+                _rfill = 'rgba({},{},{},0.10)'.format(
+                    int(_rh[0:2], 16), int(_rh[2:4], 16), int(_rh[4:6], 16)
+                )
+                fig_prod_360.add_trace(go.Scatterpolar(
+                    r=_vals + [_vals[0]],
+                    theta=_p360_lbls + [_p360_lbls[0]],
+                    fill='toself',
+                    fillcolor=_rfill,
+                    line=dict(color=_col, width=2),
+                    name=str(_row['Pessoa']),
+                    hovertemplate=(
+                        '<b>' + str(_row['Pessoa']) + '</b><br>'
+                        '%{theta}: <b>%{r:.1f}/100</b><extra></extra>'
+                    ),
+                ))
+            # Referência: mínimo esperado = 70 em todos os eixos
+            fig_prod_360.add_trace(go.Scatterpolar(
+                r=[70] * len(_p360_lbls) + [70],
+                theta=_p360_lbls + [_p360_lbls[0]],
+                fill=None,
+                name='Mínimo Esperado (70)',
+                line=dict(color='#f39c12', width=2.5, dash='dash'),
+                opacity=1.0,
+            ))
+            # Referência: excelência = 100
+            fig_prod_360.add_trace(go.Scatterpolar(
+                r=[100] * len(_p360_lbls) + [100],
+                theta=_p360_lbls + [_p360_lbls[0]],
+                fill=None,
+                name='Excelência (100)',
+                line=dict(color='#27ae60', width=2.5, dash='dot'),
+                opacity=1.0,
+            ))
+        fig_prod_360.update_layout(
+            title=(
+                'Produtividade 360° — Resumo Geral por Desenvolvedor<br>'
+                '<sup>'
+                'Combina os 4 eixos do IED (NDS, EEE, VEL, QUA) + Estabilidade de Throughput (1−CV semanal) + '
+                'ECR (% itens puxados com estimativa real). Top 15 por IED. '
+                'Maior área = perfil mais completo. | '
+                'Estabilidade: Anderson (2010); Magennis (2016) | '
+                'ECR: Kitchenham & Mendes (TSE 2004)'
+                '</sup>'
+            ),
+            polar=dict(
+                radialaxis=dict(
+                    range=[0, 100], showticklabels=True,
+                    tickfont=dict(size=9), gridcolor='#ddd',
+                    tickvals=[0, 25, 50, 75, 100],
+                ),
+                angularaxis=dict(tickfont=dict(size=12, color='#2c3e50')),
+                bgcolor='#fafafa',
+            ),
+            template='plotly_white',
+            height=600,
+            margin=dict(t=120, b=60, l=60, r=240),
+            legend=dict(
+                orientation='v', x=1.02, y=0.5,
+                font=dict(size=10),
+                bgcolor='rgba(255,255,255,0.92)',
+                bordercolor='#ddd', borderwidth=1,
+            ),
+            showlegend=True,
+        )
+
         # ── Tabela de componentes do IED (breakdown por dev) ──────────────────
         _ied_comp_cols = ['Pessoa', 'IED', 'IED Classe', '_ied_nds', '_ied_eee', '_ied_vel', '_ied_qua']
         _ied_comp_avail = [c for c in _ied_comp_cols if c in per_dev.columns]
@@ -15487,6 +15650,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'IED', 'IED Classe',
             # Componentes do IED (detalhamento)
             'Score Complexidade Puxado',
+            # Novos indicadores
+            'DD_FP', 'KCR', 'ECR', 'Estabilidade_Throughput',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
 
@@ -15499,6 +15664,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 prod_display[_pct_col] = prod_display[_pct_col].apply(
                     lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
                 )
+        # Formata novos indicadores
+        if 'DD_FP' in prod_display.columns:
+            prod_display['DD_FP'] = prod_display['DD_FP'].apply(
+                lambda v: f'{float(v):.3f}' if pd.notna(v) else '—'
+            )
+        if 'KCR' in prod_display.columns:
+            prod_display['KCR'] = prod_display['KCR'].apply(
+                lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
+            )
+        if 'ECR' in prod_display.columns:
+            prod_display['ECR'] = prod_display['ECR'].apply(
+                lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
+            )
+        if 'Estabilidade_Throughput' in prod_display.columns:
+            prod_display['Estabilidade_Throughput'] = prod_display['Estabilidade_Throughput'].apply(
+                lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+            )
 
         prod_table = dash_table.DataTable(
             columns=[{"name": c, "id": c} for c in table_cols_prod],
@@ -16245,6 +16427,31 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                                             'fontSize': '13px', 'marginTop': '12px', 'color': '#2c3e50'}),
                         html.Div(ied_breakdown_table, style={'marginTop': '10px'}),
                     ]),
+                ],
+            ),
+
+            # ── Produtividade 360° — radar resumo geral ───────────────────────
+            _section(
+                'Produtividade 360° — Resumo Geral',
+                [
+                    html.Span('Combina os 4 eixos do IED '),
+                    html.Span('(NDS, EEE, VEL, QUA)', style={'fontWeight': '600', 'fontFamily': 'monospace'}),
+                    html.Span(' + '),
+                    html.Span('Estabilidade de Throughput', style={'color': '#2980b9', 'fontWeight': '600'}),
+                    html.Span(' (1 − CV semanal: previsibilidade de entrega semana a semana) + '),
+                    html.Span('ECR', style={'color': '#8e44ad', 'fontWeight': '600'}),
+                    html.Span(' (% de itens puxados com estimativa real, não inferida por modelo). '),
+                    html.Span('Top 15 por IED. Maior área = perfil mais completo. ', style={'color': '#6c757d'}),
+                    html.Span('Referências: ', style={'fontWeight': '600'}),
+                    html.Span('Estabilidade — Anderson (2010); Magennis (2016) | ', style={'color': '#2980b9'}),
+                    html.Span('ECR — Kitchenham & Mendes (TSE 2004)', style={'color': '#8e44ad'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_prod_360, config={'displayModeBar': False})
+                    if fig_prod_360.data else html.P(
+                        'Dados insuficientes para o radar 360° (mínimo 3 eixos com dados).',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
                 ],
             ),
 

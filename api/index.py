@@ -16,7 +16,13 @@ Exemplos de configuração no Vercel (env vars):
 
 import importlib
 import os
+import sys
 import traceback
+
+# Ensure the project root is on sys.path so `auth` can be imported from api/
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from flask import Flask, Response
 
@@ -28,6 +34,15 @@ try:
     dash_obj = getattr(module, DASH_ATTR)
     # Dash instance exposes the Flask app in `.server`.
     app = getattr(dash_obj, "server", dash_obj)
+
+    # Attach Google OAuth authentication (no-op if env vars not set in dev)
+    try:
+        from auth import init_app as _init_auth
+        _init_auth(app)
+    except RuntimeError as _auth_exc:
+        import warnings
+        warnings.warn(f"Auth não inicializada: {_auth_exc}", stacklevel=1)
+
 except Exception as exc:  # pragma: no cover - runtime safeguard
     error_message = str(exc)
     error_trace = traceback.format_exc()
