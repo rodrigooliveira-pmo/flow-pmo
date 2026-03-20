@@ -1,4 +1,36 @@
 
+## Current Task (BusinessMap: configurar diretório padrão de saída)
+- [x] Revisar como o exportador resolve o caminho default dos XLSX
+- [x] Configurar o diretório padrão para `/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap`
+- [x] Validar help/import/sintaxe e registrar comandos atualizados
+- [x] Registrar review e sugestão de commit
+
+## Specification (BusinessMap: configurar diretório padrão de saída)
+- Objetivo: fazer com que os arquivos de migração BusinessMap sejam gerados por padrão em `/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap`.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `jira_env.txt`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador respeita um diretório padrão configurável para os XLSX.
+  - `jira_env.txt` aponta para a pasta informada.
+  - CLI/help/import/sintaxe continuam válidos.
+
+## Review (BusinessMap: configurar diretório padrão de saída)
+- What was validated:
+  - [`jira_to_businessmap_xlsx.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_to_businessmap_xlsx.py) agora respeita `BUSINESSMAP_OUT_DIR` ao montar o caminho default de saída.
+  - [`jira_env.txt`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_env.txt) foi configurado com `BUSINESSMAP_OUT_DIR=/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap`.
+  - A resolução default ficou validada para `BT` em `2026-03-20`: `/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap/businessmap-import-bt-20260320.xlsx`.
+- Evidence (tests/logs/diff):
+  - `python3 jira_to_businessmap_xlsx.py --help`
+  - `python3 -c "import jira_to_businessmap_xlsx as m; m.load_env_file('jira_env.txt'); print(m.default_out_path(['BT']))"`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+- Comandos atualizados:
+  - `python3 jira_to_businessmap_xlsx.py --projects BT --jql 'project = BT AND issuetype = Epic ORDER BY Rank ASC'`
+  - `python3 jira_to_businessmap_xlsx.py --projects BT --jql 'project in (10526) AND issuetype in (10254) ORDER BY Rank ASC'`
+- Suggested commit message:
+  - `feat(integration): allow configurable businessmap output directory`
+
 ## Current Task (BusinessMap BF/BT: aceitar JQL completa no exportador)
 - [x] Revisar a limitação atual de `--projects` + `--jql-extra` frente à query real de BeFinance
 - [x] Ajustar o exportador para aceitar JQL completa com precedência sobre a montagem automática

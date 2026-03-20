@@ -534,7 +534,10 @@ def build_tags(
 
 
 def default_out_path(projects: List[str]) -> str:
-    if os.name == "nt":
+    configured_out_dir = str(os.getenv("BUSINESSMAP_OUT_DIR", "")).strip()
+    if configured_out_dir:
+        data_folder = configured_out_dir
+    elif os.name == "nt":
         data_folder = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados"
     else:
         data_folder = os.path.join(os.path.expanduser("~"), "Library", "CloudStorage", "OneDrive-W1", "Documentos", "Dados")
