@@ -1,4 +1,4 @@
-"""Google OAuth 2.0 authentication for the Dash/Flask dashboard.
+"""Google Workspace OAuth 2.0 authentication for the Dash/Flask dashboard.
 
 Exposes a single entry point:
 
@@ -6,16 +6,24 @@ Exposes a single entry point:
     init_app(flask_server)
 
 Environment variables required:
-    GOOGLE_CLIENT_ID       — OAuth 2.0 client ID from Google Cloud Console
-    GOOGLE_CLIENT_SECRET   — OAuth 2.0 client secret
-    FLASK_SECRET_KEY       — random secret used to sign Flask sessions
-    FLOW_PMO_ALLOWED_EMAILS — comma-separated list of authorised e-mails
+    GOOGLE_CLIENT_ID        — OAuth 2.0 client ID from Google Cloud Console
+    GOOGLE_CLIENT_SECRET    — OAuth 2.0 client secret
+    FLASK_SECRET_KEY        — random secret used to sign Flask sessions
+    FLOW_PMO_ALLOWED_DOMAIN — Google Workspace domain (e.g. empresa.com)
+                              Only users authenticated via this Workspace domain
+                              will be granted access.
+
+Optional:
+    FLOW_PMO_ALLOWED_EMAILS — comma-separated list of specific e-mails within
+                              the domain. When set, acts as an additional filter:
+                              only these users can log in (instead of all domain
+                              members). Leave unset to allow the entire domain.
 """
 
 import os
 
 from authlib.integrations.flask_client import OAuth
-from flask import Blueprint, abort, redirect, render_template_string, session, url_for
+from flask import Blueprint, redirect, render_template_string, session, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_user, logout_user
 
 # ---------------------------------------------------------------------------
@@ -93,7 +101,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
 <body>
   <div class="card">
     <div class="logo">Flow PMO</div>
-    <div class="subtitle">Acesso restrito</div>
+    <div class="subtitle">Acesso restrito — conta {{ domain }}</div>
     <a href="{{ google_url }}" class="btn-google">
       <svg class="google-icon" viewBox="0 0 48 48">
         <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -102,7 +110,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
         <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
         <path fill="none" d="M0 0h48v48H0z"/>
       </svg>
-      Entrar com Google
+      Entrar com Google Workspace
     </a>
     {% if error %}
     <div class="error-msg">{{ error }}</div>
@@ -124,10 +132,12 @@ _FORBIDDEN_HTML = """<!DOCTYPE html>
     }
     .card {
       background: #1a1d27; border: 1px solid #2d3148; border-radius: 12px;
-      padding: 48px 40px; text-align: center; max-width: 400px;
+      padding: 48px 40px; text-align: center; max-width: 420px;
     }
     h1 { font-size: 1.4rem; margin-bottom: 12px; color: #f87171; }
     p { color: #94a3b8; font-size: 0.9rem; line-height: 1.6; }
+    .email { color: #e2e8f0; font-weight: 600; }
+    .domain { color: #60a5fa; }
     a { display: inline-block; margin-top: 24px; color: #60a5fa; text-decoration: none; }
     a:hover { text-decoration: underline; }
   </style>
@@ -135,8 +145,14 @@ _FORBIDDEN_HTML = """<!DOCTYPE html>
 <body>
   <div class="card">
     <h1>Acesso negado</h1>
-    <p>O e-mail <strong>{{ email }}</strong> não está autorizado a acessar este dashboard.</p>
-    <p style="margin-top:8px">Entre em contato com o administrador.</p>
+    <p>A conta <span class="email">{{ email }}</span> não tem permissão para acessar este dashboard.</p>
+    {% if reason == "domain" %}
+    <p style="margin-top:8px">
+      É necessário usar uma conta do domínio <span class="domain">{{ domain }}</span>.
+    </p>
+    {% else %}
+    <p style="margin-top:8px">Entre em contato com o administrador para solicitar acesso.</p>
+    {% endif %}
     <a href="{{ logout_url }}">Sair e tentar com outra conta</a>
   </div>
 </body>
@@ -148,7 +164,7 @@ _FORBIDDEN_HTML = """<!DOCTYPE html>
 # ---------------------------------------------------------------------------
 
 def init_app(flask_server) -> None:
-    """Attach Google OAuth + Flask-Login to an existing Flask app instance."""
+    """Attach Google Workspace OAuth + Flask-Login to an existing Flask app."""
 
     # --- Secret key (required for signed sessions) -------------------------
     secret_key = os.environ.get("FLASK_SECRET_KEY")
@@ -159,16 +175,20 @@ def init_app(flask_server) -> None:
         )
     flask_server.secret_key = secret_key
 
-    # --- Allowed e-mails ---------------------------------------------------
+    # --- Google Workspace domain -------------------------------------------
+    allowed_domain = os.environ.get("FLOW_PMO_ALLOWED_DOMAIN", "").strip().lower()
+    if not allowed_domain:
+        raise RuntimeError(
+            "FLOW_PMO_ALLOWED_DOMAIN não definida. "
+            "Defina o domínio Google Workspace (ex: empresa.com)."
+        )
+
+    # --- Optional per-user allowlist within the domain ---------------------
     raw_emails = os.environ.get("FLOW_PMO_ALLOWED_EMAILS", "")
     allowed_emails: set[str] = {
         e.strip().lower() for e in raw_emails.split(",") if e.strip()
     }
-    if not allowed_emails:
-        raise RuntimeError(
-            "FLOW_PMO_ALLOWED_EMAILS não definida ou vazia. "
-            "Defina ao menos um e-mail autorizado."
-        )
+    # allowed_emails empty → entire domain is permitted
 
     # --- Flask-Login -------------------------------------------------------
     login_manager = LoginManager()
@@ -196,12 +216,15 @@ def init_app(flask_server) -> None:
     def login():
         error = session.pop("auth_error", None)
         google_url = url_for("auth.google_authorize")
-        return render_template_string(_LOGIN_HTML, google_url=google_url, error=error)
+        return render_template_string(
+            _LOGIN_HTML, google_url=google_url, error=error, domain=allowed_domain
+        )
 
     @auth_bp.route("/auth/google")
     def google_authorize():
         redirect_uri = url_for("auth.google_callback", _external=True)
-        return oauth.google.authorize_redirect(redirect_uri)
+        # hd hint: pre-selects the Workspace account picker on Google's side
+        return oauth.google.authorize_redirect(redirect_uri, hd=allowed_domain)
 
     @auth_bp.route("/auth/google/callback")
     def google_callback():
@@ -213,12 +236,30 @@ def init_app(flask_server) -> None:
             return redirect(url_for("auth.login"))
 
         email: str = (userinfo.get("email") or "").lower()
+        # hd claim is set by Google for Workspace accounts; absent for @gmail.com
+        token_hd: str = (userinfo.get("hd") or "").lower()
 
-        if email not in allowed_emails:
+        # Security check: validate the hd claim matches our domain.
+        # The hd hint in the redirect is UX-only; this server-side check is
+        # what actually enforces the restriction.
+        if token_hd != allowed_domain or not email.endswith(f"@{allowed_domain}"):
             logout_user()
             return render_template_string(
                 _FORBIDDEN_HTML,
                 email=email,
+                domain=allowed_domain,
+                reason="domain",
+                logout_url=url_for("auth.logout"),
+            ), 403
+
+        # Optional: further restrict to a specific subset of users
+        if allowed_emails and email not in allowed_emails:
+            logout_user()
+            return render_template_string(
+                _FORBIDDEN_HTML,
+                email=email,
+                domain=allowed_domain,
+                reason="allowlist",
                 logout_url=url_for("auth.logout"),
             ), 403
 
@@ -240,6 +281,6 @@ def init_app(flask_server) -> None:
         from flask import request
         path = request.path
         if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
-            return  # allow through
+            return
         if not current_user.is_authenticated:
             return redirect(url_for("auth.login"))

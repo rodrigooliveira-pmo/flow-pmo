@@ -15182,6 +15182,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'marginBottom': '20px', 'marginTop': '10px',
         })
 
+        no_delivery_notice = None
+        if total_entregues == 0 and total_puxados > 0:
+            no_delivery_notice = html.Div([
+                html.Strong('Período com trabalho puxado, mas sem entregas elegíveis para IEF/IED.'),
+                html.Span(
+                    f' Foram identificados {total_puxados} itens puxados no recorte, porém 0 itens entregues '
+                    'sem cancelamento. Por isso os gráficos de IEF e IED ficam sem base válida neste período.',
+                    style={'marginLeft': '6px'},
+                ),
+            ], style={
+                'padding': '12px 16px',
+                'marginBottom': '16px',
+                'backgroundColor': '#fff8e1',
+                'border': '1px solid #ffe082',
+                'borderLeft': '4px solid #f39c12',
+                'borderRadius': '8px',
+                'color': '#6d4c41',
+            })
+
         # ── Banner de BU ──────────────────────────────────────────────────────
         _bu_chips = [
             html.Span(bu, style={
@@ -16368,6 +16387,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # ── KPIs ──────────────────────────────────────────────────────────
             kpi_row,
 
+            no_delivery_notice if no_delivery_notice is not None else html.Div(),
+
             # ── BU Banner ─────────────────────────────────────────────────────
             bu_selector,
 
@@ -16391,7 +16412,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 [
                     dcc.Graph(figure=fig_ief, config={'displayModeBar': False})
                     if fig_ief.data else
-                    html.P('Sem dados para calcular o IEF no período selecionado.', style={'color': '#aaa'}),
+                    html.P(
+                        'Sem dados para calcular o IEF no período selecionado.'
+                        if total_puxados == 0 else
+                        f'Sem base para IEF: houve {total_puxados} itens puxados, mas 0 entregas elegíveis no período.',
+                        style={'color': '#aaa'},
+                    ),
                 ],
             ),
 
@@ -16418,7 +16444,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ],
                 [
                     dcc.Graph(figure=fig_ied, config={'displayModeBar': False})
-                    if fig_ied.data else html.P('Sem dados para calcular o IED no período selecionado.', style={'color': '#aaa'}),
+                    if fig_ied.data else html.P(
+                        'Sem dados para calcular o IED no período selecionado.'
+                        if total_puxados == 0 else
+                        f'Sem base para IED: houve {total_puxados} itens puxados, mas 0 entregas elegíveis no período.',
+                        style={'color': '#aaa'},
+                    ),
                     dcc.Graph(figure=fig_ied_radar, config={'displayModeBar': False})
                     if fig_ied_radar.data else html.P('Sem dados suficientes para o radar de componentes.', style={'color': '#aaa'}),
                     html.Details([

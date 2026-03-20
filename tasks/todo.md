@@ -1,3 +1,35 @@
+
+## Current Task (Diagnosticar BeFinance sem registros no painel de Produtividade Dev)
+- [x] Verificar fontes usadas por IEF/IED e comparar com os artefatos atuais do BeFinance
+- [x] Confirmar se março/2026 tem itens puxados, entregas elegíveis ou apenas transições/cancelamentos
+- [x] Ajustar a UI para explicar claramente o cenário de período com itens puxados mas sem entregas elegíveis
+- [x] Validar a mensagem no código e registrar revisão
+
+## Review (Diagnosticar BeFinance sem registros no painel de Produtividade Dev)
+- O que foi confirmado:
+  - A aba `Produtividade Dev` calcula IEF/IED sobre `fato` carregado de `PowerBI_Model_latest.xlsx`, não sobre `process_mining`.
+  - No BeFinance, março/2026 tem atividade no downstream (`BF-247` a `BF-252`), mas sem `Itens concluídos` no consolidado.
+  - O `process_mining` mais recente contém eventos até `2026-03-19` e um caso terminal `BF-257` em `2026-03-09`, mas esse item não entra como entrega elegível do painel.
+  - O painel parecia “sem dados” porque havia itens puxados no período, porém 0 entregas elegíveis para a régua IEF/IED.
+- O que foi implementado:
+  - `dashboard_full.py` agora exibe um aviso explícito quando o período tem `Itens Puxados > 0` e `Itens Entregues = 0`.
+  - As mensagens vazias do IEF e do IED passaram a explicar que houve trabalho puxado, mas não houve entregas elegíveis no recorte.
+- Evidências de validação:
+  - parsing sintático de `dashboard_full.py` com `ast.parse(...)`
+  - inspeção local de `../dados/latest/befinance-downstream-latest-data.csv` e `artifacts/process_mining/befinance-process-mining-latest.xlsx`
+- Suggested commit message:
+  - `fix(produtividade-dev): explain started-without-delivery periods in IEF/IED`
+
+## Specification (Diagnosticar BeFinance sem registros no painel de Produtividade Dev)
+- Objetivo: evitar leitura enganosa de “sem dados” na aba `Produtividade Dev` quando o projeto tem atividade no período, mas nenhuma entrega elegível para calcular IEF/IED.
+- Estratégia:
+  - manter a lógica atual de elegibilidade de entregas
+  - explicitar no painel quando houver `Itens Puxados > 0` e `Itens Entregues = 0`
+  - deixar claro que o problema é ausência de entregas elegíveis no recorte, não ausência total de atividade
+- Regras:
+  - não alterar a definição de IEF/IED
+  - tocar apenas a aba `Produtividade Dev`
+
 # Task Plan
 
 ## Current Task (Corrigir falso erro no run_process_mining_projects.ps1 ao capturar stdout)
