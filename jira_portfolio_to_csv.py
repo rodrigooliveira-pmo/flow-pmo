@@ -361,18 +361,13 @@ def build_output_row(
     field_map: Dict[str, Any],
     team_field: str,
     effort_tshirt_field: str,
-    issue_team_map: Dict[str, str],
 ) -> Dict[str, str]:
     fields = issue.get("fields", {}) or {}
     parent = fields.get("parent") or {}
     parent_fields = parent.get("fields") or {}
     key = str(issue.get("key") or "")
     parent_id = str(parent.get("key") or "")
-    own_team = extract_team_from_fields(fields, team_field=team_field)
-    parent_team = extract_team_from_fields(parent_fields, team_field=team_field)
-    if not parent_team and parent_id:
-        parent_team = str(issue_team_map.get(parent_id) or "")
-    team_text = own_team or parent_team
+    team_text = extract_team_from_fields(fields, team_field=team_field)
     issue_type_name = str((fields.get("issuetype") or {}).get("name") or "")
     components = [str((item or {}).get("name") or "") for item in fields.get("components", []) or []]
     labels = [str(item) for item in fields.get("labels", []) or []]
@@ -549,14 +544,6 @@ def main() -> int:
                 issues = client.search_issues(jql=jql, fields=fields, page_size=100)
                 print(f"Issues reconsultadas (effort): {len(issues)}")
 
-    issue_team_map: Dict[str, str] = {}
-    for issue in issues:
-        key = str(issue.get("key") or "")
-        if not key:
-            continue
-        issue_fields = issue.get("fields", {}) or {}
-        issue_team_map[key] = extract_team_from_fields(issue_fields, team_field=team_field)
-
     rows = [
         build_output_row(
             base_url=base_url,
@@ -564,7 +551,6 @@ def main() -> int:
             field_map=field_map,
             team_field=team_field,
             effort_tshirt_field=effort_tshirt_field,
-            issue_team_map=issue_team_map,
         )
         for issue in issues
     ]

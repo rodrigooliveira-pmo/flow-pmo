@@ -1,26 +1,26 @@
 ﻿Variant,Qtde Casos,Conformance Score Medio,Rework Score Medio,Pct Casos
-In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,427,0.6667000000000001,0.0,42.11045364891518
-in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done,46,0.5,0.0,4.536489151873767
-In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done,39,0.5833,0.0,3.8461538461538463
-Cancelled > Done,36,0.5,0.0,3.5502958579881656
-Triagem > Cancelled > Done,34,0.3333,0.0,3.353057199211045
-In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done,26,0.5625,0.0,2.564102564102564
-Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done,22,0.5,0.0,2.1696252465483234
-in analytics > In Development > In Staging > Ready for Production > Done,15,0.5,0.0,1.4792899408284024
-In Progress > Ready To Staging > In Staging > Ready for Production > Done,13,0.8,0.0,1.282051282051282
-in analytics > In Development > In Validation > Done,12,0.25,0.0,1.183431952662722
-In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done,11,0.625,1.0,1.0848126232741617
-In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done,11,0.6,1.0,1.0848126232741617
-Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,10,0.2727,0.0,0.9861932938856016
-Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,9,0.6,0.0,0.8875739644970414
-READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,9,0.3,0.0,0.8875739644970414
-in analytics > In Development > Staging > QA Approved > Ready for Production > Done,9,0.3333,0.0,0.8875739644970414
-Done,8,1.0,0.0,0.7889546351084813
-In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done,8,0.5833,0.0,0.7889546351084813
-in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done,8,0.5,0.0,0.7889546351084813
-Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done,7,0.5,2.0,0.6903353057199211
-Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA,7,0.0,0.0,0.6903353057199211
-In Progress > Ready for Staging > Staging > Ready for Production > Production > Done,7,0.5,0.0,0.6903353057199211
-In Progress > Ready To Staging > Done,6,0.6667,0.0,0.591715976331361
-In Progress > Ready To Staging > Staging > QA Approved > Done,6,0.5,0.0,0.591715976331361
-In Progress > Ready To Staging > Staging > Ready for Production > Done,6,0.6999999999999998,0.0,0.591715976331361
+In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,427,0.6667000000000001,0.0,41.944990176817285
+in analytics > In Development > Staging > QA Approved Staging > Ready for Production > Done,46,0.5,0.0,4.518664047151278
+In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done,39,0.5833,0.0,3.831041257367387
+Cancelled > Done,36,0.5,0.0,3.536345776031434
+Triagem > Cancelled > Done,34,0.3333,0.0,3.3398821218074657
+In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done,26,0.5625,0.0,2.5540275049115913
+Backlog > In Progress > Ready To Staging > Staging > QA Approved > Ready for Production > Done,22,0.5,0.0,2.161100196463654
+in analytics > In Development > In Staging > Ready for Production > Done,15,0.5,0.0,1.4734774066797642
+Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,14,0.2727,0.0,1.37524557956778
+In Progress > Ready To Staging > In Staging > Ready for Production > Done,13,0.8,0.0,1.2770137524557956
+in analytics > In Development > In Validation > Done,12,0.25,0.0,1.1787819253438114
+In Progress > Ready To Staging > In Staging > Prioritized > Backlog > In Staging > Ready for Production > Done,11,0.625,1.0,1.080550098231827
+In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > ready for homolog > Ready To Staging > Staging > Ready for Production > Done,11,0.6,1.0,1.080550098231827
+Backlog > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done,9,0.6,0.0,0.8840864440078585
+READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,9,0.3,0.0,0.8840864440078585
+in analytics > In Development > Staging > QA Approved > Ready for Production > Done,9,0.3333,0.0,0.8840864440078585
+Done,8,1.0,0.0,0.7858546168958742
+In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done,8,0.5833,0.0,0.7858546168958742
+in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done,8,0.5,0.0,0.7858546168958742
+Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done,7,0.5,2.0,0.68762278978389
+Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA,7,0.0,0.0,0.68762278978389
+In Progress > Ready for Staging > Staging > Ready for Production > Production > Done,7,0.5,0.0,0.68762278978389
+In Progress > Ready To Staging > Done,6,0.6667,0.0,0.5893909626719057
+In Progress > Ready To Staging > Staging > QA Approved > Done,6,0.5,0.0,0.5893909626719057
+In Progress > Ready To Staging > Staging > Ready for Production > Done,6,0.6999999999999998,0.0,0.5893909626719057

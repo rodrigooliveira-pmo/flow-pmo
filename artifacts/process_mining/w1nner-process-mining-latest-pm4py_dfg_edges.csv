@@ -1,6 +1,6 @@
 ﻿From,To,Count
-Ready for Production,Done,756
-Ready To Staging,Staging,668
+Ready for Production,Done,761
+Ready To Staging,Staging,669
 Staging,QA Approved Staging,563
 QA Approved Staging,Ready for Production,536
 QA Approved Hml,Ready To Staging,527
@@ -12,31 +12,31 @@ in analytics,In Development,127
 Staging,QA Approved,103
 Cancelled,Done,97
 QA Approved,Ready for Production,90
-Staging,Ready for Production,77
+Staging,Ready for Production,82
 In Development,Staging,67
-In Progess,Ready for code review,65
-Ready for code review,CODE REVIEW,63
-READY FOR DEVELOPMENT,In Progess,61
+In Progess,Ready for code review,67
+Ready for code review,CODE REVIEW,64
+READY FOR DEVELOPMENT,In Progess,63
 In Staging,Ready for Production,58
-CODE REVIEW,READY FOR TESTING/QA,57
+CODE REVIEW,READY FOR TESTING/QA,58
 Backlog,In Progress,56
-READY FOR TESTING/QA,Testing / QA,55
-Backlog,READY FOR DEVELOPMENT,48
-Testing / QA,Ready To Staging,44
+READY FOR TESTING/QA,Testing / QA,56
+Backlog,READY FOR DEVELOPMENT,50
+Testing / QA,Ready To Staging,45
 QA Approved Staging,Done,42
 Triagem,Cancelled,38
 In Development,In Validation,34
-Ready To Staging,In Staging,27
 Homologation,QA Approved Hml,27
+Ready To Staging,In Staging,27
 In Progress,Ready for Staging,26
 Ready for Staging,Staging,23
 Production,Done,22
 In Validation,Done,18
 Staging,Homologation,17
-Ready for Production,Production,15
 In Development,In Staging,15
+Backlog,Triagem,15
+Ready for Production,Production,15
 In Progress,Staging,14
-Backlog,Triagem,13
 Triagem,Backlog,13
 Ready To Staging,ready for homolog,12
 Prioritized,Backlog,12

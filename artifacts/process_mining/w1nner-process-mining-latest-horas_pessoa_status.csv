@@ -11,7 +11,7 @@ Igor Rezende,Ready To Staging,16643.97,64,64
 Christopher Alves,In Progress,16233.64,107,107
 Danilo Monreal,QA Approved Staging,15148.42,502,502
 Lara Junqueira Alvarenga,Triagem,14778.05,48,47
-Christopher Alves,Staging,14353.87,151,151
+Christopher Alves,Staging,14379.66,152,152
 Christopher Alves,Ready to Homolog,13841.31,106,106
 Eder Afonso,To Do,13837.14,8,8
 Heitor Toledo,In Progress,13452.51,65,65
@@ -35,9 +35,9 @@ Wallison Oliveira,Ready to Homolog,5276.2,62,62
 Eder Afonso,Homolog,5133.05,44,44
 Heitor Toledo,Ready to Homolog,5099.53,34,34
 Gabriel Castelo,Production,5028.05,7,7
+Lara Junqueira Alvarenga,Staging,4715.33,149,149
 Lorraine Caribe,In Staging,4701.57,26,26
 Gabriel Castelo,In Progress,4701.27,46,45
-Lara Junqueira Alvarenga,Staging,4696.07,145,145
 Gabriel de Oliveira Koehler,Ready to Homolog,4662.44,42,42
 Eder Afonso,Ready to Homolog,4376.08,56,56
 Danilo Monreal,Ready to Homologation,3992.73,6,6
@@ -48,18 +48,18 @@ Gabriel Castelo,Ready To Staging,3839.11,32,32
 Christopher Alves,Ready To Staging,3831.4,100,100
 Lorraine Caribe,Ready for Production,3822.5,152,152
 Gabriel de Oliveira Koehler,In Progress,3740.82,44,44
+Lara Junqueira Alvarenga,Backlog,3655.01,46,44
 Luciano Ilha Carbonell,In Development,3514.1,11,10
 Gabriel Wiggert,Ready to Homolog,3468.86,15,15
 Gabriel Castelo,Staging,3380.37,34,33
-Lara Junqueira Alvarenga,READY FOR DEVELOPMENT,3350.14,44,43
-Danilo Monreal,Ready for Production,3181.89,48,48
+Lara Junqueira Alvarenga,READY FOR DEVELOPMENT,3350.15,46,45
+Danilo Monreal,Ready for Production,3186.24,53,53
 Heitor Toledo,Staging,3028.92,120,120
-Lara Junqueira Alvarenga,Backlog,3028.62,42,40
 Luciano Ilha Carbonell,Ready To Staging,2977.74,4,4
 Barbara Rossi,QA Approved Staging,2805.91,47,46
 Mayderson Santos Mello,Ready to Homolog,2795.72,23,23
 Lorraine Caribe,Homolog,2583.6,31,31
-Lara Junqueira Alvarenga,READY FOR TESTING/QA,2473.37,22,22
+Lara Junqueira Alvarenga,READY FOR TESTING/QA,2473.37,23,23
 Lorraine Caribe,Staging,2386.45,15,15
 Barbara Rossi,QA Approved,2347.26,18,18
 Lara Junqueira Alvarenga,In Staging,2317.25,27,27
@@ -105,7 +105,7 @@ Igor Rezende,Ready for Production,861.86,6,6
 Igor Rezende,In Development,859.37,15,15
 Rubens Igesca,In Progress,845.76,11,11
 Matheus Carvalho,In Progress,831.43,10,10
-Lara Junqueira Alvarenga,In Progess,696.78,18,17
+Lara Junqueira Alvarenga,In Progess,752.11,20,19
 Gabriel Wiggert,Homolog,678.34,21,21
 Peterson Bem,Staging,674.53,34,34
 Heitor Toledo,In Validation,662.11,7,7
@@ -172,7 +172,7 @@ Eduardo Pezzi,CODE REVIEW,145.51,2,2
 Lara Junqueira Alvarenga,In Development,140.49,24,24
 Mayderson Santos Mello,Staging,135.5,15,15
 Igor Rezende,CODE REVIEW,125.87,5,5
-Lara Junqueira Alvarenga,Ready To Staging,116.21,127,127
+Lara Junqueira Alvarenga,Ready To Staging,116.21,128,128
 Luciano Ilha Carbonell,Ready for code review,113.17,2,2
 Heitor Toledo,In Staging,112.18,2,2
 Gabriel Wiggert,Done,109.73,1,1
@@ -181,7 +181,7 @@ Thaís Cabral,QA Approved,104.15,3,3
 Christopher Alves,QA Approved Hml,102.6,7,7
 Lorraine Caribe,Triagem,97.49,1,1
 Gabriel Wiggert,in analytics,94.82,4,4
-Lara Junqueira Alvarenga,Ready for code review,94.28,15,15
+Lara Junqueira Alvarenga,Ready for code review,94.28,16,16
 Lorraine Caribe,Tech Review,92.75,1,1
 Igor Rezende,Production,88.88,6,6
 Tiago Serpa,Ready for Production,88.42,3,3
@@ -253,14 +253,14 @@ Lara Junqueira Alvarenga,Ready to Analytics,0.05,4,4
 Gabriel Wiggert,QA Approved Hml,0.04,10,10
 Eder Afonso,Ready to Analytics,0.04,2,2
 Igor Rezende,Approval,0.03,1,1
-Lara Junqueira Alvarenga,Testing / QA,0.02,11,11
+Lara Junqueira Alvarenga,Testing / QA,0.02,12,12
 Igor Rezende,QA Approved Hml,0.02,9,9
 Wallison Oliveira,Ready for code review,0.02,6,6
 Antigo utilizador,in analytics,0.02,3,3
 Igor Rezende,READY FOR TESTING/QA,0.01,3,3
 Danilo Monreal,Testing / QA,0.01,6,6
 Eder Afonso,Production,0.01,5,5
-Lara Junqueira Alvarenga,CODE REVIEW,0.01,14,14
+Lara Junqueira Alvarenga,CODE REVIEW,0.01,15,15
 Gabriel Azevedo,QA Approved Hml,0.01,1,1
 Mayderson Santos Mello,In Development,0.01,1,1
 Eduardo Pezzi,READY FOR DEVELOPMENT,0.01,1,1
