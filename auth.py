@@ -20,11 +20,35 @@ Optional:
                               members). Leave unset to allow the entire domain.
 """
 
+import json
 import os
 
 from authlib.integrations.flask_client import OAuth
 from flask import Blueprint, redirect, render_template_string, session, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_user, logout_user
+
+
+def _is_group_member(email: str, group_email: str, sa_json: str, impersonate: str) -> bool:
+    """Check if *email* belongs to the given Google Workspace group.
+
+    Uses a service account with Domain-Wide Delegation to call the
+    Admin SDK Directory API (members.hasMember endpoint).
+    """
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+
+    creds = service_account.Credentials.from_service_account_info(
+        json.loads(sa_json),
+        scopes=["https://www.googleapis.com/auth/admin.directory.group.member.readonly"],
+    ).with_subject(impersonate)
+
+    service = build("admin", "directory_v1", credentials=creds, cache_discovery=False)
+    result = (
+        service.members()
+        .hasMember(groupKey=group_email, memberKey=email)
+        .execute()
+    )
+    return bool(result.get("isMember", False))
 
 # ---------------------------------------------------------------------------
 # Minimal user model (no database — identity lives in the session)
@@ -183,12 +207,18 @@ def init_app(flask_server) -> None:
             "Defina o domínio Google Workspace (ex: empresa.com)."
         )
 
-    # --- Optional per-user allowlist within the domain ---------------------
+    # --- Static email allowlist (fallback when group check is unavailable) -
     raw_emails = os.environ.get("FLOW_PMO_ALLOWED_EMAILS", "")
     allowed_emails: set[str] = {
         e.strip().lower() for e in raw_emails.split(",") if e.strip()
     }
-    # allowed_emails empty → entire domain is permitted
+
+    # --- Google Workspace Group membership check ---------------------------
+    allowed_group = os.environ.get("FLOW_PMO_ALLOWED_GROUP", "").strip()
+    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    impersonate = os.environ.get("GOOGLE_IMPERSONATE_EMAIL", "").strip()
+
+    use_group_check = bool(allowed_group and sa_json and impersonate)
 
     # --- Flask-Login -------------------------------------------------------
     login_manager = LoginManager()
@@ -226,7 +256,7 @@ def init_app(flask_server) -> None:
         # hd hint: pre-selects the Workspace account picker on Google's side
         return oauth.google.authorize_redirect(redirect_uri, hd=allowed_domain)
 
-    @auth_bp.route("/auth/google/callback")
+    @auth_bp.route("/callback")
     def google_callback():
         try:
             token = oauth.google.authorize_access_token()
@@ -242,7 +272,7 @@ def init_app(flask_server) -> None:
         # Security check: validate the hd claim matches our domain.
         # The hd hint in the redirect is UX-only; this server-side check is
         # what actually enforces the restriction.
-        if token_hd != allowed_domain or not email.endswith(f"@{allowed_domain}"):
+        if token_hd != allowed_domain:
             logout_user()
             return render_template_string(
                 _FORBIDDEN_HTML,
@@ -252,8 +282,8 @@ def init_app(flask_server) -> None:
                 logout_url=url_for("auth.logout"),
             ), 403
 
-        # Optional: further restrict to a specific subset of users
-        if allowed_emails and email not in allowed_emails:
+        # Static allowlist (active when group check vars are not configured)
+        if not use_group_check and allowed_emails and email not in allowed_emails:
             logout_user()
             return render_template_string(
                 _FORBIDDEN_HTML,
@@ -262,6 +292,24 @@ def init_app(flask_server) -> None:
                 reason="allowlist",
                 logout_url=url_for("auth.logout"),
             ), 403
+
+        # Google Workspace Group membership check (takes priority over allowlist)
+        if use_group_check:
+            try:
+                member = _is_group_member(email, allowed_group, sa_json, impersonate)
+            except Exception:
+                session["auth_error"] = "Erro ao verificar permissão de acesso. Tente novamente."
+                return redirect(url_for("auth.login"))
+
+            if not member:
+                logout_user()
+                return render_template_string(
+                    _FORBIDDEN_HTML,
+                    email=email,
+                    domain=allowed_domain,
+                    reason="allowlist",
+                    logout_url=url_for("auth.logout"),
+                ), 403
 
         login_user(_User(email), remember=True)
         return redirect("/")
@@ -274,7 +322,7 @@ def init_app(flask_server) -> None:
     flask_server.register_blueprint(auth_bp)
 
     # --- Protect all non-auth routes ---------------------------------------
-    _PUBLIC_PREFIXES = ("/login", "/auth/google", "/logout", "/_dash-", "/favicon")
+    _PUBLIC_PREFIXES = ("/login", "/auth/google", "/callback", "/logout", "/_dash-", "/favicon")
 
     @flask_server.before_request
     def _require_login():
