@@ -448,6 +448,8 @@ def select_latest_csv_per_project(csv_files):
             return False
         if "process-mining" in stem_lower:
             return False
+        if "_detailed_changelog" in stem_lower:
+            return False
         if stem_lower.startswith("executive_report_"):
             return False
         if stem_lower.startswith("portfolio-bt-ns-"):
