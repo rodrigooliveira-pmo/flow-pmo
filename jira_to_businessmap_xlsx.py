@@ -77,6 +77,8 @@ BUSINESSMAP_COLUMNS = [
     "End Date",
 ]
 
+BUSINESSMAP_DATE_COLUMNS = ["Deadline", "Created at", "Start Date", "End Date"]
+
 
 DEFAULT_PRIORITY_MAP = {
     "highest": "critical",
@@ -552,16 +554,40 @@ def add_batch_suffix(out_path: str, batch_index_1based: int) -> str:
 
 
 def write_output_xlsx(df: pd.DataFrame, out_path: str, split_size: int) -> List[str]:
+    def prepare_dataframe_for_excel(input_df: pd.DataFrame) -> pd.DataFrame:
+        prepared = input_df.copy()
+        for col in BUSINESSMAP_DATE_COLUMNS:
+            if col not in prepared.columns:
+                continue
+            values = prepared[col].astype(str).str.strip()
+            prepared[col] = pd.to_datetime(values.where(values.ne(""), None), errors="coerce")
+        return prepared
+
+    def write_single_xlsx(input_df: pd.DataFrame, path: str) -> None:
+        export_df = prepare_dataframe_for_excel(input_df)
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
+            export_df.to_excel(writer, index=False, sheet_name="Sheet1")
+            ws = writer.book["Sheet1"]
+            header_index = {cell.value: idx for idx, cell in enumerate(ws[1], start=1)}
+            for col in BUSINESSMAP_DATE_COLUMNS:
+                col_idx = header_index.get(col)
+                if not col_idx:
+                    continue
+                for row in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=row, column=col_idx)
+                    if cell.value is not None:
+                        cell.number_format = "yyyy-mm-dd"
+
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     if split_size <= 0 or len(df) <= split_size:
-        df.to_excel(out_path, index=False, engine="openpyxl")
+        write_single_xlsx(df, out_path)
         return [out_path]
 
     written_paths: List[str] = []
     for i, start in enumerate(range(0, len(df), split_size), start=1):
         batch_df = df.iloc[start : start + split_size].copy()
         batch_path = add_batch_suffix(out_path, i)
-        batch_df.to_excel(batch_path, index=False, engine="openpyxl")
+        write_single_xlsx(batch_df, batch_path)
         written_paths.append(batch_path)
     return written_paths
 
@@ -617,6 +643,7 @@ def build_output_row(
     size_field: str,
     start_date_field: str,
     end_date_field: str,
+    omit_historical_dates: bool,
 ) -> Dict[str, str]:
     fields = issue.get("fields", {}) or {}
     key = str(issue.get("key") or "")
@@ -676,6 +703,12 @@ def build_output_row(
             # Fallback seguro: usar a data de criação quando não houver início melhor disponível.
             start_date_value = parse_jira_date_to_businessmap(fields.get("created"))
 
+    created_at_value = parse_jira_date_to_businessmap(fields.get("created"))
+    if omit_historical_dates:
+        created_at_value = ""
+        start_date_value = ""
+        end_date_value = ""
+
     size_value = ""
     if size_field:
         size_value = normalize_size_value(fields.get(size_field))
@@ -705,7 +738,7 @@ def build_output_row(
         "Board name": board_name,
         "Board ID": str(board_id or ""),
         "Workflow name": workflow_name,
-        "Created at": parse_jira_date_to_businessmap(fields.get("created")),
+        "Created at": created_at_value,
         "Start Date": start_date_value,
         "End Date": end_date_value,
     }
@@ -734,6 +767,15 @@ def choose_size_field(field_map: Dict[str, Any], size_source: str) -> str:
 
 
 def main() -> int:
+    env_parser = argparse.ArgumentParser(add_help=False)
+    env_parser.add_argument(
+        "--env-file",
+        default=str(Path(__file__).with_name("jira_env.txt")),
+        help=argparse.SUPPRESS,
+    )
+    env_args, _ = env_parser.parse_known_args()
+    load_env_file(env_args.env_file, overwrite=True)
+
     parser = argparse.ArgumentParser(description="Exporta Jira para XLSX compatível com import do BusinessMap.")
     parser.add_argument(
         "--projects",
@@ -843,13 +885,16 @@ def main() -> int:
         help="Custom field Jira para usar em 'End Date' (ex.: customfield_67890)",
     )
     parser.add_argument(
+        "--omit-historical-dates",
+        action="store_true",
+        help="Não preenche Created at / Start Date / End Date; útil para atualizar cards existentes no BusinessMap",
+    )
+    parser.add_argument(
         "--env-file",
-        default=str(Path(__file__).with_name("jira_env.txt")),
+        default=env_args.env_file,
         help="Arquivo com variáveis no formato KEY=VALUE (default: jira_env.txt ao lado do script)",
     )
     args = parser.parse_args()
-
-    load_env_file(args.env_file, overwrite=True)
     base_url = os.getenv("JIRA_BASE_URL", "").strip().rstrip("/")
     email = os.getenv("JIRA_EMAIL", "").strip()
     token = os.getenv("JIRA_API_TOKEN", "").strip()
@@ -993,6 +1038,7 @@ def main() -> int:
             size_field=size_field,
             start_date_field=args.start_date_field.strip(),
             end_date_field=args.end_date_field.strip(),
+            omit_historical_dates=bool(args.omit_historical_dates),
         )
         for issue in issues
     ]

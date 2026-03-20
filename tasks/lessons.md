@@ -11,6 +11,12 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-20
+- Context: Configuração do exportador Jira -> BusinessMap para usar `BUSINESSMAP_SPLIT_SIZE=100` e outros defaults via `jira_env.txt`.
+- User correction: Informou que os arquivos não estavam sendo gerados em lotes de 100, apesar da configuração já ter sido adicionada no `jira_env.txt`.
+- Root cause: Eu assumi que bastava definir o valor no `jira_env.txt`, mas o `argparse` lia os defaults de `os.getenv(...)` antes do `load_env_file(...)`; portanto, os defaults vindos do arquivo não eram aplicados à CLI.
+- Prevention rule: Quando argumentos de CLI usam defaults vindos de env file, carregar o arquivo antes de construir o parser principal ou validar com uma execução real que o default entrou em vigor.
+- Action added to workflow: Em qualquer ajuste baseado em `jira_env.txt`/`.env`, verificar explicitamente a ordem de bootstrap (`load_env_file` vs `argparse`) e confirmar o efeito com uma execução real, não só com leitura estática do código.
 - Date: 2026-03-12
 - Context: Movimentação dos relatórios Bitbucket/capacidade cruzada da aba `Performance do Serviço` para `Produtividade Dev`.
 - User correction: Informou que os relatórios saíram da aba antiga, mas não apareceram na aba `Produtividade Dev`.

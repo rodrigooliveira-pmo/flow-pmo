@@ -1,4 +1,63 @@
 
+## Current Task (BusinessMap: gravar datas como células de data do Excel)
+- [x] Inspecionar o XLSX gerado e confirmar o tipo real das colunas `Start Date` e `End Date`
+- [x] Ajustar o exportador para gravar datas como células de data nativas do Excel
+- [x] Validar com novo lote do BeFinance e registrar orientação de reimportação
+- [x] Registrar review e sugestão de commit
+
+## Specification (BusinessMap: gravar datas como células de data do Excel)
+- Objetivo: eliminar os avisos do BusinessMap que ignoram `Data de Início` e `Data de Término` por incompatibilidade de formato no XLSX.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `Start Date` e `End Date` deixam de ser gravadas como texto no XLSX.
+  - As células dessas colunas passam a ser do tipo data/datetime no Excel com formato consistente.
+  - Novo export do BeFinance mantém os lotes de 100 e traz datas compatíveis.
+
+## Review (BusinessMap: gravar datas como células de data do Excel)
+- What was validated:
+  - O lote anterior gravava `Start Date`/`End Date` como texto (`str`) com `number_format = General`, por exemplo `BF-264` com `2026-03-16` e `2026-03-20`; isso explica o aviso do BusinessMap ao tentar atualizar as datas.
+  - [`jira_to_businessmap_xlsx.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_to_businessmap_xlsx.py) agora converte `Deadline`, `Created at`, `Start Date` e `End Date` para datas reais antes do `to_excel` e aplica `number_format = yyyy-mm-dd`.
+  - O novo export do BeFinance foi gerado em lotes com arquivos `businessmap-befinance-datesfix-lote-1.xlsx`, `businessmap-befinance-datesfix-lote-2.xlsx` e `businessmap-befinance-datesfix-lote-3.xlsx`.
+  - No lote novo, `BF-264` e demais exemplos passaram a sair como `datetime` no Excel, com formato `yyyy-mm-dd`, o que é compatível com importadores que esperam célula de data em vez de texto.
+- Evidence (tests/logs/diff):
+  - `python3 -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 jira_to_businessmap_xlsx.py --projects BF BT --mapping-preset bf --jql 'project IN (BT, BF) AND issuetype IN (Bug, Story, Spike, Support, Task, Tech, "User Story") AND "team[team]" = b87876b2-78cd-4b67-bbcf-37ba395e5f39 ORDER BY created DESC' --out /Users/rodrigoalmeidadeoliveira/Documents/dados/bmap/businessmap-befinance-datesfix.xlsx`
+  - `python3 - <<'PY' ... load_workbook('/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap/businessmap-befinance-datesfix-lote-1.xlsx') ... PY`
+- Suggested commit message:
+  - `fix(integration): write businessmap dates as excel date cells`
+
+## Current Task (BusinessMap: aplicar env-file antes dos defaults da CLI)
+- [x] Confirmar a causa raiz do split automático não ter funcionado
+- [x] Corrigir a ordem de carregamento do `jira_env.txt` no exportador
+- [x] Validar com execução real do BeFinance em lotes de 100
+- [x] Registrar review e sugestão de commit
+
+## Specification (BusinessMap: aplicar env-file antes dos defaults da CLI)
+- Objetivo: fazer com que os defaults baseados em variáveis de ambiente do exportador reflitam corretamente os valores definidos em `jira_env.txt`.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `jira_env.txt` é carregado antes da construção dos defaults do `argparse`.
+  - `BUSINESSMAP_SPLIT_SIZE=100` passa a valer sem necessidade de informar `--split-size`.
+  - Execução real do BeFinance gera arquivos em lotes de até 100 cartões.
+
+## Review (BusinessMap: aplicar env-file antes dos defaults da CLI)
+- What was validated:
+  - A causa raiz era o carregamento tardio de [`jira_env.txt`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_env.txt): o parser lia `os.getenv(...)` antes de `load_env_file(...)`, então defaults como `BUSINESSMAP_SPLIT_SIZE`, `BUSINESSMAP_OUT_DIR` e outros valores vindos do arquivo não eram aplicados à CLI.
+  - [`jira_to_businessmap_xlsx.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_to_businessmap_xlsx.py) agora faz um pré-parse de `--env-file`, carrega o arquivo e só depois monta o parser principal.
+  - A execução real do recorte BeFinance em `2026-03-20` passou a respeitar o `BUSINESSMAP_SPLIT_SIZE=100`, gerando `3` arquivos em `/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap`: `businessmap-befinance-lote-1.xlsx`, `businessmap-befinance-lote-2.xlsx` e `businessmap-befinance-lote-3.xlsx`.
+- Evidence (tests/logs/diff):
+  - `python3 jira_to_businessmap_xlsx.py --help`
+  - `python3 -c "import jira_to_businessmap_xlsx; print('import ok')"`
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('jira_to_businessmap_xlsx.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 jira_to_businessmap_xlsx.py --projects BF BT --mapping-preset bf --jql 'project IN (BT, BF) AND issuetype IN (Bug, Story, Spike, Support, Task, Tech, "User Story") AND "team[team]" = b87876b2-78cd-4b67-bbcf-37ba395e5f39 ORDER BY created DESC' --out /Users/rodrigoalmeidadeoliveira/Documents/dados/bmap/businessmap-befinance.xlsx`
+- Suggested commit message:
+  - `fix(integration): load env file before businessmap cli defaults`
+
 ## Current Task (BusinessMap: limitar importação a 100 cartões por arquivo)
 - [x] Confirmar se o exportador já suporta divisão em lotes
 - [x] Configurar o padrão do projeto para no máximo 100 cartões por arquivo
