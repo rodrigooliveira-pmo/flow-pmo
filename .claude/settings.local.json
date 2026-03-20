@@ -24,7 +24,9 @@
       "Bash(ls -la /tmp/PowerBI_Model_*.xlsx)",
       "Read(//Users/rodrigoalmeidadeoliveira/Documents/**)",
       "Bash(ls ~/Documents/dados/*.csv)",
-      "Bash(ls ~/Documents/Dados/*.csv)"
+      "Bash(ls ~/Documents/Dados/*.csv)",
+      "Bash(grep -E \"\\\\.\\(py|txt\\)$\")",
+      "Bash(grep -n \"if __name__\" \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\"/*.py)"
     ]
   }
 }

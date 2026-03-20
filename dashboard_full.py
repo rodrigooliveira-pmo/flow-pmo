@@ -11737,6 +11737,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_flow = df_flow[df_flow['ClasseServico'] == classe_servico]
         df_flow, flow_lead_meta = apply_selected_lead_time_metric(df_flow, projeto, leadtime_stages)
 
+        if etapa_fluxo and projeto:
+            _stage_map_flow = compute_current_stage_map(projeto)
+            if _stage_map_flow and 'ItemID' in df_flow.columns:
+                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
+                _is_done = df_flow['DataDone'].notna()
+                _in_stage = df_flow['ItemID'].astype(str).str.strip().map(
+                    lambda iid: _stage_map_flow.get(iid, '').strip().lower() in _stage_filter_lower
+                )
+                df_flow = df_flow[_is_done | _in_stage].copy()
+
         mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
         mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
         df_flow = df_flow[mask_started_until_end & mask_not_finished_before_start].copy()
@@ -13882,6 +13892,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (done_series.isna() | (done_series > snapshot_ts))
         )
         df_age = df_age_base[active_mask].copy()
+
+        if etapa_fluxo and projeto:
+            _stage_map_age = compute_current_stage_map(projeto)
+            if _stage_map_age and 'ItemID' in df_age.columns:
+                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
+                df_age = df_age[df_age['ItemID'].astype(str).str.strip().map(
+                    lambda iid: _stage_map_age.get(iid, '').strip().lower() in _stage_filter_lower
+                )].copy()
+
         if df_age.empty:
             return html.Div(
                 'Sem itens ativos com DataInProgress válida para calcular Work Item Age no recorte selecionado.'
@@ -14223,6 +14242,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         df_wip_base = fato.copy()
         if projeto: df_wip_base = df_wip_base[df_wip_base['Projeto'] == projeto]
         if responsavel: df_wip_base = df_wip_base[df_wip_base['Responsavel'] == responsavel]
+
+        if etapa_fluxo and projeto:
+            _stage_map_wip = compute_current_stage_map(projeto)
+            if _stage_map_wip and 'ItemID' in df_wip_base.columns:
+                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
+                df_wip_base = df_wip_base[df_wip_base['ItemID'].astype(str).str.strip().map(
+                    lambda iid: _stage_map_wip.get(iid, '').strip().lower() in _stage_filter_lower
+                )]
 
         if 'Responsavel' not in df_wip_base.columns or df_wip_base['Responsavel'].dropna().empty:
             return html.Div('Dados de Responsável não disponíveis para calcular WIP.')
