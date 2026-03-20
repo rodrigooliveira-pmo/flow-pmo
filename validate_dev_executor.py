@@ -25,7 +25,7 @@ from pathlib import Path
 import pandas as pd
 
 # ── Configuração ──────────────────────────────────────────────────────────────
-DATA_DIR   = r"C:\Users\W1 TI\OneDrive - W1\Documentos\Dados"
+DATA_DIR   = str(Path.home() / "Documents" / "dados" / "latest")
 DATE_START = "2026-02-01"
 DATE_END   = "2026-03-31"
 DONE_COL   = "Done"          # coluna de data Done no CSV downstream
