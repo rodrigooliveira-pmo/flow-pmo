@@ -50,6 +50,7 @@ if (-not (Test-Path $scriptPath)) {
 }
 $metricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
 $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
+$copyLatestUploadScript = Join-Path $PSScriptRoot 'copy_latest_upload.py'
 $latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
 
@@ -77,6 +78,17 @@ function Sync-LatestArtifactsFromOutDir {
     $latestFiles = Get-ChildItem -Path $SourceDir -File | Where-Object { $_.Name -match 'latest' }
     foreach ($f in $latestFiles) {
         Publish-LatestArtifact -SourcePath $f.FullName -LatestDir $LatestDir
+    }
+}
+
+function Update-LatestUploadPackage {
+    if (-not (Test-Path $copyLatestUploadScript)) {
+        throw "Arquivo não encontrado: $copyLatestUploadScript"
+    }
+
+    & python $copyLatestUploadScript --source-dir $latestDir --dest-dir (Join-Path $latestDir 'latest-upload') --clean-dest
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao atualizar a pasta latest-upload."
     }
 }
 
@@ -197,6 +209,8 @@ if ($RunMetrics) {
     }
     Sync-LatestArtifactsFromOutDir -SourceDir $OutDir -LatestDir $latestDir
 }
+
+Update-LatestUploadPackage
 
 if ($OpenDashboard) {
     Write-Host "`nIniciando dashboard web..." -ForegroundColor Cyan

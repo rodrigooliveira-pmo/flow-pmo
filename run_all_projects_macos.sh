@@ -150,6 +150,13 @@ sync_latest_artifacts_from_out_dir() {
     done
 }
 
+refresh_latest_upload_package() {
+    "$PYTHON_BIN" "$COPY_LATEST_UPLOAD_SCRIPT" \
+        --source-dir "$LATEST_DIR" \
+        --dest-dir "${LATEST_DIR}/latest-upload" \
+        --clean-dest
+}
+
 if [[ -z "${JIRA_BASE_URL:-}" || -z "${JIRA_EMAIL:-}" || -z "${JIRA_API_TOKEN:-}" ]]; then
     echo "Defina JIRA_BASE_URL, JIRA_EMAIL e JIRA_API_TOKEN (ou preencha o arquivo $ENV_FILE) antes de executar."
     exit 1
@@ -164,8 +171,10 @@ SCRIPT_PATH="${SCRIPT_DIR}/jira_to_pipeline_csv.py"
 PORTFOLIO_SCRIPT="${SCRIPT_DIR}/jira_portfolio_to_csv.py"
 METRICS_SCRIPT="${SCRIPT_DIR}/dash_board_metricas.py"
 DASHBOARD_SCRIPT="${SCRIPT_DIR}/dashboard_full.py"
+COPY_LATEST_UPLOAD_SCRIPT="${SCRIPT_DIR}/copy_latest_upload.py"
 
 [[ -f "$SCRIPT_PATH" ]] || { echo "Arquivo nao encontrado: $SCRIPT_PATH"; exit 1; }
+[[ -f "$COPY_LATEST_UPLOAD_SCRIPT" ]] || { echo "Arquivo nao encontrado: $COPY_LATEST_UPLOAD_SCRIPT"; exit 1; }
 mkdir -p "$OUT_DIR"
 mkdir -p "$LATEST_DIR"
 
@@ -272,6 +281,8 @@ if [[ "$RUN_METRICS" == true ]]; then
     "$PYTHON_BIN" "$METRICS_SCRIPT"
     sync_latest_artifacts_from_out_dir "$OUT_DIR" "$LATEST_DIR"
 fi
+
+refresh_latest_upload_package
 
 if [[ "$OPEN_DASHBOARD" == true ]]; then
     [[ -f "$DASHBOARD_SCRIPT" ]] || { echo "Arquivo nao encontrado: $DASHBOARD_SCRIPT"; exit 1; }

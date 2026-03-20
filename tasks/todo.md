@@ -6082,3 +6082,46 @@
   - Limitação: nem `python -m py_compile` nem o smoke test sintético via `python -` puderam ser executados neste ambiente por falha do launcher `C:\\Users\\W1 TI\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe` (`ResourceUnavailable`).
 - Suggested commit message:
   - `feat(produtividade-dev): add development cycle and qa return metrics`
+
+## Current Task (Publicar pacote `latest-upload` com artefatos esperados)
+- [x] Mapear os artefatos finais esperados pelo dashboard e o fluxo atual de publicação `latest`
+- [x] Implementar script dedicado para consolidar os arquivos esperados em `latest/latest-upload`
+- [x] Acionar a consolidação ao final dos runners macOS e Windows relevantes
+- [x] Validar a causa dos arquivos `latest` fora da pasta central e registrar review
+
+## Specification (Publicar pacote `latest-upload` com artefatos esperados)
+- Objetivo: copiar ao final da execução os artefatos operacionais esperados pelo dashboard para uma subpasta `latest-upload` dentro da pasta central `latest`, preservando o fluxo atual de geração dos aliases `latest`.
+- Escopo:
+  - `PowerBI_Model_latest.xlsx`
+  - `portfolio-bt-ns-latest-data.csv`
+  - `*-process-mining-latest.xlsx` dos quatro projetos
+  - `*-downstream-latest-data.csv` dos quatro projetos
+  - `*-downstream-latest-data_bottlenecks.csv` dos quatro projetos
+  - `*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv` de `w1nner`, `befinance`, `dataanalytics` e `s1nc` como opcional
+- Estratégia:
+  - usar a pasta central `latest` como fonte única para a cópia final, para evitar duplicar regras de origem em cada runner
+  - manter os aliases `latest` no `OUT_DIR` quando eles fizerem parte do fluxo atual dos scripts
+  - produzir uma subpasta limpa e previsível `latest/latest-upload` com somente os arquivos necessários para upload
+- Regras:
+  - não remover o comportamento atual que mantém aliases `latest` também em `OUT_DIR`
+  - tratar os arquivos de Bitbucket de `s1nc` como opcionais
+  - falhar apenas quando um artefato obrigatório estiver ausente
+
+## Review (Publicar pacote `latest-upload` com artefatos esperados)
+- O que foi implementado:
+  - [`copy_latest_upload.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/copy_latest_upload.py) agora consolida os artefatos operacionais esperados a partir da pasta central `latest` e monta a subpasta `latest-upload`.
+  - os runners [`run_all_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects_macos.sh), [`run_all_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_all_projects.ps1), [`run_process_mining_projects_macos.sh`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects_macos.sh) e [`run_process_mining_projects.ps1`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/run_process_mining_projects.ps1) passaram a atualizar `latest/latest-upload` ao final da execução.
+  - o script copia como obrigatórios `PowerBI_Model_latest.xlsx`, `portfolio-bt-ns-latest-data.csv`, os quatro `*-process-mining-latest.xlsx`, os quatro downstreams `*-latest-data.csv`, os quatro gargalos `*-latest-data_bottlenecks.csv` e os CSVs Bitbucket de `w1nner`, `befinance` e `dataanalytics`; os arquivos de `s1nc` ficaram opcionais.
+  - a consolidação usa a pasta central `latest` como fonte única. Isso evita replicar regras de origem em cada runner e mantém o pacote de upload desacoplado do diretório operacional de saída.
+- Causa confirmada dos arquivos `latest` fora da pasta central:
+  - isso não era um erro isolado: os runners já atualizavam aliases `latest` dentro do `OUT_DIR` (`/Users/rodrigoalmeidadeoliveira/Documents/dados`) e depois publicavam uma cópia na pasta central `latest`.
+  - além disso, consumidores importantes como `dash_board_metricas.py`, `extract_dev_productivity_data.py` e os loaders baseados em [`shared/path_utils.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/shared/path_utils.py) ainda priorizam `FLOW_PMO_DATA_DIR` / `DATA_FOLDER`, que nos runners apontam para `OUT_DIR`.
+  - conclusão: os arquivos `latest` fora de `latest` fazem parte do desenho atual do pipeline; `latest` atua como pasta estável de publicação/espelho, não como única origem operacional.
+- Evidências de validação:
+  - `python3 -m py_compile copy_latest_upload.py`
+  - `bash -n run_all_projects_macos.sh`
+  - `bash -n run_process_mining_projects_macos.sh`
+  - parse de PowerShell com `System.Management.Automation.Language.Parser` para `run_all_projects.ps1` e `run_process_mining_projects.ps1`
+  - teste real do consolidator: `python3 copy_latest_upload.py --source-dir /Users/rodrigoalmeidadeoliveira/Documents/dados/latest --dest-dir /tmp/flow-pmo-latest-upload-test --clean-dest --strict`, copiando `26` arquivos com sucesso
+- Suggested commit message:
+  - `feat(latest-upload): package required dashboard artifacts after runner execution`

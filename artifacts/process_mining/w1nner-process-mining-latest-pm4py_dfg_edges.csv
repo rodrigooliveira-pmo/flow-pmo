@@ -60,14 +60,14 @@ In Validation,QA Approved,5
 Ready to Analytics,Backlog,5
 To Do,Backlog,5
 In Progress,Cancelled,5
-QA Approved,Staging,3
+Testing / QA,In Progess,4
 Approval,Ready to Homolog,3
 In Development,In Progress,3
 Ready to Homologation,Homolog,3
 Ready to Homologation,Ready to Analytics,3
 In Development,Ready for Production,3
 QA Approved Hml,Ready to Analytics,3
-Testing / QA,In Progess,3
+QA Approved,Staging,3
 In Progress,Backlog,3
 In Development,Done,3
 To Do,In Progress,3

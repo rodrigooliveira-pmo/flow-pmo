@@ -113,6 +113,13 @@ sync_latest_artifacts_from_out_dir() {
     done
 }
 
+refresh_latest_upload_package() {
+    "$PYTHON_BIN" "$COPY_LATEST_UPLOAD_SCRIPT" \
+        --source-dir "$LATEST_DIR" \
+        --dest-dir "${LATEST_DIR}/latest-upload" \
+        --clean-dest
+}
+
 import_env_file "$ENV_FILE"
 
 if looks_like_windows_path "$LATEST_DIR"; then
@@ -133,10 +140,12 @@ SCRIPT_PATH="${SCRIPT_DIR}/jira_to_pipeline_csv.py"
 PROCESS_MINING_SCRIPT="${SCRIPT_DIR}/process_mining_jira.py"
 BITBUCKET_SCRIPT="${SCRIPT_DIR}/bitbucket_export.py"
 PROCESS_MINING_OUT_DIR="${SCRIPT_DIR}/artifacts/process_mining"
+COPY_LATEST_UPLOAD_SCRIPT="${SCRIPT_DIR}/copy_latest_upload.py"
 
 [[ -f "$SCRIPT_PATH" ]] || { echo "Arquivo nao encontrado: $SCRIPT_PATH"; exit 1; }
 [[ -f "$PROCESS_MINING_SCRIPT" ]] || { echo "Arquivo nao encontrado: $PROCESS_MINING_SCRIPT"; exit 1; }
 [[ -f "$BITBUCKET_SCRIPT" ]] || { echo "Arquivo nao encontrado: $BITBUCKET_SCRIPT"; exit 1; }
+[[ -f "$COPY_LATEST_UPLOAD_SCRIPT" ]] || { echo "Arquivo nao encontrado: $COPY_LATEST_UPLOAD_SCRIPT"; exit 1; }
 
 mkdir -p "$OUT_DIR"
 mkdir -p "$LATEST_DIR"
@@ -221,6 +230,8 @@ if [[ -n "${ORIGINAL_JIRA_STATUS_MAP}" ]]; then
     export JIRA_STATUS_MAP="${ORIGINAL_JIRA_STATUS_MAP}"
 fi
 unset JIRA_IGNORE_STATUS_MAP
+
+refresh_latest_upload_package
 
 echo
 echo "Exportacao dedicada de process mining concluida."

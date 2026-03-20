@@ -1,6 +1,6 @@
 ﻿Metrica,Valor
 pm4py_available,True
-pm4py_events,7452
+pm4py_events,7453
 pm4py_cases,1018
 pm4py_activities,38
 pm4py_dfg_edges,140
@@ -10,10 +10,10 @@ graphviz_dot_available,True
 graphviz_dot_path,/opt/homebrew/bin/dot
 pm4py_dfg_vis_error,'Cancelada'
 pm4py_dfg_performance_vis_error,'Cancelada'
-pm4py_heuristics_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260319_201356-pm4py-heuristics.png
-pm4py_inductive_tree_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260319_201356-pm4py-inductive-tree.png
-pm4py_petri_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260319_201356-pm4py-petri.png
-pm4py_petri_token_freq_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260319_201356-pm4py-petri-token-freq.png
-pm4py_petri_token_perf_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260319_201356-pm4py-petri-token-perf.png
+pm4py_heuristics_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260320_115826-pm4py-heuristics.png
+pm4py_inductive_tree_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260320_115826-pm4py-inductive-tree.png
+pm4py_petri_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260320_115826-pm4py-petri.png
+pm4py_petri_token_freq_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260320_115826-pm4py-petri-token-freq.png
+pm4py_petri_token_perf_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260320_115826-pm4py-petri-token-perf.png
 pm4py_alignments_max_cases,0
 pm4py_alignments_skipped,disabled_by_limit

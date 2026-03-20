@@ -259,6 +259,7 @@ $scriptPath = Join-Path $PSScriptRoot 'jira_to_pipeline_csv.py'
 $processMiningScript = Join-Path $PSScriptRoot 'process_mining_jira.py'
 $bitbucketScript = Join-Path $PSScriptRoot 'bitbucket_export.py'
 $dashboardMetricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
+$copyLatestUploadScript = Join-Path $PSScriptRoot 'copy_latest_upload.py'
 $processMiningOutDir = Join-Path $PSScriptRoot 'artifacts\process_mining'
 $processMiningFailures = New-Object System.Collections.Generic.List[string]
 $bitbucketFailures = New-Object System.Collections.Generic.List[string]
@@ -271,6 +272,9 @@ if (-not (Test-Path $processMiningScript)) {
 }
 if (-not (Test-Path $bitbucketScript)) {
     throw "Arquivo não encontrado: $bitbucketScript"
+}
+if (-not (Test-Path $copyLatestUploadScript)) {
+    throw "Arquivo não encontrado: $copyLatestUploadScript"
 }
 if ($RunDashboardModel -and -not (Test-Path $dashboardMetricsScript)) {
     throw "Arquivo não encontrado: $dashboardMetricsScript"
@@ -424,6 +428,11 @@ if ($RunDashboardModel) {
             Remove-Item -Path Env:FLOW_PMO_LATEST_DIR -ErrorAction SilentlyContinue
         }
     }
+}
+
+& $script:PythonInvoker.Executable $copyLatestUploadScript --source-dir $LatestDir --dest-dir (Join-Path $LatestDir 'latest-upload') --clean-dest
+if ($LASTEXITCODE -ne 0) {
+    throw "Falha ao atualizar a pasta latest-upload."
 }
 
 Write-Host "`nExportação dedicada de process mining concluída." -ForegroundColor Green
