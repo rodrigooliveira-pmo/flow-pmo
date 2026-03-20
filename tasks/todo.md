@@ -1,4 +1,41 @@
 
+## Current Task (Avaliar arquitetura de dados e plano de migração de CSV para banco)
+- [x] Revisar instruções do projeto e memória operacional relevante
+- [x] Mapear fontes atuais de dados, artefatos intermediários e pontos de leitura no dashboard
+- [x] Comparar opções de persistência com foco em free tier e aderência ao deploy atual
+- [x] Propor arquitetura alvo, estratégia de migração e fases de refatoração
+- [x] Registrar revisão e sugestão de commit
+
+## Specification (Avaliar arquitetura de dados e plano de migração de CSV para banco)
+- Objetivo: avaliar a arquitetura atual baseada em múltiplos CSVs/XLSX e propor uma reconfiguração para banco de dados com baixo custo operacional, preferencialmente dentro de limites free tier.
+- Estratégia:
+  - identificar o contrato real de dados hoje consumido pela aplicação, distinguindo extração, materialização analítica e leitura da UI
+  - avaliar o acoplamento atual com arquivos locais, aliases `latest`, cache e deploy serverless
+  - propor uma arquitetura alvo incremental que reduza risco e preserve o dashboard durante a migração
+- Regras:
+  - não assumir que trocar CSV por banco resolve sozinho o problema de arquitetura
+  - priorizar simplicidade operacional, custo zero ou muito baixo e impacto mínimo no runtime atual
+  - incluir verificação e rollback lógico no plano
+
+## Review (Avaliar arquitetura de dados e plano de migração de CSV para banco)
+- O que foi confirmado:
+  - O projeto opera hoje em três camadas implícitas: exportação Jira/Bitbucket para CSV, consolidação semântica em [`dash_board_metricas.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dash_board_metricas.py) e consumo híbrido no [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py).
+  - O dashboard principal não depende só do `PowerBI_Model_latest.xlsx`; ele também consulta CSVs downstream, gargalos, portfólio, Bitbucket e relatórios de process mining para funcionalidades específicas.
+  - O acoplamento principal não é apenas com CSV, mas com filesystem + convenções `latest` + fallback por URL/cache efêmero em runtime serverless.
+  - O deploy atual usa Vercel Python serverless via [`api/index.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/api/index.py) e [`vercel.json`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/vercel.json), com disco local apenas como cache transitório.
+  - Pela semântica do projeto, `Firebase/Firestore` é menos aderente que `Postgres`: o modelo atual já é fortemente tabular/analítico, com fatos, dimensões, filtros combinados e necessidade de joins e materializações.
+- Recomendação arquitetural:
+  - Adotar `Postgres` gerenciado como sistema de registro e consulta do dashboard.
+  - Manter storage de objetos apenas para artefatos pesados e históricos opcionais (`process mining`, exports Excel, snapshots brutos), não como fonte principal de leitura da aplicação.
+  - Migrar em camadas: primeiro abstrair acesso a dados no dashboard; depois trocar o backend dessas leituras; por fim reduzir o papel de CSV/XLSX a export/auditoria.
+  - Entre opções free tier, `Neon` é a recomendação principal pela aderência a Postgres serverless e ao padrão de acesso do deploy atual; `Supabase` é uma alternativa viável se houver interesse em auth/storage/realtime no mesmo stack; `Firebase` não é a recomendação principal para este caso.
+- Evidências usadas:
+  - leitura de [`ARQUITETURA_CODIGO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ARQUITETURA_CODIGO.md), [`ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md), [`shared/path_utils.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/shared/path_utils.py), [`dash_board_metricas.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dash_board_metricas.py), [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py), [`dashboard_process_mining.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_process_mining.py), [`DEPLOY_VERCEL.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/DEPLOY_VERCEL.md) e [`requirements-vercel.txt`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/requirements-vercel.txt).
+  - inspeção de chamadas `pd.read_csv`, `pd.read_excel`, `to_csv`, `to_excel` e resolução de `DATA_FOLDER`/`FLOW_PMO_DATA_DIR` no repositório.
+  - validação externa dos limites free tier atuais em documentação oficial de Vercel Blob, Neon, Supabase e Firebase/Firestore.
+- Suggested commit message:
+  - `docs(architecture): assess csv-to-database migration path for free-tier postgres`
+
 ## Current Task (Diagnosticar BeFinance sem registros no painel de Produtividade Dev)
 - [x] Verificar fontes usadas por IEF/IED e comparar com os artefatos atuais do BeFinance
 - [x] Confirmar se março/2026 tem itens puxados, entregas elegíveis ou apenas transições/cancelamentos
