@@ -269,10 +269,8 @@ def init_app(flask_server) -> None:
         # hd claim is set by Google for Workspace accounts; absent for @gmail.com
         token_hd: str = (userinfo.get("hd") or "").lower()
 
-        # Security check: validate the hd claim matches our domain.
-        # The hd hint in the redirect is UX-only; this server-side check is
-        # what actually enforces the restriction.
-        if token_hd != allowed_domain:
+        # Reject personal Gmail accounts (no hd claim) — must be a Workspace account
+        if not token_hd:
             logout_user()
             return render_template_string(
                 _FORBIDDEN_HTML,
