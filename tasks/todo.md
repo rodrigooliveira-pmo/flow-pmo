@@ -1,4 +1,34 @@
 
+## Current Task (BusinessMap: limitar importação a 100 cartões por arquivo)
+- [x] Confirmar se o exportador já suporta divisão em lotes
+- [x] Configurar o padrão do projeto para no máximo 100 cartões por arquivo
+- [x] Validar help/comportamento e registrar impacto nos comandos
+- [x] Registrar review e sugestão de commit
+
+## Specification (BusinessMap: limitar importação a 100 cartões por arquivo)
+- Objetivo: garantir que os arquivos gerados para importação no BusinessMap respeitem o limite operacional de até 100 cartões por arquivo.
+- Escopo:
+  - `jira_env.txt`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - Exportador passa a usar `split-size = 100` por padrão no ambiente do projeto.
+  - Quando o total exceder 100 cartões, os arquivos saem separados com sufixo de lote.
+  - CLI/help continuam consistentes.
+
+## Review (BusinessMap: limitar importação a 100 cartões por arquivo)
+- What was validated:
+  - O exportador já tinha suporte nativo a lotes via `--split-size` e usa sufixo `-lote-N` quando o volume excede o limite.
+  - [`jira_env.txt`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_env.txt) agora define `BUSINESSMAP_SPLIT_SIZE=100`, tornando o limite padrão do projeto aderente à regra do BusinessMap.
+  - Como o recorte BeFinance validado anteriormente retorna `248` itens, a partir desta configuração ele tende a gerar automaticamente `3` arquivos (`100 + 100 + 48`) quando executado sem sobrescrever `--split-size`.
+- Evidence (tests/logs/diff):
+  - `python3 jira_to_businessmap_xlsx.py --help | rg -n "split-size|100"`
+  - `python3 - <<'PY' ... m.load_env_file('jira_env.txt'); print(os.getenv('BUSINESSMAP_SPLIT_SIZE')) ... PY`
+- Impacto prático nos comandos:
+  - Não precisa acrescentar `--split-size 100` manualmente, a menos que queira sobrescrever o padrão.
+  - Os exports podem passar a gerar múltiplos arquivos como `businessmap-befinance-lote-1.xlsx`, `businessmap-befinance-lote-2.xlsx`, etc.
+- Suggested commit message:
+  - `chore(integration): default businessmap export batches to 100 cards`
+
 ## Current Task (BusinessMap: configurar diretório padrão de saída)
 - [x] Revisar como o exportador resolve o caminho default dos XLSX
 - [x] Configurar o diretório padrão para `/Users/rodrigoalmeidadeoliveira/Documents/dados/bmap`
