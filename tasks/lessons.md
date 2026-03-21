@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-20
+- Context: Implementação de login Google OAuth no dashboard Dash/Flask com Google Workspace.
+- User correction: O claim `hd` retornado para `@w1consultoria.com.br` é `w1consultoria.com.br`, não `w1.com.br` — validação de domínio por `hd == allowed_domain` bloqueava usuários válidos do Workspace com e-mails em domínios secundários.
+- Root cause: Assumi que o claim `hd` sempre retorna o domínio primário do Workspace para todos os usuários. Na prática, o `hd` reflete o domínio do e-mail do usuário, não o domínio primário da organização.
+- Prevention rule: Em Workspaces com múltiplos domínios (`w1.com.br`, `w1consultoria.com.br`, `w1technology.com.br`), não comparar `hd == domínio_primário`. Usar `hd` apenas para distinguir contas Workspace de contas Gmail pessoais (verificar `hd` não vazio). O controle de acesso real deve ser feito pela allowlist de e-mails ou checagem de grupo.
+- Action added to workflow: Em implementações OAuth com Workspace multi-domínio, validar o fluxo com uma conta de cada domínio antes de concluir. Checar documentação do Google sobre `hd` em organizações multi-domínio.
+- Date: 2026-03-20
 - Context: Configuração do exportador Jira -> BusinessMap para usar `BUSINESSMAP_SPLIT_SIZE=100` e outros defaults via `jira_env.txt`.
 - User correction: Informou que os arquivos não estavam sendo gerados em lotes de 100, apesar da configuração já ter sido adicionada no `jira_env.txt`.
 - Root cause: Eu assumi que bastava definir o valor no `jira_env.txt`, mas o `argparse` lia os defaults de `os.getenv(...)` antes do `load_env_file(...)`; portanto, os defaults vindos do arquivo não eram aplicados à CLI.

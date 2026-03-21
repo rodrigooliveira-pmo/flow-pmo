@@ -46,6 +46,15 @@
 - Capture lessons: update `tasks/lessons.md` after user corrections.
 - At the end of each prompt execution, generate a suggested commit message text summarizing the change.
 
+## Authentication
+
+- Login via Google OAuth 2.0 implementado em `auth.py` — não reescrever, apenas estender.
+- Controle de acesso atual: allowlist estática via `FLOW_PMO_ALLOWED_EMAILS` (env var).
+- Futuro: migrar para checagem dinâmica por grupo Workspace via `FLOW_PMO_ALLOWED_GROUP` + service account.
+- Redirect URI de produção: `https://flow-pmo.vercel.app/callback` (registrada no Google Cloud Console, projeto `dashboard-fluxo-produtividade`).
+- Workspace tem múltiplos domínios (`w1.com.br`, `w1consultoria.com.br`, `w1technology.com.br`) — não validar por sufixo de e-mail nem por `hd == domínio_primário`. Usar `hd` apenas para bloquear contas Gmail pessoais.
+- Para rodar localmente: `python -c "from dotenv import load_dotenv; load_dotenv('.env.local'); from api.index import app; app.run(port=3000, debug=True)"`
+
 ## Core Principles
 - Simplicity first: solve with minimal complexity and minimal surface area.
 - No laziness: find root causes, avoid temporary patches.
