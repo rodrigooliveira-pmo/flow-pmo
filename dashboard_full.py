@@ -1725,12 +1725,37 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     else:
         per_dev['WIP Residual'] = 0
 
-    # Flow Efficiency — % de itens puxados que foram entregues no período
+    # Flow Efficiency — % de itens puxados que foram entregues no período (valor bruto, pode >100%)
     # Proxy de Little's Law: alta efficiency → baixo WIP acumulado (Anderson 2010)
     per_dev['Flow Efficiency (%)'] = np.where(
         per_dev['Itens Puxados'] > 0,
         (per_dev['Itens Entregues'] / per_dev['Itens Puxados'] * 100.0).round(1),
         0.0,
+    )
+
+    # WIP Início de Período — itens em progresso antes de start_ts que ainda não estavam done.
+    # Representam comprometimento cross-period e devem entrar no denominador da FE Ajustada
+    # para evitar saturação artificial em devs que entregam trabalho de períodos anteriores.
+    # Fonte: Anderson (2010) — disciplina de WIP inclui carryover de períodos anteriores.
+    if 'DataInProgress' in base.columns and 'DataDone' in base.columns:
+        _ip = pd.to_datetime(base['DataInProgress'], errors='coerce')
+        _dn = pd.to_datetime(base['DataDone'], errors='coerce')
+        _wip_start_mask = _ip.notna() & (_ip < start_ts) & (_dn.isna() | (_dn >= start_ts))
+        _wip_start_items = base[_wip_start_mask]
+        per_dev['WIP Inicio Periodo'] = per_dev['Pessoa'].map(
+            _wip_start_items['_Pessoa'].value_counts()
+        ).fillna(0).astype(int)
+    else:
+        per_dev['WIP Inicio Periodo'] = 0
+
+    # FE Ajustada (%) — denominador inclui WIP cross-period: bounded [0, 100].
+    # FE_ajustada = Entregues / (Puxados + WIP_inicio) × 100
+    # Corrige: FE>100% (entregues > puxados) e FE=0 (puxados=0, entregues>0 de período anterior).
+    _fe_denom = per_dev['Itens Puxados'] + per_dev['WIP Inicio Periodo']
+    per_dev['FE Ajustada (%)'] = np.where(
+        _fe_denom > 0,
+        (per_dev['Itens Entregues'] / _fe_denom * 100.0).clip(0, 100).round(1),
+        np.where(per_dev['Itens Entregues'] > 0, 100.0, 0.0),
     )
 
     # Lead Time mediano
@@ -1882,12 +1907,16 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
     _cx_pux_col = 'Score Complexidade Puxado'
     if _cx_pux_col in df.columns:
         _cx_pux = pd.to_numeric(df[_cx_pux_col], errors='coerce').fillna(0)
-        _flow_eff = pd.to_numeric(df.get('Flow Efficiency (%)', 50.0), errors='coerce').fillna(50.0)
+        # Prefere FE Ajustada (corrigida para cross-period); fallback para FE bruta ou neutro 50
+        _fe_col_ied = 'FE Ajustada (%)' if 'FE Ajustada (%)' in df.columns else 'Flow Efficiency (%)'
+        _flow_eff = pd.to_numeric(df.get(_fe_col_ied, 50.0), errors='coerce').fillna(50.0)
         df['_ied_eee'] = np.where(
             _cx_pux > 0,
             (_cx_vals / _cx_pux * 100).clip(0, 100),
             _flow_eff.clip(0, 100),
         ).round(1)
+    elif 'FE Ajustada (%)' in df.columns:
+        df['_ied_eee'] = pd.to_numeric(df['FE Ajustada (%)'], errors='coerce').fillna(50.0).clip(0, 100).round(1)
     elif 'Flow Efficiency (%)' in df.columns:
         df['_ied_eee'] = pd.to_numeric(df['Flow Efficiency (%)'], errors='coerce').fillna(50.0).clip(0, 100).round(1)
     else:
@@ -15643,7 +15672,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         table_col_order = [
             'BU', 'Papel', 'Pessoa',
             # Entrega e flow
-            'Itens Puxados', 'Itens Entregues', 'WIP Residual', 'Flow Efficiency (%)',
+            'Itens Puxados', 'Itens Entregues', 'WIP Residual', 'WIP Inicio Periodo',
+            'Flow Efficiency (%)', 'FE Ajustada (%)',
             'SP Entregues', 'Score Complexidade',
             # Qualidade Jira
             'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
@@ -16162,9 +16192,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         per_dev['_rb_entrega'] = _abs_norm(per_dev[_score_cx_col], _bench_entrega)
 
         # Eixo 2: Flow Efficiency — ≥80% dos itens puxados entregues no período
-        # Mede fluidez do fluxo; alta efficiency = baixo WIP acumulado (Anderson 2010, Kanban)
-        if 'Flow Efficiency (%)' in per_dev.columns:
-            per_dev['_rb_flow'] = _abs_norm(per_dev['Flow Efficiency (%)'], 80.0)
+        # Usa FE Ajustada (corrigida para WIP cross-period) para evitar saturação artificial
+        # em devs que entregam itens de períodos anteriores (Anderson 2010, Kanban / Little's Law)
+        _fe_rb_col = 'FE Ajustada (%)' if 'FE Ajustada (%)' in per_dev.columns else 'Flow Efficiency (%)'
+        if _fe_rb_col in per_dev.columns:
+            per_dev['_rb_flow'] = _abs_norm(per_dev[_fe_rb_col], 80.0)
         else:
             per_dev['_rb_flow'] = pd.Series(0.0, index=per_dev.index)
 
