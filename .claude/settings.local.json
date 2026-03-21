@@ -31,7 +31,12 @@
       "Read(//Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/**)",
       "Bash(lsof -ti:8050,8051,8052)",
       "Bash(python -c \"import socket; s=socket.socket\\(\\); s.bind\\(\\('''',0\\)\\); p=s.getsockname\\(\\)[1]; s.close\\(\\); print\\(p\\)\")",
-      "Bash(python -m py_compile dashboard_full.py)"
+      "Bash(python -m py_compile dashboard_full.py)",
+      "Bash(/Library/TeX/texbin/pdflatex --version)",
+      "Bash(kpsewhich IEEEtran.cls)",
+      "Bash(/Library/TeX/texbin/latexmk -pdf -interaction=nonstopmode paper.tex)",
+      "Bash(/Library/TeX/texbin/latexmk -pdf -f -interaction=nonstopmode paper.tex)",
+      "Bash(/Library/TeX/texbin/latexmk -C)"
     ]
   }
 }

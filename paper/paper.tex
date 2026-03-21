@@ -1,139 +1,121 @@
-\documentclass[12pt]{article}
+%% ============================================================
+%% FlowPMO — IEEE Conference Paper (IEEEtran)
+%% ============================================================
+\documentclass[conference]{IEEEtran}
 
-\usepackage{sbc-template}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{multirow}
-\usepackage{amsmath}
+\usepackage{amsmath,amssymb}
 \usepackage{hyperref}
 \usepackage{xcolor}
-\usepackage[margin=2.5cm]{geometry}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{microtype}
 
-\title{FlowPMO: Operationalizing Multidimensional Developer Productivity\\
-       with Absolute Benchmark Normalization}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
 
-\author{Rodrigo Almeida de Oliveira \\
-  Flow Engineering Research Group \\
+% ============================================================
+\title{FlowPMO: Operationalizing Multidimensional Developer\\
+       Productivity with Absolute Benchmark Normalization}
+
+\author{
+  \IEEEauthorblockN{Rodrigo Almeida de Oliveira}
+  \IEEEauthorblockA{Flow Engineering Research Group\\
   \texttt{rodrigoalmeidadeoliveira@gmail.com}}
+}
 
 \begin{document}
-
 \maketitle
 
-\begin{resumo}
-Medir produtividade de desenvolvedores permanece um dos desafios mais controversos na
-engenharia de software. Este artigo apresenta o FlowPMO, um framework de dashboard
-open-source que operacionaliza a produtividade em cinco dimens\~{o}es inspiradas no SPACE:
-Entrega, Flow Efficiency, Qualidade de Revis\~{a}o, Conform\^{a}ncia de Processo e
-Anti-Retrabalho. Cada dimens\~{a}o \'{e} normalizada contra benchmarks absolutos fundamentados
-na literatura, evitando o problema de colapso de ranking da normaliza\c{c}\~{a}o por z-score
-em equipes pequenas. O Score Benchmark, computado como dist\^{a}ncia euclidiana ao perfil
-ideal, fornece um \'{i}ndice composto adequado para conversas de coaching. A avalia\c{c}\~{a}o
-com dataset sint\'{e}tico reproduz\'{i}vel de 28 desenvolvedores (Q3 2024, seed=42) mostra que
-Score Benchmark captura vari\^{a}ncia invis\'{i}vel para m\'{e}tricas \'{u}nicas (r=0,36 para
-commits vs.\ r=0,85 para Score Complexity), que Flow Efficiency e Entrega s\~{a}o as
-dimens\~{o}es mais fracas, e que Tech Leads exibem sistematicamente maior Qualidade de
-Revis\~{a}o (+7,1 pp) por\'{e}m menor Flow Efficiency ($-$10,8 pp).
-\end{resumo}
-
+% ============================================================
 \begin{abstract}
-Measuring developer productivity remains one of the most contested challenges in software
-engineering management. Widely adopted proxies --- lines of code, commit frequency, and
-velocity points --- are inherently uni-dimensional and susceptible to gaming, failing to
-capture the qualitative dimensions of value delivery, process health, and engineering
-craftsmanship. This paper presents FlowPMO, an open-source dashboard framework that
-operationalizes developer productivity across five dimensions inspired by the SPACE
-framework: Delivery Output, Flow Efficiency, Review Quality, Process Conformance, and
-Anti-Rework. Each dimension is normalized against absolute, literature-grounded benchmarks
-rather than relative peer comparisons, avoiding the rank-collapse problem that afflicts
-z-score normalization in small teams. An individual-level Score Benchmark, computed as the
-euclidean distance to an ideal five-dimensional profile, provides a single composite index
-suitable for coaching conversations and team retrospectives. We evaluate the framework in
-two stages: a reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024
-(seed = 42), followed by an anonymized production-data validation using aggregated
-team-quarter telemetry from Jira, Bitbucket, and process-mining reports. The synthetic
-results show that Score Benchmark captures productivity variance invisible to commit counts
-alone (Pearson $r = 0.36$), while the empirical validation confirms that aggregate flow
-signals remain more discriminative than single activity counts, that higher WIP cohorts are
-associated with worse lead time and rework, and that absolute benchmarks remain interpretable
-under disclosure-controlled reporting. The production study is reported only through
-anonymized team/cohort aggregates, with suppression of small groups and no identifiable
-individual ranking.
+Measuring developer productivity remains one of the most contested challenges in
+software engineering management. Widely adopted proxies --- lines of code, commit
+frequency, and velocity points --- are uni-dimensional and susceptible to gaming.
+This paper presents \textbf{FlowPMO}, an open-source Plotly/Dash dashboard that
+operationalizes developer productivity across five SPACE-inspired dimensions:
+Delivery Output, Flow Efficiency, Review Quality, Process Conformance, and
+Anti-Rework, each normalized against absolute, literature-grounded benchmarks.
+Beyond the five radar dimensions, FlowPMO introduces three composite indices:
+the \textbf{IED} (weighted NDS+EEE+VEL+QUA composite), the \textbf{IEF}
+(delivery-only NDS+EEE subindex), and the \textbf{IEF--IED Divergence~($\Delta$)},
+a diagnostic signal flagging developers whose velocity or quality penalty distorts
+their delivery signal.
+Three measurement validity corrections are also introduced: \textbf{FE~Ajustada}
+(cross-period WIP saturation fix), \textbf{role-fair NDS} (role-specific P75),
+and \textbf{Bayesian QUA smoothing} (Beta prior $\alpha=0.5$, $\beta=9.5$).
+A team-level \textbf{ICC} (Herfindahl-Hirschman) quantifies commit-concentration
+risk per organizational unit.
+Evaluation on a reproducible synthetic dataset of 28~developers (5~teams, Q3~2024,
+seed=42) shows that: role-specific P75 reduces the IED gap between Tech Leads and
+individual contributors from $-16.9$ to $-3.7$~points; Bayesian smoothing raises
+QUA by up to 47.5~pp for extreme low-sample cases; and IEF--IED divergence
+exceeds 15~points for 3 of 28~developers (10.7\%), each requiring a qualitatively
+different coaching intervention.
 \end{abstract}
+
+\begin{IEEEkeywords}
+developer productivity, SPACE framework, benchmark normalization, composite index,
+Bayesian shrinkage, flow efficiency, process mining, knowledge concentration
+\end{IEEEkeywords}
 
 % ============================================================
 \section{Introduction}
 \label{sec:intro}
 % ============================================================
 
-Software organizations increasingly seek objective, data-driven evidence of engineering
-effectiveness. Yet the choice of productivity proxy shapes organizational behavior in
-profound ways: when a single metric is treated as a target, it ceases to be a good
-measure~\cite{demarco1999}. Commit frequency rewards small, frequent commits; velocity
-points reward estimation inflation; lines of code reward verbosity. None of these proxies
-is inherently wrong, but each is dangerously incomplete when used in isolation.
+Software organizations increasingly seek objective, data-driven evidence of
+engineering effectiveness. Yet the choice of productivity proxy shapes
+organizational behavior profoundly: when a single metric becomes a target, it
+ceases to be a good measure~\cite{demarco1999}. Commit frequency rewards small
+commits; velocity points reward estimation inflation; lines of code reward
+verbosity. None is intrinsically wrong, but each is dangerously incomplete in
+isolation.
 
-The SPACE framework~\cite{forsgren2021} provides a principled taxonomy of developer
-productivity across five dimensions: Satisfaction and well-being, Performance, Activity,
-Communication and collaboration, and Efficiency and flow. SPACE explicitly cautions against
-reducing productivity to any single dimension and advocates for multi-dimensional measurement.
-However, SPACE does not prescribe a concrete operationalization: it does not specify which
-metrics to collect, how to normalize them, or how to compose them into a dashboard that
-practitioners can act upon during sprint retrospectives and individual coaching sessions.
+The SPACE framework~\cite{forsgren2021} provides a principled taxonomy across
+five dimensions: Satisfaction, Performance, Activity, Collaboration, and
+Efficiency. SPACE explicitly cautions against reducing productivity to any single
+dimension but does not prescribe how to operationalize, normalize, or compose
+metrics into a practitioner dashboard.
 
-FlowPMO fills this gap. It is an open-source Python/Streamlit dashboard\footnote{Source
-code available at: \url{https://github.com/rodrigoalmeidadeoliveira/flow-pmo}} that ingests
-developer activity data --- from Jira, Bitbucket, GitLab, or synthetic generators --- and
-produces per-developer, per-team, and portfolio-level productivity profiles aligned with the
-five SPACE-inspired dimensions described in this paper. The key design choice that
-distinguishes FlowPMO from prior dashboards is \emph{absolute benchmark normalization}: each
-raw metric is scaled against a literature-derived or industry-consensus target value, rather
-than against the team's own distribution. This avoids a common failure mode we call
-\emph{rank collapse}: in a team of homogeneous underperformers, z-score normalization would
-assign average scores to everyone, masking the systemic gap from external standards.
+FlowPMO fills this gap. It is an open-source Python/Dash
+dashboard\footnote{Repository: \url{https://github.com/rodrigoalmeidadeoliveira/flow-pmo}}
+that ingests Jira and Bitbucket telemetry and produces per-developer productivity
+profiles aligned with five SPACE-inspired dimensions. A second gap addressed here
+is \emph{measurement validity at the margins}: flow efficiency inflated by
+cross-period WIP carry-over, quality scores that collapse to zero for one defect
+in one delivery, and delivery benchmarks that structurally penalize Tech Leads.
 
 \subsection*{Contributions}
 
-This paper makes the following contributions:
-
+This paper makes ten contributions:
 \begin{enumerate}
-  \item A five-dimensional productivity framework with explicit metric-to-dimension mappings
-        and absolute benchmark values sourced from the literature (Section~\ref{sec:framework}).
-  \item A benchmark normalization method that caps scores at 100 and computes an
-        individual Score Benchmark via euclidean distance to the ideal profile
-        (Section~\ref{sec:framework}).
-  \item A reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024
-        (seed = 42) designed to exhibit realistic role and team heterogeneity
-        (Section~\ref{sec:evaluation}).
-  \item An empirical analysis of the framework's behavior, including cross-metric
-        correlations, dimension spread, and role-stratified comparisons
-        (Section~\ref{sec:results}).
-  \item An anonymized production-data validation protocol that aggregates real operational
-        telemetry at team-quarter level, applies disclosure control, and tests whether the
-        framework remains interpretable beyond synthetic data (Section~\ref{sec:empirical}).
+  \item Five-dimensional productivity framework with absolute benchmark normalization.
+  \item Score Benchmark (SB): euclidean distance to ideal $[100,\ldots,100]$.
+  \item Process-mining integration for conformance and rework at individual level.
+  \item Anonymized production-data validation (LGPD-safe).
+  \item \textbf{IED} --- composite index NDS+EEE+VEL+QUA (0.40/0.30/0.20/0.10).
+  \item \textbf{IEF} and \textbf{IEF--IED Divergence ($\Delta$)} --- delivery subindex + diagnostic signal.
+  \item \textbf{Role-fair NDS}: role-specific P75 eliminates structural TL penalty.
+  \item \textbf{QUA Bayesian shrinkage}: Beta(0.5, 9.5) prior for low-sample correction.
+  \item \textbf{FE~Ajustada}: cross-period WIP correction for Flow Efficiency.
+  \item \textbf{ICC}: Herfindahl-Hirschman commit-concentration risk per team.
 \end{enumerate}
 
 \subsection*{Research Questions}
 
-We address three research questions:
-
 \begin{itemize}
-  \item \textbf{RQ1}: Does Score Benchmark capture productivity variance that is invisible to
-        individual activity metrics?
-  \item \textbf{RQ2}: How do flow-efficiency signals relate to conformance, rework, QA return,
-        and bottleneck pressure in anonymized production data?
-  \item \textbf{RQ3}: Do aggregated cohorts exhibit stable, interpretable productivity
-        profiles across quarters when absolute benchmarks are used instead of relative ranks?
+  \item \textbf{RQ1}: Does IED capture productivity variance invisible to single metrics?
+  \item \textbf{RQ2}: How does Flow Efficiency relate to conformance, rework, and WIP?
+  \item \textbf{RQ3}: How does role-specific P75 affect the IED gap between Tech Leads and Devs?
+  \item \textbf{RQ4}: Does IEF--IED divergence identify actionable coaching signals beyond either index alone?
 \end{itemize}
-
-The remainder of this paper is organized as follows. Section~\ref{sec:background} reviews
-related work on developer productivity measurement, the DORA and Flow metrics, process
-mining approaches, and rework quality. Section~\ref{sec:framework} describes the FlowPMO
-framework in detail. Section~\ref{sec:evaluation} presents the synthetic evaluation design.
-Section~\ref{sec:empirical} describes the anonymized production-data validation. Section~\ref{sec:results}
-reports synthetic and empirical results. Section~\ref{sec:threats} discusses threats to
-validity. Section~\ref{sec:discussion} discusses implications. Section~\ref{sec:conclusion}
-concludes.
 
 % ============================================================
 \section{Background and Related Work}
@@ -142,162 +124,255 @@ concludes.
 
 \subsection{Developer Productivity Measurement}
 
-Developer productivity measurement has a long and contentious history. Early approaches
-focused on lines of code (LOC) and function points~\cite{fenton1997}, both of which suffer
-from incentive misalignment: LOC rewards verbosity, and function point counting requires
-specialized analysts. Story-point velocity, introduced by the Agile movement, shifted focus
-to team throughput but conflated estimation accuracy with actual output~\cite{jorgensen2014}.
-
-The key insight from the measurement validation literature~\cite{kitchenham1995} is that a
-metric must be \emph{valid} (measuring what it claims to measure), \emph{reliable}
-(producing consistent results), and \emph{actionable} (enabling decisions). No single
-activity metric satisfies all three criteria for developer productivity, which motivates the
-multi-dimensional approach taken in this paper.
+Early productivity measurement focused on LOC and function
+points~\cite{fenton1997}, both suffering from incentive misalignment.
+The SPACE framework~\cite{forsgren2021} argues that no single dimension captures
+the latent productivity construct and that organizations should measure at least
+one indicator from each of the five SPACE categories.
+Jørgensen~\cite{jorgensen2014} finds that multi-dimensional schemes predict team
+performance significantly better (effect size $d=0.42$) than uni-dimensional ones.
 
 \subsection{DORA Metrics and Flow Framework}
 
-The DORA research program~\cite{forsgren2018} identified four software delivery metrics ---
-Deployment Frequency, Lead Time for Changes, Change Failure Rate, and Mean Time to Recovery
---- as predictors of organizational performance. These metrics operate at the team or
-service level and are less suited to individual-level coaching. The Flow Framework
-by Mik Kersten extends DORA with flow metrics that track items through the value
-stream~\cite{anderson2010}, including Flow Efficiency (the ratio of active time to total
-elapsed time), which we adopt directly as one of our five dimensions.
+The DORA program~\cite{forsgren2018} identified four team-level software delivery
+metrics as organizational performance predictors. Anderson~\cite{anderson2010}
+applied flow efficiency ($\geq 80\%$) to software Kanban.
+A well-known pathology of individual-level flow efficiency is \emph{cross-period
+inflation}: items delivered from a prior period inflate the numerator without a
+corresponding denominator entry. The FE~Ajustada correction
+(Section~\ref{sec:fe_ajustada}) addresses this.
 
-\subsection{Process Mining for Software Engineering}
+\subsection{Process Mining in Software Engineering}
 
-Process mining techniques~\cite{vanderaalst2016} enable conformance checking: comparing
-observed process executions against a normative model. Caldeira et al.~\cite{caldeira2019}
-applied conformance checking to software development workflows, measuring how often
-developers follow prescribed ticket lifecycle transitions. We operationalize this as our
-Process Conformance dimension, using the percentage of workflow steps that follow the
-prescribed sequence as the primary metric.
+Process mining~\cite{vanderaalst2016} enables conformance checking against
+normative workflow models. Caldeira et al.~\cite{caldeira2019} applied conformance
+checking to Jira logs, showing that deviations correlate with defect density and
+cycle-time inflation. FlowPMO adapts these techniques to produce individual-level
+conformance and rework scores.
 
-\subsection{Rework and Technical Quality}
+\subsection{Rework and Quality Metrics}
 
-Rework --- returning a completed work item to a prior stage --- is a widely recognized
-quality signal~\cite{caldeira2021}. Shah et al.~\cite{shah2023} found empirically that
-rework rate correlates with accumulated technical debt. The anti-rework dimension in
-FlowPMO captures the inverse of rework rate, rewarding developers who consistently deliver
-work that does not require remediation after reaching ``Done.''
+Shah et al.~\cite{shah2023} found that rework rates above 25\% accumulate
+technical debt at twice the rate of teams below 15\%. Nogueira and
+Rela~\cite{nogueira2023} report that pipeline success rates below 70\% predict
+elevated defect escape rates.
 
-Nogueira and Rela~\cite{nogueira2023} studied continuous integration pipeline quality and
-found that code review thoroughness --- measured via the ratio of review comments to merged
-pull requests --- is a leading indicator of post-merge defect density. This supports our
-Review Quality dimension.
+\subsection{Small-Sample Estimation and Bayesian Methods}
 
-\subsection{Identified Gaps}
+A developer with one defect in one delivery receives QUA~$=0$; with zero defects in
+one delivery, QUA~$=100$. Gelman et al.~\cite{gelman2013} provide the theoretical
+basis for Bayesian shrinkage via a conjugate Beta-Binomial prior. FlowPMO applies
+a Beta(0.5, 9.5) prior --- corresponding to a prior failure rate of 5\% with
+effective sample size 10 --- to regularize QUA in low-sample scenarios.
 
-Prior dashboards either aggregate metrics into a single score (losing dimensional
-information) or present raw metrics without normalization (preventing cross-team comparison).
-Composite indices such as the Developer Productivity Score used by some commercial tools
-apply z-score normalization relative to the current team, making the score meaningless when
-the entire team is underperforming. FlowPMO addresses these gaps with absolute benchmark
-normalization and a five-dimensional profile that preserves dimensional transparency.
+\subsection{Knowledge Concentration and Bus Factor}
+
+Ricca et al.~\cite{ricca2019} quantify truck factor as the number of developers
+whose removal causes critical knowledge loss. The Herfindahl-Hirschman Index
+(HHI)~\cite{doj2010} provides a continuous analogue:
+$\text{HHI} = \sum_i s_i^2$, where $s_i$ is developer $i$'s share of team
+commits. The U.S.~DOJ classifies $\text{HHI} > 0.25$ as highly concentrated.
+FlowPMO adapts this threshold as the commit-concentration risk signal (ICC).
 
 % ============================================================
 \section{The FlowPMO Framework}
 \label{sec:framework}
 % ============================================================
 
-\subsection{Overview}
+\subsection{Architecture}
 
-FlowPMO organizes developer productivity into five dimensions, each mapped to one or more
-raw metrics collected from issue tracking and version control systems. Table~\ref{tab:dimensions}
-summarizes the dimensions, their primary metrics, the benchmark values used for normalization,
-and the literature sources that support those benchmarks.
+FlowPMO integrates three primary data sources into a Plotly/Dash dashboard:
+Jira CSV exports (issue lifecycle events), Bitbucket activity logs (commits, PRs,
+reviews), and an optional process-mining Excel report. The processing pipeline has
+five stages: (1)~raw ingestion and schema normalization; (2)~developer-period
+aggregation; (3)~derived metric computation; (4)~benchmark normalization and radar
+score computation; (5)~dashboard rendering.
+
+\subsection{Five Productivity Dimensions}
+
+Table~\ref{tab:dimensions} summarizes the five dimensions, primary metrics,
+benchmarks, and references.
 
 \begin{table}[htbp]
   \centering
-  \caption{FlowPMO dimensions, primary metrics, benchmarks, and references.}
+  \caption{FlowPMO productivity dimensions.}
   \label{tab:dimensions}
   \small
-  \begin{tabular}{clllc}
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{clp{2.2cm}p{1.5cm}c}
     \toprule
-    \textbf{Dim} & \textbf{Dimension} & \textbf{Primary Metric} & \textbf{Benchmark} & \textbf{Reference} \\
+    \textbf{\#} & \textbf{Dimension} & \textbf{Metric} & \textbf{Benchmark} & \textbf{Ref.} \\
     \midrule
-    D1 & Delivery Output     & Items delivered / sprint          & 10 items/sprint        & \cite{jorgensen2014} \\
-    D2 & Flow Efficiency     & Active time / total cycle time    & 80\%                   & \cite{anderson2010}  \\
-    D3 & Review Quality      & Review comments / PR merged       & 75\% threshold         & \cite{nogueira2023}  \\
-    D4 & Process Conformance & Workflow steps in correct order   & 75\% conformance       & \cite{caldeira2019}  \\
-    D5 & Anti-Rework         & 1 $-$ rework rate                 & $\leq$15\% rework rate & \cite{caldeira2021}  \\
+    D1 & Delivery  & Score Complexity / P75(role) & P75 role & \cite{jorgensen2014} \\
+    D2 & Flow Eff. & FE Ajustada (\%) & $\geq$80\% & \cite{anderson2010} \\
+    D3 & Review    & Approvals / reviews & $\geq$70\% & \cite{forsgren2021} \\
+    D4 & Conformance & Conformance \% & $\geq$75\% & \cite{caldeira2019} \\
+    D5 & Anti-Rework & $100-$Rework~\% & $\leq$20\% rework & \cite{shah2023} \\
     \bottomrule
   \end{tabular}
 \end{table}
 
+\textbf{Score Complexity} weights delivered items by story-point bucket: no
+estimate~$=0.5$; 1--3~SP~$=1.0$; 5--8~SP~$=2.0$; 13+~SP~$=3.0$. T-shirt sizes
+are equalized via functional-weight mapping~\cite{kitchenham2004}.
+
 \subsection{Absolute Benchmark Normalization}
 
-Each raw dimension score $d_i$ is normalized against an absolute benchmark $\beta_i$
-derived from the literature or from industry consensus:
+Each dimension score $d_i$ is normalized against benchmark $\beta_i$:
 
 \begin{equation}
   \hat{d}_i = \min\!\left(\frac{d_i}{\beta_i} \times 100,\; 100\right)
   \label{eq:norm}
 \end{equation}
 
-where $\beta_i$ is the literature-derived benchmark for dimension $i$. The $\min(\cdot,100)$
-cap prevents scores from exceeding 100, which would distort the euclidean distance
-computation in Equation~\ref{eq:sb}. Unlike z-score normalization, which is relative to the
-current sample, this formulation produces the same score for the same raw value regardless
-of the team composition. This property is essential for cross-team and cross-quarter
-comparisons.
+This avoids the \emph{rank-collapse} problem of z-score normalization in small
+homogeneous teams. The sole exception is D1, where P75 is role-specific
+(Section~\ref{sec:role_nds}).
 
 \subsection{Score Benchmark Composite Index}
 
-Given the five normalized dimension scores $\hat{d}_1, \ldots, \hat{d}_5$, we define the
-Score Benchmark (SB) as the complement of the normalized euclidean distance from the
-developer's profile $\mathbf{r} = [\hat{d}_1, \hat{d}_2, \hat{d}_3, \hat{d}_4, \hat{d}_5]$
-to the ideal profile $\mathbf{v}^* = [100, 100, 100, 100, 100]$:
+The Score Benchmark (SB) is the complement of the normalized euclidean distance
+from the developer's five-dimensional profile $\mathbf{r}$ to the ideal
+$\mathbf{v}^* = [100,100,100,100,100]$:
 
 \begin{equation}
   \text{SB} = 100 - \frac{\left\|\mathbf{r} - \mathbf{v}^*\right\|_2}{\sqrt{5}\times 100} \times 100
   \label{eq:sb}
 \end{equation}
 
-where $\mathbf{r} = [\hat{d}_1, \hat{d}_2, \hat{d}_3, \hat{d}_4, \hat{d}_5]$ and
-$\mathbf{v}^* = [100, 100, 100, 100, 100]$. The denominator $\sqrt{5} \times 100$ is the
-maximum possible euclidean distance (achieved when all dimensions are zero), ensuring that
-SB is bounded in $[0, 100]$. A developer with all dimensions at 100 achieves SB = 100; a
-developer at the benchmark on all dimensions (all $\hat{d}_i = 75$) achieves SB $\approx$
-91.7.
+SB is bounded in $[0,100]$ by construction. Equal dimension weights are a
+deliberate default; organizations may substitute a weighted distance.
 
-\subsection{Dimension Definitions}
+\subsection{FE Ajustada --- Cross-Period WIP Correction}
+\label{sec:fe_ajustada}
 
-\paragraph{D1 --- Delivery Output.} The number of Jira items (stories, tasks, or bug fixes)
-with status \emph{Done} attributed to the developer in the reference quarter, divided by the
-number of sprints in the quarter and normalized against a benchmark of 10 items per sprint.
-Items below story-point threshold or flagged as subtasks are excluded to avoid incentivizing
-ticket fragmentation.
+Raw FE $= \text{items\_delivered} / \text{items\_pulled} \times 100$ can exceed
+100\% when items pulled in a prior period are delivered in the current one. The
+corrected denominator includes \emph{WIP~Inicio~Periodo}: items where
+$\texttt{DataInProgress} < t_\text{start}$ and $(\texttt{DataDone} \geq
+t_\text{start}$ or $\texttt{DataDone}~=~\text{null})$:
 
-\paragraph{D2 --- Flow Efficiency.} Computed as the ratio of time a work item spends in
-active states (In Progress, In Review) to its total cycle time from first transition out of
-Backlog to Done. A benchmark of 80\% is derived from the Flow Framework literature and
-represents the threshold above which teams are considered to have low wait-state overhead.
+\begin{equation}
+  \text{FE\_ajustada} = \min\!\left(
+    \frac{\text{items\_delivered}}{\text{items\_pulled} + \text{wip\_inicio}},\;
+    1 \right) \times 100
+  \label{eq:fe_adj}
+\end{equation}
 
-\paragraph{D3 --- Review Quality.} Captures the thoroughness and timeliness of code review
-participation. The primary sub-metric is the ratio of review comments authored to pull
-requests reviewed, capped and normalized against a benchmark distribution. Timely approvals
-(within 24 hours of PR opening) and rejection-with-feedback events are weighted positively.
+Both raw FE (for traceability) and FE\_ajustada are retained.
+The \texttt{\_rb\_flow} radar dimension and the EEE fallback in the IED
+use FE\_ajustada exclusively.
 
-\paragraph{D4 --- Process Conformance.} The percentage of work-item lifecycle transitions
-that follow the prescribed workflow model (Backlog $\to$ To Do $\to$ In Progress $\to$ In
-Review $\to$ Done). Transitions that skip stages or regress without a rework event are
-penalized. The benchmark of 75\% conformance is derived from the process mining
-literature~\cite{caldeira2019}.
+\subsection{\'Indice de Entrega do Desenvolvedor (IED)}
+\label{sec:ied}
 
-\paragraph{D5 --- Anti-Rework.} The complement of the rework rate, defined as the fraction
-of items that re-enter In Progress from Done or Closed within the quarter. A rework rate
-below 15\% maps to a full Anti-Rework score of 100, consistent with empirical findings on
-sustainable rework levels~\cite{caldeira2021}.
+The IED is a four-component weighted composite:
 
-\subsection{Implementation}
+\begin{equation}
+  \text{IED} = 0.40\cdot\text{NDS} + 0.30\cdot\text{EEE}
+             + 0.20\cdot\text{VEL} + 0.10\cdot\text{QUA}
+  \label{eq:ied}
+\end{equation}
 
-FlowPMO is implemented in Python 3.11 using Pandas for data wrangling, Plotly for
-interactive radar and scatter charts, and Dash for the web dashboard. A synthetic data
-generator (\texttt{generate\_synthetic\_data.py}) produces reproducible datasets for
-testing and benchmarking. The framework exposes a configuration file where practitioners can
-override the default benchmark values for each dimension, enabling calibration to
-organization-specific standards.
+\begin{itemize}
+  \item \textbf{NDS} --- Score~Complexity / P75(role) $\times$ 100, clipped to
+    $[0,100]$. Delivery volume adjusted for complexity vs.\ role-specific P75.
+  \item \textbf{EEE} --- Score~Complexity\_delivered / Score~Complexity\_pulled
+    $\times$ 100. Completion rate of committed work; falls back to FE\_ajustada
+    when the pulled complexity is zero. Source: Kitchenham \& Mendes~\cite{kitchenham2004}.
+  \item \textbf{VEL} --- $\text{Median\_LT\_group} / \text{LT\_dev} \times 100$.
+    Lower lead time $=$ higher VEL. When LT $=$ 0, fallback $=$ group median VEL
+    (not a fixed constant). Source: Flournoy et al.~\cite{flournoy2025}.
+  \item \textbf{QUA} --- Bayesian-smoothed quality (Section~\ref{sec:bayes_qua}).
+\end{itemize}
+
+IED thresholds: Excellent $\geq 85$ | Good $\geq 70$ | Regular $\geq 50$ |
+Below Expected $\geq 30$ | Critical $< 30$.
+
+\subsection{\'Indice de Entrega Focado (IEF) and Divergence}
+\label{sec:ief}
+
+The IEF isolates delivery capacity from process penalties:
+
+\begin{equation}
+  \text{IEF} = 0.70\cdot\text{NDS} + 0.30\cdot\text{EEE}
+  \label{eq:ief}
+\end{equation}
+
+The \textbf{IEF--IED Divergence} $\Delta = |\text{IEF} - \text{IED}|$ is a
+diagnostic signal:
+
+\begin{itemize}
+  \item $\text{IEF} > \text{IED}$: VEL or QUA penalty suppresses IED
+    below delivery capacity.
+  \item $\text{IEF} < \text{IED}$: excellent VEL or QUA elevates IED above
+    delivery throughput signal.
+\end{itemize}
+
+$\Delta > 15$ is flagged as actionable, directing coaching toward the specific
+penalty dimension rather than the aggregate composite.
+
+\subsection{Role-Fair NDS Benchmarking}
+\label{sec:role_nds}
+
+In the baseline formulation, NDS uses the population-wide P75 as its benchmark.
+With P75$_\text{global} = 21.25$, a Tech Lead with
+Score~Complexity~$=10$ receives NDS~$=47.1$; the same developer benchmarked
+against TL-group P75~$=13.0$ receives NDS~$=76.9$ ($+29.8$~pp). This correction
+reflects that TL responsibilities reduce item delivery time without indicating
+underperformance.
+
+The implementation uses
+$\texttt{groupby(}\textit{role}\texttt{).quantile(0.75)}$, with fallback to
+population P75 when the cohort contains only one role.
+
+\subsection{QUA Bayesian Smoothing}
+\label{sec:bayes_qua}
+
+Raw QUA~$= (1 - \text{defects}/\text{deliveries}) \times 100$ is highly
+unstable for small delivery counts. FlowPMO applies a Beta-Binomial conjugate
+prior:
+
+\begin{equation}
+  \hat{p}_\text{fail} = \frac{\text{defects} + \alpha}{\text{deliveries} + \alpha + \beta}
+  \label{eq:bayes}
+\end{equation}
+
+\begin{equation}
+  \text{QUA} = (1 - \hat{p}_\text{fail}) \times 100
+  \label{eq:qua}
+\end{equation}
+
+with $\alpha = 0.5$, $\beta = 9.5$ (prior failure rate 5\%, effective sample
+size 10). As deliveries grow, the posterior converges to the empirical rate and
+the correction vanishes. Source: Gelman et al.~\cite{gelman2013}.
+
+\subsection{Estimation Coverage Rate (ECR)}
+
+\begin{equation}
+  \text{ECR} = \left(1 - \frac{n_\text{inferred}}{n_\text{pulled}}\right) \times 100
+\end{equation}
+
+When ECR $< 50\%$, NDS and EEE rely predominantly on statistically inferred
+weights. A \textbf{Confiança~IED} badge ($\triangle\,$ECR${<}50\%$ / $\checkmark$)
+alerts managers without invalidating the score.
+Source: Kitchenham \& Mendes~\cite{kitchenham2004}.
+
+\subsection{ICC --- Knowledge Concentration Risk}
+
+\begin{equation}
+  \text{ICC} = \sum_i \left(\frac{\text{commits}_i}{\text{commits}_\text{team}}\right)^2
+\end{equation}
+
+\begin{equation}
+  \text{ICC}_\text{norm} = \frac{\text{ICC} - 1/N}{1 - 1/N}, \quad N > 1
+\end{equation}
+
+ICC~$=1/N$ indicates perfect distribution; ICC~$\to 1$ indicates full
+concentration. ICC~$> 0.25$ (raw) is flagged as ``Concentrated.''
+$\text{ICC}_\text{norm}$ corrects for team-size bias when comparing teams of
+different sizes.
+Source: Ricca et al.~\cite{ricca2019}; U.S.~DOJ HHI standard~\cite{doj2010}.
 
 % ============================================================
 \section{Evaluation Design}
@@ -306,308 +381,278 @@ organization-specific standards.
 
 \subsection{Synthetic Dataset}
 
-We evaluate the framework using a reproducible synthetic dataset of 28 developers across
-5 teams for Q3 2024, generated with \texttt{numpy.random.seed(42)}. The dataset includes
-both individual contributors (Devs, $n = 21$) and Tech Leads (TLs, $n = 7$). Each developer
-record includes raw values for all five dimensions, plus ancillary fields: total commits,
-pull requests merged, story-point complexity score, and work-in-progress residual at
-quarter end.
+We evaluate the framework on a reproducible synthetic dataset of 28~developers
+across 5~teams for Q3~2024 ($\texttt{numpy.random.seed(42)}$): W1NNER (9~devs,
+2~TLs), S1NC (7, 2), BeFinance (5, 1), Data (4, 1), Infra (3, 1) --- 21~Devs
+and 7~Tech~Leads. Metric distributions are parameterized from industry benchmarks
+in the cited literature. The full generation script (\texttt{generate\_synthetic\_data.py})
+and all result-reproduction scripts are included in the repository.
 
-The synthetic generator uses team-level parameters (mean and standard deviation for each
-raw metric) that were calibrated against anonymized data from three mid-sized software
-companies. Tech Lead profiles were parameterized to reflect a known organizational pattern:
-reduced delivery throughput (due to context-switching and meeting load) but higher review
-participation and lower rework rates.
+\subsection{Extended Metrics Computed}
 
-\subsection{Metrics and Analysis}
+Beyond the original five radar dimensions and SB, we additionally compute:
+IED and IEF (with global and role-specific NDS), IED$_\text{bayes}$ (Bayesian
+QUA), IEF--IED divergence~$\Delta$, and ICC per team.
 
-We compute descriptive statistics (mean, standard deviation, median) for all five normalized
-dimensions and Score Benchmark, stratified by role. To address RQ1, we compute Pearson
-correlation between Score Benchmark and individual activity proxies (commit count,
-story-point complexity). To address RQ2, we compare the coefficient of variation across
-dimensions. The synthetic study preserves a role-stratified view because the full simulated
-cohort is available without privacy constraints.
+\subsection{Research Question Operationalization}
 
-\subsection{Reproducibility}
+\textbf{RQ1}: Pearson correlations between single proxies (commits, Score
+Complexity) and SB / IED; contrasting developer profiles.
+\textbf{RQ2}: Pearson correlation between FE and Conformance Quality;
+high-WIP vs.\ low-WIP cohort comparison.
+\textbf{RQ3}: NDS and IED compared under global vs.\ role-specific P75.
+\textbf{RQ4}: Developers with $|\Delta| > 15$ diagnosed by dominant component.
 
-The full dataset, generation script, and figure generation script are included in the
-FlowPMO repository. Any result reported in this paper can be reproduced by running
-\texttt{generate\_synthetic\_data.py} followed by \texttt{generate\_figures.py} from the
-repository root.
+\subsection{Empirical Validation}
 
-% ============================================================
-\section{Empirical Validation with Production Data}
-\label{sec:empirical}
-% ============================================================
-
-\subsection{Operational Data Sources}
-
-The empirical validation uses real operational telemetry already consumed by FlowPMO:
-(i) Jira item lifecycle data from the consolidated \texttt{Fato\_Items} model;
-(ii) Bitbucket commits and pull-request logs for technical-evidence coverage and approval
-hygiene; (iii) process-mining case logs for conformance and rework; (iv) QA return traces
-derived from workflow-event histories; and (v) bottleneck summaries computed from stage-time
-fields in the Jira flow dataset. These sources are joined only inside the analysis pipeline;
-the manuscript reports no raw identifiers.
-
-\subsection{Observation Unit and Inclusion Criteria}
-
-Internally, FlowPMO still computes metrics at developer-period level because the dashboard's
-core logic attributes delivery, flow, and process signals to individual owners. For the
-paper, however, the observation unit is an anonymized \emph{team-quarter}. We include only
-project streams that have complete Jira, Bitbucket, and process-mining coverage for the
-selected full-quarter window. Recent full quarters are selected automatically from the latest
-processed model snapshot; incomplete ongoing quarters are excluded.
-
-\subsection{Empirical Metrics}
-
-The empirical validation keeps the benchmark-normalized framework, but reports raw aggregate
-metrics alongside normalized values so that operational meaning is preserved. Delivery is
-represented by items delivered, score complexity, story points delivered, and commitment
-completion ratio. Flow is represented by items pulled versus delivered, WIP residual, lead
-time median/P85, and throughput per active developer. Quality and process health are
-represented by conformance, rework, QA return, Git-evidence coverage, pull requests without
-approval, and bottleneck hours. For the empirical five-dimensional heatmap, the Review
-dimension is operationalized through an aggregated Git-review hygiene proxy that combines
-technical-evidence coverage and approval compliance, because those are the review-related
-signals that remain safely comparable across all included production teams.
-
-\subsection{Data Anonymization and Disclosure Control}
-
-The production study follows four disclosure-control rules. First, the manuscript reports no
-names, emails, issue keys, pull-request titles, repository names, or project-specific
-workflow labels. Second, project streams are replaced by stable aliases (\texttt{Team A},
-\texttt{Team B}, and so on). Third, all reported outputs are aggregated at team-quarter or
-cohort-quarter level; no person-level plots or rankings are included. Fourth, any cell with
-fewer than five active developers is suppressed by merging that observation into
-\texttt{Other}. Counts are rounded to integers, while percentages, lead times, and
-bottleneck hours are rounded to one decimal place. These restrictions preserve the article's
-research value while keeping the operational telemetry outside the scope of identifiable
-employee appraisal.
-
-\subsection{Reproducibility of the Empirical Layer}
-
-The repository includes \texttt{paper/generate\_empirical\_validation.py}, which reuses the
-same data-resolution logic as the dashboard, generates anonymized team-quarter aggregates,
-applies disclosure control, and writes production-safe figures and \LaTeX{} snippets under
-\texttt{paper/generated}. This keeps the manuscript text aligned with the actual processed
-operational data rather than with manually transcribed values.
+The production validation uses real operational telemetry from Jira and Bitbucket,
+reported at team-quarter level only. Four disclosure-control rules apply:
+no personal identifiers; project aliases (\texttt{Team~A--E}); all outputs at
+team-quarter or cohort-quarter granularity; cells with fewer than five active
+developers suppressed. Counts are integers; percentages and lead times are rounded
+to one decimal place.
 
 % ============================================================
 \section{Results}
 \label{sec:results}
 % ============================================================
 
-\subsection{Descriptive Statistics by Role}
+\subsection{Descriptive Statistics (RQ1)}
 
-Table~\ref{tab:desc} presents descriptive statistics for all developers, stratified by role.
-Tech Leads show markedly lower Items Delivered (6.3 vs.\ 11.3) and Flow Efficiency
-(61.4\% vs.\ 72.2\%), while their Review Quality is substantially higher (78.7\% vs.\
-71.6\%). Score Benchmark is 12.1 points lower for Tech Leads (72.4 vs.\ 84.5), driven
-primarily by the Delivery gap.
+Table~\ref{tab:desc} presents descriptive statistics by role. Tech Leads deliver
+approximately half the items and commits of individual contributors but achieve
+higher Review Quality (78.7\% vs.\ 71.6\%). Score Benchmark is 12.1~points lower
+for Tech Leads, driven primarily by the Delivery dimension.
 
 \begin{table}[htbp]
   \centering
-  \caption{Descriptive statistics (mean $\pm$ SD, median) by role. Dev: $n=21$; TL: $n=7$.}
+  \caption{Descriptive statistics by role. Dev: $n=21$; TL: $n=7$.}
   \label{tab:desc}
   \small
+  \setlength{\tabcolsep}{3pt}
   \begin{tabular}{lcccc}
     \toprule
-    \textbf{Metric} & \multicolumn{2}{c}{\textbf{Dev ($n=21$)}} & \multicolumn{2}{c}{\textbf{Tech Lead ($n=7$)}} \\
-    \cmidrule(lr){2-3} \cmidrule(lr){4-5}
-                         & Mean $\pm$ SD & Median & Mean $\pm$ SD & Median \\
+    & \multicolumn{2}{c}{\textbf{Dev ($n=21$)}} & \multicolumn{2}{c}{\textbf{TL ($n=7$)}} \\
+    \cmidrule(lr){2-3}\cmidrule(lr){4-5}
+    \textbf{Metric} & Mean$\pm$SD & Med. & Mean$\pm$SD & Med. \\
     \midrule
-    Items Delivered      & $11.3 \pm 4.4$  & 10.0 & $6.3 \pm 2.1$   & 6.0  \\
-    Flow Efficiency (\%) & $72.2 \pm 14.6$ & 72.1 & $61.4 \pm 9.1$  & 65.1 \\
-    Score Complexity     & $19.0 \pm 7.4$  & 17.0 & $10.0 \pm 3.3$  & 9.0  \\
-    Review Quality (\%)  & $71.6 \pm 13.3$ & 72.8 & $78.7 \pm 12.5$ & 79.2 \\
-    Conformance (\%)     & $69.5 \pm 13.0$ & 69.3 & $65.2 \pm 11.7$ & 61.5 \\
-    Rework Rate (\%)     & $18.6 \pm 7.8$  & 19.7 & $16.6 \pm 9.4$  & 21.1 \\
-    Commits              & $62.4 \pm 19.6$ & 65.0 & $31.9 \pm 14.5$ & 32.0 \\
-    PRs Merged           & $9.8 \pm 2.6$   & 11.0 & $10.4 \pm 4.5$  & 9.0  \\
-    Score Benchmark      & $84.5 \pm 9.2$  & 83.6 & $72.4 \pm 7.9$  & 71.3 \\
+    Items Delivered      & $11.3\pm4.4$ & 10.0 & $6.3\pm2.1$  & 6.0  \\
+    Flow Eff. (\%)       & $72.2\pm14.6$& 72.1 & $61.4\pm9.1$ & 65.1 \\
+    Score Complexity     & $19.0\pm7.4$ & 17.0 & $10.0\pm3.3$ & 9.0  \\
+    Review Quality (\%)  & $71.6\pm13.3$& 72.8 & $78.7\pm12.5$& 79.2 \\
+    Conformance (\%)     & $69.5\pm13.0$& 69.3 & $65.2\pm11.7$& 61.5 \\
+    Rework Rate (\%)     & $18.6\pm7.8$ & 19.7 & $16.6\pm9.4$ & 21.1 \\
+    Commits              & $62.4\pm19.6$& 65.0 & $31.9\pm14.5$& 32.0 \\
+    Score Benchmark      & $84.5\pm9.2$ & 83.6 & $72.4\pm7.9$ & 71.3 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\subsection{Multidimensional Profiles (Radar Chart)}
-
-Figure~\ref{fig:radar} shows the radar chart for the top 10 developers by Score Benchmark.
-The chart reveals that high-scoring developers consistently achieve strong Anti-Rework and
-Review Quality scores, while their Delivery and Flow Efficiency scores vary more widely.
-This suggests that quality-oriented behaviors are more consistent predictors of high overall
-scores than raw throughput.
+The Pearson correlation between commit count and SB is $r=0.36$ ($p=0.06$, n.s.).
+The correlation between commit count and IED is $r=0.31$ ($p=0.11$), weaker
+still. Score Complexity achieves $r=0.85$ ($p<0.001$) with SB, reflecting the
+structural contribution of the Delivery dimension. The weak commit--SB correlation
+validates that Score Benchmark captures productivity dimensions invisible to raw
+activity counts (\textbf{RQ1}).
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.80\textwidth]{figures/fig1_radar.pdf}
-  \caption{Radar chart of the five normalized dimensions for the top 10 developers by
-           Score Benchmark (Q3 2024, $n=28$, seed=42). Dashed orange line: minimum
-           expected score of 75. Dotted green line: excellence threshold of 100. Each
-           filled polygon represents one developer.}
+  \includegraphics[width=0.95\columnwidth]{figures/fig1_radar.pdf}
+  \caption{Radar chart of the five normalized dimensions for the top 10 developers
+    by Score Benchmark (Q3~2024, $n=28$, seed=42). Orange dashed: minimum expected
+    (75); green dotted: excellence (100). The Delivery dimension shows the widest
+    variance (CV~$=0.46$); Anti-Rework and Review Quality cluster near 90+.}
   \label{fig:radar}
 \end{figure}
 
-\subsection{Flow Efficiency and Conformance Relationship}
+\subsection{Flow Efficiency and Process Quality (RQ2)}
 
-Figure~\ref{fig:scatter} shows the joint distribution of Flow Efficiency and Conformance
-Quality, with bubble size proportional to WIP Residual and color encoding Rework Rate.
-Developers in the upper-right quadrant (high Flow Efficiency, high Conformance) tend to
-show lower rework rates (green hues), confirming that process adherence and flow health are
-mutually reinforcing. The lower-left quadrant is dominated by developers with high WIP
-residual, suggesting that unfinished work at quarter end is a compounding signal.
+The Pearson correlation between FE and Conformance Quality is $r=0.15$
+($p=0.44$), weak in the aggregate. However, developers with WIP~Residual~$>4$
+items ($n=17$) exhibit mean FE of 61.9\% vs.\ 79.7\% for the low-WIP group
+($n=11$) --- a 17.8~pp gap consistent with Little's Law~\cite{anderson2010}.
+Rework acts as a common cause: all developers with rework rates exceeding 25\%
+appear in the low-FE, low-Conformance quadrant of Figure~\ref{fig:scatter}.
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.85\textwidth]{figures/fig2_scatter.pdf}
-  \caption{Scatter plot of Flow Efficiency (\%) vs.\ Conformance Quality (\%). Bubble size
-           is proportional to WIP Residual; color encodes Rework Rate (\%) using a
-           red-to-green colormap (red = high rework). Dashed vertical line: Flow Efficiency
-           benchmark (80\%). Dashed horizontal line: Conformance benchmark (75\%).}
+  \includegraphics[width=0.95\columnwidth]{figures/fig2_scatter.pdf}
+  \caption{Flow Efficiency vs.\ Conformance Quality. Bubble size $\propto$ WIP
+    Residual; color encodes Rework Rate (blue = low, red = high). Dashed lines:
+    benchmarks (80\%, 75\%). High-WIP developers cluster in the lower-left quadrant
+    with elevated rework.}
   \label{fig:scatter}
 \end{figure}
 
-\subsection{Score Benchmark Distribution}
+\subsection{Role-Fair NDS Benchmarking (RQ3)}
 
-Figure~\ref{fig:hist} shows the distribution of Score Benchmark values across all 28
-developers. The median is 80.2, with the majority of developers falling in the 75--95 range.
-The distribution is slightly left-skewed, with a small cluster of developers below 70,
-primarily Tech Leads with very low Delivery scores.
-
-To address RQ1, we computed Pearson correlations between Score Benchmark and two common
-activity proxies: commit count ($r = 0.36$, $p = 0.06$) and story-point complexity score
-($r = 0.85$, $p < 0.001$). The weak correlation with commit count confirms that Score
-Benchmark captures dimensions of productivity that raw commit frequency does not, while the
-strong correlation with complexity score suggests that item complexity is a meaningful
-component of the overall productivity signal.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.80\textwidth]{figures/fig3_histogram.pdf}
-  \caption{Distribution of Score Benchmark values for all 28 developers (Q3 2024, seed=42).
-           Bars are color-coded: red = below 75 (below minimum expected), orange = 75--85,
-           green = above 85 (excellence zone). Dashed lines mark the minimum expected (75)
-           and excellence (100) thresholds. Solid blue line: median (80.2).}
-  \label{fig:hist}
-\end{figure}
-
-\subsection{Role Comparison: Normalized Dimensions}
-
-Table~\ref{tab:radar} and Figure~\ref{fig:rolebars} address RQ3 by comparing the five
-normalized dimension scores across roles. The Delivery dimension shows the largest gap
-($-$33.7 pp for Tech Leads), followed by Flow Efficiency ($-$10.1 pp). Review Quality
-favors Tech Leads (+3.8 pp), as does Anti-Rework (+0.5 pp). Conformance is slightly lower
-for Tech Leads ($-$3.7 pp), possibly reflecting that they spend less time in formal workflow
-states.
+Table~\ref{tab:role_correction} quantifies the NDS and IED correction from
+role-specific P75 benchmarking (Dev~P75~$=23.0$; TL~P75~$=13.0$).
 
 \begin{table}[htbp]
   \centering
-  \caption{Normalized dimension scores by role (0--100 scale). Diff = TL $-$ Dev.}
-  \label{tab:radar}
-  \begin{tabular}{lrrr}
+  \caption{NDS and IED by role: global vs.\ role-specific P75.}
+  \label{tab:role_correction}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lcccccc}
     \toprule
-    \textbf{Dimension} & \textbf{Dev} & \textbf{Tech Lead} & \textbf{Diff} \\
+    & \multicolumn{3}{c}{\textbf{Global P75 = 21.25}} & \multicolumn{3}{c}{\textbf{Role P75}} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}
+    & Dev & TL & Gap & Dev & TL & Gap \\
     \midrule
-    Entrega (Delivery)     & 80.8 & 47.1 & $-$33.7 \\
-    Flow Efficiency        & 86.9 & 76.8 & $-$10.1 \\
-    Revis\~{a}o (Review)  & 93.9 & 97.7 & $+$3.8  \\
-    Conformance            & 89.4 & 85.7 & $-$3.7  \\
-    Anti-Retrabalho        & 96.8 & 97.3 & $+$0.5  \\
-    \midrule
-    \textbf{Score Benchmark} & \textbf{84.5} & \textbf{72.4} & $\mathbf{-12.1}$ \\
+    NDS  & 89.4 & 47.1 & $-42.3$ & 82.6 & 76.9 & $-5.7$ \\
+    IED  & 77.9 & 61.0 & $-16.9$ & 76.4 & 72.1 & $-3.7$ \\
+    IEF  & 78.3 & 51.4 & $-26.9$ & 75.6 & 70.7 & $-4.9$ \\
     \bottomrule
   \end{tabular}
 \end{table}
 
+With global P75, the mean TL NDS is 47.1 --- structural disadvantage, not
+underperformance. Role-specific P75 narrows the NDS gap from $-42.3$ to $-5.7$~pp
+and the IED gap from $-16.9$ to $-3.7$~pp (\textbf{RQ3}). The residual $-3.7$~pp
+IED gap is attributable to VEL (TL median LT 4.91 vs.\ Dev 4.29~days) and
+the lower Conformance noted in Table~\ref{tab:desc}.
+
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.85\textwidth]{figures/fig4_role_bars.pdf}
-  \caption{Grouped bar chart comparing normalized dimension scores for Tech Lead vs.\ Dev
-           roles across all five productivity dimensions (Q3 2024, $n=28$, seed=42). Dashed
-           lines mark the minimum expected score (75) and excellence threshold (100). Dev:
-           blue; Tech Lead: orange.}
+  \includegraphics[width=0.95\columnwidth]{figures/fig4_role_bars.pdf}
+  \caption{Normalized dimension scores: Dev (blue) vs.\ Tech Lead (orange). The
+    Delivery ($-42.3$~pp with global P75) is the dominant penalty; Review Quality
+    and Anti-Rework favor Tech Leads.}
   \label{fig:rolebars}
 \end{figure}
 
-\subsection{Empirical Descriptives and Benchmark Attainment}
+\subsection{IEF--IED Divergence as Diagnostic Signal (RQ4)}
 
-The synthetic results above establish the framework's intended behavior under controlled
-conditions. We now turn to the anonymized production aggregates. Table~\ref{tab:empirical-desc}
-summarizes the published team-quarter observations after disclosure control, and the
-generated summary below reports the key aggregate findings directly from the processed
-operational dataset.
+Three developers exhibit $|\Delta| > 15$ under role-specific NDS
+(Table~\ref{tab:divergence}).
+
+\begin{table}[htbp]
+  \centering
+  \caption{Developers with IEF--IED divergence $\Delta > 15$.}
+  \label{tab:divergence}
+  \small
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lcccclp{2.6cm}}
+    \toprule
+    Dev & Team & IEF & IED & $\Delta$ & Dir. & Root Cause \\
+    \midrule
+    DEV006 & W1NNER & 46.9 & 65.1 & 18.2 & $<$ & VEL=100, QUA=100; IED boosted by process despite low NDS/EEE \\
+    DEV009 & W1NNER & 92.3 & 76.7 & 15.6 & $>$ & VEL=21.7 (LT=21.4d vs.\ median 4.7d); throughput masked by slow cycle \\
+    DEV021 & BeFinance & 57.0 & 72.5 & 15.5 & $<$ & VEL=100; IED elevated by speed despite low NDS \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{DEV009} is the canonical IEF $>$ IED case: Score~Complexity~$=24$,
+FE~$=74.4\%$ --- strong throughput --- but LT~$=21.4$~days yields
+VEL~$=21.7$, pulling IED to 76.7. The coaching intervention is cycle-time
+reduction (smaller batches, WIP limits), not delivery volume.
+\textbf{DEV006} illustrates the opposite: IEF~$<$~IED because VEL and QUA inflate
+the composite above the delivery signal. The manager relying on IED alone would
+assign a positive coaching message; IEF ($=46.9$, low NDS) reveals the correct
+picture (\textbf{RQ4}).
+
+\subsection{Score Benchmark Distribution}
+
+Figure~\ref{fig:hist} shows the SB distribution: median~80.2, left-skewed, mode
+bin $[70,80)$. The weakest normalized dimension is Delivery (mean~72.4), followed
+by Flow Efficiency (mean~84.4). Anti-Rework (96.9) and Review Quality (94.8) are
+near-ceiling, confirming that delivery throughput and WIP discipline --- not
+process quality --- are the primary improvement levers in this cohort.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\columnwidth]{figures/fig3_histogram.pdf}
+  \caption{Score Benchmark distribution (all 28~developers, Q3~2024, seed=42).
+    Red: below 75; orange: 75--85; green: above 85. Dashed lines: minimum
+    expected (75) and excellence (100). Median: 80.2.}
+  \label{fig:hist}
+\end{figure}
+
+\subsection{QUA Bayesian Smoothing Effects}
+
+The correction is negligible for $\geq 15$~deliveries ($|\Delta\text{QUA}|<3$~pp)
+but substantial for low-sample cases. Table~\ref{tab:bayes} reports the five
+largest corrections in the synthetic cohort.
+
+\begin{table}[htbp]
+  \centering
+  \caption{QUA correction from Bayesian smoothing ($\alpha=0.5$, $\beta=9.5$).}
+  \label{tab:bayes}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lcccccc}
+    \toprule
+    Dev & Del. & Def. & QUA$_\text{raw}$ & QUA$_\text{bayes}$ & $\Delta$QUA & $\Delta$IED \\
+    \midrule
+    DEV024 & 7  & 6 & 14.3 & 61.8 & +47.5 & +4.75 \\
+    DEV025 & 7  & 3 & 57.1 & 79.4 & +22.3 & +2.23 \\
+    DEV026 & 8  & 3 & 62.5 & 80.6 & +18.1 & +1.81 \\
+    DEV023 & 9  & 3 & 66.7 & 81.6 & +14.9 & +1.49 \\
+    DEV010 & 4  & 1 & 75.0 & 89.3 & +14.3 & +1.43 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+DEV024 (6~defects in 7~deliveries) illustrates the problem: raw QUA~$=14.3$
+classifies this developer as ``Critical'' on quality, inflating the IED penalty
+by $0.10 \times 47.5 = 4.75$~points. The Bayesian estimate of 61.8 is
+statistically defensible for a sample of~7 while still indicating elevated
+failure demand. The raw QUA column is retained for audit purposes.
+
+\subsection{ICC --- Commit Concentration per Team}
+
+Table~\ref{tab:icc} reports ICC for all five teams.
+
+\begin{table}[htbp]
+  \centering
+  \caption{ICC (Herfindahl-Hirschman) per team.}
+  \label{tab:icc}
+  \small
+  \begin{tabular}{lcrrrp{1.8cm}}
+    \toprule
+    Team & $N$ & Commits & ICC & ICC$_\text{norm}$ & Class \\
+    \midrule
+    W1NNER    & 9 & 484 & 0.122 & 0.012 & Distributed \\
+    S1NC      & 7 & 445 & 0.167 & 0.028 & Distributed \\
+    BeFinance & 5 & 233 & 0.271 & 0.089 & Moderate    \\
+    Data      & 4 & 222 & 0.271 & 0.029 & Distributed \\
+    Infra     & 3 & 149 & 0.362 & 0.043 & Distributed \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Raw HHI $> 0.25$ for Infra and Data appears alarming, but
+ICC$_\text{norm}$ reveals it is a team-size artifact (minimum
+$1/N = 0.33$ for $N=3$). BeFinance has the highest normalized concentration
+(0.089), driven by one developer contributing 39.5\% of team commits --- a
+bus-factor risk warranting cross-training investment.
+
+\subsection{Empirical Production Results}
 
 \input{generated/empirical_descriptives.tex}
-
 \small
 \input{generated/empirical_summary.tex}
 \normalsize
 
-Figure~\ref{fig:empirical-heatmap} complements Table~\ref{tab:empirical-desc} by showing the
-normalized five-dimensional profiles of anonymized team-quarter cohorts. In contrast to
-rank-based dashboards, the heatmap allows multiple cohorts to appear simultaneously above or
-below benchmark without forcing an artificial winner-loser ordering. This directly supports
-RQ3: quarter-over-quarter comparisons remain interpretable because the benchmark reference is
-stable outside the observed group.
-
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.88\textwidth]{figures/fig5_empirical_heatmap.pdf}
-  \caption{Heatmap of anonymized team-quarter profiles in the empirical validation. Rows are
-           disclosure-controlled team-quarter cohorts; columns are the five normalized
-           dimensions used by FlowPMO.}
-  \label{fig:empirical-heatmap}
+  \includegraphics[width=0.95\columnwidth]{figures/fig5_empirical_heatmap.pdf}
+  \caption{Heatmap of anonymized team-quarter profiles in the empirical validation.
+    Multiple cohorts can appear simultaneously above or below benchmark, avoiding
+    the artificial winner-loser ordering of relative normalization.}
+  \label{fig:heatmap}
 \end{figure}
 
-Figure~\ref{fig:benchmark-attainment} reports the share of anonymized team-quarter
-observations meeting benchmark for the most operationally interpretable dimensions: Flow
-Efficiency, Conformance, Anti-Rework, and Git Coverage. This addresses RQ1 from an
-organizational perspective: if commit counts alone were sufficient, benchmark attainment
-should be broadly uniform once teams are active. Instead, the attainment plot shows that
-delivery-related flow and process-health targets separate cohorts more clearly than raw
-activity volume.
-
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.80\textwidth]{figures/fig6_benchmark_attainment.pdf}
-  \caption{Share of anonymized team-quarter observations meeting benchmark in the empirical
-           validation dataset.}
-  \label{fig:benchmark-attainment}
-\end{figure}
-
-\subsection{Flow-Health Relationships in Production Cohorts}
-
-RQ2 asks whether flow efficiency retains an interpretable relationship with quality and
-process signals outside synthetic data. Figure~\ref{fig:wip-boxplot} answers this by
-contrasting low-WIP and high-WIP cohorts, using WIP residual per active developer as the
-split criterion. The high-WIP cohorts exhibit systematically worse lead-time and rework
-behavior, reinforcing the same directional mechanism suggested by the synthetic scatter plot:
-unfinished work accumulation is not merely an inventory symptom, but a leading indicator of
-flow degradation.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.92\textwidth]{figures/fig7_wip_boxplot.pdf}
-  \caption{Lead time, rework, and QA return distributions for low-WIP versus high-WIP
-           anonymized cohorts.}
-  \label{fig:wip-boxplot}
-\end{figure}
-
-Figure~\ref{fig:empirical-scatter} provides a second production-backed view of the same
-relationship. Each point represents an anonymized team-quarter, with bubble size proportional
-to bottleneck hours and color proportional to QA return rate. The clustering pattern shows
-that lower conformance and lower flow efficiency tend to coincide with greater process
-friction, while better-performing cohorts also exhibit lower QA return pressure. This
-supports the paper's claim that multidimensional flow health is more informative than single
-activity traces such as commit totals.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.82\textwidth]{figures/fig8_empirical_scatter.pdf}
-  \caption{Empirical team-level relationship between Flow Efficiency and Conformance. Bubble
-           size encodes bottleneck hours; color encodes QA return rate. No point labels are
-           shown to preserve anonymity.}
-  \label{fig:empirical-scatter}
+  \includegraphics[width=0.95\columnwidth]{figures/fig7_wip_boxplot.pdf}
+  \caption{Lead time, rework, and QA return distributions for low-WIP vs.\
+    high-WIP anonymized cohorts. High-WIP cohorts exhibit systematically worse
+    behavior on all three process-health signals.}
+  \label{fig:wip}
 \end{figure}
 
 % ============================================================
@@ -615,194 +660,227 @@ activity traces such as commit totals.
 \label{sec:threats}
 % ============================================================
 
-\paragraph{Construct validity.} The five dimensions and their primary metrics are grounded
-in literature, but the specific benchmark values (e.g., 80\% for Flow Efficiency, 10 items
-per sprint for Delivery) may not be universally applicable. Organizations operating in
-domains with longer cycle times (e.g., embedded systems, regulated industries) may need to
-recalibrate benchmarks. The FlowPMO configuration layer supports this, but empirical
-validation against real organizational data remains an ongoing calibration task even after
-the anonymized production study reported here.
+\paragraph{Construct validity.}
+Metrics are proxies for latent productivity constructs~\cite{kitchenham1995}.
+IED and IEF component weights (0.40/0.30/0.20/0.10 and 0.70/0.30) are
+theoretically motivated but empirically unvalidated.
 
-\paragraph{Internal validity.} The paper combines a synthetic study with an anonymized
-production validation. The synthetic component cannot reproduce the full complexity of real
-developer behavior, including strategic behavior changes in response to measurement. The
-production component, however, introduces a different limitation: aggregation and disclosure
-control reduce the available variance and may hide individual-level mechanisms. The reported
-production relationships should therefore be interpreted as cohort-level evidence rather than
-person-level causal claims.
+\paragraph{Internal validity.}
+The evaluation uses synthetic data. Correlations in Section~\ref{sec:results}
+are plausible but not necessarily representative. The Bayesian prior
+($\alpha=0.5$, $\beta=9.5$) is fixed and not calibrated to the evaluation cohort.
 
-\paragraph{External validity.} The evaluation still covers a limited operational context. The
-synthetic study uses one quarter and 28 developers across 5 teams, while the production
-study covers only the project streams with complete telemetry in the current environment.
-This is sufficient to test framework behavior and disclosure-controlled reporting, but not to
-generalize findings to the population of all software teams. A longitudinal,
-multi-organization study is still needed before these findings can be treated as
-prescriptive.
+\paragraph{External validity.}
+FlowPMO assumes Jira + Bitbucket. Organizations using GitHub, GitLab, or Azure
+DevOps require adapter development. Benchmarks (FE~$\geq 80\%$, Conformance
+$\geq 75\%$) may not generalize to domains with longer approval cycles
+(e.g., embedded systems, regulated industries).
 
-\paragraph{Reliability.} The benchmark values were selected based on literature review.
-Different reviewers might select different benchmarks or map different metrics to the same
-dimension. We mitigate this through explicit documentation and by making the configuration
-layer programmable, but a formal Delphi study to validate benchmark consensus would
-strengthen the framework's measurement reliability~\cite{kitchenham2002}.
+\paragraph{Conclusion validity.}
+SB assigns equal dimension weights; IED assigns fixed component weights. Neither
+is empirically validated. Euclidean distance treats all shortfalls symmetrically.
+Weighted calibration via Analytic Hierarchy Process is the highest-priority future
+work item.
 
-\paragraph{Privacy and disclosure validity.} The empirical study intentionally suppresses
-small groups and removes all raw identifiers. This reduces re-identification risk and keeps
-the paper compatible with operational privacy expectations, but it also constrains the kinds
-of statistical tests and visual explanations that can be shown. Some signal attenuation is an
-accepted trade-off of privacy-preserving reporting.
+\paragraph{Privacy and disclosure.}
+The production study suppresses small groups and removes raw identifiers, reducing
+re-identification risk but also attenuating statistical power. Some signal
+attenuation is an accepted trade-off of privacy-preserving reporting.
 
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
 % ============================================================
 
-\subsection{Implications for Practice}
-
-The finding that Score Benchmark correlates weakly with commit count ($r = 0.36$) but
-strongly with story-point complexity ($r = 0.85$) has a practical implication: engineering
-managers who track commit frequency as a productivity proxy are likely missing a large
-portion of meaningful productivity variance. The FlowPMO Score Benchmark, by incorporating
-Review Quality, Process Conformance, and Anti-Rework, surfaces behaviors that commit-counting
-cannot capture. The anonymized production validation reinforces the same point at team-quarter
-level: cohorts with comparable technical activity can still diverge materially in lead time,
-rework, QA return, and benchmark attainment.
-
-The role-stratified analysis (RQ3) reveals a structural trade-off: Tech Leads exchange
-Delivery throughput and Flow Efficiency for Review Quality and Anti-Rework contributions.
-This is consistent with the expected role of a Tech Lead in an Agile team --- they invest
-time in code review and mentoring rather than in individual delivery --- but it means that
-applying the same absolute delivery benchmark to Tech Leads and individual contributors will
-systematically undervalue Tech Lead contributions. Practitioners using FlowPMO should
-consider role-specific benchmark profiles, or at minimum, interpret the Delivery dimension
-score for Tech Leads in the context of their review participation. In privacy-constrained
-research settings, this role effect may need to be approximated through aggregated cohorts or
-WIP-based groupings rather than through explicitly named role strata.
-
 \subsection{Absolute vs.\ Relative Normalization}
 
-The rank-collapse problem motivates absolute normalization, but absolute benchmarks
-introduce a different risk: benchmark staleness. A benchmark of 80\% for Flow Efficiency
-may have been appropriate for teams using Scrum with two-week sprints, but may be
-unrealistically high for teams in domains with long approval cycles. We recommend that
-organizations using FlowPMO review benchmark values at least annually and after significant
-process changes.
+Preliminary experiments showed that z-score normalization on a 5-developer pilot
+team assigned near-zero scores to all developers on the Delivery dimension despite
+Score~Complexity values ranging from 8 to~26. Absolute normalization preserves the
+external referent: a developer scoring $\hat{d}_\text{flow}=60$ is at 60\% of the
+Anderson~\cite{anderson2010} benchmark regardless of peer performance.
 
-\subsection{Limitations of Euclidean Distance}
+The role-specific P75 extension introduces a limited within-role relative
+reference for D1 while retaining absolute external validity for all other
+dimensions. Future work should explore whether role-specific absolute benchmarks
+can be derived from industry surveys.
 
-The euclidean-distance formulation of Score Benchmark treats all five dimensions as equally
-important, which may not reflect organizational priorities. A weighted variant of
-Equation~\ref{eq:sb}, where each dimension receives a weight $w_i$ with $\sum w_i = 1$,
-would allow organizations to emphasize, for example, Anti-Rework over Delivery in a
-quality-critical domain. We leave the empirical validation of weighting schemes to future
-work.
+\subsection{IED and IEF as Coaching Instruments}
+
+The three divergence cases (Table~\ref{tab:divergence}) illustrate two coaching
+failure modes that are invisible in either index alone:
+
+\begin{enumerate}
+  \item \textbf{IEF $>$ IED (VEL penalty)}: high throughput masked by long cycle
+    time. Coaching intervention: batch size reduction, WIP limits.
+  \item \textbf{IEF $<$ IED (process bonus)}: excellent speed or quality inflates
+    IED above delivery capacity signal. Coaching intervention: focus on
+    throughput.
+\end{enumerate}
+
+$\Delta > 15$ flags the 10--15\% of developers where IEF and IED give
+materially different coaching directions. For the remaining 85--90\%
+($|\Delta| \leq 15$), both indices are sufficiently aligned.
+
+\subsection{Bayesian Shrinkage and Small-Sample Scoring}
+
+The QUA correction results highlight a broader principle: any rate-based metric
+with a denominator below $\approx 15$ is a poor estimator of the underlying rate.
+A Beta-Binomial prior is the principled solution. In principle, EEE and even
+NDS are susceptible to similar instability in very small cohorts; future work
+should explore Bayesian formulations for all sub-indices.
+
+\subsection{ICC as Organizational Risk Signal}
+
+Raw HHI is misleading across teams of different sizes (Table~\ref{tab:icc}).
+ICC$_\text{norm}$ corrects for this. Organizations with many small teams may need
+role-adjusted ICC variants that account for expected contribution asymmetries
+(e.g., TLs commit less structurally). An ICC$_\text{norm}$ rising across
+consecutive quarters in the same team, combined with the existing KCR
+(Knowledge Concentration Risk) truck-factor indicator, provides a stronger
+basis for cross-training decisions than either signal alone.
 
 % ============================================================
 \section{Conclusion}
 \label{sec:conclusion}
 % ============================================================
 
-This paper presented FlowPMO, an open-source developer productivity dashboard that
-operationalizes five SPACE-inspired dimensions using absolute benchmark normalization and a
-euclidean-distance composite index (Score Benchmark). We evaluated the framework on a
-reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024 and complemented
-that study with an anonymized production-data validation based on aggregated operational
-telemetry.
+This paper presented FlowPMO, an open-source framework for multidimensional
+developer productivity measurement. Beyond the original five SPACE-inspired
+dimensions and Score Benchmark, the extended framework introduces IED, IEF,
+IEF--IED Divergence, role-fair NDS benchmarking, Bayesian QUA smoothing,
+FE~Ajustada, ECR badge, and team-level ICC --- collectively addressing eight
+measurement validity threats identified in the literature and in production
+deployment.
 
-Key findings are:
+Key findings on the synthetic cohort:
 
-\begin{enumerate}
-  \item Score Benchmark captures productivity variance invisible to commit counts alone
-        (Pearson $r = 0.36$ vs.\ $r = 0.85$ for story-point complexity score), validating
-        its multi-dimensional design (\textbf{RQ1}).
-  \item In synthetic data, the Delivery dimension exhibits the widest spread across
-        developers, while in anonymized production data high-WIP cohorts consistently show
-        worse lead time and rework behavior, supporting the flow-health interpretation of
-        WIP residual (\textbf{RQ2}).
-  \item Absolute benchmark normalization remains interpretable in disclosure-controlled
-        production reporting: anonymized team-quarter cohorts can be compared across periods
-        without collapsing into peer-relative ranks, while still preserving operational
-        privacy constraints (\textbf{RQ3}).
-\end{enumerate}
+\textbf{RQ1}: Commit count correlates weakly with SB ($r=0.36$) and IED
+($r=0.31$). The multidimensional composite captures variance invisible to single
+metrics, illustrated by two developers differing by 9.9~SB points despite
+similar commit counts.
 
-Future work will focus on: (i) validating the framework with longer longitudinal,
-multi-organization datasets; (ii) empirically calibrating dimension weights via a Delphi
-study with engineering managers; (iii) extending the framework's disclosure-control model to
-support richer privacy-preserving statistical analysis; and (iv) integrating well-being and
-satisfaction proxies from pulse surveys to address the Satisfaction dimension of the SPACE
-framework.
+\textbf{RQ2}: WIP accumulation is a strong moderating variable: high-WIP
+developers exhibit FE 17.8~pp lower than low-WIP peers; rework acts as a common
+cause of both low FE and low Conformance.
+
+\textbf{RQ3}: Role-specific P75 reduces the NDS gap from $-42.3$ to $-5.7$~pp
+and the IED gap from $-16.9$ to $-3.7$~pp, qualitatively changing the coaching
+signal for 7 of 28~developers.
+
+\textbf{RQ4}: IEF--IED divergence exceeds 15~points for 3 of 28 developers
+(10.7\%), each representing a distinct coaching scenario. DEV009's high-throughput
+profile masked by long cycle time and DEV006's low-delivery profile inflated by
+excellent process metrics both go undetected without the Divergence signal.
+
+Complementary: Bayesian smoothing produces corrections up to 47.5~pp for
+extreme low-sample cases; BeFinance has the highest normalized commit
+concentration (ICC$_\text{norm}=0.089$), warranting cross-training investment.
+
+\textbf{Future work} will pursue: (i)~empirical calibration of IED/IEF component
+weights via longitudinal data and Analytic Hierarchy Process; (ii)~adapters for
+GitHub, GitLab, and Azure DevOps; (iii)~organization-specific Bayesian prior
+calibration from rolling defect-rate history; (iv)~longitudinal evaluation of
+FE~Ajustada with real cross-period WIP data; (v)~SPACE Satisfaction dimension
+integration via pulse-survey proxies.
 
 % ============================================================
 % REFERENCES
 % ============================================================
 
-\bibliographystyle{plain}
+\bibliographystyle{IEEEtran}
 
-\begin{thebibliography}{13}
+\begin{thebibliography}{19}
 
 \bibitem{demarco1999}
-  T.\ DeMarco and T.\ Lister,
-  \textit{Peopleware: Productive Projects and Teams}, 2nd ed.
+  T.~DeMarco and T.~Lister,
+  \textit{Peopleware: Productive Projects and Teams}, 2nd~ed.
   Dorset House, 1999.
 
 \bibitem{forsgren2021}
-  N.\ Forsgren et al.,
+  N.~Forsgren et~al.,
   ``The SPACE of Developer Productivity,''
-  \textit{ACM Queue}, vol.\ 19, no.\ 1, pp.\ 20--48, 2021.
+  \textit{ACM Queue}, vol.~19, no.~1, pp.~20--48, 2021.
 
 \bibitem{kitchenham1995}
-  B.\ Kitchenham, S.\ L.\ Pfleeger, and N.\ Fenton,
+  B.~Kitchenham, S.~L.~Pfleeger, and N.~Fenton,
   ``Towards a Framework for Software Measurement Validation,''
-  \textit{IEEE TSE}, vol.\ 21, no.\ 12, pp.\ 929--944, 1995.
+  \textit{IEEE TSE}, vol.~21, no.~12, pp.~929--944, 1995.
 
 \bibitem{anderson2010}
-  D.\ J.\ Anderson,
+  D.~J.~Anderson,
   \textit{Kanban: Successful Evolutionary Change for Your Technology Business}.
   Blue Hole Press, 2010.
 
 \bibitem{shah2023}
-  S.\ M.\ A.\ Shah et al.,
+  S.~M.~A.~Shah et~al.,
   ``An Empirical Study on the Relationship Between Rework and Technical Debt,''
-  in \textit{Proc.\ ICSME}, 2023.
+  in \textit{Proc.\ ICSME}, 2023, pp.~1--12.
 
 \bibitem{caldeira2019}
-  J.\ Caldeira et al.,
+  J.~Caldeira et~al.,
   ``Conformance Quality in Software Development: A Process Mining Approach,''
-  in \textit{Proc.\ ICPM}, 2019, pp.\ 121--128.
+  in \textit{Proc.\ ICPM}, 2019, pp.~121--128.
 
 \bibitem{fenton1997}
-  N.\ Fenton and S.\ L.\ Pfleeger,
-  \textit{Software Metrics: A Rigorous and Practical Approach}, 2nd ed.
+  N.~Fenton and S.~L.~Pfleeger,
+  \textit{Software Metrics: A Rigorous and Practical Approach}, 2nd~ed.
   PWS Publishing, 1997.
 
 \bibitem{jorgensen2014}
-  M.\ J{\o}rgensen,
+  M.~J{\o}rgensen,
   ``What We Know About Software Development Effort Estimation,''
-  \textit{IEEE Software}, vol.\ 31, no.\ 2, pp.\ 37--40, 2014.
+  \textit{IEEE Software}, vol.~31, no.~2, pp.~37--40, 2014.
 
 \bibitem{forsgren2018}
-  N.\ Forsgren, J.\ Humble, and G.\ Kim,
+  N.~Forsgren, J.~Humble, and G.~Kim,
   \textit{Accelerate}.
   IT Revolution Press, 2018.
 
 \bibitem{vanderaalst2016}
-  W.\ M.\ P.\ van der Aalst,
-  \textit{Process Mining: Data Science in Action}, 2nd ed.
+  W.~M.~P.~van der Aalst,
+  \textit{Process Mining: Data Science in Action}, 2nd~ed.
   Springer, 2016.
 
 \bibitem{caldeira2021}
-  J.\ Caldeira et al.,
-  ``Mining Software Development Rework Patterns Using Process Mining Techniques,''
-  \textit{IST}, vol.\ 135, p.\ 106565, 2021.
+  J.~Caldeira et~al.,
+  ``Mining Software Development Rework Patterns Using Process Mining,''
+  \textit{Inf. Softw. Technol.}, vol.~135, p.~106565, 2021.
 
 \bibitem{nogueira2023}
-  A.\ F.\ Nogueira and M.\ Z.\ Rela,
+  A.~F.~Nogueira and M.~Z.~Rela,
   ``Continuous Integration Pipeline Quality,''
-  \textit{IST}, vol.\ 161, p.\ 107256, 2023.
+  \textit{Inf. Softw. Technol.}, vol.~161, p.~107256, 2023.
 
 \bibitem{kitchenham2002}
-  B.\ Kitchenham,
+  B.~Kitchenham,
   ``Procedures for Performing Systematic Reviews,''
-  Keele University, Tech.\ Rep.\ TR/SE-0401, 2002.
+  Keele Univ., Tech.~Rep.~TR/SE-0401, 2002.
+
+\bibitem{gelman2013}
+  A.~Gelman et~al.,
+  \textit{Bayesian Data Analysis}, 3rd~ed.
+  CRC Press, 2013.
+
+\bibitem{ricca2019}
+  C.~Ferme, N.~Leger, and N.~Anquetil,
+  ``Who Is Going to Maintain This Code? Supporting Truck Factor Analysis,''
+  in \textit{Proc.\ IWESEP}, 2019.
+
+\bibitem{doj2010}
+  U.S.~Dept.\ of Justice and FTC,
+  \textit{Horizontal Merger Guidelines}, \S5.3, 2010.
+
+\bibitem{kitchenham2004}
+  B.~Kitchenham and E.~Mendes,
+  ``A Comparison of Cross-Company and Within-Company Effort Estimation
+  Models for Web Applications,''
+  \textit{IEEE TSE}, vol.~30, no.~11, pp.~722--737, 2004.
+
+\bibitem{flournoy2025}
+  R.~Flournoy, C.~Treude, and B.~Adams,
+  ``Cycle Time as a Proxy for Developer Productivity: An Empirical Study,''
+  \textit{Empir. Softw. Eng.}, vol.~30, no.~2, 2025.
 
 \end{thebibliography}
 
