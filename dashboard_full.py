@@ -1897,11 +1897,18 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
     """
     df = per_dev.copy()
 
-    # ── NDS: Volume ajustado por complexidade vs P75 do grupo ─────────────────
+    # ── NDS: Volume ajustado por complexidade vs P75 do grupo por papel ───────
+    # P75 calculado separadamente para Dev e Tech Lead evita penalização sistemática
+    # de TLs que entregam menos itens que devs de linha (papel estruturalmente distinto).
     _cx_col = 'Score Complexidade'
-    _cx_p75 = max(float(df[_cx_col].quantile(0.75)) if _cx_col in df.columns else 1.0, 0.1)
     _cx_vals = pd.to_numeric(df.get(_cx_col, 0), errors='coerce').fillna(0)
-    df['_ied_nds'] = (_cx_vals / _cx_p75 * 100).clip(0, 100).round(1)
+    if 'Papel' in df.columns and _cx_col in df.columns and df['Papel'].nunique() > 1:
+        _cx_p75_map = df.groupby('Papel')[_cx_col].quantile(0.75).clip(lower=0.1)
+        _cx_p75_arr = df['Papel'].map(_cx_p75_map).fillna(1.0).clip(lower=0.1)
+        df['_ied_nds'] = (_cx_vals / _cx_p75_arr * 100).clip(0, 100).round(1)
+    else:
+        _cx_p75 = max(float(df[_cx_col].quantile(0.75)) if _cx_col in df.columns else 1.0, 0.1)
+        df['_ied_nds'] = (_cx_vals / _cx_p75 * 100).clip(0, 100).round(1)
 
     # ── EEE: Taxa de conclusão do trabalho estimado comprometido ──────────────
     _cx_pux_col = 'Score Complexidade Puxado'
@@ -1927,16 +1934,32 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
         _lt = pd.to_numeric(df['Lead Time Mediano (dias)'], errors='coerce').fillna(0)
         _lt_positivos = _lt[_lt > 0]
         _lt_median_grupo = max(float(_lt_positivos.median()) if not _lt_positivos.empty else 1.0, 0.5)
+        # Fallback: mediana de VEL dos devs com LT válido (mais informativo que fixo 50)
+        _vel_validos = (_lt_median_grupo / _lt_positivos * 100).clip(0, 100)
+        _vel_fallback = float(_vel_validos.median()) if not _vel_validos.empty else 50.0
         df['_ied_vel'] = np.where(
             _lt > 0,
             (_lt_median_grupo / _lt * 100).clip(0, 100),
-            50.0,  # sem lead time → velocidade neutra
+            _vel_fallback,  # sem lead time → mediana de velocidade do grupo
         ).round(1)
     else:
         df['_ied_vel'] = 50.0
 
-    # ── QUA: Qualidade (penaliza demanda de falha) ─────────────────────────────
-    if '% Demanda Falha' in df.columns:
+    # ── QUA: Qualidade com suavização Bayesiana ────────────────────────────────
+    # Para baixo volume (ex: 1 defeito em 1 entrega), QUA raw = 0 — distorção severa.
+    # Prior Beta(α=0.5, β=9.5): taxa de falha a priori = 5%, concentrado próximo de zero.
+    # Fonte: Gelman et al. (BDA 3rd ed.) — Laplace/Empirical Bayes para proporções esparsas.
+    _QUA_PRIOR_ALPHA = 0.5   # defeitos prior
+    _QUA_PRIOR_BETA  = 9.5   # não-defeitos prior
+    if 'Defeitos Entregues' in df.columns and 'Itens Entregues' in df.columns:
+        _defeitos = pd.to_numeric(df['Defeitos Entregues'], errors='coerce').fillna(0)
+        _entregas = pd.to_numeric(df['Itens Entregues'], errors='coerce').fillna(0)
+        _p_falha_bayes = (
+            (_defeitos + _QUA_PRIOR_ALPHA) /
+            (_entregas + _QUA_PRIOR_ALPHA + _QUA_PRIOR_BETA)
+        )
+        df['_ied_qua'] = (1 - _p_falha_bayes).clip(0, 1).mul(100).round(1)
+    elif '% Demanda Falha' in df.columns:
         df['_ied_qua'] = (100 - pd.to_numeric(df['% Demanda Falha'], errors='coerce').fillna(0).clip(0, 100)).round(1)
     else:
         df['_ied_qua'] = 80.0
@@ -1966,6 +1989,15 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
         return 'Crítico'
 
     df['IED Classe'] = df['IED'].apply(_ied_classe)
+
+    # ── Confiança IED — badge de cobertura de estimativa ───────────────────────
+    # Scores de devs com ECR < 50% são baseados majoritariamente em inferência estatística.
+    # O badge alerta o gestor sem invalidar o IED — apenas contextualiza a confiabilidade.
+    # Fonte: Kitchenham & Mendes (TSE 2004) — estimativa como pré-requisito de comparabilidade.
+    if 'ECR' in df.columns:
+        df['Confiança IED'] = df['ECR'].apply(
+            lambda v: '⚠ ECR<50%' if pd.notna(v) and v < 50 else '✓'
+        )
 
     return df
 
@@ -15061,6 +15093,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             return 'Crítico'
         per_dev['IEF Classe'] = per_dev['IEF'].apply(_ief_classe)
 
+        # ── Divergência IEF–IED: sinal diagnóstico ────────────────────────────
+        # IEF captura só volume+conclusão; IED penaliza também VEL e QUA.
+        # Δ alto (>15) sinaliza que velocidade ou qualidade estão puxando o IED para baixo.
+        # Fonte: separação analítica inspirada em Forsgren et al. (SPACE, ACM Queue 2021).
+        if 'IEF' in per_dev.columns and 'IED' in per_dev.columns:
+            per_dev['Δ IEF–IED'] = (per_dev['IEF'] - per_dev['IED']).abs().round(1)
+        else:
+            per_dev['Δ IEF–IED'] = 0.0
+
         # ── Novos Indicadores ────────────────────────────────────────────────────
         # DD/FP — Defect Density por Function Point (Capers Jones / Namcook Analytics, IFPUG 2017)
         # Benchmarks: Excelente <0.10 | Bom 0.10–0.30 | Médio 0.30–0.60 | Crítico >0.60
@@ -15530,6 +15571,57 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             showlegend=True,
         )
 
+        # ── Scatter IEF × IED — diagnóstico de divergência ────────────────────
+        # IEF captura volume+conclusão; IED penaliza também VEL e QUA.
+        # Devs acima da diagonal: IEF > IED → velocidade ou qualidade reduz o IED.
+        # Devs com Δ > 15 ficam destacados — sinaliza onde intervir em VEL ou QUA.
+        fig_ief_ied_scatter = go.Figure()
+        if 'IEF' in per_dev.columns and 'IED' in per_dev.columns:
+            _scatter_df = per_dev[per_dev['IED'] > 0][['Pessoa', 'IEF', 'IED', 'Δ IEF–IED', 'Papel']].copy() \
+                if 'Δ IEF–IED' in per_dev.columns else \
+                per_dev[per_dev['IED'] > 0][['Pessoa', 'IEF', 'IED', 'Papel']].copy()
+            if 'Δ IEF–IED' not in _scatter_df.columns:
+                _scatter_df['Δ IEF–IED'] = (_scatter_df['IEF'] - _scatter_df['IED']).abs()
+            _scatter_df['Alerta'] = _scatter_df['Δ IEF–IED'] > 15
+            if not _scatter_df.empty:
+                _normal = _scatter_df[~_scatter_df['Alerta']]
+                _alerta = _scatter_df[_scatter_df['Alerta']]
+                fig_ief_ied_scatter.add_trace(go.Scatter(
+                    x=_normal['IED'], y=_normal['IEF'],
+                    mode='markers+text', name='Normal (Δ ≤ 15)',
+                    marker=dict(color='#2980b9', size=10, opacity=0.75),
+                    text=_normal['Pessoa'], textposition='top center', textfont=dict(size=9),
+                    hovertemplate='<b>%{text}</b><br>IED: %{x:.1f}<br>IEF: %{y:.1f}<br>Δ: %{customdata:.1f}',
+                    customdata=_normal['Δ IEF–IED'],
+                ))
+                if not _alerta.empty:
+                    fig_ief_ied_scatter.add_trace(go.Scatter(
+                        x=_alerta['IED'], y=_alerta['IEF'],
+                        mode='markers+text', name='Δ > 15 (atenção)',
+                        marker=dict(color='#e74c3c', size=12, opacity=0.9, symbol='diamond'),
+                        text=_alerta['Pessoa'], textposition='top center', textfont=dict(size=9, color='#c0392b'),
+                        hovertemplate='<b>%{text}</b><br>IED: %{x:.1f}<br>IEF: %{y:.1f}<br>Δ: %{customdata:.1f}',
+                        customdata=_alerta['Δ IEF–IED'],
+                    ))
+                # Linha diagonal de referência (IEF = IED)
+                fig_ief_ied_scatter.add_trace(go.Scatter(
+                    x=[0, 100], y=[0, 100], mode='lines',
+                    name='IEF = IED', line=dict(color='#aaa', dash='dash', width=1),
+                    hoverinfo='skip',
+                ))
+                fig_ief_ied_scatter.update_layout(
+                    title=(
+                        'Divergência IEF × IED<br>'
+                        '<sup>Devs acima da diagonal: VEL ou QUA reduzem o IED. '
+                        'Marcadores vermelhos: Δ > 15 — intervenção sugerida.</sup>'
+                    ),
+                    xaxis=dict(title='IED (régua completa)', range=[0, 110], showgrid=True, gridcolor='#eee'),
+                    yaxis=dict(title='IEF (volume + conclusão)', range=[0, 110], showgrid=True, gridcolor='#eee'),
+                    template='plotly_white', height=480,
+                    margin=dict(t=80, b=60, l=60, r=40),
+                    legend=dict(orientation='h', y=-0.15),
+                )
+
         # ── Radar Produtividade 360° — combina IED + Estabilidade + ECR ────────
         # Extensão do IED radar com 6 eixos: os 4 componentes do IED + 2 novos indicadores.
         # Top 15 por IED. Referências: Anderson (2010), Kitchenham & Mendes (TSE 2004).
@@ -15696,7 +15788,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # Score
             'Score Integrado',
             # Índice de Entrega do Desenvolvedor
-            'IED', 'IED Classe',
+            'IED', 'IED Classe', 'Confiança IED',
+            # Índice de Entrega Focado (volume + conclusão, sem VEL/QUA)
+            'IEF', 'IEF Classe',
+            # Divergência IEF–IED: sinal diagnóstico (alto Δ indica penalização por VEL ou QUA)
+            'Δ IEF–IED',
             # Componentes do IED (detalhamento)
             'Score Complexidade Puxado',
             # Novos indicadores
@@ -15728,6 +15824,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
         if 'Estabilidade_Throughput' in prod_display.columns:
             prod_display['Estabilidade_Throughput'] = prod_display['Estabilidade_Throughput'].apply(
+                lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+            )
+        if 'Δ IEF–IED' in prod_display.columns:
+            prod_display['Δ IEF–IED'] = prod_display['Δ IEF–IED'].apply(
                 lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
             )
 
@@ -15970,6 +16070,66 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 height=460,
             )
             fig_bu_summary.update_layout(xaxis_tickangle=-30, margin=dict(b=100), legend_title='Métrica')
+
+        # ── ICC — Índice de Concentração de Contribuição por BU ────────────────
+        # HHI de commits por BU: mede se entregas estão concentradas em poucos devs.
+        # HHI = Σ(commits_i/commits_BU)² — 1/N = perfeita distribuição, 1.0 = concentrado em 1.
+        # HHI Norm. = (HHI - 1/N) / (1 - 1/N) — facilita comparação entre BUs de tamanhos diferentes.
+        # Benchmarks: HHI < 0.10 (distribuído) | 0.10–0.25 (moderado) | >0.25 (concentrado — risco KCR).
+        # Fonte: Ricca et al. (ICSE 2019) — Truck Factor; U.S. DOJ HHI standard.
+        icc_table = html.Div()
+        if _has_bu_data and 'Commits' in per_dev.columns:
+            _icc_rows = []
+            for _bu, _grp in per_dev.groupby('BU', dropna=False):
+                _commits = pd.to_numeric(_grp['Commits'], errors='coerce').fillna(0)
+                _total_commits = _commits.sum()
+                _n_devs = len(_grp)
+                if _total_commits > 0:
+                    _hhi = float((_commits / _total_commits).pow(2).sum())
+                else:
+                    _hhi = 1.0
+                _hhi_norm = max((_hhi - 1 / _n_devs) / (1 - 1 / _n_devs), 0.0) if _n_devs > 1 else 0.0
+                _icc_classe = (
+                    'Concentrado ⚠' if _hhi > 0.25 else
+                    'Moderado' if _hhi > 0.10 else
+                    'Distribuído ✓'
+                )
+                _icc_rows.append({
+                    'BU': _bu,
+                    'N Devs': _n_devs,
+                    'Commits Total': int(_total_commits),
+                    'ICC (HHI)': round(_hhi, 4),
+                    'ICC Norm.': round(_hhi_norm, 4),
+                    'Concentração': _icc_classe,
+                })
+            if _icc_rows:
+                _icc_df = pd.DataFrame(_icc_rows).sort_values('ICC (HHI)', ascending=False)
+                icc_table = html.Div([
+                    html.P(
+                        'ICC (Índice de Concentração de Contribuição) — HHI de commits por BU. '
+                        'Valores acima de 0.25 indicam risco de concentração de conhecimento.',
+                        style={'fontSize': '12px', 'color': '#555', 'marginBottom': '8px'}
+                    ),
+                    dash_table.DataTable(
+                        columns=[{"name": c, "id": c} for c in _icc_df.columns],
+                        data=_icc_df.to_dict('records'),
+                        style_table={'overflowX': 'auto'},
+                        style_cell={'textAlign': 'center', 'padding': '7px 10px', 'fontSize': '13px'},
+                        style_cell_conditional=[{'if': {'column_id': 'BU'}, 'textAlign': 'left', 'fontWeight': 'bold'}],
+                        style_header={
+                            'backgroundColor': '#2c3e50', 'color': 'white',
+                            'fontWeight': '600', 'fontSize': '12px',
+                        },
+                        style_data_conditional=[
+                            {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                            {'if': {'filter_query': '{Concentração} contains "⚠"'},
+                             'backgroundColor': '#fff5f5', 'color': '#721c24'},
+                            {'if': {'filter_query': '{Concentração} contains "✓"'},
+                             'backgroundColor': '#f0fff4', 'color': '#155724'},
+                        ],
+                        sort_action='native',
+                    ),
+                ], style={'marginTop': '16px'})
 
         # ── Gráfico: Cartões puxados por complexidade (estimativa unificada) ──
         # Usa _unified_sp_bucket(): SP numérico ou T-shirt equalizado (P=2SP, M=5SP, G=8SP).
@@ -16484,6 +16644,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     ),
                     dcc.Graph(figure=fig_ied_radar, config={'displayModeBar': False})
                     if fig_ied_radar.data else html.P('Sem dados suficientes para o radar de componentes.', style={'color': '#aaa'}),
+                    dcc.Graph(figure=fig_ief_ied_scatter, config={'displayModeBar': False})
+                    if fig_ief_ied_scatter.data else html.Div(),
                     html.Details([
                         html.Summary('Detalhamento dos Componentes do IED por Desenvolvedor',
                                      style={'fontWeight': '600', 'cursor': 'pointer',
@@ -16528,9 +16690,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             # ── Resumo por BU ─────────────────────────────────────────────────
             _section(
                 'Visão por BU / Time',
-                'Entregas, commits e PRs Merged consolidados por time no período.',
-                [dcc.Graph(figure=fig_bu_summary, config={'displayModeBar': False})]
-                if fig_bu_summary.data else [html.P('Dados de BU não disponíveis.', style={'color': '#aaa'})],
+                'Entregas, commits e PRs Merged consolidados por time no período. '
+                'ICC (HHI) mede concentração de commits — valores altos indicam risco de concentração de conhecimento.',
+                ([dcc.Graph(figure=fig_bu_summary, config={'displayModeBar': False})]
+                 if fig_bu_summary.data else [html.P('Dados de BU não disponíveis.', style={'color': '#aaa'})])
+                + [icc_table],
             ),
 
             # ── Tabela de devs ─────────────────────────────────────────────────

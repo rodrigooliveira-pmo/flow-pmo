@@ -30,7 +30,8 @@
       "Bash(grep -B5 -A5 ElegivelTempoConcluido.*= '/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py')",
       "Read(//Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/**)",
       "Bash(lsof -ti:8050,8051,8052)",
-      "Bash(python -c \"import socket; s=socket.socket\\(\\); s.bind\\(\\('''',0\\)\\); p=s.getsockname\\(\\)[1]; s.close\\(\\); print\\(p\\)\")"
+      "Bash(python -c \"import socket; s=socket.socket\\(\\); s.bind\\(\\('''',0\\)\\); p=s.getsockname\\(\\)[1]; s.close\\(\\); print\\(p\\)\")",
+      "Bash(python -m py_compile dashboard_full.py)"
     ]
   }
 }
