@@ -6348,3 +6348,41 @@
   - teste real do consolidator: `python3 copy_latest_upload.py --source-dir /Users/rodrigoalmeidadeoliveira/Documents/dados/latest --dest-dir /tmp/flow-pmo-latest-upload-test --clean-dest --strict`, copiando `26` arquivos com sucesso
 - Suggested commit message:
   - `feat(latest-upload): package required dashboard artifacts after runner execution`
+## Current Task (Paper: empirical validation with anonymized production data)
+- [x] Map the production metrics already available in the project and define the empirical dataset contract
+- [x] Implement anonymized aggregation/figure generation under `paper/`
+- [x] Update the article text to add empirical validation, anonymization, and production-backed results
+- [x] Verify generated artifacts and compile the paper
+- [x] Record review and suggested commit message
+
+## Specification (Paper: empirical validation with anonymized production data)
+- Goal: extend the paper from a synthetic-only framework evaluation to a framework paper with an empirical validation section based on anonymized production telemetry.
+- Scope:
+  - `paper/paper.tex`
+  - `paper/paper_draft.md`
+  - new/updated support scripts under `paper/`
+  - `tasks/todo.md`
+- Acceptance criteria:
+  - The manuscript adds an empirical validation section describing real Jira, Bitbucket, process-mining, QA-return, and bottleneck data.
+  - The manuscript explicitly documents anonymization and disclosure-control rules suitable for LGPD-safe reporting.
+  - The repository gains a repeatable script that produces anonymized team/cohort/quarter aggregates and production-safe figures.
+  - The manuscript references only aggregated production outputs, not named individuals or raw identifiers.
+  - The paper still compiles after the changes.
+
+## Review (Paper: empirical validation with anonymized production data)
+- What was validated:
+  - [`paper/generate_empirical_validation.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/paper/generate_empirical_validation.py) now reuses the real dashboard pipeline (`dashboard_full.py`) to aggregate Jira, Bitbucket, process-mining, QA-return, and bottleneck metrics into anonymized team-quarter outputs.
+  - The script writes disclosure-controlled artifacts under [`paper/generated`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/paper/generated) and [`paper/figures`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/paper/figures), including new empirical figures `fig5` to `fig8`.
+  - [`paper/paper.tex`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/paper/paper.tex) now includes a reframed abstract and contributions, a dedicated empirical-validation section, explicit LGPD-safe anonymization/disclosure rules, and production-backed results that consume the generated anonymized artifacts.
+  - [`paper/paper_draft.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/paper/paper_draft.md) was aligned at the framing level so the markdown draft no longer conflicts with the LaTeX paper's core thesis.
+  - The empirical run in the current environment produced 4 anonymized team-quarter observations; after disclosure control the published output collapsed into a single stable alias (`Team A`), which is consistent with the `n < 5` suppression rule applied to smaller groups.
+- Evidence (tests/logs/diff):
+  - `python3 -m py_compile paper/generate_empirical_validation.py paper/generate_synthetic_data.py paper/generate_figures.py`
+  - `python3 paper/generate_empirical_validation.py`
+  - `pdflatex -interaction=nonstopmode -halt-on-error paper.tex`
+  - `pdflatex -interaction=nonstopmode -halt-on-error paper.tex`
+- Residual risks:
+  - The current production snapshot yields only one published cohort after suppression, so the empirical visuals are privacy-safe but less diverse than the ideal multi-team version.
+  - `paper.tex` compiles cleanly, but still reports some overfull `\hbox` warnings in long paragraphs; these are typographic, not functional.
+- Suggested commit message:
+  - `feat(paper): add anonymized production-data validation to flowpmo article`

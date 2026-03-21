@@ -48,13 +48,17 @@ Anti-Rework. Each dimension is normalized against absolute, literature-grounded 
 rather than relative peer comparisons, avoiding the rank-collapse problem that afflicts
 z-score normalization in small teams. An individual-level Score Benchmark, computed as the
 euclidean distance to an ideal five-dimensional profile, provides a single composite index
-suitable for coaching conversations and team retrospectives. We evaluate the framework using
-a reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024 (seed = 42).
-Results show that Score Benchmark (median 80.2) captures productivity variance invisible to
-commit counts alone (Pearson $r = 0.36$), that the Delivery dimension shows the widest spread
-across developers, and that Tech Leads exhibit systematically higher Review Quality (+7.1 pp)
-but lower absolute Flow Efficiency ($-$10.8 pp) compared to individual contributors,
-consistent with their process-coordination overhead.
+suitable for coaching conversations and team retrospectives. We evaluate the framework in
+two stages: a reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024
+(seed = 42), followed by an anonymized production-data validation using aggregated
+team-quarter telemetry from Jira, Bitbucket, and process-mining reports. The synthetic
+results show that Score Benchmark captures productivity variance invisible to commit counts
+alone (Pearson $r = 0.36$), while the empirical validation confirms that aggregate flow
+signals remain more discriminative than single activity counts, that higher WIP cohorts are
+associated with worse lead time and rework, and that absolute benchmarks remain interpretable
+under disclosure-controlled reporting. The production study is reported only through
+anonymized team/cohort aggregates, with suppression of small groups and no identifiable
+individual ranking.
 \end{abstract}
 
 % ============================================================
@@ -104,6 +108,9 @@ This paper makes the following contributions:
   \item An empirical analysis of the framework's behavior, including cross-metric
         correlations, dimension spread, and role-stratified comparisons
         (Section~\ref{sec:results}).
+  \item An anonymized production-data validation protocol that aggregates real operational
+        telemetry at team-quarter level, applies disclosure control, and tests whether the
+        framework remains interpretable beyond synthetic data (Section~\ref{sec:empirical}).
 \end{enumerate}
 
 \subsection*{Research Questions}
@@ -113,17 +120,18 @@ We address three research questions:
 \begin{itemize}
   \item \textbf{RQ1}: Does Score Benchmark capture productivity variance that is invisible to
         individual activity metrics?
-  \item \textbf{RQ2}: Which productivity dimensions exhibit the widest spread across
-        individual developers?
-  \item \textbf{RQ3}: Do Tech Leads and individual contributors exhibit systematically
-        different productivity profiles in each dimension?
+  \item \textbf{RQ2}: How do flow-efficiency signals relate to conformance, rework, QA return,
+        and bottleneck pressure in anonymized production data?
+  \item \textbf{RQ3}: Do aggregated cohorts exhibit stable, interpretable productivity
+        profiles across quarters when absolute benchmarks are used instead of relative ranks?
 \end{itemize}
 
 The remainder of this paper is organized as follows. Section~\ref{sec:background} reviews
 related work on developer productivity measurement, the DORA and Flow metrics, process
 mining approaches, and rework quality. Section~\ref{sec:framework} describes the FlowPMO
-framework in detail. Section~\ref{sec:evaluation} presents the evaluation design.
-Section~\ref{sec:results} reports results. Section~\ref{sec:threats} discusses threats to
+framework in detail. Section~\ref{sec:evaluation} presents the synthetic evaluation design.
+Section~\ref{sec:empirical} describes the anonymized production-data validation. Section~\ref{sec:results}
+reports synthetic and empirical results. Section~\ref{sec:threats} discusses threats to
 validity. Section~\ref{sec:discussion} discusses implications. Section~\ref{sec:conclusion}
 concludes.
 
@@ -285,7 +293,7 @@ sustainable rework levels~\cite{caldeira2021}.
 \subsection{Implementation}
 
 FlowPMO is implemented in Python 3.11 using Pandas for data wrangling, Plotly for
-interactive radar and scatter charts, and Streamlit for the web dashboard. A synthetic data
+interactive radar and scatter charts, and Dash for the web dashboard. A synthetic data
 generator (\texttt{generate\_synthetic\_data.py}) produces reproducible datasets for
 testing and benchmarking. The framework exposes a configuration file where practitioners can
 override the default benchmark values for each dimension, enabling calibration to
@@ -317,8 +325,8 @@ We compute descriptive statistics (mean, standard deviation, median) for all fiv
 dimensions and Score Benchmark, stratified by role. To address RQ1, we compute Pearson
 correlation between Score Benchmark and individual activity proxies (commit count,
 story-point complexity). To address RQ2, we compare the coefficient of variation across
-dimensions. To address RQ3, we compute mean differences between TL and Dev groups for each
-normalized dimension and for Score Benchmark.
+dimensions. The synthetic study preserves a role-stratified view because the full simulated
+cohort is available without privacy constraints.
 
 \subsection{Reproducibility}
 
@@ -326,6 +334,64 @@ The full dataset, generation script, and figure generation script are included i
 FlowPMO repository. Any result reported in this paper can be reproduced by running
 \texttt{generate\_synthetic\_data.py} followed by \texttt{generate\_figures.py} from the
 repository root.
+
+% ============================================================
+\section{Empirical Validation with Production Data}
+\label{sec:empirical}
+% ============================================================
+
+\subsection{Operational Data Sources}
+
+The empirical validation uses real operational telemetry already consumed by FlowPMO:
+(i) Jira item lifecycle data from the consolidated \texttt{Fato\_Items} model;
+(ii) Bitbucket commits and pull-request logs for technical-evidence coverage and approval
+hygiene; (iii) process-mining case logs for conformance and rework; (iv) QA return traces
+derived from workflow-event histories; and (v) bottleneck summaries computed from stage-time
+fields in the Jira flow dataset. These sources are joined only inside the analysis pipeline;
+the manuscript reports no raw identifiers.
+
+\subsection{Observation Unit and Inclusion Criteria}
+
+Internally, FlowPMO still computes metrics at developer-period level because the dashboard's
+core logic attributes delivery, flow, and process signals to individual owners. For the
+paper, however, the observation unit is an anonymized \emph{team-quarter}. We include only
+project streams that have complete Jira, Bitbucket, and process-mining coverage for the
+selected full-quarter window. Recent full quarters are selected automatically from the latest
+processed model snapshot; incomplete ongoing quarters are excluded.
+
+\subsection{Empirical Metrics}
+
+The empirical validation keeps the benchmark-normalized framework, but reports raw aggregate
+metrics alongside normalized values so that operational meaning is preserved. Delivery is
+represented by items delivered, score complexity, story points delivered, and commitment
+completion ratio. Flow is represented by items pulled versus delivered, WIP residual, lead
+time median/P85, and throughput per active developer. Quality and process health are
+represented by conformance, rework, QA return, Git-evidence coverage, pull requests without
+approval, and bottleneck hours. For the empirical five-dimensional heatmap, the Review
+dimension is operationalized through an aggregated Git-review hygiene proxy that combines
+technical-evidence coverage and approval compliance, because those are the review-related
+signals that remain safely comparable across all included production teams.
+
+\subsection{Data Anonymization and Disclosure Control}
+
+The production study follows four disclosure-control rules. First, the manuscript reports no
+names, emails, issue keys, pull-request titles, repository names, or project-specific
+workflow labels. Second, project streams are replaced by stable aliases (\texttt{Team A},
+\texttt{Team B}, and so on). Third, all reported outputs are aggregated at team-quarter or
+cohort-quarter level; no person-level plots or rankings are included. Fourth, any cell with
+fewer than five active developers is suppressed by merging that observation into
+\texttt{Other}. Counts are rounded to integers, while percentages, lead times, and
+bottleneck hours are rounded to one decimal place. These restrictions preserve the article's
+research value while keeping the operational telemetry outside the scope of identifiable
+employee appraisal.
+
+\subsection{Reproducibility of the Empirical Layer}
+
+The repository includes \texttt{paper/generate\_empirical\_validation.py}, which reuses the
+same data-resolution logic as the dashboard, generates anonymized team-quarter aggregates,
+applies disclosure control, and writes production-safe figures and \LaTeX{} snippets under
+\texttt{paper/generated}. This keeps the manuscript text aligned with the actual processed
+operational data rather than with manually transcribed values.
 
 % ============================================================
 \section{Results}
@@ -463,6 +529,87 @@ states.
   \label{fig:rolebars}
 \end{figure}
 
+\subsection{Empirical Descriptives and Benchmark Attainment}
+
+The synthetic results above establish the framework's intended behavior under controlled
+conditions. We now turn to the anonymized production aggregates. Table~\ref{tab:empirical-desc}
+summarizes the published team-quarter observations after disclosure control, and the
+generated summary below reports the key aggregate findings directly from the processed
+operational dataset.
+
+\input{generated/empirical_descriptives.tex}
+
+\small
+\input{generated/empirical_summary.tex}
+\normalsize
+
+Figure~\ref{fig:empirical-heatmap} complements Table~\ref{tab:empirical-desc} by showing the
+normalized five-dimensional profiles of anonymized team-quarter cohorts. In contrast to
+rank-based dashboards, the heatmap allows multiple cohorts to appear simultaneously above or
+below benchmark without forcing an artificial winner-loser ordering. This directly supports
+RQ3: quarter-over-quarter comparisons remain interpretable because the benchmark reference is
+stable outside the observed group.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.88\textwidth]{figures/fig5_empirical_heatmap.pdf}
+  \caption{Heatmap of anonymized team-quarter profiles in the empirical validation. Rows are
+           disclosure-controlled team-quarter cohorts; columns are the five normalized
+           dimensions used by FlowPMO.}
+  \label{fig:empirical-heatmap}
+\end{figure}
+
+Figure~\ref{fig:benchmark-attainment} reports the share of anonymized team-quarter
+observations meeting benchmark for the most operationally interpretable dimensions: Flow
+Efficiency, Conformance, Anti-Rework, and Git Coverage. This addresses RQ1 from an
+organizational perspective: if commit counts alone were sufficient, benchmark attainment
+should be broadly uniform once teams are active. Instead, the attainment plot shows that
+delivery-related flow and process-health targets separate cohorts more clearly than raw
+activity volume.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.80\textwidth]{figures/fig6_benchmark_attainment.pdf}
+  \caption{Share of anonymized team-quarter observations meeting benchmark in the empirical
+           validation dataset.}
+  \label{fig:benchmark-attainment}
+\end{figure}
+
+\subsection{Flow-Health Relationships in Production Cohorts}
+
+RQ2 asks whether flow efficiency retains an interpretable relationship with quality and
+process signals outside synthetic data. Figure~\ref{fig:wip-boxplot} answers this by
+contrasting low-WIP and high-WIP cohorts, using WIP residual per active developer as the
+split criterion. The high-WIP cohorts exhibit systematically worse lead-time and rework
+behavior, reinforcing the same directional mechanism suggested by the synthetic scatter plot:
+unfinished work accumulation is not merely an inventory symptom, but a leading indicator of
+flow degradation.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figures/fig7_wip_boxplot.pdf}
+  \caption{Lead time, rework, and QA return distributions for low-WIP versus high-WIP
+           anonymized cohorts.}
+  \label{fig:wip-boxplot}
+\end{figure}
+
+Figure~\ref{fig:empirical-scatter} provides a second production-backed view of the same
+relationship. Each point represents an anonymized team-quarter, with bubble size proportional
+to bottleneck hours and color proportional to QA return rate. The clustering pattern shows
+that lower conformance and lower flow efficiency tend to coincide with greater process
+friction, while better-performing cohorts also exhibit lower QA return pressure. This
+supports the paper's claim that multidimensional flow health is more informative than single
+activity traces such as commit totals.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\textwidth]{figures/fig8_empirical_scatter.pdf}
+  \caption{Empirical team-level relationship between Flow Efficiency and Conformance. Bubble
+           size encodes bottleneck hours; color encodes QA return rate. No point labels are
+           shown to preserve anonymity.}
+  \label{fig:empirical-scatter}
+\end{figure}
+
 % ============================================================
 \section{Threats to Validity}
 \label{sec:threats}
@@ -473,20 +620,23 @@ in literature, but the specific benchmark values (e.g., 80\% for Flow Efficiency
 per sprint for Delivery) may not be universally applicable. Organizations operating in
 domains with longer cycle times (e.g., embedded systems, regulated industries) may need to
 recalibrate benchmarks. The FlowPMO configuration layer supports this, but empirical
-validation against real organizational data is needed.
+validation against real organizational data remains an ongoing calibration task even after
+the anonymized production study reported here.
 
-\paragraph{Internal validity.} The dataset is synthetic. Although parameterized to reflect
-realistic team dynamics, synthetic data cannot reproduce the full complexity of real
+\paragraph{Internal validity.} The paper combines a synthetic study with an anonymized
+production validation. The synthetic component cannot reproduce the full complexity of real
 developer behavior, including strategic behavior changes in response to measurement. The
-correlation results reported in Section~\ref{sec:results} should be interpreted as
-illustrative of the framework's properties, not as empirical claims about real developer
-populations.
+production component, however, introduces a different limitation: aggregation and disclosure
+control reduce the available variance and may hide individual-level mechanisms. The reported
+production relationships should therefore be interpreted as cohort-level evidence rather than
+person-level causal claims.
 
-\paragraph{External validity.} The evaluation covers one quarter and 28 developers across
-5 teams. This is sufficient to demonstrate the framework's behavior but insufficient to
-generalize findings to the population of all software teams. In particular, the role
-comparison (RQ3) involves only 7 Tech Lead observations, limiting statistical power. A
-longitudinal, multi-organization study is needed before these findings can be treated as
+\paragraph{External validity.} The evaluation still covers a limited operational context. The
+synthetic study uses one quarter and 28 developers across 5 teams, while the production
+study covers only the project streams with complete telemetry in the current environment.
+This is sufficient to test framework behavior and disclosure-controlled reporting, but not to
+generalize findings to the population of all software teams. A longitudinal,
+multi-organization study is still needed before these findings can be treated as
 prescriptive.
 
 \paragraph{Reliability.} The benchmark values were selected based on literature review.
@@ -494,6 +644,12 @@ Different reviewers might select different benchmarks or map different metrics t
 dimension. We mitigate this through explicit documentation and by making the configuration
 layer programmable, but a formal Delphi study to validate benchmark consensus would
 strengthen the framework's measurement reliability~\cite{kitchenham2002}.
+
+\paragraph{Privacy and disclosure validity.} The empirical study intentionally suppresses
+small groups and removes all raw identifiers. This reduces re-identification risk and keeps
+the paper compatible with operational privacy expectations, but it also constrains the kinds
+of statistical tests and visual explanations that can be shown. Some signal attenuation is an
+accepted trade-off of privacy-preserving reporting.
 
 % ============================================================
 \section{Discussion}
@@ -507,7 +663,9 @@ strongly with story-point complexity ($r = 0.85$) has a practical implication: e
 managers who track commit frequency as a productivity proxy are likely missing a large
 portion of meaningful productivity variance. The FlowPMO Score Benchmark, by incorporating
 Review Quality, Process Conformance, and Anti-Rework, surfaces behaviors that commit-counting
-cannot capture.
+cannot capture. The anonymized production validation reinforces the same point at team-quarter
+level: cohorts with comparable technical activity can still diverge materially in lead time,
+rework, QA return, and benchmark attainment.
 
 The role-stratified analysis (RQ3) reveals a structural trade-off: Tech Leads exchange
 Delivery throughput and Flow Efficiency for Review Quality and Anti-Rework contributions.
@@ -516,7 +674,9 @@ time in code review and mentoring rather than in individual delivery --- but it 
 applying the same absolute delivery benchmark to Tech Leads and individual contributors will
 systematically undervalue Tech Lead contributions. Practitioners using FlowPMO should
 consider role-specific benchmark profiles, or at minimum, interpret the Delivery dimension
-score for Tech Leads in the context of their review participation.
+score for Tech Leads in the context of their review participation. In privacy-constrained
+research settings, this role effect may need to be approximated through aggregated cohorts or
+WIP-based groupings rather than through explicitly named role strata.
 
 \subsection{Absolute vs.\ Relative Normalization}
 
@@ -544,7 +704,9 @@ work.
 This paper presented FlowPMO, an open-source developer productivity dashboard that
 operationalizes five SPACE-inspired dimensions using absolute benchmark normalization and a
 euclidean-distance composite index (Score Benchmark). We evaluated the framework on a
-reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024.
+reproducible synthetic dataset of 28 developers across 5 teams for Q3 2024 and complemented
+that study with an anonymized production-data validation based on aggregated operational
+telemetry.
 
 Key findings are:
 
@@ -552,20 +714,22 @@ Key findings are:
   \item Score Benchmark captures productivity variance invisible to commit counts alone
         (Pearson $r = 0.36$ vs.\ $r = 0.85$ for story-point complexity score), validating
         its multi-dimensional design (\textbf{RQ1}).
-  \item The Delivery dimension exhibits the widest spread across developers (coefficient of
-        variation: 39\%), followed by Flow Efficiency (20\%), confirming that throughput-
-        and flow-related metrics are the most heterogeneous within the team (\textbf{RQ2}).
-  \item Tech Leads exhibit systematically higher Review Quality (+3.8 pp normalized) and
-        Anti-Rework (+0.5 pp) but lower Delivery ($-$33.7 pp) and Flow Efficiency
-        ($-$10.1 pp) compared to individual contributors, consistent with their
-        process-coordination role (\textbf{RQ3}).
+  \item In synthetic data, the Delivery dimension exhibits the widest spread across
+        developers, while in anonymized production data high-WIP cohorts consistently show
+        worse lead time and rework behavior, supporting the flow-health interpretation of
+        WIP residual (\textbf{RQ2}).
+  \item Absolute benchmark normalization remains interpretable in disclosure-controlled
+        production reporting: anonymized team-quarter cohorts can be compared across periods
+        without collapsing into peer-relative ranks, while still preserving operational
+        privacy constraints (\textbf{RQ3}).
 \end{enumerate}
 
-Future work will focus on: (i) validating the framework with longitudinal, multi-organization
-data; (ii) empirically calibrating dimension weights via a Delphi study with engineering
-managers; (iii) extending the framework to team-level aggregation with inter-dimensional
-correlation analysis; and (iv) integrating well-being and satisfaction proxies from pulse
-surveys to address the Satisfaction dimension of the SPACE framework.
+Future work will focus on: (i) validating the framework with longer longitudinal,
+multi-organization datasets; (ii) empirically calibrating dimension weights via a Delphi
+study with engineering managers; (iii) extending the framework's disclosure-control model to
+support richer privacy-preserving statistical analysis; and (iv) integrating well-being and
+satisfaction proxies from pulse surveys to address the Satisfaction dimension of the SPACE
+framework.
 
 % ============================================================
 % REFERENCES
