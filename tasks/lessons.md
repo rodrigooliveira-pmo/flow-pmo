@@ -11,6 +11,12 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-30
+- Context: Primeira refatoração visual dos KPIs da aba `Work Item Age`.
+- User correction: Informou que a nova composição ficou desproporcional, sem padrão visual com o restante do dashboard e com preferência por fundo claro.
+- Root cause: Eu forcei hierarquia visual demais com um bloco hero escuro e pesos muito diferentes entre os cards, sem preservar suficientemente o padrão visual já dominante da aplicação.
+- Prevention rule: Em refatorações de layout de dashboards existentes, priorizar primeiro consistência visual e proporção entre cards; só introduzir blocos de alto contraste ou hero panels quando isso for explicitamente pedido.
+- Action added to workflow: Em mudanças visuais não triviais, revisar a proposta contra o padrão atual da aplicação antes de concluir, validando especialmente fundo, contraste e equilíbrio proporcional dos KPIs.
 - Date: 2026-03-20
 - Context: Implementação de login Google OAuth no dashboard Dash/Flask com Google Workspace.
 - User correction: O claim `hd` retornado para `@w1consultoria.com.br` é `w1consultoria.com.br`, não `w1.com.br` — validação de domínio por `hd == allowed_domain` bloqueava usuários válidos do Workspace com e-mails em domínios secundários.

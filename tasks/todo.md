@@ -1,3 +1,37 @@
+## Current Task (Reequilibrar layout dos KPIs em Work Item Age)
+- [x] Registrar a correção visual do usuário em `tasks/lessons.md`
+- [x] Ajustar o layout para fundo claro e proporções mais consistentes
+- [x] Validar sintaxe e revisar diff
+- [x] Registrar review e sugestão de commit
+
+## Specification (Reequilibrar layout dos KPIs em Work Item Age)
+- Objetivo: corrigir o excesso de contraste e a desproporção da refatoração anterior, aproximando a aba `Work Item Age` do padrão visual claro e equilibrado do dashboard.
+- Escopo:
+  - `assets/work-item-age.css`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - manter a organização semântica criada anteriormente
+  - remover o destaque escuro dominante
+  - equalizar alturas, espaçamentos e peso visual entre os grupos de KPIs
+- Critério de aceite:
+  - a seção usa fundo claro
+  - os blocos ficam visualmente proporcionais entre si
+  - a leitura permanece agrupada, mas com padrão coerente com o restante da aplicação
+
+## Review (Reequilibrar layout dos KPIs em Work Item Age)
+- O que foi ajustado:
+  - a seção em [`assets/work-item-age.css`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/assets/work-item-age.css) deixou de usar o destaque escuro dominante e passou para superfícies claras compatíveis com o padrão do dashboard
+  - o bloco principal de `Itens Ativos` foi rebaixado visualmente para o mesmo idioma dos demais painéis, preservando destaque sem quebrar o conjunto
+  - os cards passaram a ter altura mínima, padding e escala tipográfica mais consistentes, reduzindo a sensação de desproporção
+  - o layout responsivo foi ajustado para manter grids equilibrados em larguras intermediárias e empilhar apenas quando necessário
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+- Risco residual:
+  - continua faltando inspeção visual em navegador nesta sessão
+- Suggested commit message:
+  - `refactor(dashboard): rebalance work item age kpi layout`
+
 ## Current Task (Refatorar layout dos KPIs em Work Item Age)
 - [x] Localizar a implementação da aba e revisar restrições do projeto
 - [x] Reorganizar os KPIs com hierarquia visual e agrupamento semântico
