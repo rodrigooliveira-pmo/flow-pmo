@@ -9473,7 +9473,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 line_dash=dash_style,
                 line_width=1.5,
                 annotation_text=f'{label}: {float(val):.1f}',
-                annotation_position='top'
+                annotation_position='top',
+                annotation_textangle=90
             )
         fig_lt_dist.update_layout(
             title='Lead Time Distribution: frequência e curva acumulada',

@@ -6464,6 +6464,35 @@
 - Suggested commit message:
   - `feat(produtividade-dev): add development cycle and qa return metrics`
 
+## Current Task (Melhorar legibilidade das linhas no histograma de Lead Time)
+- [x] Localizar a configuração do histograma e das anotações das linhas de referência
+- [x] Alterar a orientação dos textos das linhas para vertical
+- [x] Validar sintaxe, revisar diff e registrar review
+
+## Specification (Melhorar legibilidade das linhas no histograma de Lead Time)
+- Objetivo: melhorar a leitura das anotações das linhas de percentis/média no histograma de Lead Time, reduzindo a sobreposição horizontal no topo do gráfico.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - ajustar apenas a orientação dos textos das `vlines` do histograma
+  - preservar cores, posição das linhas e demais configurações do gráfico
+- Critério de aceite:
+  - os textos de `P50`, `P75`, `P85`, `P95` e `Média` passam a aparecer na vertical
+  - a mudança afeta somente o histograma de Lead Time
+  - o arquivo continua válido sintaticamente
+
+## Review (Melhorar legibilidade das linhas no histograma de Lead Time)
+- O que foi ajustado:
+  - o histograma de Lead Time em [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L9469) passou a usar `annotation_textangle=90` nas `vlines` de `P50`, `P75`, `P85`, `P95` e `Média`
+  - a mudança preserva as linhas, cores e posicionamento existentes, alterando apenas a orientação dos rótulos para reduzir a colisão horizontal no topo do gráfico
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+- Risco residual:
+  - não houve inspeção visual no navegador nesta sessão; a validação foi estática
+- Suggested commit message:
+  - `fix(dashboard): rotate lead time histogram reference labels`
+
 ## Current Task (Publicar pacote `latest-upload` com artefatos esperados)
 - [x] Mapear os artefatos finais esperados pelo dashboard e o fluxo atual de publicação `latest`
 - [x] Implementar script dedicado para consolidar os arquivos esperados em `latest/latest-upload`
