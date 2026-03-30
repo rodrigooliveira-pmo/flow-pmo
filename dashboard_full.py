@@ -6373,7 +6373,7 @@ def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, l
 
 
 def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, start_ts, end_ts, bucket_freq='W-MON'):
-    empty = pd.DataFrame(columns=[dimension_label, 'Itens Entregues', 'Média/Bucket', 'P50', 'P85', 'Máx Bucket'])
+    empty = pd.DataFrame(columns=[dimension_label, 'Itens Entregues', 'Média/Bucket', 'P15', 'P50', 'P85', 'Máx Bucket'])
     if done_df is None or done_df.empty or dimension_col not in done_df.columns:
         return empty
 
@@ -6415,6 +6415,7 @@ def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, 
             **{
                 'Itens Entregues': 'sum',
                 'Média/Bucket': 'mean',
+                'P15': lambda s: exact_empirical_percentile(s.dropna(), 0.15) if not s.dropna().empty else np.nan,
                 'P50': lambda s: exact_empirical_percentile(s.dropna(), 0.50) if not s.dropna().empty else np.nan,
                 'P85': lambda s: exact_empirical_percentile(s.dropna(), 0.85) if not s.dropna().empty else np.nan,
                 'Máx Bucket': 'max',
@@ -6423,7 +6424,7 @@ def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, 
         .reset_index()
         .sort_values(['Itens Entregues', 'P85', dimension_label], ascending=[False, False, True], ignore_index=True)
     )
-    for col in ['Média/Bucket', 'P50', 'P85']:
+    for col in ['Média/Bucket', 'P15', 'P50', 'P85']:
         summary[col] = pd.to_numeric(summary[col], errors='coerce').round(1)
     summary['Itens Entregues'] = pd.to_numeric(summary['Itens Entregues'], errors='coerce').fillna(0).astype(int)
     summary['Máx Bucket'] = pd.to_numeric(summary['Máx Bucket'], errors='coerce').fillna(0).astype(int)
@@ -9266,6 +9267,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
 
         throughput_bucket_df = df_done_period_eligible.copy()
+        throughput_p15 = np.nan
         throughput_avg = np.nan
         throughput_p85 = np.nan
         if not throughput_bucket_df.empty:
@@ -9280,6 +9282,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     bucket_range = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq='W-MON')
                 bucket_counts = throughput_bucket_df.groupby('Bucket').size().reindex(bucket_range, fill_value=0)
                 if not bucket_counts.empty:
+                    throughput_p15 = float(exact_empirical_percentile(bucket_counts, 0.15))
                     throughput_avg = float(bucket_counts.mean())
                     throughput_p85 = float(exact_empirical_percentile(bucket_counts, 0.85))
 
@@ -9324,7 +9327,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         summary_cards = html.Div([
             service_card('SLA de referência', f'{sla_days:.0f} dias', 'Meta usada para leitura rápida do serviço'),
             service_card('Lead Time', f"{lead_avg:.1f} / {lead_p85:.1f}" if pd.notna(lead_avg) and pd.notna(lead_p85) else '—', 'médio / P85 do período'),
-            service_card(f'Vazão {bucket_adj}', f"{throughput_avg:.1f} / {throughput_p85:.1f}" if pd.notna(throughput_avg) and pd.notna(throughput_p85) else '—', f'média / P85 por {bucket_label.lower()}'),
+            service_card(
+                f'Vazão {bucket_adj} (P15/Média/P85)',
+                f"{throughput_p15:.1f} / {throughput_avg:.1f} / {throughput_p85:.1f}" if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else '—',
+                f'Leitura: P15 / média / P85 por {bucket_label.lower()}'
+            ),
             service_card('Itens entregues', f"{len(df_done_period_eligible)}", period_label),
             service_card('WIP atual', f'{wip_count}', f"age médio {wip_age_avg:.1f}d" if pd.notna(wip_age_avg) else 'sem aging disponível'),
             service_card('% dentro do SLA', f"{sla_share:.1f}%" if pd.notna(sla_share) else '—', 'itens concluídos no período'),
@@ -9335,7 +9342,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             html.Ul([
                 html.Li(f"Lead Time médio/P85 do período: {lead_avg:.1f}d / {lead_p85:.1f}d." if pd.notna(lead_avg) and pd.notna(lead_p85) else 'Lead Time sem base suficiente no período.'),
                 html.Li(f"{sla_share:.1f}% das entregas ficaram dentro do SLA de {sla_days:.0f} dias." if pd.notna(sla_share) else f'SLA configurado em {sla_days:.0f} dias, sem base suficiente para medir aderência.'),
-                html.Li(f"Vazão {bucket_adj}: média {throughput_avg:.1f} e P85 {throughput_p85:.1f} por {bucket_label.lower()}." if pd.notna(throughput_avg) and pd.notna(throughput_p85) else f'Vazão sem base suficiente por {bucket_label.lower()}.'),
+                html.Li(f"Vazão {bucket_adj}: P15 {throughput_p15:.1f}, média {throughput_avg:.1f} e P85 {throughput_p85:.1f} por {bucket_label.lower()}." if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else f'Vazão sem base suficiente por {bucket_label.lower()}.'),
                 html.Li(f"WIP atual: {wip_count} itens | age médio {wip_age_avg:.1f}d | P85 {wip_age_p85:.1f}d | mais antigo {oldest_wip:.1f}d." if pd.notna(wip_age_avg) and pd.notna(wip_age_p85) and pd.notna(oldest_wip) else f'WIP atual: {wip_count} itens.'),
             ], style={'marginTop': '8px', 'marginBottom': '0', 'paddingLeft': '20px'}),
         ], style={'backgroundColor': '#fff7ed', 'border': '1px solid #fed7aa', 'borderRadius': '10px', 'padding': '12px', 'marginBottom': '14px'})
