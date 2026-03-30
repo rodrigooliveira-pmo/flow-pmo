@@ -6322,6 +6322,15 @@ def infer_service_bucket_config(start_ts, end_ts):
     return 'MS', 'Mês', 'mensal'
 
 
+def build_service_bucket_index(start_ts, end_ts, bucket_freq):
+    if bucket_freq == 'MS':
+        return pd.period_range(start=pd.Timestamp(start_ts), end=pd.Timestamp(end_ts), freq='M').to_timestamp()
+    weeks = pd.date_range(start=pd.Timestamp(start_ts), end=pd.Timestamp(end_ts) + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
+    if len(weeks) >= 2:
+        return pd.DatetimeIndex(weeks[:-1])
+    return pd.DatetimeIndex([weekly_bucket_start(pd.Series(pd.to_datetime([start_ts]))).iloc[0]])
+
+
 def _service_dimension_label(series, empty_label='Não classificado'):
     values = series.fillna('').astype(str).str.strip()
     values = values.replace('', empty_label)
@@ -6384,10 +6393,9 @@ def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, 
     base[dimension_label] = _service_dimension_label(base[dimension_col])
     if bucket_freq == 'MS':
         base['Bucket'] = base['DataDone'].dt.to_period('M').dt.start_time
-        bucket_range = pd.date_range(start=pd.Timestamp(start_ts).normalize(), end=pd.Timestamp(end_ts).normalize(), freq='MS')
     else:
         base['Bucket'] = weekly_bucket_start(base['DataDone'])
-        bucket_range = pd.date_range(start=pd.Timestamp(start_ts), end=pd.Timestamp(end_ts) + pd.Timedelta(days=7), freq='W-MON')
+    bucket_range = build_service_bucket_index(start_ts, end_ts, bucket_freq)
     bucket_range = pd.DatetimeIndex(bucket_range).unique().sort_values()
     if len(bucket_range) == 0:
         bucket_range = pd.DatetimeIndex([pd.Timestamp(start_ts).normalize()])
@@ -9275,10 +9283,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if not throughput_bucket_df.empty:
                 if bucket_freq == 'MS':
                     throughput_bucket_df['Bucket'] = throughput_bucket_df['DataDone'].dt.to_period('M').dt.start_time
-                    bucket_range = pd.date_range(start=start_ts.normalize(), end=end_ts.normalize(), freq='MS')
                 else:
                     throughput_bucket_df['Bucket'] = weekly_bucket_start(throughput_bucket_df['DataDone'])
-                    bucket_range = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq='W-MON')
+                bucket_range = build_service_bucket_index(start_ts, end_ts, bucket_freq)
                 bucket_counts = throughput_bucket_df.groupby('Bucket').size().reindex(bucket_range, fill_value=0)
                 if not bucket_counts.empty:
                     throughput_p15 = float(exact_empirical_percentile(bucket_counts, 0.15))
