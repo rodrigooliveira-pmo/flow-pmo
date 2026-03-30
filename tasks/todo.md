@@ -1,3 +1,42 @@
+## Current Task (Unificar Highest no projeto)
+- [x] Mapear onde `Expedite`, `Urgente` e `Higest` ainda são derivados ou exibidos
+- [x] Ajustar normalização e labels para usar sempre `Highest`
+- [x] Validar sintaxe, revisar diff e confirmar os pontos principais impactados
+- [x] Registrar review e sugestão de commit
+
+## Specification (Unificar Highest no projeto)
+- Objetivo: padronizar a prioridade/classe mais alta como `Highest` em todo o projeto, eliminando traduções para `Expedite`, `Urgente` e o typo `Higest` em gráficos, filtros e visões derivadas.
+- Escopo:
+  - `dashboard_full.py`
+  - `dash_board_metricas.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - tratar `Higest` como alias de entrada, mas nunca como label de saída
+  - remover fallbacks que convertem `Highest` em `Expedite` ou `Urgente`
+  - preservar a semântica operacional existente, mantendo regras que detectam a classe/prioridade mais alta mesmo após a troca do rótulo
+- Critério de aceite:
+  - filtros e datasets derivados passam a expor `Highest` em vez de `Expedite`/`Urgente` quando o caso é a prioridade máxima
+  - valores `Higest` continuam sendo reconhecidos, mas são exibidos como `Highest`
+  - não surgem erros de sintaxe após a alteração
+
+## Review (Unificar Highest no projeto)
+- O que foi ajustado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) agora canonicaliza `Expedite`, `Urgente` e `Higest` para `Highest` antes de derivar `Prioridade`, `ClasseServico`, filtros de portfólio e classificações de urgência
+  - filtros e visões derivadas deixaram de reconverter `Highest` para `Expedite`/`Urgente`, inclusive na governança de fast track, nos KPIs e nos gráficos de breakdown
+  - [`dash_board_metricas.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dash_board_metricas.py) passou a gerar `Highest` no modelo consolidado e a medir a participação dessa classe sem depender do literal `Expedite`
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py dash_board_metricas.py`
+  - `python3 - <<'PY' ... ast.parse(...) ... PY`
+  - checagem dirigida da normalização:
+    - `Expedite -> Highest`
+    - `Urgente -> Highest`
+    - `Higest -> Highest`
+    - `classify_urgency_label({'ClasseServico': 'Urgente', 'Prioridade': 'Higest'}) -> Highest`
+- Risco residual:
+  - não houve smoke test visual no navegador nesta rodada; a validação foi estática e por funções isoladas
+- Suggested commit message:
+  - `refactor(dashboard): unify highest priority labels across filters and charts`
+
 ## Current Task (Equalizar densidade dos KPIs em Work Item Age)
 - [x] Registrar a nova correção visual em `tasks/lessons.md`
 - [x] Ajustar a distribuição vertical do painel principal

@@ -16,6 +16,25 @@ from shared.text_utils import normalize_text
 # Semana padrão do sistema: janelas de segunda (inclusive) até segunda (exclusiva).
 WEEK_DATE_RANGE_FREQ = 'W-MON'
 
+HIGHEST_ALIAS_TOKENS = (
+    'highest', 'higest', 'expedite', 'urgent', 'urgente',
+    'critical', 'critico', 'blocker', 'fast track', 'fasttrack',
+)
+
+
+def is_highest_alias(value):
+    text = normalize_text(value)
+    if not text:
+        return False
+    return any(token in text for token in HIGHEST_ALIAS_TOKENS)
+
+
+def canonicalize_highest_label(value):
+    text = '' if pd.isna(value) else str(value).strip()
+    if not text or text.lower() == 'nan':
+        return text
+    return 'Highest' if is_highest_alias(text) else text
+
 DEFAULT_FLOW_POLICIES = {
     "default": {
         "wip_limit": 12,
@@ -104,7 +123,8 @@ def copy_latest_artifact(source_file, target_file):
 
 def classify_service_class(row, rules):
     """Classify class of service from priority/labels/type."""
-    priority = normalize_text(row.get('Prioridade', ''))
+    priority_raw = canonicalize_highest_label(row.get('Prioridade', ''))
+    priority = normalize_text(priority_raw)
     labels = normalize_text(row.get('Etiquetas', ''))
     title = normalize_text(row.get('Title', ''))
     item_type = normalize_text(row.get('Tipo de Problema', row.get('WorkItemSubType', '')))
@@ -114,7 +134,7 @@ def classify_service_class(row, rules):
     intangible_keywords = [normalize_text(x) for x in rules.get('intangible_keywords', [])]
 
     if priority in expedite_priorities:
-        return 'Expedite'
+        return 'Highest'
     if any(k and (k in labels or k in title) for k in fixed_keywords):
         return 'Fixed Date'
     if any(k and (k in labels or k in title or k in item_type) for k in intangible_keywords):
@@ -122,7 +142,7 @@ def classify_service_class(row, rules):
     # Default class follows the item's project priority instead of hardcoded "Standard".
     raw_priority = row.get('Prioridade', '')
     if pd.notna(raw_priority):
-        priority_value = str(raw_priority).strip()
+        priority_value = canonicalize_highest_label(raw_priority)
         if priority_value and priority_value.lower() != 'nan':
             return priority_value
     return 'Standard'
@@ -2626,7 +2646,7 @@ def generate_systemic_pattern_detection(consolidated_data, rules):
             expedite_arrivals = 0
             if not arrivals.empty:
                 cls = arrivals.apply(lambda r: classify_service_class(r, CLASS_OF_SERVICE_RULES), axis=1)
-                expedite_arrivals = int((cls == 'Expedite').sum())
+                expedite_arrivals = int(cls.apply(is_highest_alias).sum())
             expedite_pct = _safe_pct(expedite_arrivals, inflow)
 
             blocked_rate = 0.0
@@ -2686,7 +2706,7 @@ def generate_systemic_pattern_detection(consolidated_data, rules):
                     'PatternKey': pattern_key,
                     'Severidade': severity,
                     'Regras Acionadas': " | ".join(rule_hits),
-                    'Expedite (%)': round(signals['expedite_pct'], 2),
+                    'Highest (%)': round(signals['expedite_pct'], 2),
                     'Pressure (λ/μ)': round(signals['flow_pressure'], 3) if pd.notna(signals['flow_pressure']) else np.nan,
                     'Failure Demand (%)': round(signals['failure_demand_pct'], 2),
                     'Predictability (P85/P50)': round(signals['predictability_ratio'], 2) if pd.notna(signals['predictability_ratio']) else np.nan,

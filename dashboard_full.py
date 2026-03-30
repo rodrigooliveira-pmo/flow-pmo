@@ -32,6 +32,26 @@ from shared.path_utils import candidate_data_folders, _sanitize_os_path
 from shared.text_utils import normalize_text
 
 
+HIGHEST_ALIAS_TOKENS = (
+    'highest', 'higest', 'expedite', 'urgent', 'urgente',
+    'critical', 'critico', 'blocker', 'fast track', 'fasttrack',
+)
+
+
+def is_highest_alias(value):
+    text = normalize_text(value)
+    if not text:
+        return False
+    return any(token in text for token in HIGHEST_ALIAS_TOKENS)
+
+
+def canonicalize_highest_label(value):
+    text = '' if pd.isna(value) else str(value).strip()
+    if not text or text.lower() == 'nan':
+        return text
+    return 'Highest' if is_highest_alias(text) else text
+
+
 def _download_model_from_url(url):
     cache_dir = '/tmp/flow-pmo-models'
     os.makedirs(cache_dir, exist_ok=True)
@@ -310,20 +330,21 @@ def resolve_service_class(classe_servico, prioridade):
     if pd.notna(classe_servico):
         classe_text = str(classe_servico).strip()
 
+    normalized_class = canonicalize_highest_label(classe_text)
+    if normalized_class == 'Highest':
+        return normalized_class
+
     classe_norm = ''.join(ch for ch in classe_text.lower() if ch.isalnum() or ch.isspace()).strip()
     if classe_text and classe_norm and classe_norm not in {'standard', 'padrao', 'normal', 'default'}:
-        return classe_text
+        return canonicalize_highest_label(classe_text)
 
     if pd.notna(prioridade):
-        prioridade_text = str(prioridade).strip()
+        prioridade_text = canonicalize_highest_label(prioridade)
         if prioridade_text and prioridade_text.lower() != 'nan':
-            prioridade_norm = ''.join(ch for ch in prioridade_text.lower() if ch.isalnum() or ch.isspace()).strip()
-            if any(token in prioridade_norm for token in ['highest', 'higest']):
-                return 'Expedite'
             return prioridade_text
 
     if classe_text and classe_text.lower() != 'nan':
-        return classe_text
+        return canonicalize_highest_label(classe_text)
     return 'Standard'
 
 
@@ -377,6 +398,7 @@ def apply_portfolio_module_filters(df_portfolio, projeto=None, tipo=None, classe
 
     if 'Prioridade' not in df_filtered.columns:
         df_filtered['Prioridade'] = ''
+    df_filtered['Prioridade'] = df_filtered['Prioridade'].apply(canonicalize_highest_label)
     if 'ClasseServico' not in df_filtered.columns:
         df_filtered['ClasseServico'] = ''
     df_filtered['ClasseServico'] = [
@@ -473,6 +495,7 @@ if 'ClasseServico' not in fato.columns:
     fato['ClasseServico'] = np.nan
 if 'Prioridade' not in fato.columns:
     fato['Prioridade'] = np.nan
+fato['Prioridade'] = fato['Prioridade'].apply(canonicalize_highest_label)
 fato['ClasseServico'] = fato.apply(lambda row: resolve_service_class(row.get('ClasseServico'), row.get('Prioridade')), axis=1)
 
 # Semana padrão do sistema: semana ISO (segunda a domingo).
@@ -2511,8 +2534,7 @@ def _get_variability_cv_critical():
 
 
 def _is_expedite_service_class(value):
-    text = normalize_text(value)
-    return any(token in text for token in ['expedite', 'urgent', 'urgente', 'critical', 'critico', 'fast track', 'fasttrack', 'highest', 'higest'])
+    return is_highest_alias(value)
 
 
 def _variability_status(cv_value, warn=None, critical=None):
@@ -2529,7 +2551,7 @@ def _variability_status(cv_value, warn=None, critical=None):
 
 def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
     detail_cols = [
-        'Projeto', 'Semana', 'Padrão', 'Severidade', 'Regras Acionadas', 'Expedite (%)',
+        'Projeto', 'Semana', 'Padrão', 'Severidade', 'Regras Acionadas', 'Highest (%)',
         'Pressure (λ/μ)', 'Failure Demand (%)', 'Predictability (P85/P50)',
         'Lead Time P85', 'WIP/Throughput', 'Blocked (%)', 'Discard (%)', 'WIP Age / LT P85'
     ]
@@ -2576,7 +2598,7 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
 
             defects = len(done[done['TipoDemanda'] == TYPE_ISSUES]) if 'TipoDemanda' in done.columns else 0
             failure_pct = _safe_pct(defects, tp)
-            expedite_arrivals = len(arrivals[arrivals['ClasseServico'] == 'Expedite']) if 'ClasseServico' in arrivals.columns else 0
+            expedite_arrivals = int(arrivals['ClasseServico'].apply(_is_expedite_service_class).sum()) if 'ClasseServico' in arrivals.columns else 0
             expedite_pct = _safe_pct(expedite_arrivals, inflow)
             blocked_rate = _safe_pct(wip['Bloqueado'].sum(), len(wip)) if 'Bloqueado' in wip.columns and len(wip) > 0 else 0.0
             discard_rate = _safe_pct(done['Descartado'].sum(), tp) if 'Descartado' in done.columns and tp > 0 else 0.0
@@ -2619,7 +2641,7 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
                     'Padrão': pattern_labels.get(pattern_key, pattern_key),
                     'Severidade': severity,
                     'Regras Acionadas': ' | '.join(hits),
-                    'Expedite (%)': round(signals['expedite_pct'], 2),
+                    'Highest (%)': round(signals['expedite_pct'], 2),
                     'Pressure (λ/μ)': round(signals['flow_pressure'], 3) if pd.notna(signals['flow_pressure']) else np.nan,
                     'Failure Demand (%)': round(signals['failure_demand_pct'], 2),
                     'Predictability (P85/P50)': round(signals['predictability_ratio'], 2) if pd.notna(signals['predictability_ratio']) else np.nan,
@@ -2981,33 +3003,33 @@ def build_expedite_governance_view(df_source, start_ts, end_ts):
 
     alerts = pd.DataFrame([
         {
-            'Indicador': '% de entradas em Expedite',
+            'Indicador': '% de entradas em Highest',
             'Observado': f"{arrivals_pct:.1f}%" if pd.notna(arrivals_pct) else 'Sem base',
             'Regra': f"OK <= {expedite_target:.1f}% | Crítico > {expedite_critical:.1f}%",
             'Status': policy_status,
             'Leitura': (
-                'Uso de expedite dentro da política.'
+                'Uso de Highest dentro da política.'
                 if policy_status == 'OK' else
-                'Expedite acima da meta; revisar critérios de fast track.'
+                'Highest acima da meta; revisar critérios de fast track.'
                 if policy_status == 'Atenção' else
-                'Expedite dominando a entrada; risco de canibalizar fluxo normal.'
+                'Highest dominando a entrada; risco de canibalizar fluxo normal.'
                 if policy_status == 'Crítico' else
-                'Sem base suficiente para política de expedite.'
+                'Sem base suficiente para política de Highest.'
             ),
         },
         {
-            'Indicador': '% de throughput em Expedite',
+            'Indicador': '% de throughput em Highest',
             'Observado': f"{throughput_pct:.1f}%" if pd.notna(throughput_pct) else 'Sem base',
-            'Regra': 'Monitorar desbalanceamento entre urgente e fluxo normal',
+            'Regra': 'Monitorar desbalanceamento entre Highest e fluxo normal',
             'Status': 'OK' if pd.notna(throughput_pct) and throughput_pct <= expedite_target else ('Atenção' if pd.notna(throughput_pct) and throughput_pct <= expedite_critical else 'Crítico' if pd.notna(throughput_pct) else 'Sem base'),
-            'Leitura': 'Usar como proxy de quanto da capacidade está sendo consumida por urgências.',
+            'Leitura': 'Usar como proxy de quanto da capacidade está sendo consumida por itens Highest.',
         },
         {
-            'Indicador': 'Itens Expedite em aberto',
+            'Indicador': 'Itens Highest em aberto',
             'Observado': f"{int(len(expedite_open))} itens",
-            'Regra': 'Preferir fila urgente curta e envelhecimento baixo',
+            'Regra': 'Preferir fila Highest curta e envelhecimento baixo',
             'Status': 'OK' if len(expedite_open) <= 2 else 'Atenção' if len(expedite_open) <= 5 else 'Crítico',
-            'Leitura': 'Itens urgentes abertos demais indicam fast track virando estoque em vez de exceção.',
+            'Leitura': 'Itens Highest abertos demais indicam fast track virando estoque em vez de exceção.',
         },
     ])
 
@@ -6278,24 +6300,26 @@ def classify_urgency_label(row):
     prioridade = normalize_text(row.get('Prioridade', ''))
 
     if classe_servico:
-        if any(k in classe_servico for k in ['expedite', 'urgente', 'urgent', 'critical', 'critico']):
-            return 'Urgente'
+        if is_highest_alias(classe_servico):
+            return 'Highest'
         if any(k in classe_servico for k in ['fixed date', 'fixed_date', 'deadline', 'prazo', 'data fixa']):
             return 'Data Fixa'
         if any(k in classe_servico for k in ['intang', 'risco', 'risk', 'compliance', 'regulatorio', 'regulatory']):
             return 'Intangível'
         if any(k in classe_servico for k in ['standard', 'padrao', 'normal', 'default']):
             return 'Padrão'
-        return str(row.get('ClasseServico'))
+        return canonicalize_highest_label(row.get('ClasseServico'))
 
     if prioridade:
-        if any(k in prioridade for k in ['blocker', 'critical', 'highest', 'high', 'alta', 'urgente', 'critica']):
-            return 'Urgente'
+        if is_highest_alias(prioridade):
+            return 'Highest'
+        if any(k in prioridade for k in ['high', 'alta']):
+            return 'Alta'
         if any(k in prioridade for k in ['medium', 'media', 'normal']):
             return 'Média'
         if any(k in prioridade for k in ['low', 'lowest', 'baixa']):
             return 'Baixa'
-        return str(row.get('Prioridade'))
+        return canonicalize_highest_label(row.get('Prioridade'))
 
     return 'Não classificado'
 
@@ -12691,7 +12715,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
         urgency_order = urgency_breakdown['ClassificacaoUrgencia'].tolist()
         urgency_color_map = {
-            'Urgente': '#E45756',
+            'Highest': '#E45756',
+            'Alta': '#F58518',
             'Data Fixa': '#F28E2B',
             'Padrão': '#4C78A8',
             'Média': '#72B7B2',
@@ -13126,10 +13151,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             create_kpi_card('Diagnósticos Prescritivos', diagnosticos, class_name='four columns'),
         ], className='row')
         expedite_kpis = html.Div([
-            create_kpi_card('Expedite nas Entradas', f"{expedite_kpis_data['arrivals_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('arrivals_pct')) else '—', class_name='three columns'),
-            create_kpi_card('Expedite no Throughput', f"{expedite_kpis_data['throughput_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('throughput_pct')) else '—', class_name='three columns'),
-            create_kpi_card('Expedite em Aberto', f"{int(expedite_kpis_data.get('open_items', 0))}", class_name='three columns'),
-            create_kpi_card('Política Expedite', expedite_status, class_name='three columns'),
+            create_kpi_card('Highest nas Entradas', f"{expedite_kpis_data['arrivals_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('arrivals_pct')) else '—', class_name='three columns'),
+            create_kpi_card('Highest no Throughput', f"{expedite_kpis_data['throughput_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('throughput_pct')) else '—', class_name='three columns'),
+            create_kpi_card('Highest em Aberto', f"{int(expedite_kpis_data.get('open_items', 0))}", class_name='three columns'),
+            create_kpi_card('Política Highest', expedite_status, class_name='three columns'),
         ], className='row')
         variability_kpis = html.Div([
             create_kpi_card('Alertas de Variabilidade Críticos', variability_criticos, class_name='four columns'),
@@ -13318,9 +13343,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style={'color': '#555'}
             ),
             diagnosis_table,
-            html.H4('Governança Fast Track / Expedite', style={'marginTop': '16px'}),
+            html.H4('Governança Fast Track / Highest', style={'marginTop': '16px'}),
             html.P(
-                'Expõe participação de urgências na entrada, na saída e no estoque em aberto para evitar que fast track vire regra em vez de exceção.',
+                'Expõe a participação de itens Highest na entrada, na saída e no estoque em aberto para evitar que fast track vire regra em vez de exceção.',
                 style={'color': '#555'}
             ),
             expedite_kpis,
