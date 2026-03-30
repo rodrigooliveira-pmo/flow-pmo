@@ -21,5 +21,11 @@ JIRA_API_TOKEN=cole_seu_token_aqui
 # Opcional (RF-11): regras para classificação de classe de serviço.
 # CLASS_OF_SERVICE_RULES={"expedite_priorities":["blocker","critical","highest","alta","urgente"],"fixed_date_keywords":["fixed date","deadline","due date","prazo"],"intangible_keywords":["risk","compliance","segurança","regulatory"]}
 
+# Opcional: SLA padrão em dias para a visão de serviço/SLA.
+# FLOW_PMO_ONE_PAGE_SLA_DAYS=8
+
+# Opcional: SLA por projeto em dias.
+# FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP={"W1NNER":8,"S1NC":8,"BEFINANCE":8,"DATA&ANALYTICS":8}
+
 # Opcional (RF-08/RF-09): regras para detecção de padrões sistêmicos.
 # PATTERN_RULES={"urgencia_cronica":{"expedite_pct_min":25,"flow_pressure_min":1.0,"failure_demand_pct_min":30},"burnout":{"expedite_pct_min":30,"flow_pressure_min":1.15,"failure_demand_pct_min":35},"confianca_comprometida":{"predictability_ratio_min":2.2,"lead_time_p85_min":15,"failure_demand_pct_min":30},"problema_sistemico_fluxo":{"wip_tp_ratio_min":2.0,"blocked_rate_min":12,"flow_pressure_min":1.0},"atrasos_desperdicios":{"discard_rate_min":8,"blocked_rate_min":10,"wip_age_over_p85_min":1.1},"estagnacao":{"wip_tp_ratio_min":3.0,"wip_age_over_p85_min":1.3,"flow_pressure_min":1.05},"compromisso_prematuro":{"flow_pressure_min":1.1,"wip_tp_ratio_min":2.2,"predictability_ratio_min":2.0}}
