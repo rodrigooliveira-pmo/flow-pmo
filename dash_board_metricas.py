@@ -2712,12 +2712,13 @@ def generate_systemic_pattern_detection(consolidated_data, rules):
     )
     return details_df, summary_df
 
-def generate_lead_time_consolidated_tab(consolidated_data, df_stability, df_trends_comprehensive, df_efficiency_analysis):
+def generate_lead_time_consolidated_tab(consolidated_data, df_stability, df_trends_comprehensive, df_efficiency_analysis, df_advanced_flow=None):
     """
-    Build a single 'Lead Time' tab consolidating lead time data from three sources:
+    Build a single 'Lead Time' tab consolidating lead time data from four sources:
       - Section A (Resumo por Projeto): percentiles P50/P75/P85/P95 + mean, from df_stability
-      - Section B (Tendência Semanal): weekly LT avg, P85, trend, momentum, from df_trends_comprehensive
-      - Section C (Detalhamento por Item): per-item LT breakdown, from df_efficiency_analysis
+      - Section B (Métricas de Fluxo): cycle time, backlog time, efficiency by category, from df_advanced_flow
+      - Section C (Tendência Semanal): weekly LT avg, P85, trend, momentum, from df_trends_comprehensive
+      - Section D (Detalhamento por Item): per-item LT breakdown, from df_efficiency_analysis
     """
     frames = []
 
@@ -2737,7 +2738,26 @@ def generate_lead_time_consolidated_tab(consolidated_data, df_stability, df_tren
         df_a.insert(0, 'Section', 'Resumo por Projeto')
         frames.append(df_a)
 
-    # Section B: weekly trends
+    # Section B: flow metrics (cycle time, backlog time, efficiency) by project/category
+    if df_advanced_flow is not None and not df_advanced_flow.empty:
+        flow_cols = [
+            'Projeto', 'Tipo',
+            'Cycle Time Médio (dias)',
+            'Cycle Time Mediano (dias)',
+            'Tempo Backlog Médio (dias)',
+            'Tempo 1º Movimento Médio (dias)',
+            'Eficiência Ajustada',
+            'Tempo Bloqueio Médio (dias)',
+            'Tempo Espera Intermediária Médio (dias)',
+            'Taxa de Bloqueio (%)',
+            'Itens Completados',
+        ]
+        available = [c for c in flow_cols if c in df_advanced_flow.columns]
+        df_b = df_advanced_flow[available].copy()
+        df_b.insert(0, 'Section', 'Métricas de Fluxo')
+        frames.append(df_b)
+
+    # Section C: weekly trends
     if df_trends_comprehensive is not None and not df_trends_comprehensive.empty:
         trend_cols = [
             'Projeto',
@@ -2750,11 +2770,11 @@ def generate_lead_time_consolidated_tab(consolidated_data, df_stability, df_tren
             'P85 Lead Time Médio (4s)',
         ]
         available = [c for c in trend_cols if c in df_trends_comprehensive.columns]
-        df_b = df_trends_comprehensive[available].copy()
-        df_b.insert(0, 'Section', 'Tendência Semanal')
-        frames.append(df_b)
+        df_c = df_trends_comprehensive[available].copy()
+        df_c.insert(0, 'Section', 'Tendência Semanal')
+        frames.append(df_c)
 
-    # Section C: item-level breakdown
+    # Section D: item-level breakdown
     if df_efficiency_analysis is not None and not df_efficiency_analysis.empty:
         item_cols = [
             'Projeto', 'ID', 'Título', 'Tipo',
@@ -2768,9 +2788,9 @@ def generate_lead_time_consolidated_tab(consolidated_data, df_stability, df_tren
             'Eficiência Ajustada',
         ]
         available = [c for c in item_cols if c in df_efficiency_analysis.columns]
-        df_c = df_efficiency_analysis[available].copy()
-        df_c.insert(0, 'Section', 'Detalhamento por Item')
-        frames.append(df_c)
+        df_d = df_efficiency_analysis[available].copy()
+        df_d.insert(0, 'Section', 'Detalhamento por Item')
+        frames.append(df_d)
 
     if not frames:
         return pd.DataFrame()
@@ -2893,6 +2913,7 @@ def process_multiple_csv_files(input_folder, output_folder):
         df_stability=df_stability,
         df_trends_comprehensive=df_trends_comprehensive,
         df_efficiency_analysis=df_efficiency_analysis,
+        df_advanced_flow=df_advanced_flow,
     )
 
     # Generate executive report artifacts (RF-14)
@@ -2925,7 +2946,7 @@ def process_multiple_csv_files(input_folder, output_folder):
         )
     
     # Replace NaN with 0 in numeric columns before writing to Excel
-    for df_to_clean in [df_consolidated, df_advanced_flow, df_efficiency_analysis, df_lead_time_consolidated]:
+    for df_to_clean in [df_consolidated, df_efficiency_analysis, df_lead_time_consolidated]:
         if df_to_clean is not None and not df_to_clean.empty:
             numeric_cols = df_to_clean.select_dtypes(include=[np.number]).columns
             df_to_clean[numeric_cols] = df_to_clean[numeric_cols].fillna(0)
@@ -2934,10 +2955,7 @@ def process_multiple_csv_files(input_folder, output_folder):
     with pd.ExcelWriter(output_file, engine=excel_engine) as writer:
         # Main Dashboard
         df_consolidated.to_excel(writer, sheet_name='Dashboard', index=False)
-        
-        # Advanced Metrics - Flow
-        df_advanced_flow.to_excel(writer, sheet_name='Adv - Fluxo', index=False)
-        
+
         # Advanced Metrics - Stability
         df_stability.to_excel(writer, sheet_name='Adv - Estabilidade', index=False)
         
