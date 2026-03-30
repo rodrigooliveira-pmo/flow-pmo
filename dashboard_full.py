@@ -14415,19 +14415,57 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
 
         return html.Div([
-            html.H3("Work Item Age", style={'textAlign': 'center'}),
-            html.P(subtitle, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '8px'}),
-            html.P(interpretation, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '18px'}),
             html.Div([
-                create_kpi_card('Itens Ativos', total_items, class_name='three columns'),
-                create_kpi_card('Age Médio', f"{avg_age:.1f}d" if pd.notna(avg_age) else '—', class_name='three columns'),
-                create_kpi_card('Age Mediano', f"{median_age:.1f}d" if pd.notna(median_age) else '—', class_name='three columns'),
-                create_kpi_card('Age Máximo', f"{max_age:.1f}d" if pd.notna(max_age) else '—', class_name='three columns'),
-                create_kpi_card('Críticos', critical_items, class_name='three columns'),
-                create_kpi_card('Em Atenção', attention_items, class_name='three columns'),
-                create_kpi_card('Bloqueados', blocked_items, class_name='three columns'),
-                create_kpi_card('% Críticos', f"{critical_pct:.1f}%", class_name='three columns'),
-            ], className='row'),
+                html.H3("Work Item Age", style={'textAlign': 'center'}),
+                html.P(subtitle, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '8px'}),
+                html.P(interpretation, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '18px'}),
+            ], className='wia-header'),
+            html.Div([
+                html.Div([
+                    html.P('Itens Ativos', className='wia-hero-eyebrow'),
+                    html.H2(f"{total_items}", className='wia-hero-value'),
+                    html.P('Snapshot operacional do trabalho em progresso no recorte atual.', className='wia-hero-caption'),
+                    html.Div([
+                        html.Div([
+                            html.Span('Críticos', className='wia-mini-label'),
+                            html.Strong(f"{critical_items}", className='wia-mini-value'),
+                        ], className='wia-mini-stat'),
+                        html.Div([
+                            html.Span('Bloqueados', className='wia-mini-label'),
+                            html.Strong(f"{blocked_items}", className='wia-mini-value'),
+                        ], className='wia-mini-stat'),
+                    ], className='wia-mini-stats'),
+                ], className='wia-hero-card'),
+                html.Div([
+                    html.Div('Envelhecimento', className='wia-panel-title'),
+                    html.Div([
+                        create_kpi_card(
+                            'Age Médio',
+                            f"{avg_age:.1f}d" if pd.notna(avg_age) else '—',
+                            class_name='wia-kpi-card',
+                        ),
+                        create_kpi_card(
+                            'Age Mediano',
+                            f"{median_age:.1f}d" if pd.notna(median_age) else '—',
+                            class_name='wia-kpi-card',
+                        ),
+                        create_kpi_card(
+                            'Age Máximo',
+                            f"{max_age:.1f}d" if pd.notna(max_age) else '—',
+                            class_name='wia-kpi-card wia-kpi-card--emphasis',
+                        ),
+                    ], className='wia-metric-grid'),
+                ], className='wia-panel'),
+                html.Div([
+                    html.Div('Saúde do WIP', className='wia-panel-title'),
+                    html.Div([
+                        create_kpi_card('Críticos', critical_items, class_name='wia-kpi-card wia-kpi-card--critical'),
+                        create_kpi_card('Em Atenção', attention_items, class_name='wia-kpi-card wia-kpi-card--warning'),
+                        create_kpi_card('Bloqueados', blocked_items, class_name='wia-kpi-card'),
+                        create_kpi_card('% Críticos', f"{critical_pct:.1f}%", class_name='wia-kpi-card'),
+                    ], className='wia-risk-grid'),
+                ], className='wia-panel'),
+            ], className='wia-kpi-layout'),
             dcc.Graph(figure=fig_age_hist),
             dcc.Graph(figure=fig_age_bucket),
             dcc.Graph(figure=fig_top_oldest),
@@ -14474,7 +14512,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     {'if': {'filter_query': '{Saúde} = "Saudável"'}, 'backgroundColor': '#edf7ed'},
                 ],
             ),
-        ])
+        ], className='work-item-age-view')
 
     if tab == 'tab-wip':
         start_date_ts = pd.to_datetime(start_date)

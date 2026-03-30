@@ -1,3 +1,42 @@
+## Current Task (Refatorar layout dos KPIs em Work Item Age)
+- [x] Localizar a implementação da aba e revisar restrições do projeto
+- [x] Reorganizar os KPIs com hierarquia visual e agrupamento semântico
+- [x] Ajustar a responsividade da seção para desktop e mobile
+- [x] Validar sintaxe/import e registrar review
+- [x] Registrar sugestão de commit
+
+## Specification (Refatorar layout dos KPIs em Work Item Age)
+- Objetivo: tornar a leitura dos KPIs da aba `Work Item Age` mais clara e operacional, reduzindo a sensação de cards soltos e melhorando a hierarquia visual do topo da tela.
+- Escopo:
+  - `dashboard_full.py`
+  - `assets/work-item-age.css`
+  - `tasks/todo.md`
+- Estratégia:
+  - substituir a grade uniforme atual por um resumo com bloco principal + grupos de apoio
+  - separar semanticamente volume, aging e risco para reduzir ruído visual
+  - usar estilos específicos da aba, sem alterar o comportamento das demais telas
+- Critério de aceite:
+  - a área inicial de `Work Item Age` deixa de exibir os oito KPIs como uma sequência uniforme de cards
+  - os indicadores passam a ter hierarquia visual perceptível
+- o layout continua legível em larguras menores
+- a lógica de cálculo dos indicadores permanece inalterada
+
+## Review (Refatorar layout dos KPIs em Work Item Age)
+- O que foi implementado:
+  - o topo da aba `Work Item Age` em [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py) deixou de usar uma grade uniforme de oito cards
+  - a seção agora foi reorganizada em três blocos: destaque principal de volume, painel de envelhecimento e painel de risco operacional
+  - o resumo principal passou a destacar `Itens Ativos` com apoio imediato de `Críticos` e `Bloqueados`, reduzindo a dispersão visual dos números mais acionáveis
+  - os KPIs de aging e saúde continuam usando a mesma lógica de cálculo, mas com agrupamento semântico e tratamento visual distinto
+  - estilos específicos e responsivos foram adicionados em [`assets/work-item-age.css`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/assets/work-item-age.css) sem alterar outras abas
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full; print('import ok')"` falhou por ausência de `dash` no ambiente atual (`ModuleNotFoundError: No module named 'dash'`)
+- Risco residual:
+  - não houve inspeção visual no navegador nesta rodada
+  - a responsividade foi tratada por CSS, mas sem smoke test interativo local por falta do runtime completo
+- Suggested commit message:
+  - `refactor(dashboard): reorganize work item age kpis`
+
 ## Current Task (Unificar visão de serviço/SLA para itens básicos)
 - [x] Mapear métricas e regras já existentes no dashboard atual
 - [x] Reestruturar a aba principal de serviço para consolidar SLA, vazão e WIP no mesmo lugar
