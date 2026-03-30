@@ -38,7 +38,8 @@
       "Bash(/Library/TeX/texbin/latexmk -pdf -f -interaction=nonstopmode paper.tex)",
       "Bash(/Library/TeX/texbin/latexmk -C)",
       "Bash(find '/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo' -name *.xlsx)",
-      "Bash(find '/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo' -name *.xlsx)"
+      "Bash(find '/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo' -name *.xlsx)",
+      "Bash(md5 \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dash_board_metricas.py\")"
     ]
   }
 }
