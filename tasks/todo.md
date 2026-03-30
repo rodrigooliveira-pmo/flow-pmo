@@ -1,3 +1,55 @@
+## Current Task (Unificar visão de serviço/SLA para itens básicos)
+- [x] Mapear métricas e regras já existentes no dashboard atual
+- [x] Reestruturar a aba principal de serviço para consolidar SLA, vazão e WIP no mesmo lugar
+- [x] Exibir lead time por tipo de demanda e por urgência com média e P85
+- [x] Exibir vazão por tipo de demanda e por urgência com média e percentis
+- [x] Exibir trabalho em progresso com visão operacional do recorte atual
+- [x] Validar a renderização por sintaxe/execução local e registrar review
+- [x] Registrar sugestão de commit
+
+## Specification (Unificar visão de serviço/SLA para itens básicos)
+- Objetivo: permitir leitura rápida, por projeto e período selecionados, dos indicadores principais de serviço para responder perguntas de SLA sem navegar por várias abas redundantes.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reutilizar as regras já existentes de filtro, lead time selecionado, entregas elegíveis, classificação de urgência e WIP
+  - concentrar na aba principal de serviço uma visão única com resumo executivo + tabelas/gráficos de SLA por tipo e urgência
+  - reduzir a dependência do usuário em alternar entre `Performance do Serviço`, `One Page Report`, `Throughput Breakdown` e painéis auxiliares para obter a leitura operacional básica
+- Critério de aceite:
+  - com projeto e período filtrados, a tela principal de serviço mostra rapidamente:
+    - lead time por tipo de demanda com média e P85
+    - lead time por urgência com média e P85
+    - vazão por tipo de demanda com média e percentis
+    - vazão por urgência com média e percentis
+    - WIP atual e aging operacional do WIP
+- a implementação reutiliza a lógica existente de filtros e não cria regras paralelas para cálculo das métricas
+- a aba fica compreensível sem exigir navegação imediata para outras abas
+
+## Review (Unificar visão de serviço/SLA para itens básicos)
+- O que foi implementado:
+  - a aba `tab-performance` foi reposicionada como `Serviço e SLA`, deixando de priorizar a visão dispersa de quarter/execução e passando a abrir com uma leitura operacional de SLA
+  - o topo agora mostra cards com SLA de referência, lead time médio/P85, vazão média/P85 por bucket do período, itens entregues, WIP atual e percentual dentro do SLA
+  - a mesma aba agora traz tabelas explícitas de lead time por tipo de demanda e por urgência, com `Itens`, `Lead Médio`, `Lead P50`, `Lead P85` e `% SLA`
+  - a mesma aba agora traz tabelas de vazão por tipo e por urgência, com `Itens Entregues`, `Média/Bucket`, `P50`, `P85` e `Máx Bucket`
+  - a mesma aba agora traz WIP atual por tipo e por urgência, com `Itens em WIP`, `Age Médio`, `Age P85` e `Mais Antigo`
+  - o quadro semanal antigo foi mantido como série de apoio, em vez de permanecer como fonte principal de leitura
+- Reuso de regra de negócio:
+  - SLA por projeto foi extraído para `resolve_project_sla_days(...)`
+  - a visão nova reutiliza `apply_selected_lead_time_metric(...)`, `build_delivered_items_base(...)`, `time_metric_series(...)`, `weekly_bucket_start(...)` e `classify_urgency_label(...)`
+  - isso evitou duplicar critérios de lead time selecionado, elegibilidade de concluídos e classificação de urgência
+- Evidências de validação:
+  - `python3 -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('syntax ok')"`
+  - `python3 -m py_compile dashboard_full.py`
+  - `python3 -c "import dashboard_full; print('import ok')"`
+  - smoke test do callback principal:
+    - `python3 -c "import dashboard_full, pandas as pd; ...; out=dashboard_full.render_tab('services','tab-performance',...); print(type(out).__name__, projeto, start, end)"`
+    - resultado: `Div BEFINANCE 2024-05-08 2026-03-19`
+- Risco residual:
+  - a validação foi de bootstrap e callback em Python; não houve inspeção visual interativa no navegador nesta rodada
+- Suggested commit message:
+  - `feat(dashboard): unify service SLA view for lead time, throughput and wip`
+
 
 ## Current Task (BusinessMap: gravar datas como células de data do Excel)
 - [x] Inspecionar o XLSX gerado e confirmar o tipo real das colunas `Start Date` e `End Date`

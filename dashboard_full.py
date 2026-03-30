@@ -551,7 +551,7 @@ PORTFOLIO_EXTRA_ONEPAGE_TAG = 'extra onepage'
 PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
 PROJECT_FILTER_ALL_LABEL = 'Todos os projetos'
 SERVICE_TABS = [
-    ('Performance do Serviço', 'tab-performance'),
+    ('Serviço e SLA', 'tab-performance'),
     ('One Page Report', 'tab-one-page'),
     ('Process Mining Jira', 'tab-process-mining-jira'),
     ('Painel Fluxo', 'tab-painel-3x3'),
@@ -6301,6 +6301,173 @@ def classify_urgency_label(row):
     return 'Não classificado'
 
 
+def resolve_project_sla_days(projeto, default=8.0):
+    sla_default = float(default)
+    try:
+        sla_default = float(os.getenv('FLOW_PMO_ONE_PAGE_SLA_DAYS', str(default)))
+    except Exception:
+        sla_default = float(default)
+    sla_map = parse_json_env('FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP', {})
+    if not projeto:
+        return sla_default
+    try:
+        return float(sla_map.get(str(projeto).upper(), sla_default))
+    except Exception:
+        return sla_default
+
+
+def infer_service_bucket_config(start_ts, end_ts):
+    days_span = max(1, int((pd.Timestamp(end_ts).normalize() - pd.Timestamp(start_ts).normalize()).days + 1))
+    if days_span <= 120:
+        return 'W-MON', 'Semana', 'semanal'
+    return 'MS', 'Mês', 'mensal'
+
+
+def _service_dimension_label(series, empty_label='Não classificado'):
+    values = series.fillna('').astype(str).str.strip()
+    values = values.replace('', empty_label)
+    return values
+
+
+def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, lead_col='LeadTime_Selected_Dias', sla_days=None):
+    empty = pd.DataFrame(columns=[dimension_label, 'Itens', 'Lead Médio', 'Lead P50', 'Lead P85', '% SLA'])
+    if done_df is None or done_df.empty or dimension_col not in done_df.columns:
+        return empty
+
+    base = done_df.copy()
+    base[dimension_label] = _service_dimension_label(base[dimension_col])
+    base['LeadMetric'] = pd.to_numeric(base.get(lead_col), errors='coerce')
+    base = base.dropna(subset=['LeadMetric'])
+    base = base[base['LeadMetric'] >= 0]
+    if base.empty:
+        return empty
+
+    summary = (
+        base.groupby(dimension_label, dropna=False)
+        .agg(
+            Itens=('LeadMetric', 'size'),
+            **{
+                'Lead Médio': ('LeadMetric', 'mean'),
+                'Lead P50': ('LeadMetric', lambda s: exact_empirical_percentile(s.dropna(), 0.50) if not s.dropna().empty else np.nan),
+                'Lead P85': ('LeadMetric', lambda s: exact_empirical_percentile(s.dropna(), 0.85) if not s.dropna().empty else np.nan),
+            }
+        )
+        .reset_index()
+        .sort_values(['Itens', 'Lead P85', dimension_label], ascending=[False, False, True], ignore_index=True)
+    )
+    if sla_days and sla_days > 0:
+        sla_share = (
+            base.assign(InSLA=base['LeadMetric'] <= float(sla_days))
+            .groupby(dimension_label, dropna=False)['InSLA']
+            .mean()
+            .mul(100.0)
+            .reset_index(name='% SLA')
+        )
+        summary = summary.merge(sla_share, on=dimension_label, how='left')
+    else:
+        summary['% SLA'] = np.nan
+
+    for col in ['Lead Médio', 'Lead P50', 'Lead P85', '% SLA']:
+        summary[col] = pd.to_numeric(summary[col], errors='coerce').round(1)
+    return summary
+
+
+def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, start_ts, end_ts, bucket_freq='W-MON'):
+    empty = pd.DataFrame(columns=[dimension_label, 'Itens Entregues', 'Média/Bucket', 'P50', 'P85', 'Máx Bucket'])
+    if done_df is None or done_df.empty or dimension_col not in done_df.columns:
+        return empty
+
+    base = done_df.copy()
+    base['DataDone'] = pd.to_datetime(base.get('DataDone'), errors='coerce')
+    base = base.dropna(subset=['DataDone'])
+    if base.empty:
+        return empty
+    base[dimension_label] = _service_dimension_label(base[dimension_col])
+    if bucket_freq == 'MS':
+        base['Bucket'] = base['DataDone'].dt.to_period('M').dt.start_time
+        bucket_range = pd.date_range(start=pd.Timestamp(start_ts).normalize(), end=pd.Timestamp(end_ts).normalize(), freq='MS')
+    else:
+        base['Bucket'] = weekly_bucket_start(base['DataDone'])
+        bucket_range = pd.date_range(start=pd.Timestamp(start_ts), end=pd.Timestamp(end_ts) + pd.Timedelta(days=7), freq='W-MON')
+    bucket_range = pd.DatetimeIndex(bucket_range).unique().sort_values()
+    if len(bucket_range) == 0:
+        bucket_range = pd.DatetimeIndex([pd.Timestamp(start_ts).normalize()])
+
+    dims = sorted(base[dimension_label].dropna().unique().tolist(), key=lambda x: str(x))
+    if not dims:
+        return empty
+
+    counts = (
+        base.groupby(['Bucket', dimension_label], dropna=False)
+        .size()
+        .rename('Throughput')
+        .reset_index()
+    )
+    full_index = pd.MultiIndex.from_product([bucket_range, dims], names=['Bucket', dimension_label])
+    counts = (
+        counts.set_index(['Bucket', dimension_label])
+        .reindex(full_index, fill_value=0)
+        .reset_index()
+    )
+    summary = (
+        counts.groupby(dimension_label, dropna=False)['Throughput']
+        .agg(
+            **{
+                'Itens Entregues': 'sum',
+                'Média/Bucket': 'mean',
+                'P50': lambda s: exact_empirical_percentile(s.dropna(), 0.50) if not s.dropna().empty else np.nan,
+                'P85': lambda s: exact_empirical_percentile(s.dropna(), 0.85) if not s.dropna().empty else np.nan,
+                'Máx Bucket': 'max',
+            }
+        )
+        .reset_index()
+        .sort_values(['Itens Entregues', 'P85', dimension_label], ascending=[False, False, True], ignore_index=True)
+    )
+    for col in ['Média/Bucket', 'P50', 'P85']:
+        summary[col] = pd.to_numeric(summary[col], errors='coerce').round(1)
+    summary['Itens Entregues'] = pd.to_numeric(summary['Itens Entregues'], errors='coerce').fillna(0).astype(int)
+    summary['Máx Bucket'] = pd.to_numeric(summary['Máx Bucket'], errors='coerce').fillna(0).astype(int)
+    return summary
+
+
+def build_service_wip_breakdown(df_scope, end_ts, dimension_col, dimension_label):
+    empty = pd.DataFrame(columns=[dimension_label, 'Itens em WIP', 'Age Médio', 'Age P85', 'Mais Antigo'])
+    if df_scope is None or df_scope.empty or dimension_col not in df_scope.columns:
+        return empty
+
+    active = df_scope.copy()
+    active['DataInProgress'] = pd.to_datetime(active.get('DataInProgress'), errors='coerce')
+    active['DataDone'] = pd.to_datetime(active.get('DataDone'), errors='coerce')
+    active = active[
+        active['DataInProgress'].notna() &
+        (active['DataInProgress'] <= end_ts) &
+        (active['DataDone'].isna() | (active['DataDone'] > end_ts))
+    ].copy()
+    if active.empty:
+        return empty
+
+    active[dimension_label] = _service_dimension_label(active[dimension_col])
+    active['WIPAge'] = (pd.Timestamp(end_ts) - active['DataInProgress']).dt.total_seconds() / 86400.0
+    active['WIPAge'] = pd.to_numeric(active['WIPAge'], errors='coerce')
+    summary = (
+        active.groupby(dimension_label, dropna=False)
+        .agg(
+            **{
+                'Itens em WIP': ('WIPAge', 'size'),
+                'Age Médio': ('WIPAge', 'mean'),
+                'Age P85': ('WIPAge', lambda s: exact_empirical_percentile(s.dropna(), 0.85) if not s.dropna().empty else np.nan),
+                'Mais Antigo': ('WIPAge', 'max'),
+            }
+        )
+        .reset_index()
+        .sort_values(['Itens em WIP', 'Mais Antigo', dimension_label], ascending=[False, False, True], ignore_index=True)
+    )
+    for col in ['Age Médio', 'Age P85', 'Mais Antigo']:
+        summary[col] = pd.to_numeric(summary[col], errors='coerce').round(1)
+    summary['Itens em WIP'] = pd.to_numeric(summary['Itens em WIP'], errors='coerce').fillna(0).astype(int)
+    return summary
+
+
 def build_throughput_breakdown(df, dimension_col, dimension_label):
     """Monta DataFrame com contagem e percentual para breakdown de throughput."""
     if df.empty or dimension_col not in df.columns:
@@ -7928,18 +8095,7 @@ def build_dynamic_one_page_report(projeto, tipo, classe_servico, responsavel, st
     lead_median = exact_empirical_percentile(lead_series, 0.50) if not lead_series.empty else np.nan
     lead_p85 = exact_empirical_percentile(lead_series, 0.85) if not lead_series.empty else np.nan
 
-    sla_default = 8.0
-    try:
-        sla_default = float(os.getenv('FLOW_PMO_ONE_PAGE_SLA_DAYS', '8'))
-    except Exception:
-        sla_default = 8.0
-    sla_map = parse_json_env('FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP', {})
-    sla_days = sla_default
-    if projeto:
-        try:
-            sla_days = float(sla_map.get(str(projeto).upper(), sla_default))
-        except Exception:
-            sla_days = sla_default
+    sla_days = resolve_project_sla_days(projeto, default=8.0)
     lead_ratio = (lead_median / sla_days) if pd.notna(lead_median) and sla_days > 0 else np.nan
 
     bitbucket_logs = load_project_bitbucket_logs(projeto) if projeto else {'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()}
@@ -9025,23 +9181,26 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
 
-        df_proj = fato.copy()
+        df_scope = fato.copy()
         if projeto:
-            df_proj = df_proj[df_proj['Projeto'] == projeto]
+            df_scope = df_scope[df_scope['Projeto'] == projeto]
         if responsavel:
-            df_proj = df_proj[df_proj['Responsavel'] == responsavel]
+            df_scope = df_scope[df_scope['Responsavel'] == responsavel]
         if tipo:
-            df_proj = df_proj[df_proj['TipoDemanda'] == tipo]
+            df_scope = df_scope[df_scope['TipoDemanda'] == tipo]
         if classe_servico:
-            df_proj = df_proj[df_proj['ClasseServico'] == classe_servico]
-        df_proj, _ = apply_selected_lead_time_metric(df_proj, projeto, leadtime_stages)
+            df_scope = df_scope[df_scope['ClasseServico'] == classe_servico]
+        df_scope, _ = apply_selected_lead_time_metric(df_scope, projeto, leadtime_stages)
+        if df_scope.empty:
+            return html.Div('Sem dados para os filtros selecionados.')
+
         weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
         if len(weeks) < 2:
             return html.Div('Período muito curto para análise semanal.')
 
         wip_stage_map = compute_current_stage_map(projeto) if projeto and etapa_fluxo else {}
         metric_names, rows = compute_weekly_service_metrics(
-            df_proj, weeks,
+            df_scope, weeks,
             lead_time_col='LeadTime_Selected_Dias',
             projeto=projeto,
             wip_stage_map=wip_stage_map if etapa_fluxo else None,
@@ -9070,19 +9229,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'backgroundColor': 'rgb(245, 245, 245)', 'color': '#bbb', 'fontStyle': 'italic'
             })
 
-        titulo = f"Performance da Entrega do Serviço: {projeto}" if projeto else "Performance da Entrega do Serviço"
-        df_scope = fato.copy()
-        if projeto:
-            df_scope = df_scope[df_scope['Projeto'] == projeto]
-        if responsavel:
-            df_scope = df_scope[df_scope['Responsavel'] == responsavel]
-        if tipo:
-            df_scope = df_scope[df_scope['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_scope = df_scope[df_scope['ClasseServico'] == classe_servico]
-        df_scope, _ = apply_selected_lead_time_metric(df_scope, projeto, leadtime_stages)
-
+        titulo = f"Serviço e SLA: {projeto}" if projeto else "Serviço e SLA"
         period_label = f"{start_ts.strftime('%d/%m')} a {end_ts.strftime('%d/%m')}"
+        bucket_freq, bucket_label, bucket_adj = infer_service_bucket_config(start_ts, end_ts)
+        sla_days = resolve_project_sla_days(projeto, default=8.0)
 
         data_in_progress = pd.to_datetime(df_scope['DataInProgress'], errors='coerce') if 'DataInProgress' in df_scope.columns else pd.Series(pd.NaT, index=df_scope.index)
         data_done = pd.to_datetime(df_scope['DataDone'], errors='coerce') if 'DataDone' in df_scope.columns else pd.Series(pd.NaT, index=df_scope.index)
@@ -9094,128 +9244,160 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         done_period_mask = (data_done >= start_ts) & (data_done <= end_ts)
         df_done_period = df_scope[done_period_mask].copy()
-        df_done_period_eligible = build_delivered_items_base(df_done_period)
+        df_done_period_eligible = build_delivered_items_base(df_done_period, lead_time_col='LeadTime_Selected_Dias')
+        df_done_period_eligible = df_done_period_eligible.copy()
+        if not df_done_period_eligible.empty:
+            df_done_period_eligible['ClassificacaoUrgencia'] = df_done_period_eligible.apply(classify_urgency_label, axis=1)
 
-        planned_items = int(len(df_scope_period))
-        delivered_items = int(len(df_done_period_eligible))
-
-        in_progress_mask = (
-            (pd.to_datetime(df_scope_period['DataInProgress'], errors='coerce') <= end_ts) &
-            (
-                pd.to_datetime(df_scope_period['DataDone'], errors='coerce').isna() |
-                (pd.to_datetime(df_scope_period['DataDone'], errors='coerce') > end_ts)
-            )
-        ) if not df_scope_period.empty else pd.Series(dtype=bool)
-        in_progress_items = int(in_progress_mask.sum()) if not df_scope_period.empty else 0
-
-        exec_days = time_metric_series(df_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
-        executed_hours = float(exec_days.sum() * 8.0) if not exec_days.empty else 0.0
-
-        sp_scope = pd.to_numeric(df_scope_period.get('StoryPoints', pd.Series(dtype=float)), errors='coerce')
-        sp_done = pd.to_numeric(df_done_period_eligible.get('StoryPoints', pd.Series(dtype=float)), errors='coerce')
-        sp_scope_sum = float(sp_scope.dropna().sum()) if not sp_scope.empty else 0.0
-        sp_done_sum = float(sp_done.dropna().sum()) if not sp_done.empty else 0.0
-        if sp_scope_sum > 0 and sp_done_sum > 0 and executed_hours > 0:
-            quarter_estimated_hours = sp_scope_sum * (executed_hours / sp_done_sum)
-        elif planned_items > 0 and delivered_items > 0 and executed_hours > 0:
-            quarter_estimated_hours = (executed_hours / delivered_items) * planned_items
+        active_wip = df_scope[
+            data_in_progress.notna() &
+            (data_in_progress <= end_ts) &
+            (data_done.isna() | (data_done > end_ts))
+        ].copy()
+        if not active_wip.empty:
+            active_wip['ClassificacaoUrgencia'] = active_wip.apply(classify_urgency_label, axis=1)
+            active_wip['WIPAge'] = (end_ts - pd.to_datetime(active_wip['DataInProgress'], errors='coerce')).dt.total_seconds() / 86400.0
         else:
-            quarter_estimated_hours = executed_hours
+            active_wip['WIPAge'] = pd.Series(dtype=float)
 
-        tempo_bloqueio = pd.to_numeric(df_scope_period.get('TempoBloqueioDias', pd.Series(0, index=df_scope_period.index)), errors='coerce').fillna(0)
-        blocked_raw = df_scope_period.get('Bloqueado', pd.Series(0, index=df_scope_period.index))
-        blocked_num = pd.to_numeric(blocked_raw, errors='coerce').fillna(0)
-        blocked_str = blocked_raw.fillna('').astype(str).str.strip().str.lower()
-        blocked_flag = blocked_num.gt(0) | blocked_str.isin({'true', 'sim', 'yes', 'y', '1'})
-        blocked_items = int((tempo_bloqueio.gt(0) | blocked_flag).sum()) if not df_scope_period.empty else 0
+        lead_series = time_metric_series(df_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
+        lead_avg = float(lead_series.mean()) if not lead_series.empty else np.nan
+        lead_p85 = exact_empirical_percentile(lead_series, 0.85) if not lead_series.empty else np.nan
+        sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
 
-        dev_count = int(df_scope_period['Responsavel'].fillna('').astype(str).str.strip().replace('', np.nan).dropna().nunique()) if ('Responsavel' in df_scope_period.columns and not df_scope_period.empty) else 0
-        business_days = int(np.busday_count(start_ts.date(), (end_ts + pd.Timedelta(days=1)).date())) if end_ts >= start_ts else 0
-        avg_hours_dev_day = (executed_hours / (dev_count * business_days)) if dev_count > 0 and business_days > 0 else 0.0
+        throughput_bucket_df = df_done_period_eligible.copy()
+        throughput_avg = np.nan
+        throughput_p85 = np.nan
+        if not throughput_bucket_df.empty:
+            throughput_bucket_df['DataDone'] = pd.to_datetime(throughput_bucket_df['DataDone'], errors='coerce')
+            throughput_bucket_df = throughput_bucket_df.dropna(subset=['DataDone'])
+            if not throughput_bucket_df.empty:
+                if bucket_freq == 'MS':
+                    throughput_bucket_df['Bucket'] = throughput_bucket_df['DataDone'].dt.to_period('M').dt.start_time
+                    bucket_range = pd.date_range(start=start_ts.normalize(), end=end_ts.normalize(), freq='MS')
+                else:
+                    throughput_bucket_df['Bucket'] = weekly_bucket_start(throughput_bucket_df['DataDone'])
+                    bucket_range = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq='W-MON')
+                bucket_counts = throughput_bucket_df.groupby('Bucket').size().reindex(bucket_range, fill_value=0)
+                if not bucket_counts.empty:
+                    throughput_avg = float(bucket_counts.mean())
+                    throughput_p85 = float(exact_empirical_percentile(bucket_counts, 0.85))
 
-        delivery_rate_pct = (delivered_items / planned_items * 100.0) if planned_items > 0 else 0.0
-        quarter_consumed_pct = (executed_hours / quarter_estimated_hours * 100.0) if quarter_estimated_hours > 0 else 0.0
-        delivery_gap = max(planned_items - delivered_items, 0)
-        avg_hours_dev_day_label = f"{float(avg_hours_dev_day):.2f}".replace('.', ',')
-        consolidated_cards = [
-            ('Itens planejados', f"{planned_items}"),
-            ('Entregues', f"{delivered_items} ({delivery_rate_pct:.0f}%)"),
-            ('Em andamento', f"{in_progress_items}"),
-            ('Horas executadas', f"{executed_hours:,.0f}".replace(',', '.')),
-            ('Estimado do quarter', f"{quarter_estimated_hours:,.0f}".replace(',', '.')),
-            ('Consumo do estimado', f"{quarter_consumed_pct:.0f}%"),
-        ]
-        consolidated_cards_section = html.Div([
-            html.Div([
-                html.Div(label, style={'fontSize': '13px', 'fontWeight': 'bold', 'color': '#334155', 'marginBottom': '4px'}),
-                html.Div(value, style={'fontSize': '30px', 'fontWeight': 'bold', 'lineHeight': '1.1', 'color': '#0f172a'}),
-            ], style={
-                'backgroundColor': '#f8fafc',
-                'border': '1px solid #dbeafe',
-                'borderRadius': '10px',
-                'padding': '12px',
-                'minHeight': '106px',
-            }) for label, value in consolidated_cards
-        ], style={
-            'display': 'grid',
-            'gridTemplateColumns': 'repeat(auto-fit, minmax(200px, 1fr))',
-            'gap': '10px',
-            'marginTop': '12px',
-            'marginBottom': '10px',
-        })
-        consolidated_section = html.Div([
-            html.H4('Visão consolidada: planejamento do quarter x execução real', style={'marginBottom': '4px'}),
-            html.P(
-                f"Período analisado: {period_label} | "
-                "Referência de horas = volume estimado no planejamento do quarter (não capacidade do time).",
-                style={'color': '#475569', 'marginTop': '0', 'marginBottom': '8px'}
-            ),
-            consolidated_cards_section,
+        wip_count = int(len(active_wip))
+        wip_age_series = pd.to_numeric(active_wip.get('WIPAge', pd.Series(dtype=float)), errors='coerce').dropna()
+        wip_age_avg = float(wip_age_series.mean()) if not wip_age_series.empty else np.nan
+        wip_age_p85 = float(exact_empirical_percentile(wip_age_series, 0.85)) if not wip_age_series.empty else np.nan
+        oldest_wip = float(wip_age_series.max()) if not wip_age_series.empty else np.nan
+
+        lead_by_type = build_service_lead_time_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', sla_days=sla_days)
+        lead_by_urgency = build_service_lead_time_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', sla_days=sla_days)
+        tp_by_type = build_service_throughput_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', start_ts, end_ts, bucket_freq=bucket_freq)
+        tp_by_urgency = build_service_throughput_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', start_ts, end_ts, bucket_freq=bucket_freq)
+        wip_by_type = build_service_wip_breakdown(active_wip, end_ts, 'TipoDemanda', 'Tipo de Demanda')
+        wip_by_urgency = build_service_wip_breakdown(active_wip, end_ts, 'ClassificacaoUrgencia', 'Urgência')
+
+        def service_table(title, df_table, empty_message, table_id):
+            if df_table is None or df_table.empty:
+                body = html.P(empty_message, style={'color': '#64748b', 'margin': 0})
+            else:
+                body = dash_table.DataTable(
+                    id=table_id,
+                    columns=[{"name": c, "id": c} for c in df_table.columns],
+                    data=df_table.to_dict('records'),
+                    style_cell={'textAlign': 'left', 'padding': '8px', 'fontSize': '12px'},
+                    style_header={'backgroundColor': '#e2e8f0', 'fontWeight': 'bold'},
+                    style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
+                    style_table={'overflowX': 'auto'},
+                )
+            return html.Div([
+                html.H4(title, style={'marginTop': '0', 'marginBottom': '10px'}),
+                body,
+            ], style={'backgroundColor': '#ffffff', 'border': '1px solid #e2e8f0', 'borderRadius': '10px', 'padding': '14px'})
+
+        def service_card(label, value, subtitle=''):
+            return html.Div([
+                html.Div(label, style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569'}),
+                html.Div(value, style={'fontSize': '30px', 'fontWeight': '800', 'lineHeight': '1.1', 'color': '#0f172a', 'marginTop': '6px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#64748b', 'marginTop': '6px'}),
+            ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
+
+        summary_cards = html.Div([
+            service_card('SLA de referência', f'{sla_days:.0f} dias', 'Meta usada para leitura rápida do serviço'),
+            service_card('Lead Time', f"{lead_avg:.1f} / {lead_p85:.1f}" if pd.notna(lead_avg) and pd.notna(lead_p85) else '—', 'médio / P85 do período'),
+            service_card(f'Vazão {bucket_adj}', f"{throughput_avg:.1f} / {throughput_p85:.1f}" if pd.notna(throughput_avg) and pd.notna(throughput_p85) else '—', f'média / P85 por {bucket_label.lower()}'),
+            service_card('Itens entregues', f"{len(df_done_period_eligible)}", period_label),
+            service_card('WIP atual', f'{wip_count}', f"age médio {wip_age_avg:.1f}d" if pd.notna(wip_age_avg) else 'sem aging disponível'),
+            service_card('% dentro do SLA', f"{sla_share:.1f}%" if pd.notna(sla_share) else '—', 'itens concluídos no período'),
+        ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))', 'gap': '10px', 'marginTop': '12px', 'marginBottom': '14px'})
+
+        highlights = html.Div([
+            html.Strong('Leitura rápida para responder SLA'),
             html.Ul([
-                html.Li(f"Aderência de entrega no período: {delivered_items}/{planned_items} ({delivery_rate_pct:.0f}%)."),
-                html.Li(
-                    f"Backlog imediato para decisão: {delivery_gap} itens ainda não entregues "
-                    f"(dos quais {in_progress_items} em andamento)."
-                ),
-                html.Li(
-                    f"Consumo de esforço do quarter: {executed_hours:,.0f}h de {quarter_estimated_hours:,.0f}h "
-                    f"({quarter_consumed_pct:.0f}% do estimado).".replace(',', '.')
-                ),
-                html.Li(
-                    f"Média de {avg_hours_dev_day_label}h por dev/dia: "
-                    + ("sinal de possível sobrecarga pontual." if avg_hours_dev_day > 8.0 else "faixa operacional compatível com o período.")
-                ),
-                html.Li(
-                    f"{blocked_items} bloqueios registrados: "
-                    + ("tratar causa raiz e SLA de remoção." if blocked_items > 0 else "nenhum bloqueio sinalizado no recorte filtrado.")
-                ),
-                html.Li(
-                    "Corte de escopo e priorização precisam acontecer mais cedo na sprint."
-                    if delivery_gap > 0 else
-                    "Manter priorização e cadência para sustentar o ritmo de entrega."
-                ),
-            ], style={'marginTop': '6px', 'marginBottom': '10px', 'paddingLeft': '20px'}),
-            html.Div([
-                html.Strong('Perguntas críticas para decisão imediata'),
-                html.Ul([
-                    html.Li('Estamos dentro do previsto?'),
-                    html.Li('Onde está o risco?'),
-                    html.Li('O que precisa ser ajustado agora?'),
-                ], style={'marginTop': '6px', 'marginBottom': '0', 'paddingLeft': '20px'})
-            ], style={'backgroundColor': '#fff7ed', 'border': '1px solid #fed7aa', 'borderRadius': '10px', 'padding': '10px'})
-        ], style={'marginTop': '14px', 'marginBottom': '14px'})
+                html.Li(f"Lead Time médio/P85 do período: {lead_avg:.1f}d / {lead_p85:.1f}d." if pd.notna(lead_avg) and pd.notna(lead_p85) else 'Lead Time sem base suficiente no período.'),
+                html.Li(f"{sla_share:.1f}% das entregas ficaram dentro do SLA de {sla_days:.0f} dias." if pd.notna(sla_share) else f'SLA configurado em {sla_days:.0f} dias, sem base suficiente para medir aderência.'),
+                html.Li(f"Vazão {bucket_adj}: média {throughput_avg:.1f} e P85 {throughput_p85:.1f} por {bucket_label.lower()}." if pd.notna(throughput_avg) and pd.notna(throughput_p85) else f'Vazão sem base suficiente por {bucket_label.lower()}.'),
+                html.Li(f"WIP atual: {wip_count} itens | age médio {wip_age_avg:.1f}d | P85 {wip_age_p85:.1f}d | mais antigo {oldest_wip:.1f}d." if pd.notna(wip_age_avg) and pd.notna(wip_age_p85) and pd.notna(oldest_wip) else f'WIP atual: {wip_count} itens.'),
+            ], style={'marginTop': '8px', 'marginBottom': '0', 'paddingLeft': '20px'}),
+        ], style={'backgroundColor': '#fff7ed', 'border': '1px solid #fed7aa', 'borderRadius': '10px', 'padding': '12px', 'marginBottom': '14px'})
+
+        fig_lt_type = go.Figure()
+        if not lead_by_type.empty:
+            fig_lt_type = px.bar(
+                lead_by_type,
+                x='Tipo de Demanda',
+                y='Lead P85',
+                hover_data=['Lead Médio', '% SLA', 'Itens'],
+                title='Lead Time P85 por Tipo de Demanda',
+                labels={'Lead P85': 'Lead Time P85 (dias)'},
+                color='Lead P85',
+                color_continuous_scale='OrRd',
+            )
+            fig_lt_type.add_hline(y=sla_days, line_dash='dash', line_color='royalblue')
+            fig_lt_type.update_layout(height=360, coloraxis_showscale=False)
+
+        fig_tp_urgency = go.Figure()
+        if not tp_by_urgency.empty:
+            fig_tp_urgency = px.bar(
+                tp_by_urgency,
+                x='Urgência',
+                y='P85',
+                hover_data=['Média/Bucket', 'Itens Entregues', 'Máx Bucket'],
+                title=f'Vazão P85 por Urgência ({bucket_label.lower()})',
+                labels={'P85': f'P85 de throughput por {bucket_label.lower()}'},
+                color='P85',
+                color_continuous_scale='Blues',
+            )
+            fig_tp_urgency.update_layout(height=360, coloraxis_showscale=False)
 
         return html.Div([
             html.H3(titulo, style={'textAlign': 'center', 'marginBottom': '10px'}),
             leadtime_selection_summary,
             html.Div(
                 (
-                    "Lead Time = primeira etapa selecionada (compromisso) até finalização | "
-                    f"Entregues no período: {int(len(build_delivered_items_base(df)))} itens"
+                    "Visão unificada para responder SLA por projeto/período com cortes por tipo, urgência e WIP atual. "
+                    f"Buckets de vazão: {bucket_label.lower()}s dentro do recorte selecionado."
                 ),
                 style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px', 'fontSize': '13px'}
             ),
-            consolidated_section,
+            summary_cards,
+            highlights,
+            html.Div([
+                service_table('Lead Time por Tipo de Demanda', lead_by_type, 'Sem dados de lead time por tipo no período.', 'service-lt-type'),
+                service_table('Lead Time por Urgência', lead_by_urgency, 'Sem dados de lead time por urgência no período.', 'service-lt-urgency'),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
+            html.Div([
+                dcc.Graph(figure=fig_lt_type),
+                service_table(f'Vazão por Tipo de Demanda ({bucket_label.lower()})', tp_by_type, 'Sem dados de vazão por tipo no período.', 'service-tp-type'),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
+            html.Div([
+                dcc.Graph(figure=fig_tp_urgency),
+                service_table(f'Vazão por Urgência ({bucket_label.lower()})', tp_by_urgency, 'Sem dados de vazão por urgência no período.', 'service-tp-urgency'),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
+            html.Div([
+                service_table('WIP Atual por Tipo de Demanda', wip_by_type, 'Sem itens em progresso no recorte atual.', 'service-wip-type'),
+                service_table('WIP Atual por Urgência', wip_by_urgency, 'Sem itens em progresso no recorte atual.', 'service-wip-urgency'),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
+            html.H4('Série semanal de apoio', style={'marginBottom': '8px'}),
             dash_table.DataTable(
                 id='performance-table',
                 columns=columns,

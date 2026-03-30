@@ -1382,6 +1382,7 @@ def generate_stability_metrics(consolidated_data):
                 'Coeficiente Variação (%)': round(cv_throughput, 2),
                 'Lead Time P50 (dias)': round(np.percentile(lead_times, 50), 2) if lead_times else 0,
                 'Lead Time P75 (dias)': round(np.percentile(lead_times, 75), 2) if lead_times else 0,
+                'Lead Time P85 (dias)': round(np.percentile(lead_times, 85), 2) if lead_times else 0,
                 'Lead Time P95 (dias)': round(np.percentile(lead_times, 95), 2) if lead_times else 0,
                 'Lead Time Médio (dias)': round(np.mean(lead_times), 2) if lead_times else 0,
                 'IC 95% Inferior': round(ic_lower, 2),
@@ -1674,7 +1675,6 @@ def generate_trend_analysis(consolidated_data):
         
         throughputs = []
         wips = []
-        lead_times_weekly = []
         week_dates = []
         
         for i in range(len(weeks)-1):
@@ -1692,40 +1692,28 @@ def generate_trend_analysis(consolidated_data):
             ])
             wips.append(wip_count)
             
-            # Lead Time
-            if not finished.empty:
-                lead_times_valid = compute_valid_lead_series(finished)
-                lt_avg = lead_times_valid.mean() if not lead_times_valid.empty else 0
-                lead_times_weekly.append(lt_avg)
-            else:
-                lead_times_weekly.append(None)
-            
             week_dates.append(week_start.date())
-        
+
         # Calculate rolling averages (4 weeks)
         from collections import deque
         window_size = 4
-        
+
         for i, date in enumerate(week_dates):
             start_idx = max(0, i - window_size + 1)
-            
+
             # Throughput rolling average
             throughput_slice = [t for t in throughputs[start_idx:i+1] if t > 0]
             throughput_avg = np.mean(throughput_slice) if throughput_slice else 0
-            
+
             # WIP rolling average
             wip_avg = np.mean(wips[start_idx:i+1]) if wips[start_idx:i+1] else 0
-            
-            # Lead Time rolling average
-            lt_slice = [lt for lt in lead_times_weekly[start_idx:i+1] if lt is not None]
-            lt_avg = np.mean(lt_slice) if lt_slice else 0
-            
+
             # Trend direction
             if i >= 1:
                 throughput_trend = "↑" if throughput_avg > throughputs[i-1] else ("↓" if throughput_avg < throughputs[i-1] else "→")
             else:
                 throughput_trend = "→"
-            
+
             metrics_list.append({
                 'Projeto': projeto,
                 'Semana': date,
@@ -1733,7 +1721,6 @@ def generate_trend_analysis(consolidated_data):
                 'Throughput Médio (4s)': round(throughput_avg, 2),
                 'Trend Throughput': throughput_trend,
                 'WIP Médio (4s)': round(wip_avg, 2),
-                'Lead Time Médio (4s)': round(lt_avg, 2)
             })
     
     return pd.DataFrame(metrics_list) if metrics_list else pd.DataFrame()
@@ -2725,6 +2712,72 @@ def generate_systemic_pattern_detection(consolidated_data, rules):
     )
     return details_df, summary_df
 
+def generate_lead_time_consolidated_tab(consolidated_data, df_stability, df_trends_comprehensive, df_efficiency_analysis):
+    """
+    Build a single 'Lead Time' tab consolidating lead time data from three sources:
+      - Section A (Resumo por Projeto): percentiles P50/P75/P85/P95 + mean, from df_stability
+      - Section B (Tendência Semanal): weekly LT avg, P85, trend, momentum, from df_trends_comprehensive
+      - Section C (Detalhamento por Item): per-item LT breakdown, from df_efficiency_analysis
+    """
+    frames = []
+
+    # Section A: summary stats per project
+    if df_stability is not None and not df_stability.empty:
+        summary_cols = [
+            'Projeto',
+            'Lead Time P50 (dias)',
+            'Lead Time P75 (dias)',
+            'Lead Time P85 (dias)',
+            'Lead Time P95 (dias)',
+            'Lead Time Médio (dias)',
+            'Semanas Analisadas',
+        ]
+        available = [c for c in summary_cols if c in df_stability.columns]
+        df_a = df_stability[available].copy()
+        df_a.insert(0, 'Section', 'Resumo por Projeto')
+        frames.append(df_a)
+
+    # Section B: weekly trends
+    if df_trends_comprehensive is not None and not df_trends_comprehensive.empty:
+        trend_cols = [
+            'Projeto',
+            'Semana',
+            'Lead Time',
+            'Lead Time Médio (4s)',
+            'Lead Time Trend',
+            'Lead Time Momentum',
+            'P85 Lead Time',
+            'P85 Lead Time Médio (4s)',
+        ]
+        available = [c for c in trend_cols if c in df_trends_comprehensive.columns]
+        df_b = df_trends_comprehensive[available].copy()
+        df_b.insert(0, 'Section', 'Tendência Semanal')
+        frames.append(df_b)
+
+    # Section C: item-level breakdown
+    if df_efficiency_analysis is not None and not df_efficiency_analysis.empty:
+        item_cols = [
+            'Projeto', 'ID', 'Título', 'Tipo',
+            'Lead Time (dias)',
+            'Tempo Backlog (dias)',
+            'Tempo Execução (dias)',
+            'Tempo Bloqueio (dias)',
+            'Tempo Espera Intermediária (dias)',
+            'Outros Tempos (dias)',
+            'Eficiência Simples',
+            'Eficiência Ajustada',
+        ]
+        available = [c for c in item_cols if c in df_efficiency_analysis.columns]
+        df_c = df_efficiency_analysis[available].copy()
+        df_c.insert(0, 'Section', 'Detalhamento por Item')
+        frames.append(df_c)
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(frames, ignore_index=True)
+
+
 def process_multiple_csv_files(input_folder, output_folder):
     """
     Process all CSV files and consolidate into a single sheet with advanced metrics.
@@ -2833,6 +2886,15 @@ def process_multiple_csv_files(input_folder, output_folder):
     print("Generating efficiency and wait time analysis...")
     df_efficiency_analysis = generate_efficiency_wait_time_analysis(consolidated_data)
 
+    # Generate consolidated Lead Time tab
+    print("Generating consolidated lead time tab...")
+    df_lead_time_consolidated = generate_lead_time_consolidated_tab(
+        consolidated_data,
+        df_stability=df_stability,
+        df_trends_comprehensive=df_trends_comprehensive,
+        df_efficiency_analysis=df_efficiency_analysis,
+    )
+
     # Generate executive report artifacts (RF-14)
     print("Generating executive report artifacts...")
     df_executive_summary, executive_csv, executive_md = generate_executive_report_artifacts(
@@ -2863,7 +2925,7 @@ def process_multiple_csv_files(input_folder, output_folder):
         )
     
     # Replace NaN with 0 in numeric columns before writing to Excel
-    for df_to_clean in [df_consolidated, df_advanced_flow, df_efficiency_analysis]:
+    for df_to_clean in [df_consolidated, df_advanced_flow, df_efficiency_analysis, df_lead_time_consolidated]:
         if df_to_clean is not None and not df_to_clean.empty:
             numeric_cols = df_to_clean.select_dtypes(include=[np.number]).columns
             df_to_clean[numeric_cols] = df_to_clean[numeric_cols].fillna(0)
@@ -2905,6 +2967,10 @@ def process_multiple_csv_files(input_folder, output_folder):
         # Efficiency and Wait Time Analysis
         if not df_efficiency_analysis.empty:
             df_efficiency_analysis.to_excel(writer, sheet_name='Análise Eficiência', index=False)
+
+        # Consolidated Lead Time tab
+        if not df_lead_time_consolidated.empty:
+            df_lead_time_consolidated.to_excel(writer, sheet_name='Lead Time', index=False)
         
         # WIP per Person
         if not df_wip_person.empty:
