@@ -29,6 +29,8 @@ from flask import Flask, Response
 DASH_MODULE = os.getenv("FLOW_PMO_DASH_MODULE", "dashboard_full")
 DASH_ATTR = os.getenv("FLOW_PMO_DASH_ATTR", "app")
 
+app = None  # defined at top-level so Vercel can detect the entrypoint
+
 try:
     module = importlib.import_module(DASH_MODULE)
     dash_obj = getattr(module, DASH_ATTR)
