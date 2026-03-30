@@ -9477,12 +9477,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 annotation_textangle=90
             )
         fig_lt_dist.update_layout(
-            title='Lead Time Distribution: frequência e curva acumulada',
+            title=dict(
+                text='Lead Time Distribution: frequência e curva acumulada',
+                x=0.5,
+                xanchor='center',
+                pad=dict(b=48)
+            ),
             template='plotly_white',
             hovermode='x unified',
             legend=dict(orientation='h', y=-0.18, x=0.5, xanchor='center'),
             height=620,
-            margin=dict(t=80, b=120, l=60, r=60)
+            margin=dict(t=160, b=120, l=60, r=60)
         )
         fig_lt_dist.update_xaxes(title_text='Lead Time (dias)')
         fig_lt_dist.update_yaxes(title_text='Frequência (# itens)', secondary_y=False)

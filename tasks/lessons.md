@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-30
+- Context: Ajuste visual do histograma de Lead Time após girar os rótulos das linhas de referência para vertical.
+- User correction: Informou que, após a rotação dos rótulos, o título do gráfico passou a ser sobrescrito e pediu o título centralizado com mais espaçamento vertical.
+- Root cause: Eu corrigi a orientação dos rótulos, mas não reequilibrei o espaço vertical do layout do gráfico; mantive a margem superior curta e o título sem posicionamento explícito.
+- Prevention rule: Em ajustes de anotações dentro de gráficos, validar o conjunto completo de layout do cabeçalho após a mudança, incluindo alinhamento do título, margem superior e colisão com labels.
+- Action added to workflow: Sempre que eu alterar `annotation_text*` ou `annotation_position` em gráficos Plotly, revisar também `title` e `margin.t` antes de concluir.
+- Date: 2026-03-30
 - Context: Segunda iteração visual da aba `Work Item Age` após trocar o hero escuro por fundo claro.
 - User correction: Informou que a composição ainda estava desproporcional, com o primeiro painel ocupando espaço vertical demais em relação aos demais.
 - Root cause: Eu corrigi cor e contraste, mas mantive a mecânica de distribuição vertical do card principal, preservando um vazio interno incompatível com a densidade dos outros painéis.

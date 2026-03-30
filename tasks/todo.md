@@ -6464,6 +6464,37 @@
 - Suggested commit message:
   - `feat(produtividade-dev): add development cycle and qa return metrics`
 
+## Current Task (Reequilibrar o cabeçalho do histograma de Lead Time)
+- [x] Registrar a correção visual em `tasks/lessons.md`
+- [x] Centralizar o título e ampliar o espaçamento superior do histograma
+- [x] Validar sintaxe, revisar diff e registrar review
+
+## Specification (Reequilibrar o cabeçalho do histograma de Lead Time)
+- Objetivo: impedir que os rótulos verticais das linhas de referência sobrescrevam o título do histograma de Lead Time.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - definir o título do gráfico com posicionamento central explícito
+  - aumentar a margem superior e o `pad` inferior do título para criar folga visual equivalente a cerca de três linhas
+- Critério de aceite:
+  - o título fica centralizado
+  - o cabeçalho deixa de colidir com os rótulos verticais
+  - o arquivo continua válido sintaticamente
+
+## Review (Reequilibrar o cabeçalho do histograma de Lead Time)
+- O que foi ajustado:
+  - o histograma em [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L9478) agora usa `title=dict(...)` com `x=0.5` e `xanchor='center'` para centralizar o título
+  - o mesmo bloco passou a usar `title.pad.b=48` e `margin.t=160`, abrindo espaço vertical adicional entre o título e a área do gráfico para evitar sobreposição com os rótulos verticais
+  - a lição correspondente foi registrada em [`tasks/lessons.md`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/tasks/lessons.md)
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+- Risco residual:
+  - a validação continua estática; não houve inspeção visual no navegador nesta sessão
+- Suggested commit message:
+  - `fix(dashboard): center lead time histogram title and add top spacing`
+
 ## Current Task (Melhorar legibilidade das linhas no histograma de Lead Time)
 - [x] Localizar a configuração do histograma e das anotações das linhas de referência
 - [x] Alterar a orientação dos textos das linhas para vertical
