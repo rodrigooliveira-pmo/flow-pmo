@@ -1,3 +1,36 @@
+## Current Task (Equalizar densidade dos KPIs em Work Item Age)
+- [x] Registrar a nova correção visual em `tasks/lessons.md`
+- [x] Ajustar a distribuição vertical do painel principal
+- [x] Validar sintaxe e revisar diff
+- [x] Registrar review e sugestão de commit
+
+## Specification (Equalizar densidade dos KPIs em Work Item Age)
+- Objetivo: remover o vazio vertical do bloco `Itens Ativos` para que os três painéis do topo tenham densidade visual mais equilibrada.
+- Escopo:
+  - `assets/work-item-age.css`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - eliminar a distribuição vertical com muito espaço sobrando no primeiro painel
+  - aproximar a distância entre título, valor, descrição e mini-KPIs
+  - preservar a estrutura de agrupamento já criada
+- Critério de aceite:
+  - o primeiro painel deixa de parecer “esticado”
+  - a densidade interna dos três blocos fica mais próxima
+  - o visual continua claro e consistente com o dashboard
+
+## Review (Equalizar densidade dos KPIs em Work Item Age)
+- O que foi ajustado:
+  - o painel `Itens Ativos` em [`assets/work-item-age.css`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/assets/work-item-age.css) deixou de usar distribuição vertical com espaço sobrando e passou a agrupar o conteúdo no topo com espaçamento controlado
+  - o valor principal, a legenda e os mini-KPIs foram compactados para aumentar a densidade visual e aproximar o primeiro bloco dos painéis vizinhos
+  - os painéis laterais também receberam alinhamento interno mais consistente via `flex` e `gap`, reduzindo diferenças artificiais entre as colunas
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+- Risco residual:
+  - ainda não houve inspeção visual no navegador nesta sessão
+- Suggested commit message:
+  - `refactor(dashboard): equalize work item age panel density`
+
 ## Current Task (Reequilibrar layout dos KPIs em Work Item Age)
 - [x] Registrar a correção visual do usuário em `tasks/lessons.md`
 - [x] Ajustar o layout para fundo claro e proporções mais consistentes

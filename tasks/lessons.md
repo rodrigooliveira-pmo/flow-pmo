@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-30
+- Context: Segunda iteração visual da aba `Work Item Age` após trocar o hero escuro por fundo claro.
+- User correction: Informou que a composição ainda estava desproporcional, com o primeiro painel ocupando espaço vertical demais em relação aos demais.
+- Root cause: Eu corrigi cor e contraste, mas mantive a mecânica de distribuição vertical do card principal, preservando um vazio interno incompatível com a densidade dos outros painéis.
+- Prevention rule: Quando houver um painel principal ao lado de grids de KPIs, comparar não só cor e tamanho externo, mas também a densidade interna de conteúdo e o uso real do espaço vertical.
+- Action added to workflow: Em revisões de layout com múltiplos painéis paralelos, inspecionar explicitamente se algum bloco está “esticado” por `flex`/`space-between` ou por ausência de conteúdo equivalente antes de concluir.
+- Date: 2026-03-30
 - Context: Primeira refatoração visual dos KPIs da aba `Work Item Age`.
 - User correction: Informou que a nova composição ficou desproporcional, sem padrão visual com o restante do dashboard e com preferência por fundo claro.
 - Root cause: Eu forcei hierarquia visual demais com um bloco hero escuro e pesos muito diferentes entre os cards, sem preservar suficientemente o padrão visual já dominante da aplicação.
