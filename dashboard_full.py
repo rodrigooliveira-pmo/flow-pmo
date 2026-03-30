@@ -556,7 +556,6 @@ SERVICE_TABS = [
     ('Process Mining Jira', 'tab-process-mining-jira'),
     ('Painel Fluxo', 'tab-painel-3x3'),
     ('Lead Time', 'tab-lead-time'),
-    ('Fluxo', 'tab-fluxo'),
     ('CFD', 'tab-cfd'),
     ('Saúde do Fluxo', 'tab-saude'),
     ('Análise Fluxo', 'tab-analise-fluxo'),
@@ -9551,11 +9550,227 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             f"Média: {lt_mean:.2f} | P50: {lt_p50:.2f} | P85: {lt_p85:.2f} | "
             f"Início: {leadtime_meta.get('label', 'padrão')}"
         )
+
+        # --- Análise Avançada de Fluxo (anteriormente aba 'Fluxo') ---
+        df_flow = fato.copy()
+        if projeto:
+            df_flow = df_flow[df_flow['Projeto'] == projeto]
+        if tipo:
+            df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
+        if responsavel:
+            df_flow = df_flow[df_flow['Responsavel'] == responsavel]
+        if classe_servico:
+            df_flow = df_flow[df_flow['ClasseServico'] == classe_servico]
+        df_flow, flow_lead_meta = apply_selected_lead_time_metric(df_flow, projeto, leadtime_stages)
+
+        if etapa_fluxo and projeto:
+            _stage_map_flow = compute_current_stage_map(projeto)
+            if _stage_map_flow and 'ItemID' in df_flow.columns:
+                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
+                _is_done = df_flow['DataDone'].notna()
+                _in_stage = df_flow['ItemID'].astype(str).str.strip().map(
+                    lambda iid: _stage_map_flow.get(iid, '').strip().lower() in _stage_filter_lower
+                )
+                df_flow = df_flow[_is_done | _in_stage].copy()
+
+        mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
+        mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
+        df_flow = df_flow[mask_started_until_end & mask_not_finished_before_start].copy()
+        df_flow_done_period = df_flow[
+            (df_flow['DataDone'] >= start_ts) &
+            (df_flow['DataDone'] <= end_ts)
+        ].copy()
+        df_flow_done_period_eligible = df_flow_done_period[done_time_eligible_mask(df_flow_done_period)].copy()
+
+        flow_metrics = {}
+        lead_time_selected = time_metric_series(df_flow_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
+        tempo_exec = time_metric_series(df_flow_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
+        tempo_backlog = time_metric_series(df_flow_done_period_eligible, 'TempoBacklog_Dias', non_negative=True)
+        tempo_bloqueio = time_metric_series(df_flow_done_period_eligible, 'TempoBloqueioDias', non_negative=True)
+        tempo_espera = time_metric_series(df_flow_done_period_eligible, 'TempoEsperaIntermediariaDias', non_negative=True)
+
+        if not lead_time_selected.empty:
+            flow_metrics['Lead Time Médio (dias)'] = lead_time_selected.mean()
+            flow_metrics['Lead Time P85 (dias)'] = exact_empirical_percentile(lead_time_selected, 0.85)
+            flow_metrics['Lead Time Mediano (dias)'] = exact_empirical_percentile(lead_time_selected, 0.50)
+        if not tempo_exec.empty:
+            flow_metrics['Cycle Time Médio (dias)'] = tempo_exec.mean()
+            flow_metrics['Cycle Time Mediano (dias)'] = tempo_exec.median()
+        if not tempo_backlog.empty:
+            flow_metrics['Tempo em Backlog Médio (dias)'] = tempo_backlog.mean()
+            flow_metrics['Tempo até Primeiro Movimento (dias)'] = tempo_backlog.mean()
+        arrivals_period = len(df_flow[
+            (df_flow['DataInProgress'] >= start_ts) &
+            (df_flow['DataInProgress'] <= end_ts)
+        ])
+        throughput_period = len(df_flow_done_period_eligible)
+        pressure_period, efficiency_period = calculate_flow_efficiency(arrivals_period, throughput_period)
+        if pd.notna(efficiency_period):
+            flow_metrics['Eficiência de Fluxo (1 - ρ)'] = efficiency_period
+        if pd.notna(pressure_period):
+            flow_metrics['Pressão de Fluxo (ρ = λ/μ)'] = pressure_period
+        if not tempo_bloqueio.empty:
+            flow_metrics['Tempo de Bloqueio Médio (dias)'] = tempo_bloqueio.mean()
+        if not tempo_espera.empty:
+            flow_metrics['Tempo de Espera Intermediária Médio (dias)'] = tempo_espera.mean()
+        if 'Bloqueado' in df_flow.columns:
+            total_items = len(df_flow)
+            blocked_items = df_flow['Bloqueado'].sum()
+            flow_metrics['Taxa de Bloqueio (%)'] = (blocked_items / total_items * 100) if total_items > 0 else 0
+
+        kpi_data = [{'Métrica': k, 'Valor': f"{v:.2f}"} for k, v in flow_metrics.items()]
+        kpi_table = dash_table.DataTable(
+            columns=[{"name": i, "id": i} for i in ['Métrica', 'Valor']],
+            data=kpi_data,
+            style_cell={'textAlign': 'left', 'padding': '5px'},
+            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}]
+        )
+
+        bottlenecks_df = load_project_bottlenecks_from_model(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
+        if bottlenecks_df.empty:
+            bottlenecks_df = compute_flow_bottlenecks(df_flow)
+
+        lead_hist_component = html.P('Sem dados válidos de Lead Time (>= 0 dias) para o período e filtros selecionados.')
+        lead_band_table_component = html.P('Sem dados suficientes para calcular bandas percentílicas exatas de Lead Time.')
+        if 'LeadTime_Selected_Dias' in df_flow.columns:
+            lead_series_flow = time_metric_series(df_flow_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
+            if not lead_series_flow.empty:
+                lead_df = pd.DataFrame({'LeadTime_Selected_Dias': lead_series_flow})
+                fig_lead_hist = px.histogram(
+                    lead_df,
+                    x='LeadTime_Selected_Dias',
+                    nbins=30,
+                    title='Distribuição do Lead Time (dias)',
+                )
+                fig_lead_hist.update_layout(
+                    height=500,
+                    xaxis=dict(title='Lead Time (dias)', rangemode='nonnegative'),
+                    yaxis=dict(title='Quantidade de itens'),
+                )
+                lead_hist_component = dcc.Graph(figure=fig_lead_hist)
+                lead_bands_df = exact_percentile_band_summary(lead_series_flow)
+                lead_band_table_component = dash_table.DataTable(
+                    columns=[{"name": i, "id": i} for i in lead_bands_df.columns],
+                    data=lead_bands_df.to_dict('records'),
+                    style_cell={'textAlign': 'center', 'padding': '6px'},
+                    style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                    style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+                )
+
+        lead_time_breakdown_component = html.P('Sem dados suficientes para calcular o breakdown percentual de lead time por etapa.')
+        if bottlenecks_df.empty:
+            fig_bottlenecks = {}
+            bottlenecks_table = html.P('Sem dados suficientes para calcular gargalos por etapa.')
+        else:
+            fig_bottlenecks = go.Figure(
+                go.Bar(
+                    x=bottlenecks_df['Tempo Médio (dias)'],
+                    y=bottlenecks_df['Etapa'],
+                    orientation='h',
+                    text=[
+                        f"{lt:.2f} d | vazão: {vz}"
+                        for lt, vz in zip(
+                            bottlenecks_df['Tempo Médio (dias)'],
+                            bottlenecks_df['Vazão da Etapa (itens)'],
+                        )
+                    ],
+                    textposition='outside',
+                    marker_color='#1f77b4',
+                    marker_line=dict(color='#155a8a', width=1),
+                    customdata=bottlenecks_df[['Vazão da Etapa (itens)']].values,
+                    hovertemplate='Etapa: %{y}<br>Lead time médio: %{x:.2f} dias'
+                                  '<br>Vazão: %{customdata[0]} itens<extra></extra>',
+                )
+            )
+            fig_bottlenecks.update_layout(
+                title='Ranking de Gargalos do Fluxo (Maior para Menor)'
+                      '<br><sup>Ordenação das etapas críticas por tempo médio</sup>',
+                xaxis_title='Tempo médio na etapa (dias)',
+                yaxis_title='Etapa',
+                template='plotly_white',
+                yaxis=dict(autorange='reversed'),
+                height=480,
+                margin=dict(l=140, r=40, t=70, b=50),
+            )
+            display_df = bottlenecks_df.copy()
+            for c in ['Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)']:
+                display_df[c] = display_df[c].round(2)
+            bottlenecks_table = dash_table.DataTable(
+                columns=[{"name": i, "id": i} for i in display_df.columns],
+                data=display_df.to_dict('records'),
+                style_cell={'textAlign': 'center', 'padding': '6px'},
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            )
+
+            breakdown_df = bottlenecks_df[['Etapa', 'Tempo Médio (dias)']].copy()
+            total_lead_time = breakdown_df['Tempo Médio (dias)'].sum()
+            if total_lead_time > 0:
+                breakdown_df['Percentual'] = (breakdown_df['Tempo Médio (dias)'] / total_lead_time) * 100
+                breakdown_df['Barra'] = 'Lead Time'
+                color_map = {
+                    'Backlog': '#4C78A8',
+                    'Execução': '#59A14F',
+                    'Bloqueio': '#E45756',
+                    'Espera Intermediária': '#F28E2B',
+                }
+                stage_order = breakdown_df['Etapa'].tolist()
+                fig_lead_time_breakdown = px.bar(
+                    breakdown_df,
+                    x='Percentual',
+                    y='Barra',
+                    color='Etapa',
+                    orientation='h',
+                    text=breakdown_df['Percentual'].map(lambda v: f'{v:.1f}%'),
+                    title='Lead Time Breakdown por Etapa do Fluxo (%)',
+                    labels={'Percentual': '% do Lead Time', 'Barra': ''},
+                    color_discrete_map=color_map,
+                    category_orders={'Etapa': stage_order},
+                    template='plotly_white',
+                    height=320,
+                )
+                fig_lead_time_breakdown.update_layout(
+                    barmode='stack',
+                    xaxis=dict(range=[0, 100], ticksuffix='%'),
+                    yaxis=dict(showticklabels=False),
+                    legend_title_text='Etapa do Fluxo',
+                    margin=dict(l=60, r=40, t=70, b=50),
+                )
+                fig_lead_time_breakdown.update_traces(
+                    textposition='inside',
+                    insidetextanchor='middle',
+                    hovertemplate='Etapa: %{fullData.name}<br>% Lead Time: %{x:.1f}%<extra></extra>',
+                )
+                lead_time_breakdown_component = dcc.Graph(figure=fig_lead_time_breakdown)
+
         return html.Div([
             html.H3("Lead Time", style={'textAlign': 'center'}),
             html.P(subtitle, style={'textAlign': 'center', 'color': '#666'}),
             dcc.Graph(figure=fig_lt_dist),
             dcc.Graph(figure=fig_lt_scatter),
+            html.Hr(),
+            html.H3("Análise Avançada de Fluxo", style={'textAlign': 'center'}),
+            leadtime_selection_summary,
+            html.P(
+                (
+                    "Filtro de etapas de Lead Time aplicado aos KPIs de Lead Time desta tela "
+                    f"(amostra: {int(len(lead_time_selected))} itens elegíveis). "
+                    "O ranking de gargalos por etapa permanece independente dessa seleção."
+                ),
+                style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px'}
+            ),
+            html.Div(kpi_table, style={'width': '50%', 'margin': 'auto', 'marginBottom': '30px'}),
+            html.H4("Indicador de Gargalo do Fluxo", style={'textAlign': 'center', 'marginTop': '10px'}),
+            html.Div(bottlenecks_table, style={'width': '70%', 'margin': 'auto', 'marginBottom': '20px'}),
+            dcc.Graph(figure=fig_bottlenecks),
+            html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
+            lead_time_breakdown_component,
+            lead_hist_component,
+            html.H4("Bandas Percentílicas Exatas (Lead Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
+            lead_band_table_component,
         ])
 
     if tab == PORTFOLIO_TAB_VALUE:
@@ -11984,242 +12199,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
         ])
 
-    if tab == 'tab-fluxo':
-        start_ts = pd.to_datetime(start_date) if start_date else fato['DataDone'].min()
-        end_ts = pd.to_datetime(end_date) if end_date else pd.to_datetime('today')
-
-        df_flow = fato.copy()
-        if projeto:
-            df_flow = df_flow[df_flow['Projeto'] == projeto]
-        if tipo:
-            df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
-        if responsavel:
-            df_flow = df_flow[df_flow['Responsavel'] == responsavel]
-        if classe_servico:
-            df_flow = df_flow[df_flow['ClasseServico'] == classe_servico]
-        df_flow, flow_lead_meta = apply_selected_lead_time_metric(df_flow, projeto, leadtime_stages)
-
-        if etapa_fluxo and projeto:
-            _stage_map_flow = compute_current_stage_map(projeto)
-            if _stage_map_flow and 'ItemID' in df_flow.columns:
-                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
-                _is_done = df_flow['DataDone'].notna()
-                _in_stage = df_flow['ItemID'].astype(str).str.strip().map(
-                    lambda iid: _stage_map_flow.get(iid, '').strip().lower() in _stage_filter_lower
-                )
-                df_flow = df_flow[_is_done | _in_stage].copy()
-
-        mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
-        mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
-        df_flow = df_flow[mask_started_until_end & mask_not_finished_before_start].copy()
-        df_flow_done_period = df_flow[
-            (df_flow['DataDone'] >= start_ts) &
-            (df_flow['DataDone'] <= end_ts)
-        ].copy()
-        df_flow_done_period_eligible = df_flow_done_period[done_time_eligible_mask(df_flow_done_period)].copy()
-
-        if df_flow.empty:
-            return html.Div('Sem dados para exibir para o período e filtros selecionados.')
-
-        # --- 1. Calcular Métricas ---
-        metrics = {}
-        lead_time_selected = time_metric_series(df_flow_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
-        tempo_exec = time_metric_series(df_flow_done_period_eligible, 'TempoExecucao_Dias', non_negative=True)
-        tempo_backlog = time_metric_series(df_flow_done_period_eligible, 'TempoBacklog_Dias', non_negative=True)
-        tempo_bloqueio = time_metric_series(df_flow_done_period_eligible, 'TempoBloqueioDias', non_negative=True)
-        tempo_espera = time_metric_series(df_flow_done_period_eligible, 'TempoEsperaIntermediariaDias', non_negative=True)
-
-        if not lead_time_selected.empty:
-            metrics['Lead Time Médio (dias)'] = lead_time_selected.mean()
-            metrics['Lead Time P85 (dias)'] = exact_empirical_percentile(lead_time_selected, 0.85)
-            metrics['Lead Time Mediano (dias)'] = exact_empirical_percentile(lead_time_selected, 0.50)
-        if not tempo_exec.empty:
-            metrics['Cycle Time Médio (dias)'] = tempo_exec.mean()
-            metrics['Cycle Time Mediano (dias)'] = tempo_exec.median()
-        if not tempo_backlog.empty:
-            # Assumindo que "Tempo até Primeiro Movimento" é equivalente ao tempo em backlog.
-            metrics['Tempo em Backlog Médio (dias)'] = tempo_backlog.mean()
-            metrics['Tempo até Primeiro Movimento (dias)'] = tempo_backlog.mean()
-        arrivals_period = len(df_flow[
-            (df_flow['DataInProgress'] >= start_ts) &
-            (df_flow['DataInProgress'] <= end_ts)
-        ])
-        throughput_period = len(df_flow_done_period_eligible)
-        pressure_period, efficiency_period = calculate_flow_efficiency(arrivals_period, throughput_period)
-        if pd.notna(efficiency_period):
-            metrics['Eficiência de Fluxo (1 - ρ)'] = efficiency_period
-        if pd.notna(pressure_period):
-            metrics['Pressão de Fluxo (ρ = λ/μ)'] = pressure_period
-        if not tempo_bloqueio.empty:
-            metrics['Tempo de Bloqueio Médio (dias)'] = tempo_bloqueio.mean()
-        if not tempo_espera.empty:
-            metrics['Tempo de Espera Intermediária Médio (dias)'] = tempo_espera.mean()
-        if 'Bloqueado' in df_flow.columns:
-            total_items = len(df_flow)
-            blocked_items = df_flow['Bloqueado'].sum()
-            metrics['Taxa de Bloqueio (%)'] = (blocked_items / total_items * 100) if total_items > 0 else 0
-
-        kpi_data = [{'Métrica': k, 'Valor': f"{v:.2f}"} for k, v in metrics.items()]
-        kpi_table = dash_table.DataTable(
-            columns=[{"name": i, "id": i} for i in ['Métrica', 'Valor']],
-            data=kpi_data,
-            style_cell={'textAlign': 'left', 'padding': '5px'},
-            style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
-            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}]
-        )
-
-        # --- 2. Criar Gráficos ---
-        bottlenecks_df = load_project_bottlenecks_from_model(projeto)
-        if bottlenecks_df.empty:
-            bottlenecks_df = load_project_bottlenecks_from_csv(projeto)
-        if bottlenecks_df.empty:
-            bottlenecks_df = compute_flow_bottlenecks(df_flow)
-
-        fig_lead_hist = {}
-        lead_hist_component = html.P(
-            'Sem dados válidos de Lead Time (>= 0 dias) para o período e filtros selecionados.'
-        )
-        lead_band_table_component = html.P(
-            'Sem dados suficientes para calcular bandas percentílicas exatas de Lead Time.'
-        )
-        if 'LeadTime_Selected_Dias' in df_flow.columns:
-            lead_series = time_metric_series(df_flow_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
-            if not lead_series.empty:
-                lead_df = pd.DataFrame({'LeadTime_Selected_Dias': lead_series})
-                fig_lead_hist = px.histogram(
-                    lead_df,
-                    x='LeadTime_Selected_Dias',
-                    nbins=30,
-                    title='Distribuição do Lead Time (dias)',
-                )
-                fig_lead_hist.update_layout(
-                    height=500,
-                    xaxis=dict(title='Lead Time (dias)', rangemode='nonnegative'),
-                    yaxis=dict(title='Quantidade de itens'),
-                )
-                lead_hist_component = dcc.Graph(figure=fig_lead_hist)
-                lead_bands_df = exact_percentile_band_summary(lead_series)
-                lead_band_table_component = dash_table.DataTable(
-                    columns=[{"name": i, "id": i} for i in lead_bands_df.columns],
-                    data=lead_bands_df.to_dict('records'),
-                    style_cell={'textAlign': 'center', 'padding': '6px'},
-                    style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
-                    style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
-                )
-
-        # --- 3. Ranking de Gargalos por Etapa ---
-        fig_lead_time_breakdown = {}
-        lead_time_breakdown_component = html.P(
-            'Sem dados suficientes para calcular o breakdown percentual de lead time por etapa.'
-        )
-        if bottlenecks_df.empty:
-            fig_bottlenecks = {}
-            bottlenecks_table = html.P('Sem dados suficientes para calcular gargalos por etapa.')
-        else:
-            fig_bottlenecks = go.Figure(
-                go.Bar(
-                    x=bottlenecks_df['Tempo Médio (dias)'],
-                    y=bottlenecks_df['Etapa'],
-                    orientation='h',
-                    text=[
-                        f"{lt:.2f} d | vazão: {vz}"
-                        for lt, vz in zip(
-                            bottlenecks_df['Tempo Médio (dias)'],
-                            bottlenecks_df['Vazão da Etapa (itens)'],
-                        )
-                    ],
-                    textposition='outside',
-                    marker_color='#1f77b4',
-                    marker_line=dict(color='#155a8a', width=1),
-                    customdata=bottlenecks_df[['Vazão da Etapa (itens)']].values,
-                    hovertemplate='Etapa: %{y}<br>Lead time médio: %{x:.2f} dias'
-                                  '<br>Vazão: %{customdata[0]} itens<extra></extra>',
-                )
-            )
-            fig_bottlenecks.update_layout(
-                title='Ranking de Gargalos do Fluxo (Maior para Menor)'
-                      '<br><sup>Ordenação das etapas críticas por tempo médio</sup>',
-                xaxis_title='Tempo médio na etapa (dias)',
-                yaxis_title='Etapa',
-                template='plotly_white',
-                yaxis=dict(autorange='reversed'),
-                height=480,
-                margin=dict(l=140, r=40, t=70, b=50),
-            )
-
-            display_df = bottlenecks_df.copy()
-            for c in ['Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)']:
-                display_df[c] = display_df[c].round(2)
-            bottlenecks_table = dash_table.DataTable(
-                columns=[{"name": i, "id": i} for i in display_df.columns],
-                data=display_df.to_dict('records'),
-                style_cell={'textAlign': 'center', 'padding': '6px'},
-                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
-                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
-            )
-
-            breakdown_df = bottlenecks_df[['Etapa', 'Tempo Médio (dias)']].copy()
-            total_lead_time = breakdown_df['Tempo Médio (dias)'].sum()
-            if total_lead_time > 0:
-                breakdown_df['Percentual'] = (breakdown_df['Tempo Médio (dias)'] / total_lead_time) * 100
-                breakdown_df['Barra'] = 'Lead Time'
-
-                color_map = {
-                    'Backlog': '#4C78A8',
-                    'Execução': '#59A14F',
-                    'Bloqueio': '#E45756',
-                    'Espera Intermediária': '#F28E2B',
-                }
-                stage_order = breakdown_df['Etapa'].tolist()
-                fig_lead_time_breakdown = px.bar(
-                    breakdown_df,
-                    x='Percentual',
-                    y='Barra',
-                    color='Etapa',
-                    orientation='h',
-                    text=breakdown_df['Percentual'].map(lambda v: f'{v:.1f}%'),
-                    title='Lead Time Breakdown por Etapa do Fluxo (%)',
-                    labels={'Percentual': '% do Lead Time', 'Barra': ''},
-                    color_discrete_map=color_map,
-                    category_orders={'Etapa': stage_order},
-                    template='plotly_white',
-                    height=320,
-                )
-                fig_lead_time_breakdown.update_layout(
-                    barmode='stack',
-                    xaxis=dict(range=[0, 100], ticksuffix='%'),
-                    yaxis=dict(showticklabels=False),
-                    legend_title_text='Etapa do Fluxo',
-                    margin=dict(l=60, r=40, t=70, b=50),
-                )
-                fig_lead_time_breakdown.update_traces(
-                    textposition='inside',
-                    insidetextanchor='middle',
-                    hovertemplate='Etapa: %{fullData.name}<br>% Lead Time: %{x:.1f}%<extra></extra>',
-                )
-                lead_time_breakdown_component = dcc.Graph(figure=fig_lead_time_breakdown)
-
-        return html.Div([
-            html.H3("Análise Avançada de Fluxo", style={'textAlign': 'center'}),
-            leadtime_selection_summary,
-            html.P(
-                (
-                    "Filtro de etapas de Lead Time aplicado aos KPIs de Lead Time desta tela "
-                    f"(amostra: {int(len(lead_time_selected))} itens elegíveis). "
-                    "O ranking de gargalos por etapa permanece independente dessa seleção."
-                ),
-                style={'textAlign': 'center', 'color': '#555', 'marginBottom': '10px'}
-            ),
-            html.Div(kpi_table, style={'width': '50%', 'margin': 'auto', 'marginBottom': '30px'}),
-            html.H4("Indicador de Gargalo do Fluxo", style={'textAlign': 'center', 'marginTop': '10px'}),
-            html.Div(bottlenecks_table, style={'width': '70%', 'margin': 'auto', 'marginBottom': '20px'}),
-            dcc.Graph(figure=fig_bottlenecks),
-            html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
-            lead_time_breakdown_component,
-            lead_hist_component,
-            html.H4("Bandas Percentílicas Exatas (Lead Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
-            lead_band_table_component,
-        ])
 
     if tab == 'tab-cfd':
         start_ts = pd.to_datetime(start_date) if start_date else fato['DataDone'].min()
