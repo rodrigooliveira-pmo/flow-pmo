@@ -5463,8 +5463,16 @@ def fit_weibull_linearized(values):
     f = (2.0 * i - 1.0) / (2.0 * n)
     x = np.log(s.to_numpy(dtype=float))
     y = np.log(-np.log(1.0 - f))
+    finite_mask = np.isfinite(x) & np.isfinite(y)
+    x = x[finite_mask]
+    y = y[finite_mask]
+    if x.size < 2 or len(np.unique(x)) < 2:
+        return None
 
-    slope, intercept = np.polyfit(x, y, 1)
+    try:
+        slope, intercept = np.polyfit(x, y, 1)
+    except (np.linalg.LinAlgError, ValueError, FloatingPointError):
+        return None
     if not np.isfinite(slope) or abs(float(slope)) < 1e-12:
         return None
     weibull_lambda = math.exp(-float(intercept) / float(slope))

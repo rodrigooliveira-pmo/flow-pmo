@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-31
+- Context: Inclusão da cadência Weibull na `Série semanal de apoio` da aba `Serviço e SLA`.
+- User correction: Reportou traceback com `numpy.linalg.LinAlgError: SVD did not converge in Linear Least Squares` ao abrir a aba após eu passar a calcular Weibull por semana.
+- Root cause: Eu reutilizei `fit_weibull_linearized(...)` corretamente no nível semântico, mas assumi que toda amostra semanal positiva seria numericamente estável para `np.polyfit`; semanas com poucos pontos repetidos ou base degenerada quebraram o ajuste linearizado.
+- Prevention rule: Sempre que um ajuste estatístico opcional for aplicado em buckets pequenos (semana, pessoa, tipo, urgência), validar antes se a amostra é regressível e envolver a regressão em fallback defensivo que retorne `None` em vez de derrubar a UI.
+- Action added to workflow: Em novos KPIs estatísticos por bucket, fazer smoke test explícito dos cenários `amostra vazia`, `amostra mínima`, `valores repetidos` e `amostra degenerada` antes de concluir.
+- Date: 2026-03-31
 - Context: Correção dos cards executivos do `Painel Fluxo` após usuário apontar ausência das unidades em indicadores temporais.
 - User correction: Informou que indicadores como `Tempo para Commit (P85)` e `WIP Age (médio)` estavam sem unidade visível (`dias`, `semanas`, etc.).
 - Root cause: Eu mantive o campo `unit` no `metric_catalog`, mas a renderização dos cards executivos ignorava esse metadado e mostrava apenas título + valor.

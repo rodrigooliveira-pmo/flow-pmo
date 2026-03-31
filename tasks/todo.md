@@ -1,3 +1,36 @@
+## Current Task (Blindar Weibull semanal contra falhas numéricas)
+- [x] Confirmar a origem do traceback no cálculo semanal de cadência Weibull
+- [x] Tornar `fit_weibull_linearized(...)` resiliente a amostras degeneradas/instáveis
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Blindar Weibull semanal contra falhas numéricas)
+- Objetivo: impedir que a aba `Serviço e SLA` quebre quando a `Série semanal de apoio` tenta calcular a cadência Weibull em semanas com amostra pequena ou numericamente degenerada.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - tratar a Weibull semanal como KPI opcional e não como requisito para renderização da aba
+  - validar finitude e variabilidade mínima da amostra antes da regressão linearizada
+  - capturar falhas numéricas de `np.polyfit(...)` e retornar `None` como fallback seguro
+- Critério de aceite:
+  - semanas com amostra degenerada deixam a cadência como indisponível, sem lançar exceção
+  - o restante da `Série semanal de apoio` continua renderizando normalmente
+  - o dashboard continua válido sintaticamente
+
+## Review (Blindar Weibull semanal contra falhas numéricas)
+- O que foi ajustado:
+  - `fit_weibull_linearized(...)` em `dashboard_full.py` agora filtra explicitamente valores não finitos após a transformação logarítmica e exige pelo menos dois pontos válidos com variabilidade em `x` antes de tentar a regressão.
+  - O próprio `np.polyfit(...)` passou a ficar protegido por fallback defensivo para `np.linalg.LinAlgError`, `ValueError` e `FloatingPointError`, retornando `None` quando a amostra semanal não suporta ajuste Weibull estável.
+  - Registrei a lição correspondente em `tasks/lessons.md` para reforçar que KPIs estatísticos por bucket pequeno precisam de proteção contra amostras degeneradas.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py`, `tasks/todo.md` e `tasks/lessons.md`
+- Risco residual:
+  - a correção evita a quebra da UI, mas a cadência continuará indisponível nas semanas em que a amostra realmente não sustentar o ajuste Weibull, o que é o comportamento esperado
+- Suggested commit message:
+  - `fix(service-sla): guard weekly weibull fit against degenerate samples`
+
 ## Current Task (Completar KPIs-resumo na série semanal de Serviço e SLA)
 - [x] Mapear a tabela semanal atual e comparar com os cards executivos de `Serviço e SLA`
 - [x] Incluir na série semanal os indicadores faltantes de lead time (médio/P85), cadência sugerida, vazão e pressão de fluxo
