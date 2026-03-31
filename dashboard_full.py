@@ -5488,12 +5488,7 @@ def fit_weibull_linearized(values):
 
 def describe_weibull_scale_cadence(scale_days):
     """
-    Translate Weibull scale (lambda) into a practical delivery-cadence hint.
-
-    Reference used in the dashboard copy:
-    - scale ~= 5   -> < 1 semana
-    - scale ~= 15  -> ~ sprint de 2 semanas
-    - scale ~= 30  -> ~ 1 mês
+    Translate Weibull scale (lambda) into explicit day bands for delivery cadence.
     """
     try:
         scale = float(scale_days)
@@ -5502,28 +5497,35 @@ def describe_weibull_scale_cadence(scale_days):
     if not np.isfinite(scale) or scale <= 0:
         return None
 
-    reference_points = [
-        (5.0, '< 1 semana'),
-        (15.0, '~ sprint de 2 semanas'),
-        (30.0, '~ 1 mês'),
-    ]
-    nearest_scale, nearest_label = min(reference_points, key=lambda item: abs(scale - item[0]))
-
-    if scale <= 10.0:
-        band_label = '< 1 semana'
-    elif scale <= 22.5:
-        band_label = '~ sprint de 2 semanas'
-    elif scale <= 37.5:
-        band_label = '~ 1 mês'
+    if scale <= 1.0:
+        band_label = 'até 1 dia'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, equivalente a 1 dia ou menos."
+    elif scale <= 5.0:
+        band_label = 'entre 1 e 5 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 1 e 5 dias."
+    elif scale <= 10.0:
+        band_label = 'entre 5 e 10 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 5 e 10 dias."
+    elif scale <= 15.0:
+        band_label = 'entre 10 e 15 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 10 e 15 dias."
+    elif scale <= 20.0:
+        band_label = 'entre 15 e 20 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 15 e 20 dias."
+    elif scale <= 25.0:
+        band_label = 'entre 20 e 25 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 20 e 25 dias."
+    elif scale <= 30.0:
+        band_label = 'entre 25 e 30 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 25 e 30 dias."
     else:
-        band_label = '> 1 mês'
+        band_label = 'acima de 30 dias'
+        detail = f"Cadência avaliada: λ={scale:.4f}d, acima de 30 dias."
 
     return {
         'label': band_label,
-        'nearest_label': nearest_label,
-        'nearest_scale': nearest_scale,
-        'subtitle': f"λ={scale:.4f}d no lead time; heurística visual de Troy Magennis",
-        'detail': f"Scale λ={scale:.4f}d, mais próximo de {nearest_scale:.0f}d ({nearest_label}) na referência visual.",
+        'subtitle': f"λ={scale:.4f}d no lead time",
+        'detail': detail,
     }
 
 
@@ -8956,7 +8958,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             service_card('SLA de referência', f'{sla_days:.0f} dias', 'Meta usada para leitura rápida do serviço'),
             service_card('Lead Time', f"{lead_avg:.1f} / {lead_p85:.1f}" if pd.notna(lead_avg) and pd.notna(lead_p85) else '—', 'médio / P85 do período'),
             service_card(
-                'Cadência sugerida',
+                'Cadência avaliada',
                 weibull_cadence['label'] if weibull_cadence else '—',
                 f"Weibull k={weibull_shape:.4f} | λ={weibull_lambda:.4f}d" if weibull_cadence else 'Requer amostra suficiente de lead time'
             ),
@@ -8992,7 +8994,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if lt_weibull and weibull_cadence:
             executive_findings.append(
                 f"Weibull do lead time em k={weibull_shape:.4f} e λ={weibull_lambda:.4f}d; "
-                f"o scale sugere cadência {weibull_cadence['label']}."
+                f"a cadência avaliada fica {weibull_cadence['label']}."
             )
         else:
             executive_findings.append('Weibull do lead time indisponível por amostra insuficiente no recorte.')

@@ -12,6 +12,12 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-03-31
+- Context: Segunda iteração da leitura de cadência Weibull na aba `Serviço e SLA`.
+- User correction: Apontou que `λ=22.7276d` e `λ=22.3702d` receberam cadências diferentes apesar de serem praticamente equivalentes, e pediu faixas explícitas de `1-5`, `5-10`, `10-15`, `15-20`, `20-25`, `25-30` e `>30` dias, com o rótulo `Cadência avaliada`.
+- Root cause: Eu usei uma heurística aproximada com cortes vagos (`~ sprint de 2 semanas` vs `~ 1 mês`), o que criou um salto artificial na fronteira sem refletir a proximidade real dos valores de `λ`.
+- Prevention rule: Quando o usuário pedir leitura operacional baseada em um parâmetro contínuo como `λ`, evitar buckets vagos com cortes implícitos; usar faixas explícitas e estáveis definidas em unidades reais.
+- Action added to workflow: Em classificações heurísticas de métricas contínuas, testar sempre valores imediatamente abaixo e acima das fronteiras para confirmar que a troca de faixa faz sentido operacionalmente.
+- Date: 2026-03-31
 - Context: Inclusão da cadência Weibull na `Série semanal de apoio` da aba `Serviço e SLA`.
 - User correction: Reportou traceback com `numpy.linalg.LinAlgError: SVD did not converge in Linear Least Squares` ao abrir a aba após eu passar a calcular Weibull por semana.
 - Root cause: Eu reutilizei `fit_weibull_linearized(...)` corretamente no nível semântico, mas assumi que toda amostra semanal positiva seria numericamente estável para `np.polyfit`; semanas com poucos pontos repetidos ou base degenerada quebraram o ajuste linearizado.

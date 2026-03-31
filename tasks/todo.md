@@ -63,6 +63,41 @@
 - Suggested commit message:
   - `feat(service-sla): add weekly pressure and weibull cadence to support series`
 
+## Current Task (Corrigir faixas de cadência Weibull na aba Serviço e SLA)
+- [x] Revisar a heurística atual de cadência baseada em `λ` e identificar o salto artificial entre faixas vizinhas
+- [x] Substituir a heurística por intervalos explícitos de `λ` em dias (`1-5`, `5-10`, `10-15`, `15-20`, `20-25`, `25-30`, `>30`)
+- [x] Renomear a UI de `Cadência sugerida` para `Cadência avaliada`
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Corrigir faixas de cadência Weibull na aba Serviço e SLA)
+- Objetivo: eliminar a interpretação ambígua da cadência baseada no `scale (λ)` da Weibull, adotando faixas explícitas em dias conforme orientação do usuário.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - substituir a aproximação por referências de Troy Magennis por uma classificação direta do `λ` em intervalos operacionais fixos
+  - refletir essa mudança tanto no card superior quanto no texto do resumo executivo
+  - registrar a correção em `tasks/lessons.md` para evitar nova bucketização com corte artificial pouco estável
+- Critério de aceite:
+  - a UI passa a exibir `Cadência avaliada`
+  - a cadência derivada de `λ` respeita as faixas `1-5`, `5-10`, `10-15`, `15-20`, `20-25`, `25-30` e `>30` dias
+  - o dashboard continua válido sintaticamente
+
+## Review (Corrigir faixas de cadência Weibull na aba Serviço e SLA)
+- O que foi ajustado:
+  - O helper de leitura de `λ` foi refeito para classificar a cadência por intervalos explícitos em dias: `até 1 dia`, `entre 1 e 5 dias`, `entre 5 e 10 dias`, `entre 10 e 15 dias`, `entre 15 e 20 dias`, `entre 20 e 25 dias`, `entre 25 e 30 dias` e `acima de 30 dias`.
+  - O card superior foi renomeado de `Cadência sugerida` para `Cadência avaliada`.
+  - O texto do resumo executivo passou a dizer que a cadência é avaliada pela faixa do `λ`, eliminando a heurística anterior que aproximava para `sprint de 2 semanas` ou `1 mês`.
+  - A correção pedida pelo usuário foi registrada em `tasks/lessons.md` para evitar novo uso de buckets vagos em métricas contínuas.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão dirigida dos trechos alterados em `dashboard_full.py`, `tasks/todo.md` e `tasks/lessons.md`
+- Risco residual:
+  - a validação desta rodada foi estática; ainda não houve conferência visual no navegador para verificar o comprimento dos rótulos maiores no card
+- Suggested commit message:
+  - `fix(dashboard): use explicit lambda cadence bands in service sla`
+
 ## Current Task (Enriquecer a teal de Serviço e SLA com Weibull e frequência de entregas)
 - [x] Localizar o bloco executivo da aba `Serviço e SLA` e a fonte dos parâmetros Weibull já calculados
 - [x] Incluir no resumo executivo de SLA os parâmetros `Weibull Shape (k)` e `Weibull Lambda/Scale (λ)`
