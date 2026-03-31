@@ -9,15 +9,17 @@ Environment variables required:
     GOOGLE_CLIENT_ID        — OAuth 2.0 client ID from Google Cloud Console
     GOOGLE_CLIENT_SECRET    — OAuth 2.0 client secret
     FLASK_SECRET_KEY        — random secret used to sign Flask sessions
-    FLOW_PMO_ALLOWED_DOMAIN — Google Workspace domain (e.g. empresa.com)
-                              Only users authenticated via this Workspace domain
-                              will be granted access.
+    FLOW_PMO_ALLOWED_DOMAIN — principal Google Workspace domain used as the
+                              Google login hint (`hd`) and tenant label shown
+                              on the auth screen.
 
 Optional:
-    FLOW_PMO_ALLOWED_EMAILS — comma-separated list of specific e-mails within
-                              the domain. When set, acts as an additional filter:
-                              only these users can log in (instead of all domain
-                              members). Leave unset to allow the entire domain.
+    FLOW_PMO_ALLOWED_EMAILS — comma-separated static allowlist of specific
+                              e-mails. This is the current access-control gate
+                              when group membership is not configured.
+    FLOW_PMO_ALLOWED_GROUP  — Google Workspace group allowed to access the app.
+                              Used only together with GOOGLE_SERVICE_ACCOUNT_JSON
+                              and GOOGLE_IMPERSONATE_EMAIL.
 """
 
 import json

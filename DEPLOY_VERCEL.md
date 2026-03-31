@@ -32,8 +32,31 @@
   - `FLOW_PMO_DATA_DIR`: pasta principal para buscar arquivos de dados.
   - `FLOW_PMO_DATA_DIRS`: lista de pastas separadas por `:` (Linux/macOS) para busca de CSVs auxiliares.
   - `DATA_FOLDER`: compatibilidade com configuração legada.
+- SLA de serviço:
+  - `FLOW_PMO_ONE_PAGE_SLA_DAYS`: SLA global padrão em dias para a visão de serviço/Lead Time. Exemplo: `5`.
+  - `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP`: mapa JSON de SLA por projeto. Exemplo: `{"W1NNER":5,"S1NC":5,"BEFINANCE":5,"DATA&ANALYTICS":5}`.
 
 Use essas variáveis no projeto da Vercel para trocar módulo/objeto Dash e fonte de dados sem alterar código.
+
+## SLA de serviço no Vercel
+1. Acesse `flow-pmo` no dashboard da Vercel.
+2. Abra `Settings` → `Environment Variables`.
+3. Cadastre `FLOW_PMO_ONE_PAGE_SLA_DAYS` e/ou `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP` com scope `Production`.
+
+Observações:
+- No `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP`, as chaves dos projetos devem ficar em MAIÚSCULAS.
+- O código faz normalização com `.upper()`, então `W1NNER`, `S1NC`, `BEFINANCE` e `DATA&ANALYTICS` devem ser mantidos nesse formato.
+- Se você configurar os dois, o mapa por projeto sobrescreve o SLA global nos projetos informados.
+
+## SLA aging do portfólio
+- O aging do portfólio não é persistido por ambiente hoje; ele é configurado pela UI no campo de texto da aba `Portfólio`.
+- O default atual hardcoded é:
+
+```json
+{"tipo":{"Épico":30,"Feature":20},"status":{"Triagem":7,"Backlog":15,"Business Review":10}}
+```
+
+- Se quiser outro valor padrão em produção, hoje é preciso alterar o valor inicial do componente `filter-portfolio-sla-aging-json` em `dashboard_full.py` ou expor esse default como variável de ambiente em uma próxima etapa.
 
 ## Valores que você já pode configurar agora
 - Modelo principal:

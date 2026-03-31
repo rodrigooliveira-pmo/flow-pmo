@@ -5,6 +5,15 @@ JIRA_BASE_URL=https://w1consultoria.atlassian.net
 JIRA_EMAIL=seu.email@w1consultoria.com.br
 JIRA_API_TOKEN=cole_seu_token_aqui
 
+BB_EMAIL=seu.email@w1consultoria.com.br
+BB_TOKEN=cole_seu_token_aqui
+BB_WORKSPACE=w1consultoria
+BB_REPO=w1nner
+
+# Opcional: lista de repositórios usados para enriquecer DevExecutor (IED/IEF).
+# BB_REPOS=w1nner,w1p_frontend,w1nner-consultant-panel,w1p_app,party_service,s1nc_ruby,be-finance-web,be-finance-diagnostic-api,be-finance-api,be-finance-lambda,be-finance-diagnostic-web,api-file-manager,d-a-analysis
+# BB_COMMIT_DEPTH=3000
+
 # Opcional: mapeamento de campos customizados Jira -> colunas do CSV.
 # JIRA_FIELD_MAP={"blocked_days":"customfield_12345","flagged":"customfield_10021","team":"customfield_10001","effort_tshirt_size":"customfield_12346","organizations":"customfield_10002","sprints":"customfield_10020","epic_name":"customfield_10014","principal":"customfield_10067"}
 
@@ -22,10 +31,19 @@ JIRA_API_TOKEN=cole_seu_token_aqui
 # CLASS_OF_SERVICE_RULES={"expedite_priorities":["blocker","critical","highest","alta","urgente"],"fixed_date_keywords":["fixed date","deadline","due date","prazo"],"intangible_keywords":["risk","compliance","segurança","regulatory"]}
 
 # Opcional: SLA padrão em dias para a visão de serviço/SLA.
-# FLOW_PMO_ONE_PAGE_SLA_DAYS=8
+# FLOW_PMO_ONE_PAGE_SLA_DAYS=5
 
-# Opcional: SLA por projeto em dias.
-# FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP={"W1NNER":8,"S1NC":8,"BEFINANCE":8,"DATA&ANALYTICS":8}
+# Opcional: SLA por projeto em dias. Use chaves em MAIÚSCULAS.
+# FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP={"W1NNER":5,"S1NC":5,"BEFINANCE":5,"DATA&ANALYTICS":5}
 
 # Opcional (RF-08/RF-09): regras para detecção de padrões sistêmicos.
 # PATTERN_RULES={"urgencia_cronica":{"expedite_pct_min":25,"flow_pressure_min":1.0,"failure_demand_pct_min":30},"burnout":{"expedite_pct_min":30,"flow_pressure_min":1.15,"failure_demand_pct_min":35},"confianca_comprometida":{"predictability_ratio_min":2.2,"lead_time_p85_min":15,"failure_demand_pct_min":30},"problema_sistemico_fluxo":{"wip_tp_ratio_min":2.0,"blocked_rate_min":12,"flow_pressure_min":1.0},"atrasos_desperdicios":{"discard_rate_min":8,"blocked_rate_min":10,"wip_age_over_p85_min":1.1},"estagnacao":{"wip_tp_ratio_min":3.0,"wip_age_over_p85_min":1.3,"flow_pressure_min":1.05},"compromisso_prematuro":{"flow_pressure_min":1.1,"wip_tp_ratio_min":2.2,"predictability_ratio_min":2.0}}
+
+# Pasta central para publicar todos os arquivos *latest*
+# FLOW_PMO_LATEST_DIR=C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest
+
+# Pasta principal onde os scripts procuram artefatos auxiliares/latest.
+# FLOW_PMO_DATA_DIR=/caminho/para/dados/latest
+
+# Opcional: mapeia projeto Jira -> repositório(s) Bitbucket.
+# FLOW_PMO_BITBUCKET_REPO_MAP={"DATA&ANALYTICS":{"repo":"d-a-analysis","repos":["d-a-analysis","w1-data-toolbox","automacao-rfv"]}}

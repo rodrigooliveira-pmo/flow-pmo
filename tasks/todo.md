@@ -1,3 +1,42 @@
+## Current Task (Atualizar configurações de ambiente com SLA de serviço)
+- [x] Consolidar os valores dos arquivos anexos e do contexto fornecido
+- [x] Atualizar os arquivos de ambiente/exemplo relevantes sem espalhar segredos além do necessário
+- [x] Revisar diff, validar coerência entre exemplos e documentação e registrar review
+
+## Specification (Atualizar configurações de ambiente com SLA de serviço)
+- Objetivo: alinhar as configurações de ambiente do projeto com os valores do `jira_env (1).txt`, manter o arquivo de exemplo coerente e documentar corretamente a configuração de SLA de serviço no Vercel.
+- Escopo:
+  - `jira_env.txt`
+  - `jira_env.example.txt`
+  - `.env.example`
+  - `DEPLOY_VERCEL.md`
+  - `auth.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - aplicar ao `jira_env.txt` os valores adicionais de SLA de serviço presentes no contexto
+  - ajustar os exemplos para refletirem o uso atual de `FLOW_PMO_ALLOWED_EMAILS` e os valores de SLA citados pelo usuário
+  - incluir na documentação de deploy a orientação explícita sobre `FLOW_PMO_ONE_PAGE_SLA_DAYS` e `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP`
+- Critério de aceite:
+  - `jira_env.txt` passa a incluir as variáveis de SLA de serviço com os valores alinhados ao contexto informado
+  - `jira_env.example.txt` e `.env.example` deixam instruções consistentes com o fluxo atual do projeto
+  - `DEPLOY_VERCEL.md` passa a documentar claramente a configuração dessas variáveis no Vercel
+
+## Review (Atualizar configurações de ambiente com SLA de serviço)
+- O que foi ajustado:
+  - `jira_env.txt` passou a incluir `FLOW_PMO_ONE_PAGE_SLA_DAYS=5` e `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP={"W1NNER":5,"S1NC":5,"BEFINANCE":5,"DATA&ANALYTICS":5}`, alinhados ao arquivo anexado, e o bloco duplicado de `BB_EMAIL`/`BB_TOKEN`/`BB_WORKSPACE` foi removido.
+  - `jira_env.example.txt` foi expandido para refletir melhor a estrutura de configuração usada no projeto, incluindo variáveis de Bitbucket, diretórios auxiliares e os exemplos atualizados de SLA.
+  - `.env.example` foi corrigido com o redirect URI real (`https://flow-pmo.vercel.app/callback` e `http://localhost:3000/callback`), com instruções alinhadas ao uso atual de `FLOW_PMO_ALLOWED_EMAILS` e com as variáveis de SLA para o ambiente da Vercel.
+  - `DEPLOY_VERCEL.md` agora documenta explicitamente como cadastrar `FLOW_PMO_ONE_PAGE_SLA_DAYS` e `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP` em `Settings -> Environment Variables` com scope `Production`, além de registrar o comportamento atual do SLA aging do portfólio.
+  - `auth.py` teve apenas o cabeçalho documental ajustado para refletir que `FLOW_PMO_ALLOWED_DOMAIN` é usado como hint/tenant label e que o controle principal atual é a allowlist por e-mail ou, futuramente, por grupo.
+- Evidências de validação:
+  - revisão do diff em `.env.example`, `DEPLOY_VERCEL.md`, `auth.py`, `jira_env.example.txt`, `jira_env.txt` e `tasks/todo.md`
+  - busca dirigida com `rg` confirmando a presença das variáveis `FLOW_PMO_ONE_PAGE_SLA_DAYS`, `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP`, `FLOW_PMO_ALLOWED_GROUP` e do redirect URI `https://flow-pmo.vercel.app/callback`
+  - checagem dirigida em `jira_env.txt` confirmando bloco único de `BB_EMAIL`/`BB_TOKEN`/`BB_WORKSPACE` e presença dos SLAs
+- Risco residual:
+  - a validação desta rodada foi estática; não houve teste de login OAuth nem publicação real das env vars no painel da Vercel
+- Suggested commit message:
+  - `docs(env): align sla and auth environment configuration with vercel setup`
+
 ## Current Task (Aplicar filtro de etapa no Painel de Fluxo)
 - [x] Localizar exatamente onde a aba `Painel Fluxo` ignora o filtro `Etapa de Fluxo (WIP)`
 - [x] Corrigir os cálculos de WIP/estoque do `tab-painel-3x3` para respeitar a etapa atual selecionada
