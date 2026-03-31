@@ -8148,20 +8148,27 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
     metric_names = [
         'Taxa de chegada / semana',
         'Throughput / semana',
+        'Pressão de Fluxo (ρ)',
         'Média WIP / semana',
         'WIP Age (dias)',
         'Média Lead Time',
+        'P85% DO LEAD TIME',
+        'Cadência sugerida (λ Weibull, dias)',
         'Média Eficiência de Fluxo',
         '% Demanda de Valor',
         '% Demanda de Falha',
         'Qtd. Itens Descartados',
-        'P85% DO LEAD TIME',
         'DDP',
         'Frequência de Deploy',
         'Lead time para mudanças',
     ]
     rows = {m: {} for m in metric_names}
     bitbucket_logs = load_project_bitbucket_logs(projeto)
+    lead_start_col = 'LeadStart_Selected' if 'LeadStart_Selected' in df_projeto.columns else 'DataInProgress'
+    lead_start_series = pd.to_datetime(
+        df_projeto.get(lead_start_col, pd.Series(pd.NaT, index=df_projeto.index)),
+        errors='coerce'
+    )
 
     for i in range(len(weeks) - 1):
         week_start = weeks[i]
@@ -8169,7 +8176,7 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         week_label = str(week_start.date())
 
         arrived = df_projeto[
-            (df_projeto['DataInProgress'] >= week_start) & (df_projeto['DataInProgress'] < week_end)
+            (lead_start_series >= week_start) & (lead_start_series < week_end)
         ]
         finished = df_projeto[
             (df_projeto['DataDone'] >= week_start) & (df_projeto['DataDone'] < week_end)
@@ -8194,25 +8201,34 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0
         lt_finished = time_metric_series(finished, lead_time_col, non_negative=True)
         avg_lt = lt_finished.mean() if not lt_finished.empty else np.nan
-        _, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
+        pressure_rho, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
         if pd.isna(avg_eff):
             avg_eff = 0
         median_lt = exact_empirical_percentile(lt_finished, 0.50) if tp_total > 0 and not lt_finished.empty else np.nan
         p85_lt = exact_empirical_percentile(lt_finished, 0.85) if tp_total > 0 and not lt_finished.empty else np.nan
+        lt_weibull = fit_weibull_linearized(lt_finished) if not lt_finished.empty else None
+        weibull_lambda = float(lt_weibull['lambda']) if lt_weibull else np.nan
+        cadence_hint = describe_weibull_scale_cadence(weibull_lambda) if lt_weibull else None
         dora = _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end)
         dora_deploy_frequency = dora.get('deploy_frequency')
         dora_lead_time = dora.get('lead_time_changes')
 
         rows['Taxa de chegada / semana'][week_label] = str(len(arrived))
         rows['Throughput / semana'][week_label] = str(tp_total)
+        rows['Pressão de Fluxo (ρ)'][week_label] = f"{pressure_rho:.2f}" if pd.notna(pressure_rho) else '—'
         rows['Média WIP / semana'][week_label] = str(len(wip))
         rows['WIP Age (dias)'][week_label] = f"{wip_age:.0f}" if wip_age else '0'
         rows['Média Lead Time'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
+        rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if pd.notna(p85_lt) else '—'
+        rows['Cadência sugerida (λ Weibull, dias)'][week_label] = (
+            f"{weibull_lambda:.1f} | {cadence_hint['label']}"
+            if cadence_hint and pd.notna(weibull_lambda)
+            else '—'
+        )
         rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if pd.notna(avg_eff) else '0.000'
         rows['% Demanda de Valor'][week_label] = f"{tp_dev / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['% Demanda de Falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
         rows['Qtd. Itens Descartados'][week_label] = str(tp_discard)
-        rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if pd.notna(p85_lt) else '—'
         rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if pd.notna(p85_lt) and pd.notna(median_lt) else '—'
         rows['Frequência de Deploy'][week_label] = f"{dora_deploy_frequency:.0f}" if pd.notna(dora_deploy_frequency) else str(tp_dev)
         rows['Lead time para mudanças'][week_label] = _format_change_lead_time(dora_lead_time) if pd.notna(dora_lead_time) else _format_change_lead_time(avg_lt)
@@ -16851,6 +16867,8 @@ def render_metric_chart(active_cell, table_data):
         txt = str(raw_value or '').strip().lower().replace(',', '.')
         if not txt or txt in {'—', '-', 'nan', 'none'}:
             return None
+        if metric == 'Cadência sugerida (λ Weibull, dias)' and '|' in txt:
+            txt = txt.split('|', 1)[0].strip()
         if metric == 'Lead time para mudanças':
             if txt.endswith('h'):
                 try:
@@ -16901,6 +16919,8 @@ def render_metric_chart(active_cell, table_data):
     yaxis_title = metric_name
     if metric_name == 'Lead time para mudanças':
         yaxis_title = 'Lead time para mudanças (dias)'
+    elif metric_name == 'Cadência sugerida (λ Weibull, dias)':
+        yaxis_title = 'Cadência sugerida (λ Weibull, dias)'
 
     fig.update_layout(
         title=f'{metric_name} — Tendência Semanal',

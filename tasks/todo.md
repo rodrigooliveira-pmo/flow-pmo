@@ -1,3 +1,35 @@
+## Current Task (Completar KPIs-resumo na série semanal de Serviço e SLA)
+- [x] Mapear a tabela semanal atual e comparar com os cards executivos de `Serviço e SLA`
+- [x] Incluir na série semanal os indicadores faltantes de lead time (médio/P85), cadência sugerida, vazão e pressão de fluxo
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Completar KPIs-resumo na série semanal de Serviço e SLA)
+- Objetivo: fazer a seção `Série semanal de apoio` da aba `Serviço e SLA` refletir também os principais KPIs-resumo exibidos no topo, cobrindo especialmente `Lead Time (médio/P85)`, `Cadência sugerida`, `Vazão` e `Pressão de fluxo`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reaproveitar os cálculos já usados pelos cards executivos da própria aba para evitar divergência semântica
+  - enriquecer a tabela semanal apenas com os indicadores que faltam, preservando os já existentes
+  - manter os novos valores numéricos/parciais legíveis para o gráfico de tendência acionado ao clicar na linha da tabela
+- Critério de aceite:
+  - a série semanal passa a exibir os indicadores de `Lead Time médio`, `Lead Time P85`, `Cadência sugerida`, `Vazão` e `Pressão de fluxo` quando houver base suficiente
+  - a leitura semanal continua coerente com os cards-resumo da aba `Serviço e SLA`
+  - o dashboard continua válido sintaticamente
+
+## Review (Completar KPIs-resumo na série semanal de Serviço e SLA)
+- O que foi ajustado:
+  - A função `compute_weekly_service_metrics(...)` em `dashboard_full.py` passou a incluir explicitamente a linha semanal `Pressão de Fluxo (ρ)`, reaproveitando a mesma semântica `ρ = chegada / vazão` já usada nos cards executivos da aba.
+  - A mesma série semanal passou a expor `Cadência sugerida (λ Weibull, dias)` por semana, calculada a partir do `fit_weibull_linearized(...)` sobre os itens concluídos da semana e mostrada com valor + faixa de leitura (`~ sprint`, `~ 1 mês`, etc.), mantendo coerência com o KPI de cadência do resumo.
+  - Os indicadores de `Lead Time` médio, `Lead Time P85` e `Throughput / semana` foram preservados, então a tabela/gráfico semanal agora cobre os KPIs pedidos sem duplicar a lógica dos cards.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi estática; ainda não houve smoke test visual no navegador para conferir a leitura final das novas linhas na `Série semanal de apoio`
+- Suggested commit message:
+  - `feat(service-sla): add weekly pressure and weibull cadence to support series`
+
 ## Current Task (Enriquecer a teal de Serviço e SLA com Weibull e frequência de entregas)
 - [x] Localizar o bloco executivo da aba `Serviço e SLA` e a fonte dos parâmetros Weibull já calculados
 - [x] Incluir no resumo executivo de SLA os parâmetros `Weibull Shape (k)` e `Weibull Lambda/Scale (λ)`
