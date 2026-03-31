@@ -578,7 +578,6 @@ PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
 PROJECT_FILTER_ALL_LABEL = 'Todos os projetos'
 SERVICE_TABS = [
     ('Serviço e SLA', 'tab-performance'),
-    ('One Page Report', 'tab-one-page'),
     ('Process Mining Jira', 'tab-process-mining-jira'),
     ('Painel Fluxo', 'tab-painel-3x3'),
     ('Lead Time', 'tab-lead-time'),
@@ -7996,515 +7995,6 @@ def build_leadtime_stage_selection_summary(projeto, selected_start_stages):
     })
 
 
-ONE_PAGE_THEME = {
-    'bg': '#0f1117',
-    'surface': '#1a1d27',
-    'surface_2': '#232734',
-    'border': '#2e3345',
-    'text': '#e2e8f0',
-    'muted': '#8892a8',
-    'green': '#22c55e',
-    'amber': '#f59e0b',
-    'red': '#ef4444',
-    'teal': '#14b8a6',
-    'accent': '#3b82f6',
-}
-
-
-def _one_page_status_color(status):
-    return {
-        'good': ONE_PAGE_THEME['green'],
-        'warn': ONE_PAGE_THEME['amber'],
-        'bad': ONE_PAGE_THEME['red'],
-        'info': ONE_PAGE_THEME['accent'],
-    }.get(status, ONE_PAGE_THEME['accent'])
-
-
-def _one_page_fmt(value, pattern='{:.1f}', empty='—'):
-    try:
-        if value is None or pd.isna(value):
-            return empty
-        return pattern.format(value)
-    except Exception:
-        return empty
-
-
-def _one_page_health_card(value, label, sublabel, status):
-    color = _one_page_status_color(status)
-    return html.Div(
-        [
-            html.Div(
-                str(value),
-                style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '24px', 'fontWeight': '600', 'color': color, 'lineHeight': '1.1'}
-            ),
-            html.Div(label.upper(), style={'fontSize': '10px', 'letterSpacing': '0.8px', 'marginTop': '4px', 'color': ONE_PAGE_THEME['muted']}),
-            html.Div(sublabel, style={'fontSize': '9px', 'marginTop': '3px', 'color': '#5a6478'}),
-        ],
-        style={
-            'backgroundColor': ONE_PAGE_THEME['surface'],
-            'border': f"1px solid {ONE_PAGE_THEME['border']}",
-            'borderTop': f"3px solid {color}",
-            'borderRadius': '8px',
-            'padding': '12px 12px',
-            'minHeight': '92px',
-            'textAlign': 'center',
-        }
-    )
-
-
-def _one_page_dimension_row(label, value_text, width_pct, status):
-    color = _one_page_status_color(status)
-    width = max(0, min(100, float(width_pct)))
-    return html.Div(
-        [
-            html.Div(label, style={'color': ONE_PAGE_THEME['muted'], 'fontSize': '11px', 'fontWeight': '500'}),
-            html.Div(
-                html.Div(style={'height': '100%', 'width': f'{width:.1f}%', 'backgroundColor': color, 'borderRadius': '999px'}),
-                style={'height': '8px', 'backgroundColor': ONE_PAGE_THEME['surface_2'], 'borderRadius': '999px'}
-            ),
-            html.Div(value_text, style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '11px', 'fontWeight': '600', 'color': color, 'textAlign': 'right'}),
-        ],
-        style={'display': 'grid', 'gridTemplateColumns': '160px 1fr 72px', 'alignItems': 'center', 'gap': '8px', 'marginBottom': '7px'}
-    )
-
-
-def _one_page_status_by_threshold(metric_key, value, context=None):
-    if value is None or pd.isna(value):
-        return 'info'
-    ctx = context or {}
-    v = float(value)
-    if metric_key == 'throughput':
-        prev = ctx.get('prev')
-        if prev is None or pd.isna(prev) or float(prev) <= 0:
-            return 'info'
-        drop = (float(prev) - v) / float(prev)
-        if drop <= 0:
-            return 'good'
-        if drop <= 0.20:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'pressure':
-        if v < 0.85:
-            return 'good'
-        if v < 1.0:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'lead_ratio':
-        if v <= 1.0:
-            return 'good'
-        if v <= 1.5:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'conformance':
-        if v > 50:
-            return 'good'
-        if v >= 20:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'coverage':
-        if v > 60:
-            return 'good'
-        if v >= 30:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'rework':
-        if v < 5:
-            return 'good'
-        if v <= 15:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'utilization':
-        if v < 6.5:
-            return 'good'
-        if v <= 7.5:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'pr_no_approval':
-        if v < 20:
-            return 'good'
-        if v <= 50:
-            return 'warn'
-        return 'bad'
-    if metric_key == 'tp_inflation':
-        if v < 3:
-            return 'good'
-        if v <= 7:
-            return 'warn'
-        return 'bad'
-    return 'info'
-
-
-def build_dynamic_one_page_report(projeto, tipo, classe_servico, responsavel, start_ts, end_ts, leadtime_stages):
-    scope = fato.copy()
-    if projeto:
-        scope = scope[scope['Projeto'] == projeto]
-    if tipo:
-        scope = scope[scope['TipoDemanda'] == tipo]
-    if classe_servico:
-        scope = scope[scope['ClasseServico'] == classe_servico]
-    if responsavel:
-        scope = scope[scope['Responsavel'] == responsavel]
-    scope, _ = apply_selected_lead_time_metric(scope, projeto, leadtime_stages)
-
-    if scope.empty:
-        return html.Div(
-            'Sem dados para gerar One Page com os filtros atuais.',
-            style={'padding': '16px', 'border': '1px dashed #d1d5db', 'borderRadius': '10px'}
-        )
-
-    done_period = scope[(scope['DataDone'] >= start_ts) & (scope['DataDone'] <= end_ts)].copy()
-    done_eligible = done_period[done_time_eligible_mask(done_period)].copy() if not done_period.empty else done_period
-
-    lead_start_col = 'LeadStart_Selected' if 'LeadStart_Selected' in scope.columns else 'DataInProgress'
-    start_series = pd.to_datetime(scope.get(lead_start_col), errors='coerce')
-    arrivals_period = scope[(start_series >= start_ts) & (start_series <= end_ts)].copy()
-
-    days_span = max(1, int((end_ts.normalize() - start_ts.normalize()).days + 1))
-    prev_start = start_ts - pd.Timedelta(days=days_span)
-    prev_end = start_ts - pd.Timedelta(days=1)
-    prev_done = scope[(scope['DataDone'] >= prev_start) & (scope['DataDone'] <= prev_end)].copy()
-    prev_done_eligible = prev_done[done_time_eligible_mask(prev_done)].copy() if not prev_done.empty else prev_done
-
-    throughput = int(len(done_eligible))
-    throughput_prev = int(len(prev_done_eligible)) if prev_done_eligible is not None else 0
-    rho = (len(arrivals_period) / throughput) if throughput > 0 else np.nan
-    lead_series = time_metric_series(done_eligible, 'LeadTime_Selected_Dias', non_negative=True)
-    lead_median = exact_empirical_percentile(lead_series, 0.50) if not lead_series.empty else np.nan
-    lead_p85 = exact_empirical_percentile(lead_series, 0.85) if not lead_series.empty else np.nan
-
-    sla_days = resolve_project_sla_days(projeto, default=8.0)
-    lead_ratio = (lead_median / sla_days) if pd.notna(lead_median) and sla_days > 0 else np.nan
-
-    bitbucket_logs = load_project_bitbucket_logs(projeto) if projeto else {'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()}
-    _, cross_totals, _ = compute_cross_source_capacity_metrics(scope, bitbucket_logs, start_ts, end_ts)
-    completed_items = int(cross_totals.get('Itens Concluidos', 0))
-    with_tech = int(cross_totals.get('Itens com Evidencia Tecnica', 0))
-    coverage_pct = (with_tech / completed_items * 100.0) if completed_items > 0 else np.nan
-
-    pr_df = bitbucket_logs.get('pullrequests', pd.DataFrame())
-    pr_no_approval_pct = np.nan
-    merged_prs = pd.DataFrame()
-    if pr_df is not None and not pr_df.empty:
-        if 'updated_on' in pr_df.columns:
-            merged_prs = pr_df[(pr_df['updated_on'] >= start_ts) & (pr_df['updated_on'] <= end_ts)].copy()
-        elif 'created_on' in pr_df.columns:
-            merged_prs = pr_df[(pr_df['created_on'] >= start_ts) & (pr_df['created_on'] <= end_ts)].copy()
-        else:
-            merged_prs = pr_df.copy()
-        if 'state_norm' in merged_prs.columns:
-            merged_prs = merged_prs[merged_prs['state_norm'] == 'merged']
-        if not merged_prs.empty:
-            if 'reviewers_approved_count' in merged_prs.columns:
-                approved_count = pd.to_numeric(merged_prs['reviewers_approved_count'], errors='coerce').fillna(0)
-                no_approval = int((approved_count <= 0).sum())
-            elif 'approved_by' in merged_prs.columns:
-                no_approval = int(merged_prs['approved_by'].fillna('').astype(str).str.strip().eq('').sum())
-            else:
-                no_approval = 0
-            pr_no_approval_pct = (no_approval / len(merged_prs) * 100.0) if len(merged_prs) > 0 else np.nan
-
-    utilization_h_day = np.nan
-    active_people = int(done_eligible['Responsavel'].dropna().nunique()) if 'Responsavel' in done_eligible.columns else 0
-    if active_people > 0:
-        exec_days = float(time_metric_series(done_eligible, 'TempoExecucao_Dias', non_negative=True).sum())
-        workdays = max(int(np.busday_count(start_ts.date(), (end_ts + pd.Timedelta(days=1)).date())), 1)
-        utilization_h_day = (exec_days * 8.0) / float(active_people * workdays)
-
-    conformance_pct = np.nan
-    rework_pct = np.nan
-    tp_inflation = np.nan
-    pm_people = pd.DataFrame()
-    pm_cases = pd.DataFrame()
-    is_w1nner = normalize_text(projeto) in {'w1nner', 'w1nnr'} if projeto else False
-    if is_w1nner:
-        _, pm_report = load_w1nner_process_mining_report()
-        pm_cases = pm_report.get('ConformidadeCasos', pd.DataFrame()).copy()
-        pm_people = pm_report.get('VazaoPessoaResumo', pd.DataFrame()).copy()
-        if not pm_cases.empty:
-            if 'Done Final Date' in pm_cases.columns:
-                pm_cases['Done Final Date'] = pd.to_datetime(pm_cases['Done Final Date'], errors='coerce')
-                pm_cases = pm_cases[
-                    pm_cases['Done Final Date'].isna() |
-                    ((pm_cases['Done Final Date'] >= start_ts) & (pm_cases['Done Final Date'] <= end_ts))
-                ]
-            if responsavel and 'Done Final Author' in pm_cases.columns:
-                pm_cases = pm_cases[pm_cases['Done Final Author'].astype(str) == str(responsavel)]
-            if tipo and 'Tipo de Problema' in pm_cases.columns:
-                pm_cases = pm_cases[pm_cases['Tipo de Problema'].astype(str).map(normalize_text) == normalize_text(tipo)]
-
-            if 'Conforme Basico' in pm_cases.columns:
-                conf_bool = pd.to_numeric(pm_cases['Conforme Basico'], errors='coerce').fillna(0)
-                conformance_pct = float(conf_bool.mean() * 100.0) if not conf_bool.empty else np.nan
-            elif 'Conformance Score' in pm_cases.columns:
-                conf_score = pd.to_numeric(pm_cases['Conformance Score'], errors='coerce').dropna()
-                conformance_pct = float(conf_score.mean() * 100.0) if not conf_score.empty else np.nan
-
-            if 'Rework Score' in pm_cases.columns and len(pm_cases) > 0:
-                rw = pd.to_numeric(pm_cases['Rework Score'], errors='coerce').fillna(0)
-                rework_pct = float((rw > 0).sum() / len(pm_cases) * 100.0)
-
-            if 'Eventos' in pm_cases.columns and len(pm_cases) > 0:
-                eventos_total = pd.to_numeric(pm_cases['Eventos'], errors='coerce').fillna(0).sum()
-                tp_inflation = float(eventos_total / max(len(pm_cases), 1))
-
-    value_count = int(done_eligible['TipoDemanda'].map(lambda x: canonicalize_demand_type(x) == TYPE_DEV).sum()) if 'TipoDemanda' in done_eligible.columns else 0
-    execution_count = int(done_eligible['TipoDemanda'].map(lambda x: canonicalize_demand_type(x) in {TYPE_ISSUES, TYPE_SUPPORT}).sum()) if 'TipoDemanda' in done_eligible.columns else 0
-    val_exec_ratio = (value_count / execution_count) if execution_count > 0 else np.nan
-
-    health_cards = [
-        _one_page_health_card(
-            throughput,
-            'Throughput',
-            f"{throughput_prev} no período anterior",
-            _one_page_status_by_threshold('throughput', throughput, {'prev': throughput_prev}),
-        ),
-        _one_page_health_card(_one_page_fmt(rho, '{:.2f}'), 'Pressão (ρ)', 'λ/μ (chegada/vazão)', _one_page_status_by_threshold('pressure', rho)),
-        _one_page_health_card(
-            f"{_one_page_fmt(lead_median, '{:.1f}')}/{_one_page_fmt(lead_p85, '{:.1f}')}",
-            'Lead Time',
-            f"mediana/p85 | SLA {sla_days:.0f}d",
-            _one_page_status_by_threshold('lead_ratio', lead_ratio),
-        ),
-        _one_page_health_card(_one_page_fmt(conformance_pct, '{:.1f}%'), 'Conformidade', 'process mining', _one_page_status_by_threshold('conformance', conformance_pct)),
-        _one_page_health_card(_one_page_fmt(coverage_pct, '{:.1f}%'), 'Cobertura Git', 'itens com evidência técnica', _one_page_status_by_threshold('coverage', coverage_pct)),
-        _one_page_health_card(_one_page_fmt(rework_pct, '{:.1f}%'), 'Retrabalho', 'itens com reversão', _one_page_status_by_threshold('rework', rework_pct)),
-    ]
-
-    bottlenecks = compute_flow_bottlenecks(done_eligible if not done_eligible.empty else done_period)
-    if bottlenecks.empty and projeto:
-        bottlenecks = load_project_bottlenecks_from_model(projeto)
-    if bottlenecks.empty and projeto:
-        bottlenecks = load_project_bottlenecks_from_csv(projeto)
-    if not bottlenecks.empty:
-        bottlenecks = bottlenecks.copy().head(5)
-        bottlenecks['Horas Uteis (proxy)'] = (
-            pd.to_numeric(bottlenecks['Tempo Médio (dias)'], errors='coerce').fillna(0) *
-            8.0 *
-            pd.to_numeric(bottlenecks['Qtde Itens'], errors='coerce').fillna(0)
-        ).round(1)
-        max_h = max(float(bottlenecks['Horas Uteis (proxy)'].max()), 1.0)
-    else:
-        max_h = 1.0
-
-    bottleneck_rows = []
-    if bottlenecks.empty:
-        bottleneck_rows.append(html.Div('Sem dados de gargalos para o filtro.', style={'color': ONE_PAGE_THEME['muted'], 'fontSize': '12px'}))
-    else:
-        for _, row in bottlenecks.iterrows():
-            hours = float(row.get('Horas Uteis (proxy)', 0.0))
-            med_h = float(row.get('Tempo Mediano (dias)', 0.0) * 8.0)
-            sev = 'good'
-            if hours >= (0.60 * max_h):
-                sev = 'bad'
-            elif hours >= (0.30 * max_h):
-                sev = 'warn'
-            sev_color = _one_page_status_color(sev)
-            bottleneck_rows.append(
-                html.Div(
-                    [
-                        html.Div(str(row.get('Etapa', '—')), style={'fontSize': '12px', 'fontWeight': '600', 'color': ONE_PAGE_THEME['text']}),
-                        html.Div(
-                            html.Div(style={'height': '100%', 'width': f"{(hours / max_h * 100.0):.1f}%", 'backgroundColor': sev_color, 'opacity': 0.25, 'borderRadius': '3px'}),
-                            style={'height': '16px', 'backgroundColor': ONE_PAGE_THEME['surface_2'], 'borderRadius': '3px'}
-                        ),
-                        html.Div(_one_page_fmt(hours, '{:.1f}h'), style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '11px'}),
-                        html.Div(_one_page_fmt(med_h, '{:.1f}h'), style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '11px'}),
-                    ],
-                    style={'display': 'grid', 'gridTemplateColumns': '160px 1fr 72px 72px', 'gap': '8px', 'alignItems': 'center', 'marginBottom': '8px'}
-                )
-            )
-
-    dimensions_rows = [
-        _one_page_dimension_row('Inflação TP', _one_page_fmt(tp_inflation, '{:.1f}x'), 0 if pd.isna(tp_inflation) else min(100, tp_inflation / 10.0 * 100.0), _one_page_status_by_threshold('tp_inflation', tp_inflation)),
-        _one_page_dimension_row('Pressão de Fluxo', _one_page_fmt(rho, '{:.2f}'), 0 if pd.isna(rho) else min(100, rho / 1.5 * 100.0), _one_page_status_by_threshold('pressure', rho)),
-        _one_page_dimension_row('Razão Valor/Exec', _one_page_fmt(val_exec_ratio, '{:.2f}x'), 0 if pd.isna(val_exec_ratio) else min(100, val_exec_ratio / 3.0 * 100.0), 'warn' if pd.notna(val_exec_ratio) and val_exec_ratio < 1.0 else 'good'),
-        _one_page_dimension_row('Conformidade', _one_page_fmt(conformance_pct, '{:.1f}%'), 0 if pd.isna(conformance_pct) else conformance_pct, _one_page_status_by_threshold('conformance', conformance_pct)),
-        _one_page_dimension_row('Cobertura Técnica', _one_page_fmt(coverage_pct, '{:.1f}%'), 0 if pd.isna(coverage_pct) else coverage_pct, _one_page_status_by_threshold('coverage', coverage_pct)),
-        _one_page_dimension_row('Utilização Equipe', _one_page_fmt(utilization_h_day, '{:.1f}h/d'), 0 if pd.isna(utilization_h_day) else min(100, utilization_h_day / 10.0 * 100.0), _one_page_status_by_threshold('utilization', utilization_h_day)),
-        _one_page_dimension_row('Retrabalho', _one_page_fmt(rework_pct, '{:.1f}%'), 0 if pd.isna(rework_pct) else rework_pct, _one_page_status_by_threshold('rework', rework_pct)),
-        _one_page_dimension_row('PR sem Aprovação', _one_page_fmt(pr_no_approval_pct, '{:.1f}%'), 0 if pd.isna(pr_no_approval_pct) else pr_no_approval_pct, _one_page_status_by_threshold('pr_no_approval', pr_no_approval_pct)),
-    ]
-
-    findings = []
-    if pd.notna(rho) and rho >= 1.0:
-        findings.append(('bad', f"Sobrecarga sistêmica: rho = {rho:.2f} indica chegada acima da capacidade de entrega."))
-    if pd.notna(pr_no_approval_pct) and pr_no_approval_pct > 50:
-        findings.append(('bad', f"Gate fragilizado: {pr_no_approval_pct:.1f}% dos PRs merged sem aprovação formal."))
-    if pd.notna(conformance_pct) and conformance_pct < 20:
-        findings.append(('bad', f"Baixa conformidade processual: apenas {conformance_pct:.1f}% dos casos seguem o fluxo esperado."))
-    if pd.notna(coverage_pct) and coverage_pct < 30:
-        findings.append(('warn', f"Rastreabilidade técnica baixa: cobertura Git em {coverage_pct:.1f}% dos itens concluídos."))
-    if pd.notna(rework_pct) and rework_pct > 15:
-        findings.append(('warn', f"Retrabalho elevado: {rework_pct:.1f}% dos itens concluídos tiveram reversão."))
-    if not bottlenecks.empty:
-        top_stage = str(bottlenecks.iloc[0].get('Etapa', 'Etapa crítica'))
-        top_hours = float(bottlenecks.iloc[0].get('Horas Uteis (proxy)', 0.0))
-        findings.append(('info', f"Gargalo dominante: {top_stage} concentra {_one_page_fmt(top_hours, '{:.1f}h')} de carga útil estimada no período."))
-    if not findings:
-        findings.append(('info', 'Sem sinais críticos no recorte atual; manter monitoramento quinzenal.'))
-    findings = findings[:5]
-
-    finding_nodes = []
-    for sev, text in findings:
-        finding_nodes.append(
-            html.Div(
-                text,
-                style={'backgroundColor': ONE_PAGE_THEME['surface_2'], 'borderLeft': f"3px solid {_one_page_status_color(sev)}", 'padding': '8px 10px', 'borderRadius': '4px', 'fontSize': '11px', 'marginBottom': '6px'}
-            )
-        )
-
-    people_table = pd.DataFrame()
-    if not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
-        people_table = pm_people.copy()
-        if responsavel:
-            people_table = people_table[people_table['Responsavel'].astype(str) == str(responsavel)]
-        people_table['Itens Concluidos'] = pd.to_numeric(people_table['Itens Concluidos'], errors='coerce').fillna(0)
-        people_table['Itens Com Retrabalho'] = pd.to_numeric(people_table.get('Itens Com Retrabalho', 0), errors='coerce').fillna(0)
-        people_table['Lead Time Mediano (dias)'] = pd.to_numeric(people_table.get('Lead Time Mediano (dias)', np.nan), errors='coerce').round(1)
-        people_table['Media Itens/Semana Ativa'] = pd.to_numeric(people_table.get('Media Itens/Semana Ativa', np.nan), errors='coerce').round(2)
-        people_table = people_table.sort_values('Itens Concluidos', ascending=False).head(6)
-        people_table = people_table[['Responsavel', 'Itens Concluidos', 'Itens Com Retrabalho', 'Lead Time Mediano (dias)', 'Media Itens/Semana Ativa']]
-    elif not done_eligible.empty and 'Responsavel' in done_eligible.columns:
-        tmp = done_eligible.copy()
-        tmp['Lead Time Mediano (dias)'] = pd.to_numeric(tmp.get('LeadTime_Selected_Dias'), errors='coerce')
-        people_table = tmp.groupby('Responsavel', dropna=False).agg(
-            **{
-                'Itens Concluidos': ('ItemID', 'count'),
-                'Lead Time Mediano (dias)': ('Lead Time Mediano (dias)', 'median'),
-            }
-        ).reset_index().sort_values('Itens Concluidos', ascending=False).head(6)
-        people_table['Itens Com Retrabalho'] = np.nan
-        people_table['Media Itens/Semana Ativa'] = np.nan
-        people_table = people_table[['Responsavel', 'Itens Concluidos', 'Itens Com Retrabalho', 'Lead Time Mediano (dias)', 'Media Itens/Semana Ativa']]
-
-    commits_period = 0
-    prs_merged_period = 0
-    approvals_period = 0
-    commits_df = bitbucket_logs.get('commits', pd.DataFrame())
-    if commits_df is not None and not commits_df.empty and 'date' in commits_df.columns:
-        commits_period = int(len(commits_df[(commits_df['date'] >= start_ts) & (commits_df['date'] <= end_ts)]))
-    if not merged_prs.empty:
-        prs_merged_period = int(len(merged_prs))
-        if 'reviewers_approved_count' in merged_prs.columns:
-            approvals_period = int(pd.to_numeric(merged_prs['reviewers_approved_count'], errors='coerce').fillna(0).sum())
-        elif 'approved_by' in merged_prs.columns:
-            approvals_period = int(merged_prs['approved_by'].fillna('').astype(str).apply(lambda x: len([p for p in x.split('|') if p.strip()])).sum())
-
-    reco_immediate = "Implementar WIP limit de entrada e rebalancear capacidade para reduzir rho abaixo de 1.0."
-    if pd.notna(pr_no_approval_pct) and pr_no_approval_pct > 50:
-        reco_immediate = "Configurar branch protection exigindo ao menos 1 aprovação antes de merge."
-    if pd.notna(conformance_pct) and conformance_pct < 20:
-        reco_immediate = "Padronizar fluxo mínimo e revisar regras de passagem para elevar conformidade acima de 20%."
-
-    reco_short = "Tornar obrigatória a vinculação de work item em commits/PRs para elevar cobertura técnica."
-    if pd.notna(coverage_pct) and coverage_pct >= 30:
-        reco_short = "Reduzir variação entre etapas críticas com política pull e limites por estágio."
-    reco_medium = "Formalizar classes de serviço com metas de lead time e revisão mensal dos thresholds de semáforo."
-
-    filter_tags = []
-    if tipo:
-        filter_tags.append(f"Tipo: {tipo}")
-    if classe_servico:
-        filter_tags.append(f"Classe: {classe_servico}")
-    if responsavel:
-        filter_tags.append(f"Responsável: {responsavel}")
-
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Div(
-                        [
-                            html.H2(f"One Page Report - {projeto or 'Todos os Projetos'}", style={'margin': 0, 'fontSize': '24px', 'color': ONE_PAGE_THEME['text']}),
-                            html.Div(
-                                f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')} | Filtros: " + ('; '.join(filter_tags) if filter_tags else 'sem filtros adicionais'),
-                                style={'fontSize': '11px', 'color': ONE_PAGE_THEME['muted'], 'marginTop': '3px'}
-                            ),
-                        ]
-                    ),
-                    html.Div(start_ts.strftime('%b %Y').upper(), style={'fontFamily': 'JetBrains Mono, monospace', 'fontWeight': '600', 'fontSize': '12px', 'padding': '6px 12px', 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'borderRadius': '6px', 'color': ONE_PAGE_THEME['accent'], 'backgroundColor': ONE_PAGE_THEME['surface']}),
-                ],
-                style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'borderBottom': f"1px solid {ONE_PAGE_THEME['border']}", 'paddingBottom': '14px', 'marginBottom': '14px'}
-            ),
-            html.Div(health_cards, style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(150px, 1fr))', 'gap': '10px', 'marginBottom': '14px'}),
-            html.Div(
-                [
-                    html.Div(
-                        [
-                            html.Div('Ranking de Gargalos', style={'fontSize': '14px', 'fontWeight': '700', 'color': ONE_PAGE_THEME['muted'], 'textTransform': 'uppercase', 'marginBottom': '10px'}),
-                            html.Div(
-                                [
-                                    html.Div('Etapa', style={'fontSize': '10px', 'color': '#5a6478'}),
-                                    html.Div('Carga', style={'fontSize': '10px', 'color': '#5a6478'}),
-                                    html.Div('Horas', style={'fontSize': '10px', 'color': '#5a6478'}),
-                                    html.Div('Mediana', style={'fontSize': '10px', 'color': '#5a6478'}),
-                                ],
-                                style={'display': 'grid', 'gridTemplateColumns': '160px 1fr 72px 72px', 'gap': '8px', 'marginBottom': '8px'}
-                            ),
-                            *bottleneck_rows,
-                        ],
-                        style={'backgroundColor': ONE_PAGE_THEME['surface'], 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'borderRadius': '8px', 'padding': '14px'}
-                    ),
-                    html.Div(
-                        [
-                            html.Div('Indicadores por Dimensão', style={'fontSize': '14px', 'fontWeight': '700', 'color': ONE_PAGE_THEME['muted'], 'textTransform': 'uppercase', 'marginBottom': '10px'}),
-                            *dimensions_rows,
-                        ],
-                        style={'backgroundColor': ONE_PAGE_THEME['surface'], 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'borderRadius': '8px', 'padding': '14px'}
-                    ),
-                ],
-                style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '14px', 'marginBottom': '14px'}
-            ),
-            html.Div(
-                [
-                    html.Div(
-                        [html.Div('Achados Principais', style={'fontSize': '14px', 'fontWeight': '700', 'color': ONE_PAGE_THEME['muted'], 'textTransform': 'uppercase', 'marginBottom': '10px'}), *finding_nodes],
-                        style={'backgroundColor': ONE_PAGE_THEME['surface'], 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'borderRadius': '8px', 'padding': '14px'}
-                    ),
-                    html.Div(
-                        [
-                            html.Div('Composição da Equipe', style={'fontSize': '14px', 'fontWeight': '700', 'color': ONE_PAGE_THEME['muted'], 'textTransform': 'uppercase', 'marginBottom': '10px'}),
-                            dash_table.DataTable(
-                                columns=[{'name': c, 'id': c} for c in people_table.columns] if not people_table.empty else [{'name': 'Info', 'id': 'Info'}],
-                                data=people_table.to_dict('records') if not people_table.empty else [{'Info': 'Sem dados de equipe para o recorte atual.'}],
-                                style_header={'backgroundColor': ONE_PAGE_THEME['surface_2'], 'color': ONE_PAGE_THEME['muted'], 'fontWeight': 'bold', 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'fontSize': '10px'},
-                                style_cell={'backgroundColor': ONE_PAGE_THEME['surface'], 'color': ONE_PAGE_THEME['text'], 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'fontSize': '11px', 'padding': '6px', 'textAlign': 'left'},
-                                style_table={'overflowX': 'auto'}
-                            ),
-                            html.Div(
-                                [
-                                    html.Div([html.Div(str(commits_period), style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '18px', 'fontWeight': '600', 'color': ONE_PAGE_THEME['teal']}), html.Div('Commits', style={'fontSize': '9px', 'color': '#5a6478', 'textTransform': 'uppercase'})], style={'textAlign': 'center'}),
-                                    html.Div([html.Div(str(prs_merged_period), style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '18px', 'fontWeight': '600', 'color': ONE_PAGE_THEME['teal']}), html.Div('PRs Merged', style={'fontSize': '9px', 'color': '#5a6478', 'textTransform': 'uppercase'})], style={'textAlign': 'center'}),
-                                    html.Div([html.Div(str(approvals_period), style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '18px', 'fontWeight': '600', 'color': ONE_PAGE_THEME['red']}), html.Div('Aprovações', style={'fontSize': '9px', 'color': '#5a6478', 'textTransform': 'uppercase'})], style={'textAlign': 'center'}),
-                                ],
-                                style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '8px', 'marginTop': '10px', 'paddingTop': '10px', 'borderTop': f"1px solid {ONE_PAGE_THEME['border']}"}
-                            ),
-                        ],
-                        style={'backgroundColor': ONE_PAGE_THEME['surface'], 'border': f"1px solid {ONE_PAGE_THEME['border']}", 'borderRadius': '8px', 'padding': '14px'}
-                    ),
-                ],
-                style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '14px', 'marginBottom': '14px'}
-            ),
-            html.Div(
-                [
-                    html.Div([html.Div('Imediato (2 semanas)', style={'color': ONE_PAGE_THEME['red'], 'fontSize': '10px', 'fontWeight': '700', 'textTransform': 'uppercase', 'marginBottom': '6px'}), html.Div(reco_immediate, style={'fontSize': '11px', 'color': ONE_PAGE_THEME['text']})], style={'backgroundColor': ONE_PAGE_THEME['surface_2'], 'borderTop': f"2px solid {ONE_PAGE_THEME['red']}", 'borderRadius': '6px', 'padding': '10px'}),
-                    html.Div([html.Div('Curto prazo (30 dias)', style={'color': ONE_PAGE_THEME['amber'], 'fontSize': '10px', 'fontWeight': '700', 'textTransform': 'uppercase', 'marginBottom': '6px'}), html.Div(reco_short, style={'fontSize': '11px', 'color': ONE_PAGE_THEME['text']})], style={'backgroundColor': ONE_PAGE_THEME['surface_2'], 'borderTop': f"2px solid {ONE_PAGE_THEME['amber']}", 'borderRadius': '6px', 'padding': '10px'}),
-                    html.Div([html.Div('Médio prazo (60 dias)', style={'color': ONE_PAGE_THEME['teal'], 'fontSize': '10px', 'fontWeight': '700', 'textTransform': 'uppercase', 'marginBottom': '6px'}), html.Div(reco_medium, style={'fontSize': '11px', 'color': ONE_PAGE_THEME['text']})], style={'backgroundColor': ONE_PAGE_THEME['surface_2'], 'borderTop': f"2px solid {ONE_PAGE_THEME['teal']}", 'borderRadius': '6px', 'padding': '10px'}),
-                ],
-                style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(220px, 1fr))', 'gap': '10px', 'marginBottom': '14px'}
-            ),
-            html.Div(
-                [
-                    html.Div('Flow Forensics | Fontes: Jira + Bitbucket + Flow-PMO', style={'fontSize': '10px', 'color': '#5a6478'}),
-                    html.Div(f"Período: {start_ts.strftime('%Y-%m-%d')} a {end_ts.strftime('%Y-%m-%d')}", style={'fontFamily': 'JetBrains Mono, monospace', 'fontSize': '10px', 'color': '#5a6478'}),
-                ],
-                style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'borderTop': f"1px solid {ONE_PAGE_THEME['border']}", 'paddingTop': '10px'}
-            ),
-        ],
-        style={'backgroundColor': ONE_PAGE_THEME['bg'], 'color': ONE_PAGE_THEME['text'], 'padding': '18px', 'borderRadius': '10px', 'fontFamily': 'DM Sans, sans-serif', 'overflowX': 'auto'}
-    )
-
-
 def _compute_bitbucket_weekly_dora(bitbucket_logs, week_start, week_end):
     commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     pipelines = bitbucket_logs.get('pipelines', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
@@ -9241,20 +8731,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         TYPE_OTHER: 'lightgray'      # Outros tipos
     }
 
-    if tab == 'tab-one-page':
-        start_ts = pd.to_datetime(start_date)
-        end_ts = pd.to_datetime(end_date)
-        one_page = build_dynamic_one_page_report(
-            projeto=projeto,
-            tipo=tipo,
-            classe_servico=classe_servico,
-            responsavel=responsavel,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            leadtime_stages=leadtime_stages,
-        )
-        return html.Div([one_page], style={'paddingBottom': '12px'})
-
     if tab == 'tab-performance':
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
@@ -9342,6 +8818,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         lead_avg = float(lead_series.mean()) if not lead_series.empty else np.nan
         lead_p85 = exact_empirical_percentile(lead_series, 0.85) if not lead_series.empty else np.nan
         sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
+        lead_start_col = 'LeadStart_Selected' if 'LeadStart_Selected' in df_scope.columns else 'DataInProgress'
+        selected_start_series = pd.to_datetime(df_scope.get(lead_start_col), errors='coerce')
+        arrivals_period = df_scope[
+            (selected_start_series >= start_ts) &
+            (selected_start_series <= end_ts)
+        ].copy()
+        pressure_rho, _ = calculate_flow_efficiency(len(arrivals_period), len(df_done_period_eligible))
 
         throughput_bucket_df = df_done_period_eligible.copy()
         throughput_p15 = np.nan
@@ -9408,16 +8891,52 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 f"{throughput_p15:.1f} / {throughput_avg:.1f} / {throughput_p85:.1f}" if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else '—',
                 f'Leitura: P15 / média / P85 por {bucket_label.lower()}'
             ),
+            service_card(
+                'Pressão (ρ)',
+                f"{pressure_rho:.2f}" if pd.notna(pressure_rho) else '—',
+                'chegada / vazão no período'
+            ),
             service_card('Itens entregues', f"{len(df_done_period_eligible)}", period_label),
             service_card('WIP atual', f'{wip_count}', f"age médio {wip_age_avg:.1f}d" if pd.notna(wip_age_avg) else 'sem aging disponível'),
             service_card('% dentro do SLA', f"{sla_share:.1f}%" if pd.notna(sla_share) else '—', 'itens concluídos no período'),
         ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))', 'gap': '10px', 'marginTop': '12px', 'marginBottom': '14px'})
 
+        executive_findings = []
+        if pd.notna(lead_p85):
+            if lead_p85 <= sla_days:
+                executive_findings.append(f"Lead Time P85 em {lead_p85:.1f}d, dentro do SLA de {sla_days:.0f}d.")
+            else:
+                executive_findings.append(f"Lead Time P85 em {lead_p85:.1f}d, acima do SLA de {sla_days:.0f}d.")
+        else:
+            executive_findings.append('Lead Time sem base suficiente para leitura executiva no período.')
+
+        if pd.notna(sla_share):
+            executive_findings.append(f"{sla_share:.1f}% das entregas ficaram dentro do SLA no recorte.")
+        else:
+            executive_findings.append('Sem amostra suficiente para medir aderência ao SLA no recorte.')
+
+        if pd.notna(pressure_rho):
+            if pressure_rho >= 1.0:
+                executive_findings.append(f"Chegada acima da capacidade de entrega: pressão em ρ={pressure_rho:.2f}.")
+            elif pressure_rho >= 0.85:
+                executive_findings.append(f"Serviço operando pressionado: ρ={pressure_rho:.2f}, com pouca folga de vazão.")
+            else:
+                executive_findings.append(f"Pressão de fluxo sob controle: ρ={pressure_rho:.2f}.")
+        else:
+            executive_findings.append('Pressão de fluxo indisponível por falta de throughput elegível no período.')
+
+        if pd.notna(wip_age_avg):
+            if wip_age_avg > sla_days:
+                executive_findings.append(f"WIP envelhecido: age médio em {wip_age_avg:.1f}d, acima do SLA de referência.")
+            else:
+                executive_findings.append(f"WIP atual em {wip_count} itens, com age médio de {wip_age_avg:.1f}d.")
+        else:
+            executive_findings.append(f"WIP atual em {wip_count} itens, sem aging suficiente para leitura.")
+
         highlights = html.Div([
-            html.Strong('Leitura rápida para responder SLA'),
+            html.Strong('Resumo executivo do serviço'),
             html.Ul([
-                html.Li(f"Lead Time médio/P85 do período: {lead_avg:.1f}d / {lead_p85:.1f}d." if pd.notna(lead_avg) and pd.notna(lead_p85) else 'Lead Time sem base suficiente no período.'),
-                html.Li(f"{sla_share:.1f}% das entregas ficaram dentro do SLA de {sla_days:.0f} dias." if pd.notna(sla_share) else f'SLA configurado em {sla_days:.0f} dias, sem base suficiente para medir aderência.'),
+                *[html.Li(text) for text in executive_findings],
                 html.Li(f"Vazão {bucket_adj}: P15 {throughput_p15:.1f}, média {throughput_avg:.1f} e P85 {throughput_p85:.1f} por {bucket_label.lower()}." if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else f'Vazão sem base suficiente por {bucket_label.lower()}.'),
                 html.Li(f"WIP atual: {wip_count} itens | age médio {wip_age_avg:.1f}d | P85 {wip_age_p85:.1f}d | mais antigo {oldest_wip:.1f}d." if pd.notna(wip_age_avg) and pd.notna(wip_age_p85) and pd.notna(oldest_wip) else f'WIP atual: {wip_count} itens.'),
             ], style={'marginTop': '8px', 'marginBottom': '0', 'paddingLeft': '20px'}),

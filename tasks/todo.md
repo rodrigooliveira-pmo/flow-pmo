@@ -1,3 +1,86 @@
+## Current Task (Migrar resumo do One Page para Serviço e SLA e remover a aba)
+- [x] Adicionar um resumo executivo mínimo em `Serviço e SLA` com foco em SLA/WIP/pressão
+- [x] Remover `tab-one-page` da navegação e da renderização do dashboard
+- [x] Limpar código órfão do one page, validar sintaxe e registrar review
+
+## Specification (Migrar resumo do One Page para Serviço e SLA e remover a aba)
+- Objetivo: absorver a síntese executiva essencial do `One Page Report` na aba `Serviço e SLA` e, depois disso, remover a aba `One Page Report` do dashboard de serviços.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - criar em `Serviço e SLA` um bloco curto de leitura executiva com `Pressão (ρ)` e achados principais orientados a SLA/WIP
+  - manter nessa aba apenas sinais compatíveis com a semântica de serviço, sem puxar métricas de process mining exclusivas de `W1NNER`
+  - retirar `tab-one-page` do menu e do branch de renderização e remover helpers exclusivos que ficarem sem uso
+- Critério de aceite:
+  - `Serviço e SLA` passa a exibir um resumo executivo mínimo útil sem depender da antiga aba
+  - `One Page Report` deixa de aparecer na navegação de serviços
+  - o dashboard continua válido sintaticamente após a remoção
+
+## Review (Migrar resumo do One Page para Serviço e SLA e remover a aba)
+- O que foi ajustado:
+  - `Serviço e SLA` passou a exibir um resumo executivo mínimo com card de `Pressão (ρ)` e um bloco textual de leitura rápida focado em `SLA`, `pressão`, `WIP` e `vazão`.
+  - `One Page Report` foi removido de `SERVICE_TABS` e do branch de renderização do dashboard.
+  - os helpers visuais e a função `build_dynamic_one_page_report(...)` foram removidos de `dashboard_full.py`, evitando código morto após a retirada da aba.
+- Evidências de validação:
+  - `rg -n "tab-one-page|build_dynamic_one_page_report|_one_page_|ONE_PAGE_THEME" dashboard_full.py -S` sem resultados
+  - `python -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi estática; ainda não houve smoke test visual no navegador para conferir proporção final dos cards e do bloco executivo em `Serviço e SLA`
+- Suggested commit message:
+  - `refactor(dashboard): move minimal executive summary to service sla and remove one page tab`
+
+## Current Task (Avaliar remoção da aba One Page Report de serviços)
+- [x] Mapear os indicadores e blocos exibidos hoje no `One Page Report`
+- [x] Comparar sobreposição com `Serviço e SLA`, `Painel Fluxo`, `Lead Time` e `Process Mining Jira`
+- [x] Registrar recomendação, riscos e proposta de redistribuição dos indicadores
+
+## Specification (Avaliar remoção da aba One Page Report de serviços)
+- Objetivo: verificar se a aba `One Page Report` de serviços pode ser removida sem perda relevante de leitura operacional, direcionando seus indicadores para abas já existentes.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - identificar quais métricas do one page são apenas um resumo de cálculos já existentes
+  - separar o que já tem destino natural em `Serviço e SLA` e `Painel Fluxo`
+  - destacar os indicadores que, pela semântica, pertencem mais a `Lead Time` ou `Process Mining Jira`
+- Critério de aceite:
+  - a avaliação aponta se a remoção é tecnicamente viável
+  - a recomendação lista explicitamente o destino sugerido para cada grupo de indicadores
+  - os riscos de UX/semântica ficam claros antes de qualquer remoção
+
+## Review (Avaliar remoção da aba One Page Report de serviços)
+- Recomendação:
+  - a aba `One Page Report` pode ser removida do menu de serviços, porque ela é majoritariamente uma camada de consolidação visual sobre cálculos que já existem em outras abas; não encontrei dependência estrutural que obrigue sua permanência.
+  - a remoção não deve ser “delete puro”: alguns blocos precisam ser redistribuídos antes para não perder leitura executiva e para evitar misturar métricas de natureza diferente na aba errada.
+- Evidências encontradas:
+  - a aba é isolada na navegação por `SERVICE_TABS` e pelo branch `if tab == 'tab-one-page'`, ambos em `dashboard_full.py`; isso indica baixo acoplamento de UI para removê-la.
+  - os cálculos-base não são exclusivos do one page: `resolve_project_sla_days(...)` também sustenta `Serviço e SLA`, `compute_flow_bottlenecks(...)` também alimenta `Lead Time`, `compute_cross_source_capacity_metrics(...)` já é usado em outros trechos, e as métricas de WIP/pressão já existem no `Painel Fluxo`.
+  - parte do one page é degradada por projeto: `Conformidade`, `Retrabalho`, `Composição da Equipe` e derivados de process mining só são populados para `W1NNER`, o que reduz o valor de manter uma aba “executiva” separada para todos os serviços.
+- Redistribuição sugerida:
+  - `Serviço e SLA`:
+    - manter como destino de `SLA de referência`, `Lead Time mediano/P85`, `Throughput do período`, `Itens entregues`, `% dentro do SLA` e uma leitura rápida tipo “achados principais” focada em SLA/WIP.
+    - faz sentido incorporar aqui um card explícito de `Pressão (ρ)` porque hoje a aba já mostra chegadas, vazão e WIP, mas não sintetiza isso em um KPI executivo único.
+  - `Painel Fluxo`:
+    - destino natural para `Pressão de Fluxo`, `WIP Age`, `Tempo para Commit`, `Entradas`, `Throughput`, `Estoque total`, `Previsibilidade`, `Eficiência` e `Razão Valor/Exec`.
+    - o painel já possui quase toda essa semântica e thresholds; ele é o melhor lugar para absorver o papel de “resumo operacional do fluxo”.
+  - `Lead Time`:
+    - `Ranking de Gargalos` não precisa permanecer no one page, porque a aba `Lead Time` já possui tabela e gráfico de gargalos, além de breakdown percentual por etapa.
+  - `Process Mining Jira`:
+    - `Conformidade`, `Taxa de Retrabalho`, `Cobertura Técnica`, `Composição da Equipe`, `Commits/PRs/Aprovações` e `PR sem Aprovação` se encaixam melhor aqui do que em `Serviço e SLA`.
+    - essas métricas têm natureza de conformidade/engenharia e hoje já convivem com KPIs equivalentes nessa aba.
+- Riscos e cuidados:
+  - se a aba for removida sem adicionar pelo menos um pequeno bloco de “leitura rápida” em `Serviço e SLA`, o usuário perde a síntese textual hoje presente em `Achados Principais`.
+  - mover métricas de process mining para `Serviço e SLA` ou `Painel Fluxo` pode poluir a leitura dessas abas com sinais que só existem para `W1NNER`; por semântica e consistência, o melhor é concentrá-las em `Process Mining Jira`.
+  - as variáveis `FLOW_PMO_ONE_PAGE_SLA_DAYS` e `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP` não devem ser removidas junto com a aba, porque o helper `resolve_project_sla_days(...)` continua sendo usado em `Serviço e SLA`.
+- Próximo passo sugerido:
+  - etapa 1: adicionar em `Serviço e SLA` um bloco executivo curto com `Pressão (ρ)` + “achados principais” de SLA/WIP.
+  - etapa 2: confirmar que `Painel Fluxo` já cobre a leitura executiva de fluxo desejada.
+  - etapa 3: remover `tab-one-page` de `SERVICE_TABS`, do callback de renderização e, por último, apagar helpers visuais exclusivos que ficarem órfãos.
+- Suggested commit message:
+  - `docs(dashboard): evaluate removing one page report and remap its service indicators`
+
 ## Current Task (Atualizar configurações de ambiente com SLA de serviço)
 - [x] Consolidar os valores dos arquivos anexos e do contexto fornecido
 - [x] Atualizar os arquivos de ambiente/exemplo relevantes sem espalhar segredos além do necessário
