@@ -552,6 +552,9 @@ LEAD_TIME_START_STAGE_PREFERENCES = [
 LEAD_TIME_BACKLOG_LIKE_STAGE_NAMES = {
     'backlog',
     'triagem',
+    'to do',
+    'todo',
+    'discovery',
 }
 
 # Default stages considered "active WIP" for the Etapa de Fluxo filter.
@@ -7825,7 +7828,13 @@ def apply_selected_commitment_metric(df, projeto, selected_start_stages):
 
     out = df.copy()
     backlog_anchor = pd.to_datetime(out.get('DataBacklog'), errors='coerce')
-    fallback_commitment = pd.to_datetime(out.get('LeadStart_Selected'), errors='coerce')
+    lead_start_fallback = pd.to_datetime(out.get('LeadStart_Selected'), errors='coerce')
+    data_in_progress = pd.to_datetime(out.get('DataInProgress'), errors='coerce')
+    # Never treat the backlog entry itself as a valid commitment date.
+    fallback_commitment = lead_start_fallback.where(lead_start_fallback > backlog_anchor)
+    fallback_commitment = fallback_commitment.combine_first(
+        data_in_progress.where(data_in_progress > backlog_anchor)
+    )
     fallback_days = pd.to_numeric((fallback_commitment - backlog_anchor).dt.days, errors='coerce')
     fallback_days = fallback_days.where(fallback_days >= 0)
 
@@ -12020,13 +12029,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             title = metric['title']
             raw_value = metric['value']
             value_pattern = metric['format']
+            unit = metric.get('unit')
             status_label, status_color = metric['status']
+            card_children = [
+                html.Div(status_label, style={'fontSize': '12px', 'fontWeight': 'bold', 'color': status_color, 'textTransform': 'uppercase'}),
+                html.H4(title, style={'marginTop': '8px', 'marginBottom': '8px', 'fontSize': '17px'}),
+                html.Div(fmt_value(raw_value, value_pattern), style={'fontSize': '30px', 'fontWeight': 'bold', 'lineHeight': '1.1'}),
+            ]
+            if unit:
+                card_children.append(
+                    html.Div(unit, style={'fontSize': '13px', 'color': '#5f6e7b', 'marginTop': '6px'})
+                )
             cards.append(
-                html.Div([
-                    html.Div(status_label, style={'fontSize': '12px', 'fontWeight': 'bold', 'color': status_color, 'textTransform': 'uppercase'}),
-                    html.H4(title, style={'marginTop': '8px', 'marginBottom': '8px', 'fontSize': '17px'}),
-                    html.Div(fmt_value(raw_value, value_pattern), style={'fontSize': '30px', 'fontWeight': 'bold', 'lineHeight': '1.1'}),
-                ], style={
+                html.Div(card_children, style={
                     'backgroundColor': 'white',
                     'border': '1px solid #e5e5e5',
                     'borderTop': f'6px solid {status_color}',

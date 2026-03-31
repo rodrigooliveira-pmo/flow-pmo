@@ -1,3 +1,74 @@
+## Current Task (Exibir unidade nos indicadores do Painel Fluxo)
+- [x] Localizar onde os cards executivos do `Painel Fluxo` descartam a unidade configurada
+- [x] Ajustar a renderização para mostrar a unidade do indicador quando ela existir
+- [x] Validar sintaxe, revisar diff e registrar review
+
+## Specification (Exibir unidade nos indicadores do Painel Fluxo)
+- Objetivo: fazer os cards executivos do `Painel Fluxo` exibirem explicitamente a unidade das métricas temporais e demais métricas que já possuem `unit` configurado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reaproveitar o campo `unit` já presente no `metric_catalog`
+  - corrigir a função de renderização dos cards executivos, em vez de tratar cada indicador manualmente
+- Critério de aceite:
+  - cards como `Tempo para Commit (P85)` e `WIP Age (médio)` passam a mostrar a unidade visível
+  - a mudança não altera o cálculo das métricas
+  - o arquivo continua válido sintaticamente
+
+## Review (Exibir unidade nos indicadores do Painel Fluxo)
+- O que foi ajustado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L12020) passou a reaproveitar `metric['unit']` também nos cards executivos do `Painel Fluxo`, exibindo a unidade logo abaixo do valor principal quando ela existir.
+  - a correção foi centralizada na montagem dos cards, então indicadores como `Tempo para Commit (P85)` e `WIP Age (médio)` passam a mostrar `dias` sem alterar cálculo, thresholds ou catálogo de métricas.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação nesta rodada foi estática; ainda não houve inspeção visual no navegador
+- Suggested commit message:
+  - `fix(dashboard): show units on flow executive indicator cards`
+
+## Current Task (Diagnosticar backlog não comprometido zerado)
+- [x] Mapear a regra implementada do indicador no `Painel Fluxo`
+- [x] Reproduzir o cálculo com os dados locais e comparar com o backlog visível no fluxo
+- [x] Registrar a causa raiz, evidências e sugestão de commit
+
+## Specification (Diagnosticar backlog não comprometido zerado)
+- Objetivo: explicar por que o card `Backlog não comprometido` pode exibir `0` mesmo quando há itens em backlog no fluxo visível.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - rastrear a formação de `Commitment_Selected` e do snapshot final de backlog
+  - confrontar a definição do card com a definição operacional de backlog usada em outras partes do dashboard
+  - validar a hipótese com os dados locais disponíveis
+- Critério de aceite:
+  - a explicação identifica a condição exata que zera o card
+  - há evidência no código e, quando possível, nos dados locais
+
+## Review (Diagnosticar backlog não comprometido zerado)
+- O que foi ajustado:
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L7825) deixou de aceitar o próprio `DataBacklog` como fallback de `Commitment_Selected`; agora o fallback só vale quando a data candidata está estritamente depois da entrada em backlog.
+  - [`dashboard_full.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros%20computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_full.py#L552) passou a tratar `To Do`, `Todo` e `Discovery` como etapas backlog-like para o cálculo de compromisso, evitando que esses estágios virem “compromisso” por padrão no fluxo de `DATA&ANALYTICS`.
+- Causa raiz encontrada:
+  - o card `Backlog não comprometido` usa `df_backlog_end`, que considera backlog apenas quando `Commitment_Selected` está vazio ou depois do fim do período.
+  - antes da correção, `Commitment_Selected` era inicializado com `LeadStart_Selected`; quando não havia etapa real de compromisso, esse valor podia cair no próprio `DataBacklog`, fazendo o item parecer comprometido no mesmo instante em que entrou em backlog.
+  - com isso, itens ainda em `Triagem`/`Backlog` eram removidos artificialmente do backlog não comprometido e o card podia zerar.
+- Evidências de validação:
+  - reprodução com os CSVs `latest` locais mostrou itens abertos em backlog sem `Ready to Start`/`In progress`:
+    - `W1NNER`: `32`
+    - `S1NC`: `101`
+    - `BEFINANCE`: `28`
+  - validação dirigida da regra antiga vs nova:
+    - `S1NC`: `STRICT_UNCOMMITTED=101 | OLD_FALSE_COMMITTED=101 | NEW_STILL_UNCOMMITTED=101`
+    - `BEFINANCE`: `STRICT_UNCOMMITTED=28 | OLD_FALSE_COMMITTED=28 | NEW_STILL_UNCOMMITTED=28`
+  - validação adicional para `DATA&ANALYTICS` após marcar `To Do`/`Discovery` como backlog-like:
+    - `OPEN=158 | OLD_STRICT_UNCOMMITTED=0 | NEW_STRICT_UNCOMMITTED=15`
+- Risco residual:
+  - não consegui rodar `python -m py_compile` nesta sessão porque o ambiente local está sem um interpretador Python funcional no PATH e o `venv` versionado aponta para um runtime de macOS inexistente no Windows atual.
+- Suggested commit message:
+  - `fix(flow): stop treating backlog entry as commitment for uncommitted backlog KPI`
+
 ## Current Task (Unificar Highest no projeto)
 - [x] Mapear onde `Expedite`, `Urgente` e `Higest` ainda são derivados ou exibidos
 - [x] Ajustar normalização e labels para usar sempre `Highest`

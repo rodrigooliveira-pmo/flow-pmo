@@ -11,6 +11,12 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-03-31
+- Context: Correção dos cards executivos do `Painel Fluxo` após usuário apontar ausência das unidades em indicadores temporais.
+- User correction: Informou que indicadores como `Tempo para Commit (P85)` e `WIP Age (médio)` estavam sem unidade visível (`dias`, `semanas`, etc.).
+- Root cause: Eu mantive o campo `unit` no `metric_catalog`, mas a renderização dos cards executivos ignorava esse metadado e mostrava apenas título + valor.
+- Prevention rule: Sempre que um KPI tiver unidade semântica relevante, validar na UI final se essa unidade aparece visivelmente no card, e não apenas no backend/configuração da métrica.
+- Action added to workflow: Em qualquer ajuste de KPIs/cards, revisar explicitamente o trio `rótulo`, `valor` e `unidade` com foco em legibilidade operacional antes de concluir.
 - Date: 2026-03-30
 - Context: Ajuste visual do histograma de Lead Time após girar os rótulos das linhas de referência para vertical.
 - User correction: Informou que, após a rotação dos rótulos, o título do gráfico passou a ser sobrescrito e pediu o título centralizado com mais espaçamento vertical.
