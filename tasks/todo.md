@@ -1,3 +1,38 @@
+## Current Task (Aplicar filtro de etapa no Painel de Fluxo)
+- [x] Localizar exatamente onde a aba `Painel Fluxo` ignora o filtro `Etapa de Fluxo (WIP)`
+- [x] Corrigir os cálculos de WIP/estoque do `tab-painel-3x3` para respeitar a etapa atual selecionada
+- [x] Validar sintaxe, revisar diff e registrar review
+
+## Specification (Aplicar filtro de etapa no Painel de Fluxo)
+- Objetivo: fazer a aba `Painel Fluxo` respeitar o filtro `Etapa de Fluxo (WIP)` nos indicadores e análises de WIP/estoque, preservando a semântica já existente do filtro de lead time.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - rastrear o callback `tab-painel-3x3` e comparar com as abas que já aplicam `filter-etapa-fluxo`
+  - centralizar a filtragem por etapa atual em helper reaproveitável para evitar divergência entre abas
+  - aplicar o filtro apenas aos subconjuntos de itens ativos/WIP do painel, sem descartar os concluídos usados nas métricas de lead time
+- Critério de aceite:
+  - indicadores como `WIP`, `WIP Age (médio)`, `Estoque total` e séries semanais do painel variam conforme a seleção de `Etapa de Fluxo (WIP)`
+  - métricas de lead time continuam baseadas em `LeadTime_Selected_Dias`/`Commitment_Selected`
+  - o arquivo continua válido sintaticamente
+
+## Review (Aplicar filtro de etapa no Painel de Fluxo)
+- O que foi ajustado:
+  - [`dashboard_full.py`](c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py) ganhou o helper `filter_items_by_current_stage(...)` para centralizar a filtragem pela etapa atual do downstream sem duplicar lógica entre abas.
+  - a aba `tab-painel-3x3` passou a aplicar `filter-etapa-fluxo` especificamente nos subconjuntos de WIP/estoque usados em `weekly_df`, `weekly_hist_df`, `df_wip_start` e `df_wip_end`, fazendo com que `WIP`, `WIP Age (médio)` e `Estoque total` respondam à seleção da etapa atual.
+  - a base histórica de referência do painel agora também recalcula `Commitment_Selected` via [`dashboard_full.py`](c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/dashboard_full.py), mantendo os thresholds/statuses coerentes com o mesmo filtro de etapas de lead time.
+  - as abas que já usavam a mesma semântica (`Fluxo`, `Work Item Age` e `WIP por Pessoa`) passaram a reaproveitar o mesmo helper, reduzindo risco de regressão por regras divergentes.
+- Causa raiz encontrada:
+  - o callback `render_tab(..., tab='tab-painel-3x3', ...)` recebia `etapa_fluxo`, mas o bloco do painel não aplicava esse filtro aos recortes de WIP/estoque; por isso os números ficavam praticamente invariáveis mesmo com a seleção no dropdown.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação nesta rodada foi estática; ainda não houve smoke test visual no navegador com a seleção real das etapas
+- Suggested commit message:
+  - `fix(dashboard): apply current flow stage filter to painel fluxo wip metrics`
+
 ## Current Task (Exibir unidade nos indicadores do Painel Fluxo)
 - [x] Localizar onde os cards executivos do `Painel Fluxo` descartam a unidade configurada
 - [x] Ajustar a renderização para mostrar a unidade do indicador quando ela existir

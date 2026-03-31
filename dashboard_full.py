@@ -6887,6 +6887,42 @@ def compute_current_stage_map(projeto):
     return result
 
 
+def filter_items_by_current_stage(df_source, projeto=None, selected_stages=None, stage_map=None, keep_done=False):
+    """Filter items by current downstream stage.
+
+    When ``keep_done`` is True, concluded items are preserved and only open items
+    are constrained by the selected current stages.
+    """
+    if df_source is None:
+        return pd.DataFrame()
+    if getattr(df_source, 'empty', True):
+        return df_source.copy()
+    if not projeto or not selected_stages or 'ItemID' not in df_source.columns:
+        return df_source.copy()
+
+    resolved_stage_map = stage_map or compute_current_stage_map(projeto)
+    if not resolved_stage_map:
+        return df_source.copy()
+
+    selected_lower = {
+        str(stage).strip().lower()
+        for stage in (selected_stages or [])
+        if str(stage).strip()
+    }
+    if not selected_lower:
+        return df_source.copy()
+
+    in_selected_stage = df_source['ItemID'].astype(str).str.strip().map(
+        lambda iid: resolved_stage_map.get(iid, '').strip().lower() in selected_lower
+    ).fillna(False)
+
+    if keep_done:
+        done_mask = pd.to_datetime(df_source.get('DataDone'), errors='coerce').notna()
+        return df_source[done_mask | in_selected_stage].copy()
+
+    return df_source[in_selected_stage].copy()
+
+
 def _find_latest_w1nner_process_mining_excel():
     report_url = os.getenv('FLOW_PMO_PROCESS_MINING_REPORT_URL', '').strip()
     if report_url:
@@ -8611,11 +8647,12 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
             (df_projeto['DataInProgress'] < week_end) &
             ((df_projeto['DataDone'] >= week_end) | pd.isna(df_projeto['DataDone']))
         ]
-        if wip_stage_map and wip_stage_filter and 'ItemID' in wip.columns:
-            stage_filter_lower = {s.strip().lower() for s in wip_stage_filter}
-            wip = wip[wip['ItemID'].astype(str).str.strip().map(
-                lambda iid: wip_stage_map.get(iid, '').strip().lower() in stage_filter_lower
-            )]
+        wip = filter_items_by_current_stage(
+            wip,
+            projeto=projeto,
+            selected_stages=wip_stage_filter,
+            stage_map=wip_stage_map,
+        )
 
         finished_eligible = finished[done_time_eligible_mask(finished)] if not finished.empty else finished
         tp_total = len(finished_eligible)
@@ -9611,13 +9648,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         if etapa_fluxo and projeto:
             _stage_map_flow = compute_current_stage_map(projeto)
-            if _stage_map_flow and 'ItemID' in df_flow.columns:
-                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
-                _is_done = df_flow['DataDone'].notna()
-                _in_stage = df_flow['ItemID'].astype(str).str.strip().map(
-                    lambda iid: _stage_map_flow.get(iid, '').strip().lower() in _stage_filter_lower
-                )
-                df_flow = df_flow[_is_done | _in_stage].copy()
+            df_flow = filter_items_by_current_stage(
+                df_flow,
+                projeto=projeto,
+                selected_stages=etapa_fluxo,
+                stage_map=_stage_map_flow,
+                keep_done=True,
+            )
 
         mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
         mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
@@ -11433,6 +11470,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_signal_base = df_signal_base[df_signal_base['ClasseServico'] == classe_servico]
         df_signal_base, _ = apply_selected_lead_time_metric(df_signal_base, projeto, leadtime_stages)
         df_signal_base, _ = apply_selected_commitment_metric(df_signal_base, projeto, leadtime_stages)
+        panel_stage_map = compute_current_stage_map(projeto) if projeto and etapa_fluxo else {}
 
         # Base de referência para thresholds (projeto/tipo), independente de período e responsável.
         df_threshold_base = fato.copy()
@@ -11443,6 +11481,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if classe_servico:
             df_threshold_base = df_threshold_base[df_threshold_base['ClasseServico'] == classe_servico]
         df_threshold_base, _ = apply_selected_lead_time_metric(df_threshold_base, projeto, leadtime_stages)
+        df_threshold_base, _ = apply_selected_commitment_metric(df_threshold_base, projeto, leadtime_stages)
 
         weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
         if len(weeks) < 2:
@@ -11466,7 +11505,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     s = s.fillna(df_local['DataInProgress'])
             return s
 
-        def build_weekly_metrics(df_source, start_ref, end_ref):
+        def build_weekly_metrics(df_source, start_ref, end_ref, stage_map=None, stage_filter=None):
             rows = []
             weeks_ref = pd.date_range(start=start_ref, end=end_ref + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
             if len(weeks_ref) < 2:
@@ -11496,6 +11535,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     (commitment_start < week_end) &
                     ((df_source['DataDone'] >= week_end) | pd.isna(df_source['DataDone']))
                 ]
+                wip_items = filter_items_by_current_stage(
+                    wip_items,
+                    projeto=projeto,
+                    selected_stages=stage_filter,
+                    stage_map=stage_map,
+                )
                 total_system_items = pd.concat([backlog_items, wip_items], axis=0).drop_duplicates(subset=['ItemID']) if 'ItemID' in df_source.columns else pd.concat([backlog_items, wip_items], axis=0).drop_duplicates()
 
                 lt_p85 = np.nan
@@ -11554,10 +11599,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 (signal_backlog_start < week_end) &
                 ((signal_commitment_start >= week_end) | signal_commitment_start.isna())
             ])
-            wip = len(df_signal_base[
+            wip_items_week = df_signal_base[
                 (signal_commitment_start < week_end) &
                 ((df_signal_base['DataDone'] >= week_end) | pd.isna(df_signal_base['DataDone']))
-            ])
+            ].copy()
+            wip_items_week = filter_items_by_current_stage(
+                wip_items_week,
+                projeto=projeto,
+                selected_stages=etapa_fluxo,
+                stage_map=panel_stage_map,
+            )
+            wip = len(wip_items_week)
             total_system = backlog + wip
             weekly_rows.append({
                 'Semana': week_start.date(),
@@ -11582,7 +11634,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             date_candidates = [start_ts]
         hist_start = min(date_candidates)
         hist_end = end_ts
-        weekly_hist_df = build_weekly_metrics(df_threshold_base, hist_start, hist_end)
+        weekly_hist_df = build_weekly_metrics(
+            df_threshold_base,
+            hist_start,
+            hist_end,
+            stage_map=panel_stage_map,
+            stage_filter=etapa_fluxo,
+        )
 
         df_done_period = df_signal_base[
             (df_signal_base['DataDone'] >= start_ts) &
@@ -11614,6 +11672,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             (commitment_date <= end_ts) &
             ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
         ].copy()
+        df_wip_start = filter_items_by_current_stage(
+            df_wip_start,
+            projeto=projeto,
+            selected_stages=etapa_fluxo,
+            stage_map=panel_stage_map,
+        )
+        df_wip_end = filter_items_by_current_stage(
+            df_wip_end,
+            projeto=projeto,
+            selected_stages=etapa_fluxo,
+            stage_map=panel_stage_map,
+        )
         if 'ItemID' in df_signal_base.columns:
             df_inventory_start = pd.concat([df_backlog_start, df_wip_start], axis=0).drop_duplicates(subset=['ItemID']).copy()
             df_inventory_end = pd.concat([df_backlog_end, df_wip_end], axis=0).drop_duplicates(subset=['ItemID']).copy()
@@ -14189,11 +14259,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         if etapa_fluxo and projeto:
             _stage_map_age = compute_current_stage_map(projeto)
-            if _stage_map_age and 'ItemID' in df_age.columns:
-                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
-                df_age = df_age[df_age['ItemID'].astype(str).str.strip().map(
-                    lambda iid: _stage_map_age.get(iid, '').strip().lower() in _stage_filter_lower
-                )].copy()
+            df_age = filter_items_by_current_stage(
+                df_age,
+                projeto=projeto,
+                selected_stages=etapa_fluxo,
+                stage_map=_stage_map_age,
+            )
 
         if df_age.empty:
             return html.Div(
@@ -14577,11 +14648,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         if etapa_fluxo and projeto:
             _stage_map_wip = compute_current_stage_map(projeto)
-            if _stage_map_wip and 'ItemID' in df_wip_base.columns:
-                _stage_filter_lower = {s.strip().lower() for s in etapa_fluxo}
-                df_wip_base = df_wip_base[df_wip_base['ItemID'].astype(str).str.strip().map(
-                    lambda iid: _stage_map_wip.get(iid, '').strip().lower() in _stage_filter_lower
-                )]
+            df_wip_base = filter_items_by_current_stage(
+                df_wip_base,
+                projeto=projeto,
+                selected_stages=etapa_fluxo,
+                stage_map=_stage_map_wip,
+            )
 
         if 'Responsavel' not in df_wip_base.columns or df_wip_base['Responsavel'].dropna().empty:
             return html.Div('Dados de Responsável não disponíveis para calcular WIP.')
