@@ -1,3 +1,36 @@
+## Current Task (Enriquecer a teal de Serviço e SLA com Weibull e frequência de entregas)
+- [x] Localizar o bloco executivo da aba `Serviço e SLA` e a fonte dos parâmetros Weibull já calculados
+- [x] Incluir no resumo executivo de SLA os parâmetros `Weibull Shape (k)` e `Weibull Lambda/Scale (λ)`
+- [x] Complementar a leitura com a frequência de entregas inferida do `scale` do lead time conforme a referência visual do Troy Magennis
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Enriquecer a teal de Serviço e SLA com Weibull e frequência de entregas)
+- Objetivo: complementar a leitura executiva da aba `Serviço e SLA` com os parâmetros da distribuição Weibull do lead time e com uma interpretação prática da frequência de entregas baseada no parâmetro `scale (λ)`, alinhada à referência fornecida do Troy Magennis.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reaproveitar o cálculo já existente em `fit_weibull_linearized(...)`, evitando duplicidade de lógica estatística
+  - enriquecer o bloco executivo/tile de SLA com `shape`, `lambda/scale` e uma leitura textual curta da cadência de entrega
+  - traduzir o `scale` para uma faixa operacional compreensível na UI com base na referência visual anexada (`5 ≈ < 1 semana`, `15 ≈ sprint de 2 semanas`, `30 ≈ 1 mês`)
+- Critério de aceite:
+  - a aba `Serviço e SLA` passa a exibir `Weibull Shape (k)` e `Weibull Lambda/Scale (λ)` quando houver amostra suficiente
+  - a leitura executiva inclui a frequência/cadência de entrega derivada do `scale`
+  - o dashboard continua válido sintaticamente
+
+## Review (Enriquecer a teal de Serviço e SLA com Weibull e frequência de entregas)
+- O que foi ajustado:
+  - A aba `Serviço e SLA` passou a calcular a Weibull do `lead_series` do próprio recorte e a exibir, no topo, um card de `Cadência sugerida` com `Weibull Shape (k)` e `Weibull Lambda/Scale (λ)`.
+  - O `Resumo executivo do serviço` agora inclui uma leitura textual ligando `k` e `λ` à cadência de entrega, além de uma linha adicional explicando a aproximação do `scale` em relação à referência visual do Troy Magennis.
+  - Foi criado um helper dedicado para traduzir o `scale (λ)` em uma faixa operacional simples (`< 1 semana`, `~ sprint de 2 semanas`, `~ 1 mês`, `> 1 mês`) sem duplicar a lógica estatística.
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi estática; ainda não houve smoke test visual no navegador para conferir quebra de linha do novo card e a leitura final do texto com dados reais
+- Suggested commit message:
+  - `feat(dashboard): add weibull delivery cadence insights to service sla summary`
+
 ## Current Task (Migrar resumo do One Page para Serviço e SLA e remover a aba)
 - [x] Adicionar um resumo executivo mínimo em `Serviço e SLA` com foco em SLA/WIP/pressão
 - [x] Remover `tab-one-page` da navegação e da renderização do dashboard

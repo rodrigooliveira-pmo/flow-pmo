@@ -5478,6 +5478,47 @@ def fit_weibull_linearized(values):
     }
 
 
+def describe_weibull_scale_cadence(scale_days):
+    """
+    Translate Weibull scale (lambda) into a practical delivery-cadence hint.
+
+    Reference used in the dashboard copy:
+    - scale ~= 5   -> < 1 semana
+    - scale ~= 15  -> ~ sprint de 2 semanas
+    - scale ~= 30  -> ~ 1 mês
+    """
+    try:
+        scale = float(scale_days)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(scale) or scale <= 0:
+        return None
+
+    reference_points = [
+        (5.0, '< 1 semana'),
+        (15.0, '~ sprint de 2 semanas'),
+        (30.0, '~ 1 mês'),
+    ]
+    nearest_scale, nearest_label = min(reference_points, key=lambda item: abs(scale - item[0]))
+
+    if scale <= 10.0:
+        band_label = '< 1 semana'
+    elif scale <= 22.5:
+        band_label = '~ sprint de 2 semanas'
+    elif scale <= 37.5:
+        band_label = '~ 1 mês'
+    else:
+        band_label = '> 1 mês'
+
+    return {
+        'label': band_label,
+        'nearest_label': nearest_label,
+        'nearest_scale': nearest_scale,
+        'subtitle': f"λ={scale:.4f}d no lead time; heurística visual de Troy Magennis",
+        'detail': f"Scale λ={scale:.4f}d, mais próximo de {nearest_scale:.0f}d ({nearest_label}) na referência visual.",
+    }
+
+
 def exact_percentile_band_summary(values, cutoffs=(0.50, 0.70, 0.85, 0.95)):
     """Build exact percentile-band summary using nearest-rank cumulative positions."""
     s = pd.Series(values).dropna().sort_values().reset_index(drop=True)
@@ -8818,6 +8859,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         lead_avg = float(lead_series.mean()) if not lead_series.empty else np.nan
         lead_p85 = exact_empirical_percentile(lead_series, 0.85) if not lead_series.empty else np.nan
         sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
+        lt_weibull = fit_weibull_linearized(lead_series) if not lead_series.empty else None
+        weibull_shape = float(lt_weibull['shape']) if lt_weibull else np.nan
+        weibull_lambda = float(lt_weibull['lambda']) if lt_weibull else np.nan
+        weibull_cadence = describe_weibull_scale_cadence(weibull_lambda) if lt_weibull else None
         lead_start_col = 'LeadStart_Selected' if 'LeadStart_Selected' in df_scope.columns else 'DataInProgress'
         selected_start_series = pd.to_datetime(df_scope.get(lead_start_col), errors='coerce')
         arrivals_period = df_scope[
@@ -8887,6 +8932,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             service_card('SLA de referência', f'{sla_days:.0f} dias', 'Meta usada para leitura rápida do serviço'),
             service_card('Lead Time', f"{lead_avg:.1f} / {lead_p85:.1f}" if pd.notna(lead_avg) and pd.notna(lead_p85) else '—', 'médio / P85 do período'),
             service_card(
+                'Cadência sugerida',
+                weibull_cadence['label'] if weibull_cadence else '—',
+                f"Weibull k={weibull_shape:.4f} | λ={weibull_lambda:.4f}d" if weibull_cadence else 'Requer amostra suficiente de lead time'
+            ),
+            service_card(
                 f'Vazão {bucket_adj} (P15/Média/P85)',
                 f"{throughput_p15:.1f} / {throughput_avg:.1f} / {throughput_p85:.1f}" if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else '—',
                 f'Leitura: P15 / média / P85 por {bucket_label.lower()}'
@@ -8915,6 +8965,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         else:
             executive_findings.append('Sem amostra suficiente para medir aderência ao SLA no recorte.')
 
+        if lt_weibull and weibull_cadence:
+            executive_findings.append(
+                f"Weibull do lead time em k={weibull_shape:.4f} e λ={weibull_lambda:.4f}d; "
+                f"o scale sugere cadência {weibull_cadence['label']}."
+            )
+        else:
+            executive_findings.append('Weibull do lead time indisponível por amostra insuficiente no recorte.')
+
         if pd.notna(pressure_rho):
             if pressure_rho >= 1.0:
                 executive_findings.append(f"Chegada acima da capacidade de entrega: pressão em ρ={pressure_rho:.2f}.")
@@ -8937,6 +8995,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             html.Strong('Resumo executivo do serviço'),
             html.Ul([
                 *[html.Li(text) for text in executive_findings],
+                html.Li(weibull_cadence['detail'] if weibull_cadence else 'Sem leitura de frequência de entregas via Weibull no período.'),
                 html.Li(f"Vazão {bucket_adj}: P15 {throughput_p15:.1f}, média {throughput_avg:.1f} e P85 {throughput_p85:.1f} por {bucket_label.lower()}." if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else f'Vazão sem base suficiente por {bucket_label.lower()}.'),
                 html.Li(f"WIP atual: {wip_count} itens | age médio {wip_age_avg:.1f}d | P85 {wip_age_p85:.1f}d | mais antigo {oldest_wip:.1f}d." if pd.notna(wip_age_avg) and pd.notna(wip_age_p85) and pd.notna(oldest_wip) else f'WIP atual: {wip_count} itens.'),
             ], style={'marginTop': '8px', 'marginBottom': '0', 'paddingLeft': '20px'}),
