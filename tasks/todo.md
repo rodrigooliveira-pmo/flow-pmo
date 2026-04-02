@@ -7129,3 +7129,43 @@
   - `paper.tex` compiles cleanly, but still reports some overfull `\hbox` warnings in long paragraphs; these are typographic, not functional.
 - Suggested commit message:
   - `feat(paper): add anonymized production-data validation to flowpmo article`
+## Current Task (Preservar hierarquia parent-child no exportador Jira -> BusinessMap)
+- [x] Confirmar o formato oficial de importação de links parent-child no BusinessMap
+- [x] Exportar a coluna `Links` no XLSX usando a hierarquia do Jira (`Epic -> Feature -> História`)
+- [x] Validar a execução do script e registrar review com comando sugerido
+
+## Specification (Preservar hierarquia parent-child no exportador Jira -> BusinessMap)
+- Objetivo: fazer com que a importação do XLSX no BusinessMap crie vínculos `parent-child` entre os cards exportados do Jira, em vez de importar `Epic`, `Feature` e `História` como itens independentes.
+- Escopo:
+  - `jira_to_businessmap_xlsx.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - confirmar na documentação oficial do BusinessMap qual coluna e qual sintaxe o import usa para criar links do tipo `Parent/Child`
+  - adicionar ao XLSX a coluna necessária para links e preenchê-la usando o identificador do pai no Jira
+  - usar `fields.parent` como fonte principal da hierarquia e manter fallback para campos já usados no projeto (`principal`/`epic_name`) quando o Jira não trouxer o pai direto
+- Critério de aceite:
+  - o XLSX exportado passa a incluir a coluna de links esperada pelo BusinessMap
+  - cards com pai no Jira passam a apontar para o pai usando `Custom Card ID`, preservando a cadeia `Epic -> Feature -> História` quando essa hierarquia existir na base
+  - a CLI continua funcionando para exportações sem hierarquia, deixando a coluna vazia quando não houver pai
+  - o script continua válido sintaticamente
+
+## Review (Preservar hierarquia parent-child no exportador Jira -> BusinessMap)
+- O que foi ajustado:
+  - `jira_to_businessmap_xlsx.py` agora exporta a coluna `Links`, que é a coluna esperada pelo import do BusinessMap para criar relações entre cards via planilha.
+  - O valor de `Links` é montado no formato `Parent: <Custom Card ID do pai>;`, reaproveitando o próprio issue key do Jira já exportado em `Custom Card ID`.
+  - A resolução do pai usa `fields.parent` como rota principal e faz fallback para os campos hierárquicos já usados no projeto (`principal` e `epic_name`) quando eles vierem como issue key válida.
+  - O exportador passou a solicitar ao Jira o campo `parent` e também os custom fields hierárquicos relevantes quando eles estiverem configurados no `JIRA_FIELD_MAP`.
+- Evidências de validação:
+  - documentação oficial do BusinessMap consultada: o import aceita uma coluna `Links` e valores como `Parent: xxxxxx;`, onde `xxxxxx` pode ser `Custom ID`
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile jira_to_businessmap_xlsx.py`
+  - `C:\ProgramData\anaconda3\python.exe jira_to_businessmap_xlsx.py --help`
+  - execução real: `C:\ProgramData\anaconda3\python.exe jira_to_businessmap_xlsx.py --projects BF --out "tmp\bf-links-full.xlsx"`
+  - inspeção do XLSX gerado mostrando a coluna `Links` presente e `177` cards com vínculo preenchido no formato `Parent: BF-37;`
+- Observações do snapshot validado:
+  - no projeto `BF` exportado integralmente, o snapshot atual trouxe `298` cards, com distribuição `238 Histórias`, `44 Épicos`, `13 Iniciativas` e `3 Tech`
+  - nesse snapshot específico não apareceram issues do tipo `Feature`; a hierarquia observada foi majoritariamente `Épico -> História`
+  - itens de topo como `Épico` e `Iniciativa` seguiram com `Links` vazio, o que é esperado quando não há pai resolvido no Jira
+- Risco residual:
+  - a preservação exata da cadeia `Epic -> Feature -> História` depende de a instância do Jira realmente expor esse vínculo em `parent` ou nos campos hierárquicos configurados; quando a issue não trouxer pai, o card continuará sendo importado sem relação
+- Suggested commit message:
+  - `feat(businessmap-export): preserve jira parent-child hierarchy via Links column`

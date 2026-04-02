@@ -113,6 +113,12 @@ Use this file after any user correction.
 - Root cause: Eu mantive como hipótese principal um problema de relacionamento entre spaces/projetos, sem considerar que a estrutura já havia sido consolidada no mesmo projeto `BT`.
 - Prevention rule: Antes de atribuir ausência de hierarquia a fronteiras entre projetos/spaces, confirmar com o usuário ou com a configuração atual do Jira se os níveis já foram unificados no mesmo projeto.
 - Action added to workflow: Em diagnósticos de portfólio, validar primeiro a topologia real (`epics/features` no mesmo projeto ou não) e só depois inferir causa para campos de vínculo vazios.
+- Date: 2026-04-02
+- Context: Orientação de comando para exportação BusinessMap com hierarquia entre épicos, features e histórias.
+- User correction: Informou que existe um projeto/space no Jira só de épicos e outro de features, e que esse fluxo já havia sido exportado antes.
+- Root cause: Eu me apoiei demais numa lição anterior sobre `features` no mesmo projeto `BT` sem revalidar se aquele contexto continuava valendo para este fluxo específico de exportação BusinessMap.
+- Prevention rule: Quando houver histórico conflitante sobre topologia Jira (`mesmo projeto` vs `spaces separados`), confirmar o contexto operacional mais recente do fluxo atual antes de prescrever JQL/comandos.
+- Action added to workflow: Em comandos de exportação Jira -> BusinessMap envolvendo portfólio, revisar sempre os projetos/space keys efetivos do fluxo pedido no momento antes de sugerir `--projects` ou `--jql`.
 - Date: 2026-03-06
 - Context: Ajuste de nomenclatura do indicador de pendências na aba de Portfólio.
 - User correction: Apontou que `Q1/Q2/Q3 Pendências` conflita semanticamente com `Quarter`, gerando leitura ambígua na mesma tela.

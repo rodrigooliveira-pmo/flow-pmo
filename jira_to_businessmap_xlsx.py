@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,7 @@ BUSINESSMAP_COLUMNS = [
     "Title",
     "Description",
     "Custom Card ID",
+    "Links",
     "Priority",
     "Owner",
     "Co-Owners",
@@ -78,6 +80,7 @@ BUSINESSMAP_COLUMNS = [
 ]
 
 BUSINESSMAP_DATE_COLUMNS = ["Deadline", "Created at", "Start Date", "End Date"]
+ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
 
 
 DEFAULT_PRIORITY_MAP = {
@@ -230,6 +233,11 @@ def load_env_file(env_file: str, overwrite: bool = True) -> None:
             os.environ[key] = value
 
 
+def issue_key_or_blank(value: Any) -> str:
+    txt = str(value or "").strip()
+    return txt if ISSUE_KEY_PATTERN.match(txt) else ""
+
+
 def search_issues(
     base_url: str,
     email: str,
@@ -340,6 +348,13 @@ def extract_custom_text(value: Any) -> str:
     if isinstance(value, dict):
         return str(value.get("name") or value.get("value") or value.get("displayName") or "")
     return str(value)
+
+
+def custom_field_as_text(fields: Dict[str, Any], field_id: str) -> str:
+    fid = str(field_id or "").strip()
+    if not fid:
+        return ""
+    return extract_custom_text(fields.get(fid)).strip()
 
 
 def adf_to_text(node: Any) -> str:
@@ -535,6 +550,30 @@ def build_tags(
     return ", ".join(tags)
 
 
+def resolve_parent_link_id(fields: Dict[str, Any], field_map: Dict[str, Any]) -> str:
+    parent_id = issue_key_or_blank(safe_get(fields, "parent", "key"))
+    if parent_id:
+        return parent_id
+
+    principal_key = issue_key_or_blank(custom_field_as_text(fields, str(field_map.get("principal") or "")))
+    if principal_key:
+        return principal_key
+
+    epic_name_raw = custom_field_as_text(fields, str(field_map.get("epic_name") or ""))
+    epic_name_key = issue_key_or_blank(epic_name_raw)
+    if epic_name_key:
+        return epic_name_key
+
+    return ""
+
+
+def build_businessmap_links(parent_custom_id: str) -> str:
+    parent_id = issue_key_or_blank(parent_custom_id)
+    if not parent_id:
+        return ""
+    return f"Parent: {parent_id};"
+
+
 def default_out_path(projects: List[str]) -> str:
     configured_out_dir = str(os.getenv("BUSINESSMAP_OUT_DIR", "")).strip()
     if configured_out_dir:
@@ -626,6 +665,7 @@ def build_output_row(
     base_url: str,
     issue: Dict[str, Any],
     *,
+    field_map: Dict[str, Any],
     board_name: str,
     board_id: str,
     workflow_name: str,
@@ -714,11 +754,13 @@ def build_output_row(
         size_value = normalize_size_value(fields.get(size_field))
 
     mapped_type_name = map_issue_type_name(str(safe_get(fields, "issuetype", "name") or ""), type_name_map)
+    parent_link_id = resolve_parent_link_id(fields, field_map)
 
     row = {
         "Title": summary,
         "Description": description_text,
         "Custom Card ID": key,
+        "Links": build_businessmap_links(parent_link_id),
         "Priority": normalize_priority(str(safe_get(fields, "priority", "name") or ""), priority_map),
         "Owner": extract_user_value(owner_user, owner_format=owner_format),
         "Co-Owners": "",
@@ -976,6 +1018,7 @@ def main() -> int:
     requested_fields = [
         "summary",
         "description",
+        "parent",
         "status",
         "priority",
         "assignee",
@@ -991,7 +1034,13 @@ def main() -> int:
         "resolutiondate",
         "statuscategorychangedate",
     ]
-    for custom_field in [size_field, args.start_date_field.strip(), args.end_date_field.strip()]:
+    for custom_field in [
+        size_field,
+        args.start_date_field.strip(),
+        args.end_date_field.strip(),
+        str(field_map.get("principal") or "").strip(),
+        str(field_map.get("epic_name") or "").strip(),
+    ]:
         if custom_field and custom_field not in requested_fields:
             requested_fields.append(custom_field)
 
@@ -1021,6 +1070,7 @@ def main() -> int:
         build_output_row(
             base_url=base_url,
             issue=issue,
+            field_map=field_map,
             board_name=args.board_name.strip(),
             board_id=args.board_id.strip(),
             workflow_name=args.workflow_name.strip(),
