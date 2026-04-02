@@ -11,6 +11,12 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-04-02
+- Context: Primeira entrega do filtro multi-seleção de `Criador` no dashboard de serviços.
+- User correction: Informou que o campo continuava desabilitado mesmo após atualizar a base, mostrando que o filtro não tinha ficado utilizável no cenário real.
+- Root cause: Eu ancorei a habilitação do filtro apenas nas colunas presentes em `Fato_Items` do `PowerBI_Model`, ignorando que o metadado de `Criador` já existia no CSV downstream por projeto e poderia ser usado como fallback operacional.
+- Prevention rule: Quando um filtro depender de metadado que pode existir no downstream mas não no modelo consolidado, não bloquear a UI só porque `Fato_Items` não trouxe a coluna; verificar fallback nas fontes auxiliares já consumidas pelo dashboard.
+- Action added to workflow: Em novos filtros de metadados (`Criador`, `Reporter`, `labels`, datas de criação), validar sempre duas rotas antes de concluir: `modelo consolidado` e `downstream por projeto`.
 - Date: 2026-03-31
 - Context: Segunda iteração da leitura de cadência Weibull na aba `Serviço e SLA`.
 - User correction: Apontou que `λ=22.7276d` e `λ=22.3702d` receberam cadências diferentes apesar de serem praticamente equivalentes, e pediu faixas explícitas de `1-5`, `5-10`, `10-15`, `15-20`, `20-25`, `25-30` e `>30` dias, com o rótulo `Cadência avaliada`.

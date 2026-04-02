@@ -29,6 +29,7 @@
   - O `filter_df(...)` passou a aplicar o recorte temporal pela data selecionada no flag e também a filtrar múltiplos criadores.
   - As abas que recompunham o dataset diretamente de `fato` passaram a reutilizar a base já filtrada ou a semântica central da nova data-base, reduzindo divergência entre telas.
   - As chamadas internas de `render_tab(...)` nas abas compostas (`Saúde` e `Análise Fluxo`) agora repassam também `Criador` e o modo de data, evitando perda de contexto nesses renders encadeados.
+  - Após o teste real do usuário, o filtro de `Criador` deixou de depender apenas de `Fato_Items`: o dashboard agora tenta carregar `Criador` e `Created` do CSV downstream do projeto e recalcula dinamicamente as opções do dropdown quando o projeto é alterado.
 - Evidências de validação:
   - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
   - busca estática por ocorrências críticas com `rg` para confirmar presença dos novos controles, helpers e repasse das chamadas internas

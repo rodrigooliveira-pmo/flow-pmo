@@ -548,6 +548,7 @@ CREATION_DATE_COLUMN_CANDIDATES = [
     'DataCriacao', 'DataCriacaoID', 'Created', 'CreatedDate', 'IssueCreated'
 ]
 FILTER_DATE_CREATED_VALUE = 'created'
+DOWNSTREAM_METADATA_CACHE = {}
 
 LEAD_TIME_END_STAGE_CANDIDATES = [
     'Itens concluídos', 'Itens concluidos', 'Done', 'Concluído', 'Concluido', 'ready for production'
@@ -6812,6 +6813,97 @@ def load_project_downstream_items_csv(projeto):
         return pd.DataFrame()
 
 
+def load_project_downstream_metadata(projeto):
+    """Carrega metadados úteis do downstream para filtros e datas quando o modelo principal não traz essas colunas."""
+    if not projeto:
+        return pd.DataFrame()
+    project_key = str(projeto).strip().upper()
+    if project_key in DOWNSTREAM_METADATA_CACHE:
+        cached = DOWNSTREAM_METADATA_CACHE[project_key]
+        return cached.copy() if isinstance(cached, pd.DataFrame) else pd.DataFrame()
+
+    items_df = load_project_downstream_items_csv(project_key)
+    if items_df.empty or 'ID' not in items_df.columns:
+        DOWNSTREAM_METADATA_CACHE[project_key] = pd.DataFrame()
+        return pd.DataFrame()
+
+    meta = pd.DataFrame({
+        'Projeto': project_key,
+        'ItemID': items_df['ID'].astype(str).str.strip(),
+    })
+
+    creator_col = resolve_creator_filter_column(items_df)
+    if creator_col and creator_col in items_df.columns:
+        meta['Criador'] = items_df[creator_col].fillna('').astype(str).str.strip()
+    else:
+        meta['Criador'] = ''
+
+    creation_series = resolve_creation_date_series(items_df)
+    meta['Created'] = creation_series
+    meta = meta.drop_duplicates(subset=['Projeto', 'ItemID'], keep='first')
+    DOWNSTREAM_METADATA_CACHE[project_key] = meta
+    return meta.copy()
+
+
+def enrich_items_with_downstream_metadata(df_source, projeto=None):
+    if df_source is None or getattr(df_source, 'empty', True) or 'ItemID' not in df_source.columns:
+        return df_source
+
+    out = df_source.copy()
+    if 'Projeto' in out.columns:
+        out['Projeto'] = out['Projeto'].astype(str).str.strip()
+    out['ItemID'] = out['ItemID'].astype(str).str.strip()
+
+    project_values = []
+    if projeto:
+        project_values = [str(projeto).strip()]
+    elif 'Projeto' in out.columns:
+        project_values = [str(value).strip() for value in out['Projeto'].dropna().astype(str).unique().tolist() if str(value).strip()]
+
+    meta_frames = []
+    seen = set()
+    for project_name in project_values:
+        project_key = str(project_name).strip().upper()
+        if not project_key or project_key in seen:
+            continue
+        seen.add(project_key)
+        meta_df = load_project_downstream_metadata(project_key)
+        if not meta_df.empty:
+            meta_frames.append(meta_df)
+
+    if not meta_frames:
+        return out
+
+    meta_all = pd.concat(meta_frames, ignore_index=True)
+    merge_keys = ['ItemID']
+    if 'Projeto' in out.columns and 'Projeto' in meta_all.columns:
+        meta_all['Projeto'] = meta_all['Projeto'].astype(str).str.strip()
+        merge_keys = ['Projeto', 'ItemID']
+    out = out.merge(meta_all, how='left', on=merge_keys, suffixes=('', '_downstream'))
+
+    creator_col = resolve_creator_filter_column(out)
+    downstream_creator_col = 'Criador_downstream' if 'Criador_downstream' in out.columns else ('Criador' if 'Criador' in out.columns else None)
+    if downstream_creator_col:
+        downstream_creator = out[downstream_creator_col].fillna('').astype(str).str.strip()
+        if creator_col and creator_col in out.columns and creator_col != downstream_creator_col:
+            current_creator = out[creator_col].fillna('').astype(str).str.strip()
+            out[creator_col] = current_creator.where(current_creator.ne(''), downstream_creator)
+        else:
+            out['Criador'] = downstream_creator
+
+    downstream_created_col = 'Created_downstream' if 'Created_downstream' in out.columns else ('Created' if 'Created' in out.columns else None)
+    if downstream_created_col:
+        downstream_created = pd.to_datetime(out[downstream_created_col], errors='coerce')
+        if 'Created' in out.columns and downstream_created_col != 'Created':
+            current_created = pd.to_datetime(out['Created'], errors='coerce')
+            out['Created'] = current_created.combine_first(downstream_created)
+        else:
+            out['Created'] = downstream_created
+
+    out.drop(columns=['Criador_downstream', 'Created_downstream'], inplace=True, errors='ignore')
+    return out
+
+
 def get_downstream_workflow_stage_columns(items_df):
     """Return workflow stage columns from downstream CSV (exclude metadata fields)."""
     if items_df is None or getattr(items_df, 'empty', True):
@@ -8280,6 +8372,20 @@ def build_dropdown_options_from_column(df_source, column_name):
     return [{'label': value, 'value': value} for value in unique_values]
 
 
+def build_creator_filter_dataset(projeto=None):
+    projeto = normalize_project_filter_value(projeto)
+    base = fato.copy()
+    if projeto and 'Projeto' in base.columns:
+        base = base[base['Projeto'].astype(str).str.strip() == str(projeto).strip()].copy()
+    return enrich_items_with_downstream_metadata(base, projeto=projeto)
+
+
+def get_creator_filter_options_for_project(projeto=None):
+    creator_df = build_creator_filter_dataset(projeto)
+    creator_col = resolve_creator_filter_column(creator_df)
+    return build_dropdown_options_from_column(creator_df, creator_col)
+
+
 def resolve_creation_date_series(df_source):
     if df_source is None:
         return pd.Series(dtype='datetime64[ns]')
@@ -8314,8 +8420,7 @@ def build_date_range_mask(date_series, start_date=None, end_date=None):
     return mask
 
 
-creator_filter_column = resolve_creator_filter_column(fato)
-creator_filter_options = build_dropdown_options_from_column(fato, creator_filter_column)
+creator_filter_options = get_creator_filter_options_for_project()
 done_date_defaults = pd.to_datetime(fato['DataDone'], errors='coerce') if 'DataDone' in fato.columns else pd.Series(dtype='datetime64[ns]')
 creation_date_defaults = resolve_creation_date_series(fato)
 date_min_candidates = [series.min() for series in [done_date_defaults, creation_date_defaults] if not series.dropna().empty]
@@ -8642,6 +8747,8 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
         d = d[d['ClasseServico'] == classe_servico]
     if responsavel:
         d = d[d['Responsavel'] == responsavel]
+    if criadores or use_creation_date:
+        d = enrich_items_with_downstream_metadata(d, projeto=projeto)
     if criadores:
         creator_col = resolve_creator_filter_column(d)
         if creator_col and creator_col in d.columns:
@@ -8736,6 +8843,21 @@ def update_etapa_fluxo_filter_options(projeto, current_value):
         if hit and hit not in defaults:
             defaults.append(hit)
     return options, defaults
+
+
+@app.callback(
+    Output('filter-criador', 'options'),
+    Output('filter-criador', 'disabled'),
+    Output('filter-criador', 'value'),
+    Input('filter-projeto', 'value'),
+    State('filter-criador', 'value'),
+)
+def update_creator_filter_options(projeto, current_value):
+    projeto = normalize_project_filter_value(projeto)
+    options = get_creator_filter_options_for_project(projeto)
+    allowed_values = {opt.get('value') for opt in options}
+    preserved = [value for value in (current_value or []) if value in allowed_values]
+    return options, not bool(options), preserved
 
 
 def _work_item_age_health_label(age_days, cycle_p50, cycle_p85):
