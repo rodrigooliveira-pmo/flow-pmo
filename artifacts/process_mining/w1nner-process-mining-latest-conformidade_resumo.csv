@@ -1,9 +1,9 @@
 ﻿Metrica,Valor
-Casos analisados,1035.0
-Casos finalizados (Done),985.0
+Casos analisados,1046.0
+Casos finalizados (Done),991.0
 Casos conformes (basico),38.0
-Taxa conformidade basica (%),3.67
-Casos com retrabalho,108.0
-Taxa retrabalho (%),10.43
-Rework score medio,0.217
-Conformance score medio,0.5431
+Taxa conformidade basica (%),3.63
+Casos com retrabalho,110.0
+Taxa retrabalho (%),10.52
+Rework score medio,0.227
+Conformance score medio,0.54
