@@ -746,7 +746,115 @@ def _person_bu(canonical_name: str, bu_index: dict | None = None) -> str:
     if bu_index is None:
         bu_index = _load_person_bu_map()
     key = _person_match_key(canonical_name)
-    return bu_index.get(key, '')
+    if key and key in bu_index:
+        return bu_index.get(key, '')
+
+    config = _load_people_config()
+    raw_bu_map: dict = config.get('bu_map', {}) if isinstance(config, dict) else {}
+    raw_aliases: dict = config.get('aliases', {}) if isinstance(config, dict) else {}
+    for raw_name, bu in raw_bu_map.items():
+        if _person_names_compatible(canonical_name, raw_name):
+            return str(bu).strip()
+        for alias_entry in raw_aliases.get(raw_name, []):
+            if _person_names_compatible(canonical_name, alias_entry):
+                return str(bu).strip()
+    return ''
+
+
+def _project_team_bu(project_value) -> str:
+    """Resolve a BU/time oficial a partir do projeto selecionado na aba."""
+    project_key = normalize_text(project_value).upper()
+    mapping = {
+        'W1NNR': 'Sistemas - W1NNER',
+        'W1NNER': 'Sistemas - W1NNER',
+        'S1NC': 'Sistemas - S1NC',
+        'W1SFT': 'Sistemas - S1NC',
+        'BF': 'BeFinance',
+        'BEFINANCE': 'BeFinance',
+        'DT': 'Dados',
+        'DATA&ANALYTICS': 'Dados',
+        'DATAANALYTICS': 'Dados',
+    }
+    return mapping.get(project_key, '')
+
+
+def _project_team_seed_df(project_value) -> pd.DataFrame:
+    """Retorna a lista oficial de pessoas do time do projeto com BU e papel."""
+    team_bu = _project_team_bu(project_value)
+    if not team_bu:
+        return pd.DataFrame(columns=['Pessoa', 'BU', 'Papel'])
+
+    config = _load_people_config()
+    bu_map = config.get('bu_map', {}) if isinstance(config, dict) else {}
+    alias_index = _load_person_alias_index()
+    role_index = _load_person_role_map()
+    rows = []
+    seen = set()
+    for raw_name, raw_bu in bu_map.items():
+        if str(raw_bu).strip() != team_bu:
+            continue
+        person = _canonical_person_name(raw_name, alias_index=alias_index)
+        if not person or person in seen:
+            continue
+        seen.add(person)
+        rows.append({
+            'Pessoa': person,
+            'BU': team_bu,
+            'Papel': _person_role(person, role_index=role_index),
+        })
+    if not rows:
+        return pd.DataFrame(columns=['Pessoa', 'BU', 'Papel'])
+    return pd.DataFrame(rows).sort_values('Pessoa', ignore_index=True)
+
+
+def _ensure_dev_productivity_columns(per_dev: pd.DataFrame) -> pd.DataFrame:
+    """Garante schema mínimo para exibir membros do time sem entregas no período."""
+    if per_dev is None or per_dev.empty:
+        return pd.DataFrame(columns=['Pessoa'])
+
+    df = per_dev.copy()
+    int_defaults = {
+        'Itens Entregues': 0,
+        'Itens Puxados': 0,
+        'SP Entregues': 0,
+        'Defeitos Entregues': 0,
+        'Defeitos Puxados': 0,
+        'WIP Residual': 0,
+        'WIP Inicio Periodo': 0,
+    }
+    float_defaults = {
+        '% Demanda Falha': 0.0,
+        'Flow Efficiency (%)': 0.0,
+        'FE Ajustada (%)': 0.0,
+        'Lead Time Mediano (dias)': 0.0,
+        'Score Complexidade': 0.0,
+        'Score Complexidade Puxado': 0.0,
+        'ECR': 100.0,
+    }
+    for col, default in int_defaults.items():
+        if col not in df.columns:
+            df[col] = default
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default).astype(int)
+    for col, default in float_defaults.items():
+        if col not in df.columns:
+            df[col] = default
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default)
+
+    bu_index = _load_person_bu_map()
+    role_index = _load_person_role_map()
+    if 'BU' not in df.columns:
+        df['BU'] = ''
+    if 'Papel' not in df.columns:
+        df['Papel'] = ''
+    df['BU'] = df['BU'].fillna('').astype(str)
+    df['Papel'] = df['Papel'].fillna('').astype(str)
+    missing_bu = df['BU'].str.strip().eq('')
+    if missing_bu.any():
+        df.loc[missing_bu, 'BU'] = df.loc[missing_bu, 'Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
+    missing_role = df['Papel'].str.strip().eq('')
+    if missing_role.any():
+        df.loc[missing_role, 'Papel'] = df.loc[missing_role, 'Pessoa'].apply(lambda p: _person_role(p, role_index=role_index))
+    return df
 
 
 def _load_person_role_map() -> dict:
@@ -774,7 +882,19 @@ def _person_role(canonical_name: str, role_index: dict | None = None) -> str:
     if role_index is None:
         role_index = _load_person_role_map()
     key = _person_match_key(canonical_name)
-    return role_index.get(key, 'Dev')
+    if key and key in role_index:
+        return role_index.get(key, 'Dev')
+
+    config = _load_people_config()
+    raw_role_map: dict = config.get('role_map', {}) if isinstance(config, dict) else {}
+    raw_aliases: dict = config.get('aliases', {}) if isinstance(config, dict) else {}
+    for raw_name, role in raw_role_map.items():
+        if _person_names_compatible(canonical_name, raw_name):
+            return str(role).strip() or 'Dev'
+        for alias_entry in raw_aliases.get(raw_name, []):
+            if _person_names_compatible(canonical_name, alias_entry):
+                return str(role).strip() or 'Dev'
+    return 'Dev'
 
 
 def _load_person_alias_index():
@@ -842,6 +962,28 @@ def _canonical_person_name(raw_name, alias_index=None):
         if key and key in alias_index:
             return alias_index[key]
     return fallback
+
+
+def _person_tokens_for_match(raw_name):
+    text = normalize_text(_normalize_person_name(raw_name))
+    if not text:
+        return set()
+    ignored = {'de', 'da', 'do', 'dos', 'das', 'junior', 'jr'}
+    return {tok for tok in re.split(r'\s+', text) if tok and tok not in ignored}
+
+
+def _person_names_compatible(left_name, right_name) -> bool:
+    """Heurística leve para evitar duplicar a mesma pessoa em variantes próximas de nome."""
+    left_key = _person_match_key(left_name)
+    right_key = _person_match_key(right_name)
+    if left_key and right_key and left_key == right_key:
+        return True
+    left_tokens = _person_tokens_for_match(left_name)
+    right_tokens = _person_tokens_for_match(right_name)
+    if len(left_tokens) < 2 or len(right_tokens) < 2:
+        return False
+    shorter, longer = (left_tokens, right_tokens) if len(left_tokens) <= len(right_tokens) else (right_tokens, left_tokens)
+    return shorter.issubset(longer)
 
 
 def _normalize_seniority_bucket(raw_value):
@@ -15113,27 +15255,40 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             weekly_metric=capacity_weekly_metric,
         )
 
+        team_seed_df = _project_team_seed_df(projeto)
+        complexity_df = pd.DataFrame()
+        category_df = pd.DataFrame()
         if df_prod_base.empty or 'Responsavel' not in df_prod_base.columns:
-            return html.Div([
-                html.Div('Sem dados de responsável disponíveis para o período e filtros selecionados.',
-                         style={'padding': '30px', 'textAlign': 'center', 'color': '#888'}),
-                html.Div([
-                    html.H4('Contribuições Bitbucket e Capacidade Cruzada', style={'marginBottom': '10px'}),
-                    contributor_section,
-                ], style={'padding': '0 20px 20px 20px'}),
-            ])
-
-        per_dev, complexity_df, category_df = build_dev_productivity_metrics(df_prod_base, start_ts_prod, end_ts_prod)
-
-        if per_dev.empty:
-            return html.Div([
-                html.Div('Sem dados de produtividade individual para o período selecionado.',
-                         style={'padding': '30px', 'textAlign': 'center', 'color': '#888'}),
-                html.Div([
-                    html.H4('Contribuições Bitbucket e Capacidade Cruzada', style={'marginBottom': '10px'}),
-                    contributor_section,
-                ], style={'padding': '0 20px 20px 20px'}),
-            ])
+            per_dev = team_seed_df.copy()
+            if per_dev.empty:
+                return html.Div([
+                    html.Div('Sem dados de responsável disponíveis para o período e filtros selecionados.',
+                             style={'padding': '30px', 'textAlign': 'center', 'color': '#888'}),
+                    html.Div([
+                        html.H4('Contribuições Bitbucket e Capacidade Cruzada', style={'marginBottom': '10px'}),
+                        contributor_section,
+                    ], style={'padding': '0 20px 20px 20px'}),
+                ])
+        else:
+            per_dev, complexity_df, category_df = build_dev_productivity_metrics(df_prod_base, start_ts_prod, end_ts_prod)
+            if not team_seed_df.empty:
+                existing_people = per_dev['Pessoa'].tolist() if 'Pessoa' in per_dev.columns else []
+                _missing_mask = team_seed_df['Pessoa'].apply(
+                    lambda seed_person: not any(_person_names_compatible(seed_person, existing_person) for existing_person in existing_people)
+                )
+                _missing_team = team_seed_df[_missing_mask]
+                if not _missing_team.empty:
+                    per_dev = pd.concat([per_dev, _missing_team], ignore_index=True, sort=False)
+            if per_dev.empty:
+                return html.Div([
+                    html.Div('Sem dados de produtividade individual para o período selecionado.',
+                             style={'padding': '30px', 'textAlign': 'center', 'color': '#888'}),
+                    html.Div([
+                        html.H4('Contribuições Bitbucket e Capacidade Cruzada', style={'marginBottom': '10px'}),
+                        contributor_section,
+                    ], style={'padding': '0 20px 20px 20px'}),
+                ])
+        per_dev = _ensure_dev_productivity_columns(per_dev)
 
         # Enriquecer com métricas do Bitbucket
         # W1NNER e S1NC compartilham o mesmo repositório; a BU (people_config.json) separa os times
@@ -15497,6 +15652,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'color': '#6d4c41',
             })
 
+        team_visibility_enabled = bool(projeto and not team_seed_df.empty)
+        zero_delivery_count = int((pd.to_numeric(per_dev['Itens Entregues'], errors='coerce').fillna(0) == 0).sum()) if 'Itens Entregues' in per_dev.columns else 0
+        team_visibility_disclaimer = (
+            f' Observação: {zero_delivery_count} pessoa(s) do time oficial aparecem com IEF/IED = 0 '
+            'por não terem entregas elegíveis no recorte atual.'
+            if team_visibility_enabled and zero_delivery_count > 0 else
+            ' Observação: membros do time oficial são mantidos no gráfico mesmo sem entregas elegíveis no recorte.'
+            if team_visibility_enabled else
+            ''
+        )
+
         # ── Banner de BU ──────────────────────────────────────────────────────
         _bu_chips = [
             html.Span(bu, style={
@@ -15527,7 +15693,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # ── IEF — Índice de Entrega Focado (0.70×NDS + 0.30×EEE) ─────────────
         # Foco exclusivo em: volume/complexidade entregue + taxa de conclusão do estimado.
         # Exclui velocidade (VEL) e qualidade (QUA) para isolar a dimensão de entrega pura.
-        _ief_df = per_dev[per_dev['IEF'] > 0].copy()
+        _ief_df = per_dev.copy()
         _ief_df = _ief_df.sort_values('IEF', ascending=True).head(40)
 
         fig_ief = go.Figure()
@@ -15609,7 +15775,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'NDS (70%): volume de entregas ponderado por complexidade vs P75 do grupo. '
                 'EEE (30%): taxa de conclusão do trabalho comprometido (entregue / puxado por complexidade). '
                 'SP e T-shirt equalizados (Kitchenham &amp; Mendes, TSE 2004). '
-                'Faixas: Excelente ≥85 | Bom ≥70 | Regular ≥50 | Abaixo ≥30 | Crítico &lt;30'
+                'Faixas: Excelente ≥85 | Bom ≥70 | Regular ≥50 | Abaixo ≥30 | Crítico &lt;30.'
+                f'{team_visibility_disclaimer}'
                 '</sup>'
             ),
             xaxis=dict(range=[0, 110], title='IEF (0–100)', showgrid=True, gridcolor='#eee'),
@@ -15623,7 +15790,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # ── Régua IED — gráfico de barras horizontais com faixas de classificação ──
         # Mostra o IED de cada dev com cor por faixa e linhas de referência.
-        _ied_df = per_dev[per_dev['IED'] > 0].copy()
+        _ied_df = per_dev.copy()
         _ied_df = _ied_df.sort_values('IED', ascending=True).head(40)
 
         def _ied_bar_color(v):
@@ -15718,7 +15885,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'IED = 0.40×NDS (volume/complexidade) + 0.30×EEE (taxa conclusão estimado) '
                 '+ 0.20×VEL (velocidade) + 0.10×QUA (qualidade) | '
                 'SP e T-shirt equalizados (Kitchenham & Mendes, TSE 2004) | '
-                'Referências: Jørgensen (IST 2023), Flournoy et al. (EMSE 2025), Forsgren et al. (SPACE 2021)'
+                'Referências: Jørgensen (IST 2023), Flournoy et al. (EMSE 2025), Forsgren et al. (SPACE 2021).'
+                f'{team_visibility_disclaimer}'
                 '</sup>'
             ),
             xaxis=dict(range=[0, 110], title='IED (0–100)', showgrid=True, gridcolor='#eee'),

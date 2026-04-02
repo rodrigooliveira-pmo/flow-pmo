@@ -1,3 +1,41 @@
+## Current Task (Produtividade Dev: manter time visível sem entregas no recorte)
+- [x] Mapear como derivar a lista oficial de pessoas do time a partir de `people_config.json`
+- [x] Incluir membros oficiais do time no `per_dev` mesmo quando o recorte não trouxer entregas elegíveis
+- [x] Ajustar IEF/IED para exibir essas pessoas com score `0` quando aplicável
+- [x] Adicionar disclaimer explícito no gráfico explicando a presença de pessoas sem entregas elegíveis
+- [x] Revisar diff e registrar review com commit sugerido
+
+## Specification (Produtividade Dev: manter time visível sem entregas no recorte)
+- Objetivo: evitar que membros do time desapareçam dos gráficos de produtividade quando o período/filtros não trouxerem entregas elegíveis, preservando a leitura da composição da equipe no contexto do projeto selecionado.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - derivar a lista oficial de pessoas por projeto a partir do mapeamento de BU/time em `people_config.json`
+  - quando houver projeto selecionado com time mapeado, garantir presença dessas pessoas no dataset `per_dev` com métricas zeradas se não houver base no recorte
+  - remover a supressão automática de zeros nos gráficos relevantes da aba de `Produtividade Dev`
+  - inserir um disclaimer visível no gráfico esclarecendo que `IEF/IED = 0` pode significar ausência de entregas elegíveis no período, e não ausência da equipe
+- Critério de aceite:
+  - ao filtrar um projeto com time mapeado, membros oficiais continuam visíveis mesmo sem entregas elegíveis no período
+  - os gráficos deixam claro quando um `0` decorre de ausência de entregas elegíveis no recorte
+  - a mudança não altera a regra de cálculo do score, apenas a visibilidade dos membros do time
+  - o arquivo continua válido sintaticamente
+
+## Review (Produtividade Dev: manter time visível sem entregas no recorte)
+- O que foi ajustado:
+  - `dashboard_full.py` agora resolve a BU/time oficial do projeto filtrado e monta uma seed de membros oficiais a partir do `people_config.json`.
+  - A aba `Produtividade Dev` passou a manter esses membros no `per_dev` mesmo quando o recorte atual não trouxer entregas elegíveis, preenchendo as métricas-base com `0` e preservando `BU`/`Papel`.
+  - Os gráficos de `IEF` e `IED` deixaram de esconder automaticamente linhas com score `0`, de modo que a composição do time continue visível no contexto do projeto.
+  - Foi adicionado um disclaimer no subtítulo dos gráficos explicando que `IEF/IED = 0` pode significar ausência de entregas elegíveis no período, e não ausência da equipe.
+  - O fallback de `BU` e `Papel` ficou mais resiliente a variações próximas de nome, reduzindo casos em que alguém do time aparecia sem classificação correta.
+- Evidências de validação:
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+  - inspeção dos pontos alterados com `rg` para confirmar seed do time, manutenção dos zeros e disclaimer no título dos gráficos
+- Limitação de validação:
+  - não consegui rodar compilação Python local, porque o ambiente atual continua sem um executável `python` funcional no `PATH`
+- Suggested commit message:
+  - `feat(produtividade-dev): keep team members visible with zero score when period has no eligible deliveries`
+
 ## Current Task (Diagnosticar e preparar validação de acesso por grupo Google Workspace)
 - [x] Mapear por que o login ainda está caindo na allowlist estática em vez da checagem por grupo
 - [x] Tornar o bootstrap de autenticação explícito sobre o modo de controle de acesso ativo e sobre configurações incompletas de grupo
