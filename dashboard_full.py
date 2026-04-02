@@ -541,6 +541,14 @@ DOWNSTREAM_METADATA_COLUMNS = {
     'Afeta as versões', 'Change type'
 }
 
+CREATOR_FILTER_COLUMN_CANDIDATES = [
+    'Criador', 'Creator', 'Created By', 'CreatedBy', 'Reporter', 'Autor'
+]
+CREATION_DATE_COLUMN_CANDIDATES = [
+    'DataCriacao', 'DataCriacaoID', 'Created', 'CreatedDate', 'IssueCreated'
+]
+FILTER_DATE_CREATED_VALUE = 'created'
+
 LEAD_TIME_END_STAGE_CANDIDATES = [
     'Itens concluídos', 'Itens concluidos', 'Done', 'Concluído', 'Concluido', 'ready for production'
 ]
@@ -8250,8 +8258,70 @@ fato['TipoDemanda'] = fato.apply(
     axis=1
 )
 
-min_date = fato['DataDone'].min() if 'DataDone' in fato.columns else pd.to_datetime('2023-01-01')
-max_date = fato['DataDone'].max() if 'DataDone' in fato.columns else pd.to_datetime('today')
+def resolve_creator_filter_column(df_source):
+    if df_source is None:
+        return None
+    for col in CREATOR_FILTER_COLUMN_CANDIDATES:
+        if col in df_source.columns:
+            return col
+    return None
+
+
+def build_dropdown_options_from_column(df_source, column_name):
+    if df_source is None or getattr(df_source, 'empty', True) or not column_name or column_name not in df_source.columns:
+        return []
+    values = (
+        df_source[column_name]
+        .fillna('')
+        .astype(str)
+        .str.strip()
+    )
+    unique_values = sorted(v for v in values.unique().tolist() if v)
+    return [{'label': value, 'value': value} for value in unique_values]
+
+
+def resolve_creation_date_series(df_source):
+    if df_source is None:
+        return pd.Series(dtype='datetime64[ns]')
+    idx = df_source.index
+    creation_date = pd.Series(pd.NaT, index=idx, dtype='datetime64[ns]')
+    for col in CREATION_DATE_COLUMN_CANDIDATES:
+        if col not in df_source.columns:
+            continue
+        parsed = _coerce_datetime_flexible(df_source[col])
+        creation_date = creation_date.combine_first(parsed)
+    return creation_date
+
+
+def resolve_filter_date_series(df_source, use_creation_date=False):
+    if df_source is None:
+        return pd.Series(dtype='datetime64[ns]')
+    if use_creation_date:
+        return resolve_creation_date_series(df_source)
+    if 'DataDone' in df_source.columns:
+        return pd.to_datetime(df_source['DataDone'], errors='coerce')
+    return pd.Series(pd.NaT, index=df_source.index, dtype='datetime64[ns]')
+
+
+def build_date_range_mask(date_series, start_date=None, end_date=None):
+    if date_series is None:
+        return pd.Series(dtype=bool)
+    mask = pd.Series(True, index=date_series.index, dtype=bool)
+    if start_date:
+        mask &= date_series >= pd.to_datetime(start_date)
+    if end_date:
+        mask &= date_series <= pd.to_datetime(end_date)
+    return mask
+
+
+creator_filter_column = resolve_creator_filter_column(fato)
+creator_filter_options = build_dropdown_options_from_column(fato, creator_filter_column)
+done_date_defaults = pd.to_datetime(fato['DataDone'], errors='coerce') if 'DataDone' in fato.columns else pd.Series(dtype='datetime64[ns]')
+creation_date_defaults = resolve_creation_date_series(fato)
+date_min_candidates = [series.min() for series in [done_date_defaults, creation_date_defaults] if not series.dropna().empty]
+date_max_candidates = [series.max() for series in [done_date_defaults, creation_date_defaults] if not series.dropna().empty]
+min_date = min(date_min_candidates) if date_min_candidates else pd.to_datetime('2023-01-01')
+max_date = max(date_max_candidates) if date_max_candidates else pd.to_datetime('today')
 
 app.layout = html.Div([
     dcc.Store(id='main-view', data='home'),
@@ -8402,7 +8472,33 @@ app.layout = html.Div([
         ], style={'width':'20%', 'display':'inline-block'}),
         html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['TipoDemanda'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Classe Serviço (Prioridade):'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
-        html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'20%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'18%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([
+            html.Label('Criador:'),
+            dcc.Dropdown(
+                id='filter-criador',
+                options=creator_filter_options,
+                value=[],
+                multi=True,
+                clearable=True,
+                disabled=not bool(creator_filter_options),
+                placeholder='Selecione um ou mais criadores'
+            )
+        ], style={'width':'24%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'260px'}),
+        html.Div([
+            html.Label('Base do período:'),
+            dcc.Checklist(
+                id='filter-date-mode',
+                options=[{'label': 'Usar data de criação do card', 'value': FILTER_DATE_CREATED_VALUE}],
+                value=[],
+                inputStyle={'marginRight': '6px'},
+                labelStyle={'display': 'inline-flex', 'alignItems': 'center', 'marginTop': '8px'}
+            ),
+            html.Div(
+                'Desmarcado = Data done | Marcado = Data de criação',
+                style={'fontSize': '12px', 'color': '#666', 'marginTop': '4px'}
+            ),
+        ], style={'width':'24%', 'display':'inline-block', 'marginLeft':'20px', 'minWidth':'250px'}),
         html.Div([
             html.Label('Etapas Lead Time (Comprometimento):'),
             dcc.Dropdown(
@@ -8536,12 +8632,8 @@ app.layout = html.Div([
     html.Div(id='tab-content')
 ])
 
-def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsavel):
+def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsavel, criadores=None, use_creation_date=False, apply_date=True):
     d = df.copy()
-    if start_date:
-        d = d[d['DataDone'] >= pd.to_datetime(start_date)]
-    if end_date:
-        d = d[d['DataDone'] <= pd.to_datetime(end_date)]
     if projeto:
         d = d[d['Projeto'] == projeto]
     if tipo:
@@ -8550,6 +8642,17 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
         d = d[d['ClasseServico'] == classe_servico]
     if responsavel:
         d = d[d['Responsavel'] == responsavel]
+    if criadores:
+        creator_col = resolve_creator_filter_column(d)
+        if creator_col and creator_col in d.columns:
+            selected_creators = {str(value).strip() for value in criadores if str(value).strip()}
+            creator_series = d[creator_col].fillna('').astype(str).str.strip()
+            d = d[creator_series.isin(selected_creators)]
+        else:
+            return d.iloc[0:0].copy()
+    if apply_date:
+        filter_date_series = resolve_filter_date_series(d, use_creation_date=use_creation_date)
+        d = d[build_date_range_mask(filter_date_series, start_date, end_date)]
     return d
 
 
@@ -8747,12 +8850,15 @@ def update_main_navigation_layout(main_view):
     Input('filter-portfolio-workflow-statuses', 'value'),
     Input('filter-portfolio-sla-aging-json', 'value'),
     Input('filter-portfolio-target-mix-json', 'value'),
+    Input('filter-criador', 'value'),
+    Input('filter-date-mode', 'value'),
     optional_input('estatistica-lsl', 'value'),
     optional_input('estatistica-usl', 'value'),
 )
 def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
+               criadores=None, date_filter_mode=None,
                estatistica_lsl=None, estatistica_usl=None):
     if main_view in (None, 'home'):
         return html.Div(
@@ -8786,7 +8892,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
     projeto = normalize_project_filter_value(projeto)
     portfolio_project = normalize_project_filter_value(portfolio_team)
-    df = filter_df(fato, start_date, end_date, projeto, tipo, classe_servico, responsavel)
+    use_creation_date = FILTER_DATE_CREATED_VALUE in (date_filter_mode or [])
+    df = filter_df(
+        fato,
+        start_date,
+        end_date,
+        projeto,
+        tipo,
+        classe_servico,
+        responsavel,
+        criadores=criadores,
+        use_creation_date=use_creation_date,
+    )
     df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
     leadtime_selection_summary = build_leadtime_stage_selection_summary(projeto, leadtime_stages)
 
@@ -8802,16 +8919,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
 
-        df_scope = fato.copy()
-        if projeto:
-            df_scope = df_scope[df_scope['Projeto'] == projeto]
-        if responsavel:
-            df_scope = df_scope[df_scope['Responsavel'] == responsavel]
-        if tipo:
-            df_scope = df_scope[df_scope['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_scope = df_scope[df_scope['ClasseServico'] == classe_servico]
-        df_scope, _ = apply_selected_lead_time_metric(df_scope, projeto, leadtime_stages)
+        df_scope = df.copy()
         if df_scope.empty:
             return html.Div('Sem dados para os filtros selecionados.')
 
@@ -9239,16 +9347,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
 
         # --- Análise Avançada de Fluxo (anteriormente aba 'Fluxo') ---
-        df_flow = fato.copy()
-        if projeto:
-            df_flow = df_flow[df_flow['Projeto'] == projeto]
-        if tipo:
-            df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
-        if responsavel:
-            df_flow = df_flow[df_flow['Responsavel'] == responsavel]
-        if classe_servico:
-            df_flow = df_flow[df_flow['ClasseServico'] == classe_servico]
-        df_flow, flow_lead_meta = apply_selected_lead_time_metric(df_flow, projeto, leadtime_stages)
+        df_flow = df.copy()
+        flow_lead_meta = leadtime_meta
 
         if etapa_fluxo and projeto:
             _stage_map_flow = compute_current_stage_map(projeto)
@@ -11063,27 +11163,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         end_ts = pd.to_datetime(end_date)
 
         # Base exibida no painel (respeita todos os filtros ativos).
-        df_signal_base = fato.copy()
-        if projeto:
-            df_signal_base = df_signal_base[df_signal_base['Projeto'] == projeto]
-        if tipo:
-            df_signal_base = df_signal_base[df_signal_base['TipoDemanda'] == tipo]
-        if responsavel:
-            df_signal_base = df_signal_base[df_signal_base['Responsavel'] == responsavel]
-        if classe_servico:
-            df_signal_base = df_signal_base[df_signal_base['ClasseServico'] == classe_servico]
-        df_signal_base, _ = apply_selected_lead_time_metric(df_signal_base, projeto, leadtime_stages)
+        df_signal_base = df.copy()
         df_signal_base, _ = apply_selected_commitment_metric(df_signal_base, projeto, leadtime_stages)
         panel_stage_map = compute_current_stage_map(projeto) if projeto and etapa_fluxo else {}
 
         # Base de referência para thresholds (projeto/tipo), independente de período e responsável.
-        df_threshold_base = fato.copy()
-        if projeto:
-            df_threshold_base = df_threshold_base[df_threshold_base['Projeto'] == projeto]
-        if tipo:
-            df_threshold_base = df_threshold_base[df_threshold_base['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_threshold_base = df_threshold_base[df_threshold_base['ClasseServico'] == classe_servico]
+        df_threshold_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            None,
+            criadores=None,
+            use_creation_date=use_creation_date,
+            apply_date=False,
+        )
         df_threshold_base, _ = apply_selected_lead_time_metric(df_threshold_base, projeto, leadtime_stages)
         df_threshold_base, _ = apply_selected_commitment_metric(df_threshold_base, projeto, leadtime_stages)
 
@@ -11930,13 +12026,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_ts = pd.to_datetime(start_date) if start_date else fato['DataDone'].min()
         end_ts = pd.to_datetime(end_date) if end_date else pd.to_datetime('today')
 
-        df_flow = fato.copy()
-        if projeto:
-            df_flow = df_flow[df_flow['Projeto'] == projeto]
-        if tipo:
-            df_flow = df_flow[df_flow['TipoDemanda'] == tipo]
-        if responsavel:
-            df_flow = df_flow[df_flow['Responsavel'] == responsavel]
+        df_flow = df.copy()
 
         mask_started_until_end = df_flow['DataInProgress'].isna() | (df_flow['DataInProgress'] <= end_ts)
         mask_not_finished_before_start = df_flow['DataDone'].isna() | (df_flow['DataDone'] >= start_ts)
@@ -12010,8 +12100,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # --- 1. Calcular Métricas de Estabilidade ---
         metrics = {}
         # Throughput
-        tp_weekly = df.dropna(subset=['DataDone']).copy()
-        tp_weekly['Semana'] = weekly_bucket_start(tp_weekly['DataDone'])
+        tp_weekly = df.copy()
+        tp_weekly['_FilterDate'] = resolve_filter_date_series(tp_weekly, use_creation_date=use_creation_date)
+        tp_weekly = tp_weekly.dropna(subset=['_FilterDate'])
+        tp_weekly['Semana'] = weekly_bucket_start(tp_weekly['_FilterDate'])
         tp_weekly = tp_weekly.groupby('Semana').size().reset_index(name='Throughput')
         if not tp_weekly.empty and tp_weekly['Throughput'].mean() > 0:
             metrics['Desvio Padrão do Throughput'] = tp_weekly['Throughput'].std()
@@ -12059,12 +12151,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
 
-        df_health_base = fato.copy()
-        if projeto: df_health_base = df_health_base[df_health_base['Projeto'] == projeto]
-        if responsavel: df_health_base = df_health_base[df_health_base['Responsavel'] == responsavel]
+        df_health_base = df.copy()
+        health_filter_dates = resolve_filter_date_series(df_health_base, use_creation_date=use_creation_date)
         # --- 1. Calcular Métricas de Saúde ---
         arrivals_df = df_health_base[(df_health_base['DataInProgress'] >= start_date_ts) & (df_health_base['DataInProgress'] <= end_date_ts)]
-        throughput_df = df_health_base[(df_health_base['DataDone'] >= start_date_ts) & (df_health_base['DataDone'] <= end_date_ts)]
+        throughput_df = df_health_base[build_date_range_mask(health_filter_dates, start_date_ts, end_date_ts)].copy()
         wip_start_count = len(df_health_base[(df_health_base['DataInProgress'] < start_date_ts) & ((df_health_base['DataDone'] >= start_date_ts) | pd.isna(df_health_base['DataDone']))])
         wip_end_count = len(df_health_base[(df_health_base['DataInProgress'] <= end_date_ts) & ((df_health_base['DataDone'] > end_date_ts) | pd.isna(df_health_base['DataDone']))])
 
@@ -12093,8 +12184,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         arrivals_weekly['Semana'] = weekly_bucket_start(arrivals_weekly['DataInProgress'])
         arrivals_weekly = arrivals_weekly.groupby('Semana').size().reset_index(name='Count')
         arrivals_weekly['Métrica'] = 'Chegadas'
-        throughput_weekly = throughput_df.dropna(subset=['DataDone']).copy()
-        throughput_weekly['Semana'] = weekly_bucket_start(throughput_weekly['DataDone'])
+        throughput_weekly = throughput_df.copy()
+        throughput_weekly['_FilterDate'] = resolve_filter_date_series(throughput_weekly, use_creation_date=use_creation_date)
+        throughput_weekly = throughput_weekly.dropna(subset=['_FilterDate'])
+        throughput_weekly['Semana'] = weekly_bucket_start(throughput_weekly['_FilterDate'])
         throughput_weekly = throughput_weekly.groupby('Semana').size().reset_index(name='Count')
         throughput_weekly['Métrica'] = 'Throughput'
 
@@ -12121,11 +12214,59 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             dcc.Graph(figure=fig_flow),
             dcc.Graph(figure=fig_wip_trend),
             html.Hr(style={'margin': '30px 0'}),
-            render_tab(main_view, 'tab-estabilidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
-                       pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
+            render_tab(
+                main_view=main_view,
+                tab='tab-estabilidade',
+                start_date=start_date,
+                end_date=end_date,
+                projeto=projeto,
+                tipo=tipo,
+                classe_servico=classe_servico,
+                responsavel=responsavel,
+                leadtime_stages=leadtime_stages,
+                etapa_fluxo=etapa_fluxo,
+                capacity_top_n=capacity_top_n,
+                capacity_weekly_metric=capacity_weekly_metric,
+                portfolio_team=portfolio_team,
+                portfolio_quarter=portfolio_quarter,
+                pf_backlog_15=pf_backlog_15,
+                pf_backlog_30=pf_backlog_30,
+                pf_fresh_15=pf_fresh_15,
+                pf_fresh_30=pf_fresh_30,
+                pf_decision_statuses=pf_decision_statuses,
+                pf_workflow_statuses=pf_workflow_statuses,
+                pf_sla_aging_json=pf_sla_aging_json,
+                pf_target_mix_json=pf_target_mix_json,
+                criadores=criadores,
+                date_filter_mode=date_filter_mode,
+            ),
             html.Hr(style={'margin': '30px 0'}),
-            render_tab(main_view, 'tab-qualidade', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
-                       pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
+            render_tab(
+                main_view=main_view,
+                tab='tab-qualidade',
+                start_date=start_date,
+                end_date=end_date,
+                projeto=projeto,
+                tipo=tipo,
+                classe_servico=classe_servico,
+                responsavel=responsavel,
+                leadtime_stages=leadtime_stages,
+                etapa_fluxo=etapa_fluxo,
+                capacity_top_n=capacity_top_n,
+                capacity_weekly_metric=capacity_weekly_metric,
+                portfolio_team=portfolio_team,
+                portfolio_quarter=portfolio_quarter,
+                pf_backlog_15=pf_backlog_15,
+                pf_backlog_30=pf_backlog_30,
+                pf_fresh_15=pf_fresh_15,
+                pf_fresh_30=pf_fresh_30,
+                pf_decision_statuses=pf_decision_statuses,
+                pf_workflow_statuses=pf_workflow_statuses,
+                pf_sla_aging_json=pf_sla_aging_json,
+                pf_target_mix_json=pf_target_mix_json,
+                criadores=criadores,
+                date_filter_mode=date_filter_mode,
+            ),
         ])
 
     if tab == 'tab-qualidade':
@@ -12143,13 +12284,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         razao = development_count / defects_count if defects_count > 0 else float('inf')
         metrics['Razão Valor/Custo'] = f"{razao:.2f}:1" if razao != float('inf') else "Infinito (sem defeitos)"
 
-        arrivals_base = fato.copy()
-        if projeto:
-            arrivals_base = arrivals_base[arrivals_base['Projeto'] == projeto]
-        if tipo:
-            arrivals_base = arrivals_base[arrivals_base['TipoDemanda'] == tipo]
-        if responsavel:
-            arrivals_base = arrivals_base[arrivals_base['Responsavel'] == responsavel]
+        arrivals_base = df.copy()
         arrivals_count = len(arrivals_base[
             (arrivals_base['DataInProgress'] >= pd.to_datetime(start_date)) &
             (arrivals_base['DataInProgress'] <= pd.to_datetime(end_date))
@@ -12212,14 +12347,86 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style={'textAlign': 'center', 'color': '#666', 'marginTop': '-8px'}
             ),
             html.Hr(),
-            render_tab(main_view, 'tab-dim', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
-                       pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
+            render_tab(
+                main_view=main_view,
+                tab='tab-dim',
+                start_date=start_date,
+                end_date=end_date,
+                projeto=projeto,
+                tipo=tipo,
+                classe_servico=classe_servico,
+                responsavel=responsavel,
+                leadtime_stages=leadtime_stages,
+                etapa_fluxo=etapa_fluxo,
+                capacity_top_n=capacity_top_n,
+                capacity_weekly_metric=capacity_weekly_metric,
+                portfolio_team=portfolio_team,
+                portfolio_quarter=portfolio_quarter,
+                pf_backlog_15=pf_backlog_15,
+                pf_backlog_30=pf_backlog_30,
+                pf_fresh_15=pf_fresh_15,
+                pf_fresh_30=pf_fresh_30,
+                pf_decision_statuses=pf_decision_statuses,
+                pf_workflow_statuses=pf_workflow_statuses,
+                pf_sla_aging_json=pf_sla_aging_json,
+                pf_target_mix_json=pf_target_mix_json,
+                criadores=criadores,
+                date_filter_mode=date_filter_mode,
+            ),
             html.Hr(),
-            render_tab(main_view, 'tab-tipos', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
-                       pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
+            render_tab(
+                main_view=main_view,
+                tab='tab-tipos',
+                start_date=start_date,
+                end_date=end_date,
+                projeto=projeto,
+                tipo=tipo,
+                classe_servico=classe_servico,
+                responsavel=responsavel,
+                leadtime_stages=leadtime_stages,
+                etapa_fluxo=etapa_fluxo,
+                capacity_top_n=capacity_top_n,
+                capacity_weekly_metric=capacity_weekly_metric,
+                portfolio_team=portfolio_team,
+                portfolio_quarter=portfolio_quarter,
+                pf_backlog_15=pf_backlog_15,
+                pf_backlog_30=pf_backlog_30,
+                pf_fresh_15=pf_fresh_15,
+                pf_fresh_30=pf_fresh_30,
+                pf_decision_statuses=pf_decision_statuses,
+                pf_workflow_statuses=pf_workflow_statuses,
+                pf_sla_aging_json=pf_sla_aging_json,
+                pf_target_mix_json=pf_target_mix_json,
+                criadores=criadores,
+                date_filter_mode=date_filter_mode,
+            ),
             html.Hr(),
-            render_tab(main_view, 'tab-eficiencia', start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo, capacity_top_n, capacity_weekly_metric, portfolio_team,
-                       pf_backlog_15, pf_backlog_30, pf_fresh_15, pf_fresh_30, pf_decision_statuses, pf_workflow_statuses, pf_sla_aging_json, pf_target_mix_json),
+            render_tab(
+                main_view=main_view,
+                tab='tab-eficiencia',
+                start_date=start_date,
+                end_date=end_date,
+                projeto=projeto,
+                tipo=tipo,
+                classe_servico=classe_servico,
+                responsavel=responsavel,
+                leadtime_stages=leadtime_stages,
+                etapa_fluxo=etapa_fluxo,
+                capacity_top_n=capacity_top_n,
+                capacity_weekly_metric=capacity_weekly_metric,
+                portfolio_team=portfolio_team,
+                portfolio_quarter=portfolio_quarter,
+                pf_backlog_15=pf_backlog_15,
+                pf_backlog_30=pf_backlog_30,
+                pf_fresh_15=pf_fresh_15,
+                pf_fresh_30=pf_fresh_30,
+                pf_decision_statuses=pf_decision_statuses,
+                pf_workflow_statuses=pf_workflow_statuses,
+                pf_sla_aging_json=pf_sla_aging_json,
+                pf_target_mix_json=pf_target_mix_json,
+                criadores=criadores,
+                date_filter_mode=date_filter_mode,
+            ),
         ])
 
     if tab == 'tab-dim':
@@ -12287,8 +12494,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         return html.Div(graphs)
 
     if tab == 'tab-tendencias':
-        tp = df.dropna(subset=['DataDone']).copy()
-        tp['Semana'] = weekly_bucket_start(tp['DataDone'])
+        tp = df.copy()
+        tp['_FilterDate'] = resolve_filter_date_series(tp, use_creation_date=use_creation_date)
+        tp = tp.dropna(subset=['_FilterDate'])
+        tp['Semana'] = weekly_bucket_start(tp['_FilterDate'])
         tp = tp.groupby('Semana').size().reset_index(name='Throughput')
         fig_tp = go.Figure()
         fig_tp.add_trace(go.Scatter(x=tp['Semana'], y=tp['Throughput'], mode='lines+markers', name='Throughput'))
@@ -12308,12 +12517,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # WIP e Lead Time média móvel
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
-        df_trend_base = fato.copy()
-        if projeto: df_trend_base = df_trend_base[df_trend_base['Projeto'] == projeto]
-        if responsavel: df_trend_base = df_trend_base[df_trend_base['Responsavel'] == responsavel]
+        df_trend_base = df.copy()
         # Lead Time Trend
-        lt_weekly = df.dropna(subset=['DataDone', 'LeadTime_Dias']).copy()
-        lt_weekly['Semana'] = weekly_bucket_start(lt_weekly['DataDone'])
+        lt_weekly = df.dropna(subset=['LeadTime_Dias']).copy()
+        lt_weekly['_FilterDate'] = resolve_filter_date_series(lt_weekly, use_creation_date=use_creation_date)
+        lt_weekly = lt_weekly.dropna(subset=['_FilterDate'])
+        lt_weekly['Semana'] = weekly_bucket_start(lt_weekly['_FilterDate'])
         lt_weekly = lt_weekly.groupby('Semana', as_index=False).agg(LeadTime_Dias=('LeadTime_Dias', 'mean'))
 
         # WIP Trend
@@ -12349,7 +12558,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if tp_done.empty:
             return html.Div('Sem dados de Throughput para exibir para o período e filtros selecionados.')
 
-        tp_done['Semana'] = weekly_bucket_start(tp_done['DataDone'])
+        tp_done['_FilterDate'] = resolve_filter_date_series(tp_done, use_creation_date=use_creation_date)
+        tp_done = tp_done.dropna(subset=['_FilterDate'])
+        tp_done['Semana'] = weekly_bucket_start(tp_done['_FilterDate'])
         tp_weekly = tp_done.groupby('Semana').size().reset_index(name='Throughput')
         fig_tp_weekly = px.line(
             tp_weekly,
@@ -12571,13 +12782,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             exec_fallback = (df_eff['DataDone'] - effective_start).dt.days
             df_eff.loc[missing_exec, 'TempoExecucao_Dias'] = exec_fallback.loc[missing_exec]
 
-        flow_base = fato.copy()
-        if projeto:
-            flow_base = flow_base[flow_base['Projeto'] == projeto]
-        if tipo:
-            flow_base = flow_base[flow_base['TipoDemanda'] == tipo]
-        if responsavel:
-            flow_base = flow_base[flow_base['Responsavel'] == responsavel]
+        flow_base = df.copy()
 
         start_eff_ts = pd.to_datetime(start_date)
         end_eff_ts = pd.to_datetime(end_date)
@@ -12794,15 +12999,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
 
-        df_patterns = fato.copy()
-        if projeto:
-            df_patterns = df_patterns[df_patterns['Projeto'] == projeto]
-        if tipo:
-            df_patterns = df_patterns[df_patterns['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_patterns = df_patterns[df_patterns['ClasseServico'] == classe_servico]
-        if responsavel:
-            df_patterns = df_patterns[df_patterns['Responsavel'] == responsavel]
+        df_patterns = df.copy()
 
         if df_patterns.empty:
             return html.Div('Sem dados para detectar padrões no filtro selecionado.')
@@ -13841,16 +14038,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         today_ts = pd.Timestamp.today().normalize()
         snapshot_ts = min(end_date_ts.normalize(), today_ts)
 
-        df_age_base = fato.copy()
-        if projeto:
-            df_age_base = df_age_base[df_age_base['Projeto'] == projeto]
-        if tipo:
-            df_age_base = df_age_base[df_age_base['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_age_base = df_age_base[df_age_base['ClasseServico'] == classe_servico]
-        if responsavel:
-            df_age_base = df_age_base[df_age_base['Responsavel'] == responsavel]
-        df_age_base, _ = apply_selected_lead_time_metric(df_age_base, projeto, leadtime_stages)
+        df_age_base = df.copy()
 
         in_progress_series = pd.to_datetime(df_age_base.get('DataInProgress'), errors='coerce')
         done_series = pd.to_datetime(df_age_base.get('DataDone'), errors='coerce')
@@ -13882,10 +14070,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if df_age.empty:
             return html.Div('Sem itens ativos com idade calculável para o recorte selecionado.')
 
-        done_period_mask = (
-            (pd.to_datetime(df_age_base.get('DataDone'), errors='coerce') >= start_date_ts) &
-            (pd.to_datetime(df_age_base.get('DataDone'), errors='coerce') <= end_date_ts)
-        )
+        age_filter_dates = resolve_filter_date_series(df_age_base, use_creation_date=use_creation_date)
+        done_period_mask = build_date_range_mask(age_filter_dates, start_date_ts, end_date_ts)
         df_cycle_done = df_age_base[done_period_mask].copy()
         df_cycle_done = df_cycle_done[done_time_eligible_mask(df_cycle_done)].copy()
         cycle_series = time_metric_series(df_cycle_done, 'TempoExecucao_Dias', non_negative=True)
@@ -14246,9 +14432,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
 
-        df_wip_base = fato.copy()
-        if projeto: df_wip_base = df_wip_base[df_wip_base['Projeto'] == projeto]
-        if responsavel: df_wip_base = df_wip_base[df_wip_base['Responsavel'] == responsavel]
+        df_wip_base = df.copy()
 
         if etapa_fluxo and projeto:
             _stage_map_wip = compute_current_stage_map(projeto)
@@ -14340,22 +14524,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # Base única da aba (mesmos filtros ativos), sem recorte de DataDone.
         # O recorte temporal é aplicado por métrica para manter consistência entre
         # "Todos os projetos" e filtros por projeto.
-        df_base = fato.copy()
-        if projeto:
-            df_base = df_base[df_base['Projeto'] == projeto]
-        if tipo:
-            df_base = df_base[df_base['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_base = df_base[df_base['ClasseServico'] == classe_servico]
-        if responsavel:
-            df_base = df_base[df_base['Responsavel'] == responsavel]
+        df_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            apply_date=False,
+        )
         df_base, _ = apply_selected_lead_time_metric(df_base, projeto, leadtime_stages)
 
         # Itens concluídos no período (para Lead Time e Throughput)
-        done_period_mask = (
-            (pd.to_datetime(df_base['DataDone'], errors='coerce') >= start_date_ts) &
-            (pd.to_datetime(df_base['DataDone'], errors='coerce') <= end_date_ts)
-        )
+        stats_filter_dates = resolve_filter_date_series(df_base, use_creation_date=use_creation_date)
+        done_period_mask = build_date_range_mask(stats_filter_dates, start_date_ts, end_date_ts)
         df_done = df_base[done_period_mask].copy()
         df_done = df_done[done_time_eligible_mask(df_done)].copy()
 
@@ -14454,8 +14639,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                                 labels={lead_col: 'Lead Time (dias)'}, points='all', height=500)
 
         # --- 2. Estatísticas de Throughput (semanal) ---
-        tp_weekly = df_done.dropna(subset=['DataDone']).copy()
-        tp_weekly['Semana'] = weekly_bucket_start(tp_weekly['DataDone'])
+        tp_weekly = df_done.copy()
+        tp_weekly['_FilterDate'] = resolve_filter_date_series(tp_weekly, use_creation_date=use_creation_date)
+        tp_weekly = tp_weekly.dropna(subset=['_FilterDate'])
+        tp_weekly['Semana'] = weekly_bucket_start(tp_weekly['_FilterDate'])
         tp_weekly = tp_weekly.groupby('Semana').size().reset_index(name='Throughput')
 
         tp_stats = {}
@@ -14643,16 +14830,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         # Base para cálculo de capacidade com as mesmas regras do One Page:
         # chegada por LeadStart_Selected e vazão por itens concluídos elegíveis.
-        df_capacity_base = fato.copy()
-        if projeto:
-            df_capacity_base = df_capacity_base[df_capacity_base['Projeto'] == projeto]
-        if tipo:
-            df_capacity_base = df_capacity_base[df_capacity_base['TipoDemanda'] == tipo]
-        if responsavel:
-            df_capacity_base = df_capacity_base[df_capacity_base['Responsavel'] == responsavel]
-        if classe_servico:
-            df_capacity_base = df_capacity_base[df_capacity_base['ClasseServico'] == classe_servico]
-        df_capacity_base, _ = apply_selected_lead_time_metric(df_capacity_base, projeto, leadtime_stages)
+        df_capacity_base = df.copy()
 
         lead_start_col = 'LeadStart_Selected' if 'LeadStart_Selected' in df_capacity_base.columns else 'DataInProgress'
         lead_start_series = pd.to_datetime(df_capacity_base.get(lead_start_col), errors='coerce')
@@ -14802,16 +14980,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_ts_prod = pd.to_datetime(start_date)
         end_ts_prod = pd.to_datetime(end_date)
 
-        df_prod_base = fato.copy()
-        if projeto:
-            df_prod_base = df_prod_base[df_prod_base['Projeto'] == projeto]
-        if responsavel:
-            df_prod_base = df_prod_base[df_prod_base['Responsavel'] == responsavel]
-        if tipo:
-            df_prod_base = df_prod_base[df_prod_base['TipoDemanda'] == tipo]
-        if classe_servico:
-            df_prod_base = df_prod_base[df_prod_base['ClasseServico'] == classe_servico]
-        df_prod_base, _ = apply_selected_lead_time_metric(df_prod_base, projeto, leadtime_stages)
+        df_prod_base = df.copy()
 
         contributor_section = build_bitbucket_contributor_section(
             projeto,

@@ -1,3 +1,44 @@
+## Current Task (Filtro multi-criador e semântica de datas por criação vs done)
+- [x] Mapear e centralizar a resolução da coluna de `Criador` e da data-base do filtro global
+- [x] Adicionar na UI um filtro multi-seleção de `Criador`
+- [x] Adicionar um flag para alternar o período entre `Data de criação do card` e `Data done`
+- [x] Aplicar a nova semântica de filtros nas abas que hoje recompõem a base diretamente de `fato`
+- [x] Validar estaticamente, revisar diff e registrar review com commit sugerido
+
+## Specification (Filtro multi-criador e semântica de datas por criação vs done)
+- Objetivo: alinhar os dashboards ao uso operacional esperado, permitindo filtrar múltiplos criadores de cards e tornando explícito se o período selecionado está recortando por `data de criação` ou por `data de finalização (DataDone)`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - criar helpers únicos para resolver a coluna de criador e a coluna de data-base do filtro, com fallback seguro quando a fonte variar
+  - expor na UI um `Dropdown` multi-seleção para `Criador`
+  - expor um flag explícito para alternar a semântica do período entre criação e finalização
+  - propagar essa semântica para o callback principal e para as abas que hoje montam recortes diretamente a partir de `fato`
+- Critério de aceite:
+  - o usuário consegue selecionar múltiplos criadores simultaneamente
+  - com o flag marcado, o período recorta pela melhor coluna disponível de criação do card
+  - com o flag desmarcado, o período continua recortando por `DataDone`
+  - as abas afetadas passam a respeitar a mesma semântica global de datas
+  - o dashboard continua válido sintaticamente
+
+## Review (Filtro multi-criador e semântica de datas por criação vs done)
+- O que foi ajustado:
+  - `dashboard_full.py` agora resolve de forma centralizada a coluna de `Criador` e a data-base do filtro global, com fallback entre campos de criação como `DataCriacao`, `Created`, `CreatedDate` e `IssueCreated`.
+  - A barra de filtros ganhou um `Dropdown` multi-seleção para `Criador` e um flag explícito `Usar data de criação do card`; desmarcado, o período continua baseado em `Data done`.
+  - O `filter_df(...)` passou a aplicar o recorte temporal pela data selecionada no flag e também a filtrar múltiplos criadores.
+  - As abas que recompunham o dataset diretamente de `fato` passaram a reutilizar a base já filtrada ou a semântica central da nova data-base, reduzindo divergência entre telas.
+  - As chamadas internas de `render_tab(...)` nas abas compostas (`Saúde` e `Análise Fluxo`) agora repassam também `Criador` e o modo de data, evitando perda de contexto nesses renders encadeados.
+- Evidências de validação:
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+  - busca estática por ocorrências críticas com `rg` para confirmar presença dos novos controles, helpers e repasse das chamadas internas
+- Limitação de validação:
+  - não foi possível executar `python -m py_compile dashboard_full.py` neste ambiente porque nem `python.exe` nem `py` estão disponíveis/funcionais no shell atual
+- Risco residual:
+  - a semântica global de data foi centralizada, mas ainda vale um smoke test visual no navegador para conferir se os números das abas mais sensíveis ficaram alinhados ao recorte esperado com o flag ligado e desligado
+- Suggested commit message:
+  - `feat(dashboard): add multi-creator filter and creation-date toggle`
+
 ## Current Task (Blindar Weibull semanal contra falhas numéricas)
 - [x] Confirmar a origem do traceback no cálculo semanal de cadência Weibull
 - [x] Tornar `fit_weibull_linearized(...)` resiliente a amostras degeneradas/instáveis
