@@ -1,3 +1,48 @@
+## Current Task (Diagnosticar e preparar validação de acesso por grupo Google Workspace)
+- [x] Mapear por que o login ainda está caindo na allowlist estática em vez da checagem por grupo
+- [x] Tornar o bootstrap de autenticação explícito sobre o modo de controle de acesso ativo e sobre configurações incompletas de grupo
+- [x] Robustecer a leitura das credenciais de service account para uso via variável de ambiente
+- [x] Validar por revisão estática, inspecionar diff e registrar review com commit sugerido
+
+## Specification (Diagnosticar e preparar validação de acesso por grupo Google Workspace)
+- Objetivo: confirmar por que a autenticação ainda valida acesso por `FLOW_PMO_ALLOWED_EMAILS` e ajustar `auth.py` para que a configuração de grupo do Google Workspace fique observável e menos sujeita a erro de ambiente.
+- Escopo:
+  - `auth.py`
+  - `.env.example`
+  - `DEPLOY_VERCEL.md`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar a lógica que decide entre allowlist estática e checagem por grupo
+  - registrar warnings explícitos quando `FLOW_PMO_ALLOWED_GROUP` estiver parcial/incompleto
+  - aceitar o JSON da service account em formatos comuns de env (`json` puro, string com `\n`, base64)
+  - documentar claramente as variáveis necessárias para a checagem dinâmica por grupo
+- Critério de aceite:
+  - fica evidente em código e documentação quando a aplicação está usando allowlist ou grupo
+  - configurações incompletas de grupo deixam de falhar silenciosamente
+  - a leitura do secret de service account funciona com formatos usuais de variável de ambiente
+  - o arquivo continua válido sintaticamente
+
+## Review (Diagnosticar e preparar validação de acesso por grupo Google Workspace)
+- Causa confirmada:
+  - no código original, a checagem por grupo só era ativada quando `FLOW_PMO_ALLOWED_GROUP`, `GOOGLE_SERVICE_ACCOUNT_JSON` e `GOOGLE_IMPERSONATE_EMAIL` estavam definidos simultaneamente.
+  - no ambiente local atual, encontrei apenas `FLOW_PMO_ALLOWED_EMAILS` preenchida; as variáveis de grupo/service account não estavam configuradas, então o fluxo caía naturalmente na allowlist estática.
+  - além disso, a aplicação não deixava isso explícito: o fallback para allowlist era silencioso, o que dificultava perceber por que o grupo “não entrava”.
+- O que foi ajustado:
+  - `auth.py` agora registra no bootstrap qual modo de controle de acesso está ativo (`group`, `allowlist` ou bloqueio por configuração incompleta).
+  - a leitura de `GOOGLE_SERVICE_ACCOUNT_JSON` ficou mais robusta, aceitando JSON puro, JSON com `\n` escapado e o mesmo payload em base64, formatos comuns em variáveis de ambiente da Vercel.
+  - quando existe sinal de configuração por grupo, mas faltam peças da configuração, o código passa a registrar warning explícito em log com as pendências encontradas.
+  - quando não existe nenhuma regra válida de acesso, a tela de login deixa de oferecer o botão de autenticação e informa que o controle de acesso está indisponível, evitando comportamento ambíguo.
+  - `.env.example` e `DEPLOY_VERCEL.md` foram atualizados para documentar claramente a ativação do modo grupo e o formato aceito para a credencial da service account.
+- Evidências de validação:
+  - inspeção do diff em `auth.py`, `.env.example`, `DEPLOY_VERCEL.md` e `tasks/todo.md`
+  - leitura direta do ambiente local mostrando presença de `FLOW_PMO_ALLOWED_EMAILS` e ausência das variáveis de grupo/service account
+  - tentativa de `python -m py_compile auth.py api/index.py`, bloqueada porque o `python.exe` do PATH é um launcher quebrado do Windows
+  - tentativa de usar `venv\Scripts\python.exe`, também indisponível porque a `venv` aponta para um Python externo inexistente neste Windows
+- Risco residual:
+  - a validação desta rodada ficou estática; ainda vale um smoke test real em Vercel/logs para confirmar a transição de `allowlist` para `modo grupo` com as variáveis novas preenchidas
+- Suggested commit message:
+  - `fix(auth): make google workspace group access mode explicit`
+
 ## Current Task (Filtro multi-criador e semântica de datas por criação vs done)
 - [x] Mapear e centralizar a resolução da coluna de `Criador` e da data-base do filtro global
 - [x] Adicionar na UI um filtro multi-seleção de `Criador`

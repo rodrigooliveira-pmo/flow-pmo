@@ -22,6 +22,8 @@ Optional:
                               and GOOGLE_IMPERSONATE_EMAIL.
 """
 
+import base64
+import binascii
 import json
 import os
 
@@ -30,7 +32,55 @@ from flask import Blueprint, redirect, render_template_string, session, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_user, logout_user
 
 
-def _is_group_member(email: str, group_email: str, sa_json: str, impersonate: str) -> bool:
+def _strip_wrapping_quotes(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _load_service_account_info(raw_value: str) -> dict:
+    """Parse service-account credentials from env.
+
+    Accepts raw JSON, JSON encoded with literal ``\\n`` sequences, or a base64
+    representation of the JSON payload.
+    """
+    value = _strip_wrapping_quotes(raw_value)
+    if not value:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON vazio.")
+
+    candidates: list[str] = [value]
+    if "\\n" in value:
+        candidates.append(value.replace("\\n", "\n"))
+
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        decoded = base64.b64decode(padded).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise ValueError(
+            "GOOGLE_SERVICE_ACCOUNT_JSON inválido: informe JSON puro, JSON com "
+            "\\n escapado ou o conteúdo em base64."
+        ) from exc
+
+    for candidate in (decoded, decoded.replace("\\n", "\n")):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError(
+        "GOOGLE_SERVICE_ACCOUNT_JSON inválido: o conteúdo base64 decodificado "
+        "não é um JSON de service account válido."
+    )
+
+
+def _is_group_member(email: str, group_email: str, sa_info: dict, impersonate: str) -> bool:
     """Check if *email* belongs to the given Google Workspace group.
 
     Uses a service account with Domain-Wide Delegation to call the
@@ -40,7 +90,7 @@ def _is_group_member(email: str, group_email: str, sa_json: str, impersonate: st
     from googleapiclient.discovery import build
 
     creds = service_account.Credentials.from_service_account_info(
-        json.loads(sa_json),
+        sa_info,
         scopes=["https://www.googleapis.com/auth/admin.directory.group.member.readonly"],
     ).with_subject(impersonate)
 
@@ -128,6 +178,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
   <div class="card">
     <div class="logo">Flow PMO</div>
     <div class="subtitle">Acesso restrito — conta {{ domain }}</div>
+    {% if google_url %}
     <a href="{{ google_url }}" class="btn-google">
       <svg class="google-icon" viewBox="0 0 48 48">
         <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -138,6 +189,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
       </svg>
       Entrar com Google Workspace
     </a>
+    {% endif %}
     {% if error %}
     <div class="error-msg">{{ error }}</div>
     {% endif %}
@@ -176,6 +228,10 @@ _FORBIDDEN_HTML = """<!DOCTYPE html>
     <p style="margin-top:8px">
       É necessário usar uma conta do domínio <span class="domain">{{ domain }}</span>.
     </p>
+    {% elif reason == "config" %}
+    <p style="margin-top:8px">
+      O controle de acesso do dashboard está temporariamente indisponível. Entre em contato com o administrador.
+    </p>
     {% else %}
     <p style="margin-top:8px">Entre em contato com o administrador para solicitar acesso.</p>
     {% endif %}
@@ -208,6 +264,7 @@ def init_app(flask_server) -> None:
             "FLOW_PMO_ALLOWED_DOMAIN não definida. "
             "Defina o domínio Google Workspace (ex: empresa.com)."
         )
+    logger = flask_server.logger
 
     # --- Static email allowlist (fallback when group check is unavailable) -
     raw_emails = os.environ.get("FLOW_PMO_ALLOWED_EMAILS", "")
@@ -216,11 +273,65 @@ def init_app(flask_server) -> None:
     }
 
     # --- Google Workspace Group membership check ---------------------------
-    allowed_group = os.environ.get("FLOW_PMO_ALLOWED_GROUP", "").strip()
-    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    allowed_group = os.environ.get("FLOW_PMO_ALLOWED_GROUP", "").strip().lower()
+    raw_sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
     impersonate = os.environ.get("GOOGLE_IMPERSONATE_EMAIL", "").strip()
 
-    use_group_check = bool(allowed_group and sa_json and impersonate)
+    sa_info: dict | None = None
+    sa_json_error: str | None = None
+    if raw_sa_json:
+        try:
+            sa_info = _load_service_account_info(raw_sa_json)
+        except ValueError as exc:
+            sa_json_error = str(exc)
+
+    use_group_check = bool(allowed_group and sa_info and impersonate)
+    has_group_signal = bool(allowed_group or raw_sa_json or impersonate)
+    access_mode = "deny"
+    login_error = None
+
+    if use_group_check:
+        access_mode = "group"
+        logger.info(
+            "Google auth access control ativo em modo grupo (%s).", allowed_group
+        )
+    elif allowed_emails:
+        access_mode = "allowlist"
+        logger.info(
+            "Google auth access control ativo em modo allowlist estática (%d e-mails).",
+            len(allowed_emails),
+        )
+    else:
+        login_error = (
+            "Controle de acesso não configurado. Defina uma allowlist de e-mails "
+            "ou configure o grupo do Google Workspace com service account."
+        )
+        logger.error(login_error)
+
+    if has_group_signal and not use_group_check:
+        missing_parts: list[str] = []
+        if not allowed_group:
+            missing_parts.append("FLOW_PMO_ALLOWED_GROUP")
+        if not raw_sa_json:
+            missing_parts.append("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if not impersonate:
+            missing_parts.append("GOOGLE_IMPERSONATE_EMAIL")
+        if sa_json_error:
+            missing_parts.append("GOOGLE_SERVICE_ACCOUNT_JSON válido")
+
+        logger.warning(
+            "Checagem por grupo Google Workspace não foi ativada. Fallback atual: %s. "
+            "Pendências: %s%s",
+            access_mode,
+            ", ".join(missing_parts) or "nenhuma",
+            f" | detalhe: {sa_json_error}" if sa_json_error else "",
+        )
+        if access_mode == "deny":
+            login_error = (
+                "A checagem por grupo do Google Workspace está incompleta. "
+                "Revise as variáveis de ambiente do grupo, da service account "
+                "e do e-mail de impersonação."
+            )
 
     # --- Flask-Login -------------------------------------------------------
     login_manager = LoginManager()
@@ -246,8 +357,8 @@ def init_app(flask_server) -> None:
 
     @auth_bp.route("/login")
     def login():
-        error = session.pop("auth_error", None)
-        google_url = url_for("auth.google_authorize")
+        error = session.pop("auth_error", None) or login_error
+        google_url = None if access_mode == "deny" else url_for("auth.google_authorize")
         return render_template_string(
             _LOGIN_HTML, google_url=google_url, error=error, domain=allowed_domain
         )
@@ -282,8 +393,19 @@ def init_app(flask_server) -> None:
                 logout_url=url_for("auth.logout"),
             ), 403
 
+        if access_mode == "deny":
+            logout_user()
+            return render_template_string(
+                _FORBIDDEN_HTML,
+                email=email,
+                domain=allowed_domain,
+                reason="config",
+                logout_url=url_for("auth.logout"),
+            ), 403
+
         # Static allowlist (active when group check vars are not configured)
-        if not use_group_check and allowed_emails and email not in allowed_emails:
+        if access_mode == "allowlist" and email not in allowed_emails:
+            logger.info("Acesso negado por allowlist estática para %s.", email)
             logout_user()
             return render_template_string(
                 _FORBIDDEN_HTML,
@@ -296,12 +418,22 @@ def init_app(flask_server) -> None:
         # Google Workspace Group membership check (takes priority over allowlist)
         if use_group_check:
             try:
-                member = _is_group_member(email, allowed_group, sa_json, impersonate)
+                member = _is_group_member(email, allowed_group, sa_info, impersonate)
             except Exception:
+                logger.exception(
+                    "Falha ao verificar o grupo %s para o usuário %s.",
+                    allowed_group,
+                    email,
+                )
                 session["auth_error"] = "Erro ao verificar permissão de acesso. Tente novamente."
                 return redirect(url_for("auth.login"))
 
             if not member:
+                logger.info(
+                    "Acesso negado por grupo Google Workspace. Usuário=%s Grupo=%s.",
+                    email,
+                    allowed_group,
+                )
                 logout_user()
                 return render_template_string(
                     _FORBIDDEN_HTML,

@@ -19,6 +19,14 @@
 - App:
   - `FLOW_PMO_DASH_MODULE` (default: `dashboard_full`)
   - `FLOW_PMO_DASH_ATTR` (default: `app`)
+- Autenticação Google:
+  - `FLOW_PMO_ALLOWED_DOMAIN`: domínio principal usado como hint do Google (`w1.com.br` no projeto atual).
+  - `FLOW_PMO_ALLOWED_EMAILS`: allowlist estática legada por e-mail.
+  - `FLOW_PMO_ALLOWED_GROUP`: grupo do Google Workspace autorizado.
+  - `GOOGLE_SERVICE_ACCOUNT_JSON`: credencial da service account com Domain-Wide Delegation para o Admin SDK Directory API.
+  - `GOOGLE_IMPERSONATE_EMAIL`: e-mail de admin/usuário autorizado a ser impersonado pela service account.
+  - A checagem por grupo só fica ativa quando `FLOW_PMO_ALLOWED_GROUP`, `GOOGLE_SERVICE_ACCOUNT_JSON` e `GOOGLE_IMPERSONATE_EMAIL` estão preenchidos ao mesmo tempo. Se isso não acontecer, o código continua em `allowlist` estática quando `FLOW_PMO_ALLOWED_EMAILS` estiver definida.
+  - `GOOGLE_SERVICE_ACCOUNT_JSON` pode ser informado como JSON puro, JSON com `\n` escapado ou base64 do JSON.
 - Dados:
   - `FLOW_PMO_MODEL_FILE`: caminho do modelo `.xlsx` (absoluto ou relativo ao projeto).
   - `FLOW_PMO_MODEL_URL`: URL pública para baixar o modelo `.xlsx` em runtime.
@@ -37,6 +45,12 @@
   - `FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP`: mapa JSON de SLA por projeto. Exemplo: `{"W1NNER":5,"S1NC":5,"BEFINANCE":5,"DATA&ANALYTICS":5}`.
 
 Use essas variáveis no projeto da Vercel para trocar módulo/objeto Dash e fonte de dados sem alterar código.
+
+## Migração de allowlist para grupo
+1. Mantenha `FLOW_PMO_ALLOWED_EMAILS` temporariamente durante a transição, para não cortar acesso enquanto valida a nova checagem.
+2. Cadastre `FLOW_PMO_ALLOWED_GROUP`, `GOOGLE_SERVICE_ACCOUNT_JSON` e `GOOGLE_IMPERSONATE_EMAIL` no mesmo ambiente (`Preview` e/ou `Production`).
+3. Confirme no log de inicialização que o app entrou em `modo grupo`; se as três variáveis não estiverem completas, o bootstrap registra warning e continua usando a allowlist.
+4. Só depois de confirmar a validação por grupo remova a allowlist estática, se quiser operar exclusivamente por grupo.
 
 ## SLA de serviço no Vercel
 1. Acesse `flow-pmo` no dashboard da Vercel.
