@@ -119,6 +119,12 @@ Use this file after any user correction.
 - Root cause: Eu me apoiei demais numa lição anterior sobre `features` no mesmo projeto `BT` sem revalidar se aquele contexto continuava valendo para este fluxo específico de exportação BusinessMap.
 - Prevention rule: Quando houver histórico conflitante sobre topologia Jira (`mesmo projeto` vs `spaces separados`), confirmar o contexto operacional mais recente do fluxo atual antes de prescrever JQL/comandos.
 - Action added to workflow: Em comandos de exportação Jira -> BusinessMap envolvendo portfólio, revisar sempre os projetos/space keys efetivos do fluxo pedido no momento antes de sugerir `--projects` ou `--jql`.
+- Date: 2026-04-02
+- Context: Geração dos pacotes finais para importação BusinessMap após o usuário pedir a exportação de épicos, features e BeFinance.
+- User correction: Informou que os arquivos precisavam ser gerados separados, porque cada conjunto pertence a um quadro diferente no BusinessMap.
+- Root cause: Eu foquei primeiro na completude da hierarquia e acabei propondo um XLSX consolidado, sem respeitar a separação operacional por quadro de destino.
+- Prevention rule: Em exportações para ferramentas com múltiplos boards/quadro de destino, confirmar sempre se a separação é por tipo/projeto/fluxo antes de consolidar em um único arquivo.
+- Action added to workflow: Em toda exportação BusinessMap, validar explicitamente a granularidade de saída esperada (`um arquivo só` vs `arquivos separados por quadro`) antes de executar a geração final.
 - Date: 2026-03-06
 - Context: Ajuste de nomenclatura do indicador de pendências na aba de Portfólio.
 - User correction: Apontou que `Q1/Q2/Q3 Pendências` conflita semanticamente com `Quarter`, gerando leitura ambígua na mesma tela.

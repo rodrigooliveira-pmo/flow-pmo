@@ -7169,3 +7169,39 @@
   - a preservação exata da cadeia `Epic -> Feature -> História` depende de a instância do Jira realmente expor esse vínculo em `parent` ou nos campos hierárquicos configurados; quando a issue não trouxer pai, o card continuará sendo importado sem relação
 - Suggested commit message:
   - `feat(businessmap-export): preserve jira parent-child hierarchy via Links column`
+## Current Task (Gerar exportações BusinessMap separadas por quadro)
+- [x] Registrar o fluxo correto de saída separada para épicos, features e BeFinance
+- [x] Gerar arquivos separados em `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\bmap` com lotes de `100`
+- [x] Conferir os arquivos gerados e registrar review com os caminhos finais
+
+## Specification (Gerar exportações BusinessMap separadas por quadro)
+- Objetivo: produzir pacotes distintos para importação no BusinessMap porque `Épicos`, `Features` e `BeFinance` pertencem a quadros separados e não devem mais ser exportados em um único XLSX consolidado.
+- Escopo:
+  - `tasks/todo.md`
+  - artefatos gerados em `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\bmap`
+- Estratégia:
+  - manter o exportador atual, mas executar três exportações independentes com `--split-size 100`
+  - separar `Épicos`, `Features` e `BeFinance` em arquivos com prefixos diferentes
+  - preservar a hierarquia `parent-child` via coluna `Links` em cada pacote quando houver pai resolvido no Jira
+- Critério de aceite:
+  - existem arquivos separados para `Épicos`, `Features` e `BeFinance` no diretório `bmap`
+  - cada exportação respeita lotes máximos de `100` cards por arquivo
+  - os nomes dos arquivos deixam claro a qual quadro pertencem
+
+## Review (Gerar exportações BusinessMap separadas por quadro)
+- O que foi executado:
+  - exportação separada de `Épicos` com JQL `project IN (BT, NS) AND issuetype IN (Epic, 'Épico') ORDER BY Rank ASC`
+  - exportação separada de `Features` com JQL `project IN (BT, NS) AND issuetype IN (Feature, Funcionalidade) ORDER BY Rank ASC`
+  - exportação separada de `BeFinance` com JQL `project = BF AND issuetype IN (Bug, Story, Spike, Support, Task, Tech, 'User Story') ORDER BY created ASC`
+  - todas as execuções usaram `--split-size 100` e gravaram os arquivos em `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\bmap`
+- Evidências de validação:
+  - `Épicos`: `176` issues, gerando `2` arquivos (`businessmap-epicos-lote-1.xlsx` e `businessmap-epicos-lote-2.xlsx`)
+  - `Features`: `93` issues, gerando `1` arquivo (`businessmap-features.xlsx`)
+  - `BeFinance`: `241` issues, gerando `3` arquivos (`businessmap-befinance-lote-1.xlsx` a `lote-3.xlsx`)
+  - conferência dos arquivos no diretório `bmap` após a execução
+  - inspeção do conteúdo exportado mostrando `34` linhas com `Links` preenchido em `Features` e `177` linhas com `Links` preenchido em `BeFinance`
+- Observações:
+  - `Features` ficou em um único arquivo porque o volume total (`93`) já está abaixo do limite de `100`; isso mantém a regra de lote máximo sem criar arquivos artificiais
+  - os vínculos `parent-child` seguem sendo exportados via coluna `Links` quando o Jira resolve o pai
+- Suggested commit message:
+  - `chore(businessmap): generate separated epic, feature, and befinance exports`
