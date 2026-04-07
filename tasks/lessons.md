@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-04-07
+- Context: Primeira versão da V2 do layout final de melhorias consolidou uma linha por colaborador no nível do produto, mas o usuário precisava identificar o épico/feature na própria linha.
+- User correction: Esclareceu que, na V2, o `ID do Projeto` precisa ser o `Épico` e/ou `Feature`, e pediu também uma coluna final `Produto`.
+- Root cause: Eu mantive a V2 agregada demais no nível do produto operacional e não reavaliei que o identificador de projeto, nesse contexto, precisava subir para o ativo de melhoria (`épico/feature`) e não ficar só no sistema (`BF`, `W1NNR`, `S1NC`, `DT`).
+- Prevention rule: Quando o usuário pedir um identificador de projeto/ativo em um layout executivo, validar explicitamente o nível semântico esperado (`produto`, `epico`, `feature`, `historia`, `item`) antes de consolidar a saída.
+- Action added to workflow: Em novas saídas CAPEX/portfólio, revisar sempre se a granularidade do layout final está no nível certo de gestão antes de encerrar a implementação.
+
+- Date: 2026-04-07
 - Context: Primeira versao do pipeline CAPEX simplificado entregou bases tecnicas, mas ainda faltava o layout final de negocio pedido pelo usuario.
 - User correction: Reforcou que ainda precisava dos dados exatamente no formato `ID do Projeto`, `Descricao do Ativo`, `Colaborador`, `Data do Apontamento das Horas`, `Horas`, `Atividade Desenvolvida`.
 - Root cause: Eu tratei as tabelas intermediarias como suficientes porque o modelo interno estava correto, mas nao projetei logo de inicio a camada final no schema executivo consumido pelo negocio.

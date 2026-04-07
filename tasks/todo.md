@@ -53,7 +53,7 @@
     - `Data do Apontamento das Horas`
     - `Horas`
     - `Atividade Desenvolvida`
-  - foi adicionada a versao `layout-final-v2.csv`, com uma linha por colaborador e somente as horas estimadas em itens de melhoria no mes
+  - foi adicionada a versao `layout-final-v2.csv`, agora no nivel `colaborador x epico/feature/historia de referencia`, com coluna final `Produto`
   - o workbook `.xlsx` opcional tambem ficou funcional
 - Regras implementadas:
   - leitura de capacidade em `CSV/XLSX`
@@ -72,9 +72,10 @@
   - `13` ativos consolidados
   - `91` alocacoes `colaborador x ativo`
   - `3137` linhas no `layout-final.csv`
-  - `29` linhas no `layout-final-v2.csv`
+  - `167` linhas no `layout-final-v2.csv`
   - horas de evolucao reconciliadas: `2887.81 -> 2887.81`
   - horas estimadas em melhorias na V2: `1437.87`
+  - produtos presentes na V2: `BeFinance`, `Data&Analytics`, `Sync`, `W1nner`
   - cobertura de vinculo das entregas:
     - `BT = 62`
     - `ProjetoLocal = 39`

@@ -33,6 +33,12 @@ BU_PROJECT_MAP = {
     "sistemas w1nner": "W1NNR",
     "sistemas w1nnner": "W1NNR",
 }
+PROJECT_PRODUCT_MAP = {
+    "BF": "BeFinance",
+    "DT": "Data&Analytics",
+    "S1NC": "Sync",
+    "W1NNR": "W1nner",
+}
 PEOPLE_COLUMN_ALIASES = {
     "name": {"nome"},
     "work_office": {"office de trabalho"},
@@ -139,6 +145,15 @@ FINAL_LAYOUT_COLUMNS = [
     "Data do Apontamento das Horas",
     "Horas",
     "Atividade Desenvolvida",
+]
+FINAL_LAYOUT_V2_COLUMNS = [
+    "ID do Projeto",
+    "Descrição do Ativo",
+    "Colaborador",
+    "Data do Apontamento das Horas",
+    "Horas",
+    "Atividade Desenvolvida",
+    "Produto",
 ]
 
 
@@ -764,12 +779,38 @@ def build_activity_description(delivery: dict[str, Any]) -> str:
     return issue_title or issue_type or "Entrega estimada"
 
 
+def product_label_for_project(project_code: str) -> str:
+    return PROJECT_PRODUCT_MAP.get(str(project_code or "").strip().upper(), str(project_code or "").strip().upper())
+
+
 def is_improvement_delivery(delivery: dict[str, Any]) -> bool:
     issue_type = normalize_text(delivery.get("TipoEntrega"))
     asset_type = normalize_text(delivery.get("Tipo do Ativo"))
     improvement_issue_types = {"epico", "epic", "feature", "historia", "story", "user story"}
     improvement_asset_types = {"epico", "epic", "feature"}
     return issue_type in improvement_issue_types or asset_type in improvement_asset_types
+
+
+def resolve_improvement_reference(delivery: dict[str, Any]) -> dict[str, str]:
+    asset_type = normalize_text(delivery.get("Tipo do Ativo"))
+    issue_type = normalize_text(delivery.get("TipoEntrega"))
+    if asset_type in {"epico", "epic", "feature"}:
+        return {
+            "id": first_non_empty(delivery.get("AtivoID")),
+            "description": first_non_empty(delivery.get("Descricao do Ativo")),
+            "activity": first_non_empty(delivery.get("Tipo do Ativo"), "Melhoria"),
+        }
+    if issue_type in {"epico", "epic", "feature", "historia", "story", "user story"}:
+        return {
+            "id": first_non_empty(delivery.get("IssueKey")),
+            "description": first_non_empty(delivery.get("IssueTitle"), delivery.get("Descricao do Ativo")),
+            "activity": first_non_empty(delivery.get("TipoEntrega"), "Melhoria"),
+        }
+    return {
+        "id": first_non_empty(delivery.get("AtivoID"), delivery.get("IssueKey")),
+        "description": first_non_empty(delivery.get("Descricao do Ativo"), delivery.get("IssueTitle")),
+        "activity": "Melhoria",
+    }
 
 
 def build_final_layout_rows(
@@ -849,35 +890,36 @@ def build_final_layout_v2_rows(
 
         weights = [(delivery["IssueKey"], float(delivery["PesoEntrega"])) for delivery in project_deliveries]
         allocation_by_issue = allocate_total(evolution_hours, weights)
-        improvement_hours = round(
-            sum(
-                float(allocation_by_issue.get(delivery["IssueKey"], 0.0))
-                for delivery in project_deliveries
-                if is_improvement_delivery(delivery)
-            ),
-            2,
-        )
-        if improvement_hours <= 0:
-            continue
+        grouped_hours: dict[tuple[str, str, str, str], float] = defaultdict(float)
+        for delivery in project_deliveries:
+            if not is_improvement_delivery(delivery):
+                continue
+            allocated_hours = float(allocation_by_issue.get(delivery["IssueKey"], 0.0))
+            if allocated_hours <= 0:
+                continue
+            reference = resolve_improvement_reference(delivery)
+            group_key = (
+                reference["id"],
+                reference["description"],
+                reference["activity"],
+                product_label_for_project(project_code),
+            )
+            grouped_hours[group_key] += allocated_hours
 
-        project_codes = sorted(
-            {
-                delivery["ProjetoOperacional"]
-                for delivery in project_deliveries
-                if is_improvement_delivery(delivery)
-            }
-        )
-        project_label = ", ".join(project_codes) if project_codes else project_code
-        final_rows.append(
-            {
-                "ID do Projeto": project_label,
-                "Descrição do Ativo": "Melhorias do mês",
-                "Colaborador": person["name"],
-                "Data do Apontamento das Horas": competency_date,
-                "Horas": improvement_hours,
-                "Atividade Desenvolvida": "Melhorias (epicos, features e historias)",
-            }
-        )
+        for group_key, grouped_hours_value in sorted(grouped_hours.items(), key=lambda item: (-item[1], item[0][0], item[0][1])):
+            if round(grouped_hours_value, 2) <= 0:
+                continue
+            final_rows.append(
+                {
+                    "ID do Projeto": group_key[0],
+                    "Descrição do Ativo": group_key[1],
+                    "Colaborador": person["name"],
+                    "Data do Apontamento das Horas": competency_date,
+                    "Horas": round(grouped_hours_value, 2),
+                    "Atividade Desenvolvida": f"{group_key[2]} | Melhorias do mês",
+                    "Produto": group_key[3],
+                }
+            )
 
     return final_rows
 
@@ -909,7 +951,7 @@ def write_xlsx_if_possible(
             pd.DataFrame(people_rows, columns=PERSON_COLUMNS).to_excel(writer, sheet_name="AlocacaoPessoas", index=False)
             pd.DataFrame(project_rows, columns=PROJECT_COLUMNS).to_excel(writer, sheet_name="ResumoProjetos", index=False)
             pd.DataFrame(final_layout_rows, columns=FINAL_LAYOUT_COLUMNS).to_excel(writer, sheet_name="LayoutFinal", index=False)
-            pd.DataFrame(final_layout_v2_rows, columns=FINAL_LAYOUT_COLUMNS).to_excel(writer, sheet_name="LayoutFinalV2", index=False)
+            pd.DataFrame(final_layout_v2_rows, columns=FINAL_LAYOUT_V2_COLUMNS).to_excel(writer, sheet_name="LayoutFinalV2", index=False)
         return True
     except PermissionError:
         print(
@@ -1044,7 +1086,7 @@ def main() -> int:
     write_csv(people_out, people_allocations, PERSON_COLUMNS)
     write_csv(project_out, project_rows, PROJECT_COLUMNS)
     write_csv(final_layout_out, final_layout_rows, FINAL_LAYOUT_COLUMNS)
-    write_csv(final_layout_v2_out, final_layout_v2_rows, FINAL_LAYOUT_COLUMNS)
+    write_csv(final_layout_v2_out, final_layout_v2_rows, FINAL_LAYOUT_V2_COLUMNS)
 
     workbook_written = False
     if not args.no_xlsx:
