@@ -2636,8 +2636,10 @@ def load_pattern_rules():
     return parse_json_env("PATTERN_RULES", parse_json_env("JIRA_PATTERN_RULES", DEFAULT_PATTERN_RULES))
 
 
-load_env_file('jira_env.txt')
-load_env_file('jira-env.txt')
+load_env_file('.env', overwrite=False)
+load_env_file('.env.local', overwrite=False)
+load_env_file('jira_env.txt', overwrite=False)
+load_env_file('jira-env.txt', overwrite=False)
 PATTERN_RULES = load_pattern_rules()
 DEFAULT_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT = float(os.getenv('FLOW_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT', '2').strip() or '2')
 DEFAULT_EXPEDITE_TARGET_PCT = float(os.getenv('FLOW_EXPEDITE_TARGET_PCT', '20').strip() or '20')

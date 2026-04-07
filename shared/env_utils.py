@@ -23,7 +23,20 @@ def load_env_file(env_file: str, overwrite: bool = True) -> None:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            quote = value[0]
+            value = value[1:-1]
+            if quote == '"':
+                value = (
+                    value
+                    .replace(r'\"', '"')
+                    .replace(r'\n', '\n')
+                    .replace(r'\r', '\r')
+                    .replace(r'\t', '\t')
+                )
+            else:
+                value = value.replace(r"\'", "'")
         if key and value and (overwrite or key not in os.environ):
             os.environ[key] = value
 
