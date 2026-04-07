@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-04-07
+- Context: Classificação de status no resumo executivo de projetos.
+- User correction: Esclareceu que `Cancelado` precisa ser diferente de `Done/Finalizado`.
+- Root cause: Eu agrupei estados cancelados e concluídos no mesmo bucket terminal, o que perde uma distinção gerencial importante.
+- Prevention rule: Em taxonomias de status executivo, nunca juntar `cancelado` e `concluido` no mesmo bucket sem confirmação explícita do usuário.
+- Action added to workflow: Ao resumir status de portfólio/projeto, separar sempre pelo menos `BACKLOG`, `EM ANDAMENTO`, `FINALIZADO` e `CANCELADO` quando essas categorias existirem na origem.
+
+- Date: 2026-04-07
 - Context: Primeira versão da V2 do layout final de melhorias consolidou uma linha por colaborador no nível do produto, mas o usuário precisava identificar o épico/feature na própria linha.
 - User correction: Esclareceu que, na V2, o `ID do Projeto` precisa ser o `Épico` e/ou `Feature`, e pediu também uma coluna final `Produto`.
 - Root cause: Eu mantive a V2 agregada demais no nível do produto operacional e não reavaliei que o identificador de projeto, nesse contexto, precisava subir para o ativo de melhoria (`épico/feature`) e não ficar só no sistema (`BF`, `W1NNR`, `S1NC`, `DT`).

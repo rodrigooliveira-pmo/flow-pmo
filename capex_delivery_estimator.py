@@ -39,6 +39,12 @@ PROJECT_PRODUCT_MAP = {
     "S1NC": "Sync",
     "W1NNR": "W1nner",
 }
+PRODUCT_HEAD_MAP = {
+    "BeFinance": "MARIELLE",
+    "Data&Analytics": "MAURICIO",
+    "Sync": "HENRIQUE ROCHA",
+    "W1nner": "LARA",
+}
 PEOPLE_COLUMN_ALIASES = {
     "name": {"nome"},
     "work_office": {"office de trabalho"},
@@ -92,6 +98,8 @@ RAW_COLUMNS = [
     "EpicLinkID",
     "ParentTitle",
     "EpicLinkName",
+    "Created",
+    "StartDate",
 ]
 ASSET_COLUMNS = [
     "MesCompetencia",
@@ -154,6 +162,13 @@ FINAL_LAYOUT_V2_COLUMNS = [
     "Horas",
     "Atividade Desenvolvida",
     "Produto",
+]
+PROJECT_EXEC_SUMMARY_COLUMNS = [
+    "Descrição do Ativo",
+    "Data de Início do Projeto",
+    "Previsão de Conclusão",
+    "Status do Projeto",
+    "Responsável pelo Projeto",
 ]
 
 
@@ -557,6 +572,8 @@ def load_completed_deliveries(
                 "EpicLinkID": first_non_empty(row.get("EpicLinkID")),
                 "ParentTitle": first_non_empty(row.get("ParentTitle")),
                 "EpicLinkName": first_non_empty(row.get("EpicLinkName")),
+                "Created": first_non_empty(row.get("Created")),
+                "StartDate": first_non_empty(row.get("Start date")),
             }
         )
 
@@ -813,6 +830,31 @@ def resolve_improvement_reference(delivery: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def project_status_from_bt_status(status_value: Any) -> str:
+    normalized = normalize_text(status_value)
+    if not normalized:
+        return ""
+    if any(keyword in normalized for keyword in ("cancel", "discard")):
+        return "CANCELADO"
+    if any(keyword in normalized for keyword in ("conclu", "done")):
+        return "FINALIZADO"
+    if any(
+        keyword in normalized
+        for keyword in (
+            "triagem",
+            "backlog",
+            "discovery",
+            "planning",
+            "replenishment",
+            "ready for development",
+            "priorized",
+            "quebra das historias",
+        )
+    ):
+        return "BACKLOG"
+    return "EM ANDAMENTO"
+
+
 def build_final_layout_rows(
     people_rows: list[dict[str, Any]],
     deliveries: list[dict[str, Any]],
@@ -924,12 +966,105 @@ def build_final_layout_v2_rows(
     return final_rows
 
 
-def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
+def build_project_executive_summary_rows(
+    deliveries: list[dict[str, Any]],
+    bt_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    for delivery in deliveries:
+        if not is_improvement_delivery(delivery):
+            continue
+
+        reference = resolve_improvement_reference(delivery)
+        product = product_label_for_project(delivery.get("ProjetoOperacional", ""))
+        group_key = (reference["id"], reference["description"], product)
+        entry = grouped.setdefault(
+            group_key,
+            {
+                "Descrição do Ativo": reference["description"] or reference["id"],
+                "Data de Início do Projeto": None,
+                "Previsão de Conclusão": None,
+                "Status do Projeto": "",
+                "Responsável pelo Projeto": PRODUCT_HEAD_MAP.get(product, ""),
+                "_bt_due": None,
+                "_completion_dates": [],
+                "_reference_activity": reference["activity"],
+            },
+        )
+
+        for candidate_date in (delivery.get("StartDate"), delivery.get("Created")):
+            parsed_date = parse_br_date(candidate_date)
+            if parsed_date and (entry["Data de Início do Projeto"] is None or parsed_date < entry["Data de Início do Projeto"]):
+                entry["Data de Início do Projeto"] = parsed_date
+
+        completed_on = parse_br_date(delivery.get("ConcluidoEm"))
+        if completed_on:
+            entry["_completion_dates"].append(completed_on)
+
+        bt_row = bt_by_id.get(reference["id"])
+        if bt_row:
+            entry["Status do Projeto"] = project_status_from_bt_status(bt_row.get("Status"))
+            due_date = parse_br_date(bt_row.get("DueDate"))
+            if not due_date:
+                due_text = str(bt_row.get("DueDate") or "").strip()
+                if due_text:
+                    try:
+                        due_date = datetime.strptime(due_text, "%Y-%m-%d").date()
+                    except ValueError:
+                        due_date = None
+            if due_date:
+                entry["_bt_due"] = due_date
+
+    out_rows: list[dict[str, Any]] = []
+    for _, entry in sorted(grouped.items(), key=lambda item: (item[0][2], item[0][1], item[0][0])):
+        forecast_date = entry["_bt_due"]
+        if forecast_date is None and entry["_completion_dates"]:
+            forecast_date = max(entry["_completion_dates"])
+        status = entry["Status do Projeto"]
+        if not status:
+            reference_activity = normalize_text(entry.get("_reference_activity"))
+            if reference_activity in {"historia", "story", "user story"} and entry["_completion_dates"]:
+                status = "FINALIZADO"
+            elif entry["Data de Início do Projeto"]:
+                status = "EM ANDAMENTO"
+            else:
+                status = "BACKLOG"
+        out_rows.append(
+            {
+                "Descrição do Ativo": entry["Descrição do Ativo"],
+                "Data de Início do Projeto": format_br_date(entry["Data de Início do Projeto"]),
+                "Previsão de Conclusão": format_br_date(forecast_date),
+                "Status do Projeto": status,
+                "Responsável pelo Projeto": entry["Responsável pelo Projeto"],
+            }
+        )
+    return out_rows
+
+
+def build_locked_fallback_path(path: Path) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return path.with_name(f"{path.stem}-locked-{timestamp}{path.suffix}")
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(rows)
+    try:
+        with path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(rows)
+        return path
+    except PermissionError:
+        fallback_path = build_locked_fallback_path(path)
+        with fallback_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(rows)
+        print(
+            f"CSV bloqueado em {path}; gravado com nome alternativo: {fallback_path}"
+        )
+        return fallback_path
 
 
 def write_xlsx_if_possible(
@@ -940,6 +1075,7 @@ def write_xlsx_if_possible(
     project_rows: list[dict[str, Any]],
     final_layout_rows: list[dict[str, Any]],
     final_layout_v2_rows: list[dict[str, Any]],
+    project_exec_summary_rows: list[dict[str, Any]],
 ) -> bool:
     if pd is None:
         return False
@@ -952,6 +1088,7 @@ def write_xlsx_if_possible(
             pd.DataFrame(project_rows, columns=PROJECT_COLUMNS).to_excel(writer, sheet_name="ResumoProjetos", index=False)
             pd.DataFrame(final_layout_rows, columns=FINAL_LAYOUT_COLUMNS).to_excel(writer, sheet_name="LayoutFinal", index=False)
             pd.DataFrame(final_layout_v2_rows, columns=FINAL_LAYOUT_V2_COLUMNS).to_excel(writer, sheet_name="LayoutFinalV2", index=False)
+            pd.DataFrame(project_exec_summary_rows, columns=PROJECT_EXEC_SUMMARY_COLUMNS).to_excel(writer, sheet_name="ResumoProjetosExec", index=False)
         return True
     except PermissionError:
         print(
@@ -1071,6 +1208,10 @@ def main() -> int:
         deliveries=deliveries,
         end_date=end_date,
     )
+    project_exec_summary_rows = build_project_executive_summary_rows(
+        deliveries=deliveries,
+        bt_by_id=bt_by_id,
+    )
 
     prefix = build_output_prefix(list(project_files.keys()), start_date, end_date)
     raw_out = out_dir / f"{prefix}-entregas.csv"
@@ -1079,14 +1220,16 @@ def main() -> int:
     project_out = out_dir / f"{prefix}-projetos.csv"
     final_layout_out = out_dir / f"{prefix}-layout-final.csv"
     final_layout_v2_out = out_dir / f"{prefix}-layout-final-v2.csv"
+    project_exec_summary_out = out_dir / f"{prefix}-resumo-projetos-exec.csv"
     xlsx_out = out_dir / f"{prefix}.xlsx"
 
-    write_csv(raw_out, deliveries, RAW_COLUMNS)
-    write_csv(asset_out, merged_asset_rows, ASSET_COLUMNS)
-    write_csv(people_out, people_allocations, PERSON_COLUMNS)
-    write_csv(project_out, project_rows, PROJECT_COLUMNS)
-    write_csv(final_layout_out, final_layout_rows, FINAL_LAYOUT_COLUMNS)
-    write_csv(final_layout_v2_out, final_layout_v2_rows, FINAL_LAYOUT_V2_COLUMNS)
+    raw_written = write_csv(raw_out, deliveries, RAW_COLUMNS)
+    asset_written = write_csv(asset_out, merged_asset_rows, ASSET_COLUMNS)
+    people_written = write_csv(people_out, people_allocations, PERSON_COLUMNS)
+    project_written = write_csv(project_out, project_rows, PROJECT_COLUMNS)
+    final_layout_written = write_csv(final_layout_out, final_layout_rows, FINAL_LAYOUT_COLUMNS)
+    final_layout_v2_written = write_csv(final_layout_v2_out, final_layout_v2_rows, FINAL_LAYOUT_V2_COLUMNS)
+    project_exec_summary_written = write_csv(project_exec_summary_out, project_exec_summary_rows, PROJECT_EXEC_SUMMARY_COLUMNS)
 
     workbook_written = False
     if not args.no_xlsx:
@@ -1098,6 +1241,7 @@ def main() -> int:
             project_rows=project_rows,
             final_layout_rows=final_layout_rows,
             final_layout_v2_rows=final_layout_v2_rows,
+            project_exec_summary_rows=project_exec_summary_rows,
         )
 
     total_input_hours = round(sum(float(row["evolution_hours"]) for row in people_rows if row["project_code"]), 2)
@@ -1116,17 +1260,19 @@ def main() -> int:
     print(f"Horas de evolucao: entrada={total_input_hours:.2f} | distribuidas={total_distributed_hours:.2f}")
     print(f"Layout final executivo: {len(final_layout_rows)} linha(s) | horas={total_final_layout_hours:.2f}")
     print(f"Layout final V2 melhorias: {len(final_layout_v2_rows)} linha(s) | horas={total_final_layout_v2_hours:.2f}")
+    print(f"Resumo executivo de projetos: {len(project_exec_summary_rows)} ativo(s)")
     print(
         f"Cobertura de vinculo: BT={origin_counts.get('BT', 0)} | "
         f"ProjetoLocal={origin_counts.get('ProjetoLocal', 0)} | "
         f"NaoVinculado={origin_counts.get('NaoVinculado', 0)}"
     )
-    print(f"CSV entregas: {raw_out}")
-    print(f"CSV ativos: {asset_out}")
-    print(f"CSV pessoas: {people_out}")
-    print(f"CSV projetos: {project_out}")
-    print(f"CSV layout final: {final_layout_out}")
-    print(f"CSV layout final V2: {final_layout_v2_out}")
+    print(f"CSV entregas: {raw_written}")
+    print(f"CSV ativos: {asset_written}")
+    print(f"CSV pessoas: {people_written}")
+    print(f"CSV projetos: {project_written}")
+    print(f"CSV layout final: {final_layout_written}")
+    print(f"CSV layout final V2: {final_layout_v2_written}")
+    print(f"CSV resumo projetos exec: {project_exec_summary_written}")
     if workbook_written:
         print(f"Workbook XLSX: {xlsx_out}")
     return 0
