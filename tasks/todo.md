@@ -1,3 +1,45 @@
+## Current Task (Avaliar referência externa para incrementar o dashboard_full)
+- [x] Inspecionar a referência `https://focusedobjective.com/team-dashboard` e extrair padrões úteis
+- [x] Comparar esses padrões com a estrutura atual do `dashboard_full.py`
+- [x] Implementar um incremento de baixo risco se a oportunidade for clara
+- [x] Validar a alteração e registrar review com commit sugerido
+
+## Specification (Avaliar referência externa para incrementar o dashboard_full)
+- Objetivo: avaliar a referência pública do `Focused Objective Team Dashboard` e identificar se existe algum incremento claro, útil e de baixo risco para o `dashboard_full.py`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - a análise deixa explícito o que a referência oferece de relevante para o contexto do projeto
+  - se houver melhoria de baixo risco e alto valor, ela é implementada no `dashboard_full.py`
+  - a resposta final explica o que foi incorporado ou, se nada fizer sentido, por que a recomendação ficou apenas conceitual
+
+## Review (Avaliar referência externa para incrementar o dashboard_full)
+- Leitura principal da referência:
+  - a página pública do `Focused Objective` posiciona o `Team Dashboard` como uma leitura enxuta baseada em poucas dimensões centrais de fluxo, com foco em entendimento rápido antes do aprofundamento
+  - conceitualmente, a referência gira em torno de eixos como `throughput`, `tempo de fluxo`, `WIP`, `defeitos/failure demand`, `cumulative flow` e `predictability`
+- Comparação com o `dashboard_full.py`:
+  - o `dashboard_full.py` já cobre essas dimensões e vai além em profundidade analítica
+  - o principal gap não era falta de conteúdo, e sim falta de uma síntese inicial mais compacta no topo do `Painel Fluxo`
+- Incremento implementado:
+  - foi adicionada ao `Painel Fluxo` uma seção `Leitura Rápida em 6 Dimensões`
+  - essa seção resume, no mesmo bloco visual:
+    - `Throughput`
+    - `Lead Time P85`
+    - `WIP Atual`
+    - `Failure Demand`
+    - `Previsibilidade`
+    - `CFD / Estoque`
+  - cada card reaproveita os status já calculados no painel, sem alterar a lógica principal das métricas
+- Motivo da escolha:
+  - entrega o ganho mais claro da referência externa sem empobrecer o dashboard atual
+  - melhora onboarding e leitura executiva
+  - evita criar mais uma aba ou duplicar gráficos que já existem
+- Validação executada:
+  - `python -m py_compile dashboard_full.py`
+- Suggested commit message:
+  - `feat(dashboard): add six-dimension flow summary to painel fluxo`
+
 ## Current Task (Gerar régua financeira nativa no dashboard de portfólio)
 - [x] Substituir a dependência de planilha externa por cálculo nativo no `dashboard_full.py`
 - [x] Expor os principais KPIs financeiros da régua na visão de portfólio

@@ -12985,6 +12985,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             f"{tp_valor_pct:.1f}% x {tp_falha_pct:.1f}%" if pd.notna(tp_valor_pct) and pd.notna(tp_falha_pct) else '—'
         )
         tp_relacao_status = classify_throughput_mix(tp_falha_pct)
+        inventory_growth_status = classify_direction(inventory_growth, 0.0, 2.0, lower_is_better=True)
 
         # Catálogo único de métricas para todo o painel (id único por indicador).
         metric_catalog = {
@@ -13218,6 +13219,112 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 )
             )
 
+        def build_flow_dimension_card(title, value, subtitle, explanation, status_tuple):
+            status_label, status_color = status_tuple
+            return html.Div([
+                html.Div(status_label, style={
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.05em',
+                    'textTransform': 'uppercase',
+                    'color': status_color,
+                    'marginBottom': '10px',
+                }),
+                html.Div(title, style={
+                    'fontSize': '14px',
+                    'fontWeight': '700',
+                    'color': '#22313f',
+                    'marginBottom': '6px',
+                }),
+                html.Div(value, style={
+                    'fontSize': '28px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.0',
+                    'color': '#0f1720',
+                    'marginBottom': '8px',
+                }),
+                html.Div(subtitle, style={
+                    'fontSize': '12px',
+                    'fontWeight': '600',
+                    'color': '#5f6e7b',
+                    'marginBottom': '8px',
+                }),
+                html.Div(explanation, style={
+                    'fontSize': '12px',
+                    'color': '#5f6e7b',
+                    'lineHeight': '1.45',
+                }),
+            ], style={
+                'backgroundColor': 'white',
+                'border': '1px solid #d9e2ec',
+                'borderTop': f'5px solid {status_color}',
+                'borderRadius': '12px',
+                'padding': '14px',
+                'boxShadow': '0 1px 4px rgba(15, 23, 32, 0.08)',
+                'minHeight': '170px',
+            })
+
+        six_dimension_cards = [
+            build_flow_dimension_card(
+                'Throughput',
+                fmt_value(metric_catalog['throughput_avg_week']['value'], '{:.1f}'),
+                'itens concluídos por semana',
+                'Capacidade real de saída no recorte filtrado.',
+                metric_catalog['throughput_avg_week']['status'],
+            ),
+            build_flow_dimension_card(
+                'Lead Time P85',
+                fmt_value(metric_catalog['lead_time_p85']['value'], '{:.1f}'),
+                'dias para 85% dos itens',
+                'Mostra o tempo de atravessamento em cenário conservador.',
+                metric_catalog['lead_time_p85']['status'],
+            ),
+            build_flow_dimension_card(
+                'WIP Atual',
+                fmt_value(metric_catalog['wip_current']['value'], '{:.0f}'),
+                'itens em fluxo no fim do período',
+                'Resume a carga ativa que ainda compete por atenção do time.',
+                metric_catalog['wip_current']['status'],
+            ),
+            build_flow_dimension_card(
+                'Failure Demand',
+                fmt_value(tp_falha_pct, '{:.1f}%'),
+                'participação de falha no throughput',
+                'Quanto maior esse peso, mais a vazão está indo para retrabalho e correções.',
+                tp_relacao_status,
+            ),
+            build_flow_dimension_card(
+                'Previsibilidade',
+                fmt_value(metric_catalog['predictability']['value'], '{:.2f}'),
+                'razão P85 / P50',
+                'Quanto mais perto de 1, menor a dispersão e mais confiável o sistema.',
+                metric_catalog['predictability']['status'],
+            ),
+            build_flow_dimension_card(
+                'CFD / Estoque',
+                fmt_value(metric_catalog['total_system_current_exec']['value'], '{:.0f}'),
+                'backlog + WIP no fim do período',
+                'Leitura rápida do tamanho do sistema antes de aprofundar na aba de CFD.',
+                inventory_growth_status,
+            ),
+        ]
+
+        flow_dimension_section = html.Div([
+            html.H4('Leitura Rápida em 6 Dimensões', style={'textAlign': 'center', 'marginBottom': '6px'}),
+            html.P(
+                'Comece por esta síntese e depois aprofunde nas abas específicas de Lead Time, CFD, Throughput Breakdown, Work Item Age e WIP por Pessoa.',
+                style={'textAlign': 'center', 'color': '#5f6e7b', 'marginBottom': '16px'}
+            ),
+            html.Div(
+                six_dimension_cards,
+                style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
+                    'gap': '12px',
+                }
+            ),
+        ], style={'maxWidth': '1200px', 'margin': '0 auto 20px auto'})
+
         demand_capacity_max = max(metric_catalog['demand_total']['value'], metric_catalog['capacity_total']['value'], 1.0)
         demand_bar_h = f"{max(18, int((metric_catalog['demand_total']['value'] / demand_capacity_max) * 92))}px"
         capacity_bar_h = f"{max(18, int((metric_catalog['capacity_total']['value'] / demand_capacity_max) * 92))}px"
@@ -13403,6 +13510,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 "Eficiência (1-rho) inversa: OK >=0.20, Atenção >=0.10 e <0.20, Crítico >=0.05 e <0.10, Extremamente Crítico <0.05.",
                 style={'textAlign': 'center', 'color': '#666', 'marginBottom': '20px'}
             ),
+            flow_dimension_section,
             flow_reference_cards,
             html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
         ])
