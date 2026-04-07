@@ -265,7 +265,26 @@ def _resolve_model_file(data_folders):
 
 DATA_FOLDERS = candidate_data_folders()
 DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
+PROCESS_MINING_ARTIFACT_FOLDER = os.path.join(os.path.dirname(__file__), 'artifacts', 'process_mining')
 MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
+
+
+def _iter_local_data_folders(include_process_mining_artifacts=False):
+    folders = []
+    seen = set()
+    candidates = list(DATA_FOLDERS or [])
+    if include_process_mining_artifacts:
+        candidates.append(PROCESS_MINING_ARTIFACT_FOLDER)
+    for raw_folder in candidates:
+        folder = str(raw_folder or '').strip()
+        if not folder:
+            continue
+        folder = os.path.abspath(folder)
+        if folder in seen or not os.path.isdir(folder):
+            continue
+        seen.add(folder)
+        folders.append(folder)
+    return folders
 
 
 def _format_last_processed_load(model_file):
@@ -1076,7 +1095,7 @@ def _load_project_bitbucket_csv(project_prefix, suffix):
         except Exception:
             pass
     candidates = []
-    for folder in DATA_FOLDERS:
+    for folder in _iter_local_data_folders(include_process_mining_artifacts=True):
         try:
             entries = os.listdir(folder)
         except Exception:
@@ -7347,6 +7366,28 @@ _PM_FILE_PREFIX_MAP = {
     'DA': 'dataanalytics',
 }
 
+_PM_SHEET_CSV_SLUG_MAP = {
+    'ResumoConformidade': 'conformidade_resumo',
+    'ConformidadeCasos': 'conformidade_casos',
+    'RetrabalhoItens': 'retrabalho_itens',
+    'RetornoDevLoops': 'retorno_dev_loops',
+    'TemposPorStatus': 'tempos_status',
+    'VazaoPessoaSemanal': 'vazao_pessoa_semanal',
+    'VazaoPessoaResumo': 'vazao_pessoa_resumo',
+    'HorasPessoaResumo': 'horas_pessoa_resumo',
+    'HorasPessoaStatus': 'horas_pessoa_status',
+    'DevFlowResumo': 'dev_flow_summary',
+    'DevFlowItens': 'dev_flow_items',
+    'DevFlowRetornos': 'dev_flow_returns',
+    'VariantesTop': 'variantes_top',
+    'EventosFiltrados': 'eventos_filtrados',
+    'PM4PyDFGEdges': 'pm4py_dfg_edges',
+    'PM4PyDFGPerfEdges': 'pm4py_dfg_perf_edges',
+    'PM4PyTBRResumo': 'pm4py_tbr_summary',
+    'PM4PyTBRCasos': 'pm4py_tbr_cases',
+    'Metadados': 'metadados',
+}
+
 
 def _load_pm_excel_url_map() -> dict:
     """Carrega FLOW_PMO_PM_EXCEL_URL_MAP: {"w1nner": "https://...", "s1nc": "https://...", ...}"""
@@ -7388,7 +7429,7 @@ def load_project_pm_sheet(projeto: str, sheet_name: str) -> pd.DataFrame:
     # 3) Busca local em DATA_FOLDERS
     latest_name = f'{prefix}-process-mining-latest.xlsx'
     candidates = []
-    for folder in DATA_FOLDERS:
+    for folder in _iter_local_data_folders(include_process_mining_artifacts=True):
         try:
             entries = os.listdir(folder)
         except Exception:
@@ -7412,12 +7453,736 @@ def load_project_pm_sheet(projeto: str, sheet_name: str) -> pd.DataFrame:
                     return df
         except Exception:
             continue
+
+    csv_slug = _PM_SHEET_CSV_SLUG_MAP.get(str(sheet_name).strip())
+    if not csv_slug:
+        return pd.DataFrame()
+
+    csv_candidates = []
+    latest_csv_name = f'{prefix}-process-mining-latest-{csv_slug}.csv'
+    for folder in _iter_local_data_folders(include_process_mining_artifacts=True):
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if not (low.startswith(f'{prefix}-process-mining-') and low.endswith(f'-{csv_slug}.csv')):
+                continue
+            path = os.path.join(folder, name)
+            if os.path.isfile(path):
+                is_latest = 1 if low == latest_csv_name else 0
+                csv_candidates.append((is_latest, os.path.getctime(path), path))
+    if not csv_candidates:
+        return pd.DataFrame()
+    csv_candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    for _, _, path in csv_candidates:
+        try:
+            df = pd.read_csv(path)
+            if not df.empty:
+                return df
+        except Exception:
+            continue
     return pd.DataFrame()
 
 
 def load_project_pm_case_df(projeto: str) -> pd.DataFrame:
     """Carrega a aba ConformidadeCasos do Excel de process mining mais recente para qualquer projeto."""
     return load_project_pm_sheet(projeto, 'ConformidadeCasos')
+
+
+def _load_portfolio_cost_model() -> dict:
+    model = parse_json_env('FLOW_PMO_PORTFOLIO_COST_MODEL', {})
+    if not isinstance(model, dict):
+        model = {}
+    return {
+        'fl_mensal': float(model.get('fl_mensal', 0) or 0),
+        'budget_ti_pct': float(model.get('budget_ti_pct', 0.10) or 0.10),
+        'fator_encargos': float(model.get('fator_encargos', 2.0) or 2.0),
+        'custo_ferramentas_infra_mensal': float(model.get('custo_ferramentas_infra_mensal', 0) or 0),
+        'dias_uteis_mes': float(model.get('dias_uteis_mes', 22) or 22),
+        'horas_dia': float(model.get('horas_dia', 8) or 8),
+        'fator_produtividade': float(model.get('fator_produtividade', 0.75) or 0.75),
+        'salario_medio_bruto': float(model.get('salario_medio_bruto', 0) or 0),
+    }
+
+
+def _load_portfolio_role_salary_map() -> dict:
+    raw_map = parse_json_env('FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP', {})
+    if not isinstance(raw_map, dict):
+        return {}
+    out = {}
+    for raw_key, raw_value in raw_map.items():
+        key = str(raw_key or '').strip()
+        if not key:
+            continue
+        try:
+            out[key] = float(raw_value)
+        except Exception:
+            continue
+    return out
+
+
+def _load_portfolio_bu_salary_map() -> dict:
+    raw_map = parse_json_env('FLOW_PMO_PORTFOLIO_BU_SALARY_MAP', {})
+    if not isinstance(raw_map, dict):
+        return {}
+    out = {}
+    for raw_key, raw_value in raw_map.items():
+        key = str(raw_key or '').strip()
+        if not key:
+            continue
+        try:
+            out[key] = float(raw_value)
+        except Exception:
+            continue
+    return out
+
+
+def _build_portfolio_cost_team_df() -> pd.DataFrame:
+    config = _load_people_config()
+    bu_map = config.get('bu_map', {}) if isinstance(config, dict) else {}
+    alias_index = _load_person_alias_index()
+    role_index = _load_person_role_map()
+    rows = []
+    seen = set()
+    for raw_name, raw_bu in bu_map.items():
+        person = _canonical_person_name(raw_name, alias_index=alias_index)
+        if not person or person in seen:
+            continue
+        seen.add(person)
+        rows.append({
+            'Pessoa': person,
+            'BU': str(raw_bu or '').strip(),
+            'Papel': _person_role(person, role_index=role_index),
+        })
+    if not rows:
+        return pd.DataFrame(columns=['Pessoa', 'BU', 'Papel'])
+    return pd.DataFrame(rows).sort_values(['BU', 'Pessoa'], ignore_index=True)
+
+
+def _product_bu_for_cost(project_key: str) -> str:
+    mapping = {
+        'BF': 'BeFinance',
+        'DT': 'Dados',
+        'S1NC': 'Sistemas - S1NC',
+        'W1NNER': 'Sistemas - W1NNER',
+    }
+    return mapping.get(_canonical_pm_product_key(project_key), '')
+
+
+def build_portfolio_cost_model_snapshot(portfolio_scope_df: pd.DataFrame, start_ts, end_ts) -> dict:
+    model = _load_portfolio_cost_model()
+    role_salary_map = _load_portfolio_role_salary_map()
+    bu_salary_map = _load_portfolio_bu_salary_map()
+    team_df = _build_portfolio_cost_team_df()
+
+    if team_df.empty:
+        return {
+            'available': False,
+            'error': 'people_config.json sem pessoas suficientes para calcular o custo heurístico.',
+        }
+
+    team_cost_df = team_df.copy()
+    team_cost_df['Salário Base (R$)'] = team_cost_df.apply(
+        lambda row: float(
+            bu_salary_map.get(str(row.get('BU', '')).strip())
+            or role_salary_map.get(str(row.get('Papel', '')).strip())
+            or model.get('salario_medio_bruto', 0)
+            or 0
+        ),
+        axis=1,
+    )
+    team_cost_df['Custo Mensal Pessoa (R$)'] = team_cost_df['Salário Base (R$)'] * float(model.get('fator_encargos', 2.0) or 2.0)
+
+    dias_uteis = max(1.0, float(model.get('dias_uteis_mes', 22) or 22))
+    horas_dia = max(1.0, float(model.get('horas_dia', 8) or 8))
+    fator_produtividade = max(0.01, float(model.get('fator_produtividade', 0.75) or 0.75))
+
+    team_cost_df['Horas Produtivas Mensais'] = dias_uteis * horas_dia * fator_produtividade
+
+    custo_equipe_mensal = float(pd.to_numeric(team_cost_df['Custo Mensal Pessoa (R$)'], errors='coerce').fillna(0).sum())
+    custo_total_ti_mensal = custo_equipe_mensal + float(model.get('custo_ferramentas_infra_mensal', 0) or 0)
+    capacidade_total_mensal = float(pd.to_numeric(team_cost_df['Horas Produtivas Mensais'], errors='coerce').fillna(0).sum())
+    custo_hora_global = (custo_total_ti_mensal / capacidade_total_mensal) if capacidade_total_mensal > 0 else 0.0
+    budget_ti_mensal = float(model.get('fl_mensal', 0) or 0) * float(model.get('budget_ti_pct', 0.10) or 0.10)
+    budget_ti_anual = budget_ti_mensal * 12.0
+
+    product_rate_rows = []
+    explicit_rate_overrides = parse_json_env('FLOW_PMO_PM_COST_PER_HOUR_MAP', {})
+    explicit_rate_overrides = explicit_rate_overrides if isinstance(explicit_rate_overrides, dict) else {}
+    for spec in _PM_PORTFOLIO_PRODUCT_SPECS:
+        project_key = spec['project_key']
+        bu_name = _product_bu_for_cost(project_key)
+        team_slice = team_cost_df[team_cost_df['BU'].astype(str).str.strip() == bu_name].copy()
+        custo_mensal_produto = float(pd.to_numeric(team_slice['Custo Mensal Pessoa (R$)'], errors='coerce').fillna(0).sum())
+        capacidade_produto = float(pd.to_numeric(team_slice['Horas Produtivas Mensais'], errors='coerce').fillna(0).sum())
+        rate = (custo_mensal_produto / capacidade_produto) if capacidade_produto > 0 else custo_hora_global
+        explicit = explicit_rate_overrides.get(project_key)
+        if explicit is None:
+            explicit = explicit_rate_overrides.get(spec['product'])
+        try:
+            rate = float(explicit) if explicit is not None else float(rate)
+        except Exception:
+            rate = float(rate or 0)
+        product_rate_rows.append({
+            'Projeto PM': project_key,
+            'Produto': spec['product'],
+            'BU': bu_name,
+            'Headcount': int(team_slice['Pessoa'].nunique()),
+            'Custo Mensal Produto (R$)': custo_mensal_produto,
+            'Capacidade Mensal Produto (h)': capacidade_produto,
+            'Custo Hora Produto (R$)': rate,
+        })
+
+    portfolio_assets = pd.DataFrame()
+    if portfolio_scope_df is not None and not portfolio_scope_df.empty:
+        assets = portfolio_scope_df.copy()
+        type_col = _pm_pick_first_column(assets, ['Tipo', 'ItemType'])
+        id_col = _pm_pick_first_column(assets, ['ID', 'ItemID'])
+        title_col = _pm_pick_first_column(assets, ['Titulo', 'Title'])
+        status_col = _pm_pick_first_column(assets, ['Status'])
+        if type_col and id_col and title_col:
+            assets['_tipo_norm'] = assets[type_col].apply(normalize_text)
+            assets = assets[assets['_tipo_norm'].isin({'epic', 'epico', 'feature', 'funcionalidade'})].copy()
+            portfolio_assets = pd.DataFrame({
+                'AssetID': assets[id_col].astype(str).str.strip(),
+                'Descrição do Ativo': assets[title_col].fillna('').astype(str).str.strip(),
+                'Status': assets[status_col].fillna('').astype(str).str.strip() if status_col else '',
+            }).drop_duplicates(subset=['AssetID'], keep='first')
+
+    return {
+        'available': True,
+        'model': model,
+        'team_df': team_cost_df,
+        'product_rates_df': pd.DataFrame(product_rate_rows),
+        'kpis': {
+            'Budget TI Mensal': budget_ti_mensal,
+            'Budget TI Anual': budget_ti_anual,
+            'Custo Equipe Mensal': custo_equipe_mensal,
+            'Custo Total TI Mensal': custo_total_ti_mensal,
+            'Capacidade Total Mensal (h)': capacidade_total_mensal,
+            'Custo Hora Carregado': custo_hora_global,
+            'Headcount TI': int(team_cost_df['Pessoa'].nunique()),
+        },
+        'portfolio_assets_df': portfolio_assets,
+    }
+
+
+_PM_PORTFOLIO_PRODUCT_SPECS = (
+    {'project_key': 'BF', 'product': 'BeFinance', 'color': '#e67e22'},
+    {'project_key': 'DT', 'product': 'Data&Analytics', 'color': '#1abc9c'},
+    {'project_key': 'S1NC', 'product': 'Sync', 'color': '#9b59b6'},
+    {'project_key': 'W1NNER', 'product': 'W1nner', 'color': '#3498db'},
+)
+
+_PM_PORTFOLIO_CANONICAL_PROJECT_MAP = {
+    'BF': 'BF',
+    'BEFINANCE': 'BF',
+    'BE FINANCE': 'BF',
+    'DT': 'DT',
+    'DA': 'DT',
+    'DADOS': 'DT',
+    'DATA ANALYTICS': 'DT',
+    'DATA&ANALYTICS': 'DT',
+    'S1NC': 'S1NC',
+    'W1SFT': 'S1NC',
+    'SYNC': 'S1NC',
+    'W1NNR': 'W1NNER',
+    'W1NNER': 'W1NNER',
+    'WINNER': 'W1NNER',
+}
+
+_PM_EXECUTION_INCLUDE_TOKENS = (
+    'in progress',
+    'development',
+    'desenvolvimento',
+    'code review',
+    'review',
+    'testing',
+    'qa',
+    'homolog',
+    'validation',
+    'validacao',
+)
+
+_PM_EXECUTION_EXCLUDE_TOKENS = (
+    'backlog',
+    'triagem',
+    'triage',
+    'discovery',
+    'planning',
+    'refinement',
+    'refinamento',
+    'grooming',
+    'to do',
+    'todo',
+    'cancel',
+    'done',
+    'conclu',
+    'closed',
+)
+
+_PM_PORTFOLIO_ASSET_TYPES = frozenset({
+    'epic',
+    'epico',
+    'feature',
+    'funcionalidade',
+    'story',
+    'user story',
+    'historia',
+    'historia de usuario',
+})
+
+
+def _pm_pick_first_column(df_source: pd.DataFrame, candidates) -> str | None:
+    if df_source is None or getattr(df_source, 'empty', True):
+        return None
+    for candidate in candidates:
+        if candidate in df_source.columns:
+            return candidate
+    return None
+
+
+def _canonical_pm_product_key(value) -> str:
+    norm = normalize_text(value).upper()
+    if not norm:
+        return ''
+    return _PM_PORTFOLIO_CANONICAL_PROJECT_MAP.get(norm, '')
+
+
+def _pm_product_label(project_key: str) -> str:
+    canonical_key = _canonical_pm_product_key(project_key)
+    for spec in _PM_PORTFOLIO_PRODUCT_SPECS:
+        if spec['project_key'] == canonical_key:
+            return spec['product']
+    return canonical_key or str(project_key or '').strip()
+
+
+def _pm_product_color(project_key: str) -> str:
+    canonical_key = _canonical_pm_product_key(project_key)
+    for spec in _PM_PORTFOLIO_PRODUCT_SPECS:
+        if spec['project_key'] == canonical_key:
+            return spec['color']
+    return '#455a64'
+
+
+def _pm_portfolio_selected_specs(project_value=None):
+    selected = _canonical_pm_product_key(project_value)
+    specs = []
+    for spec in _PM_PORTFOLIO_PRODUCT_SPECS:
+        if selected and spec['project_key'] != selected:
+            continue
+        specs.append(dict(spec))
+    return specs
+
+
+def _pm_load_cost_rate_map() -> dict:
+    out = {}
+    cost_model_snapshot = build_portfolio_cost_model_snapshot(pd.DataFrame(), pd.Timestamp(datetime.now().date()), pd.Timestamp(datetime.now().date()))
+    product_rates_df = cost_model_snapshot.get('product_rates_df', pd.DataFrame()) if isinstance(cost_model_snapshot, dict) else pd.DataFrame()
+    if product_rates_df is not None and not product_rates_df.empty:
+        for row in product_rates_df.to_dict(orient='records'):
+            canonical_key = _canonical_pm_product_key(row.get('Projeto PM'))
+            if not canonical_key:
+                continue
+            try:
+                rate = float(row.get('Custo Hora Produto (R$)', 0) or 0)
+            except Exception:
+                continue
+            if rate >= 0:
+                out[canonical_key] = rate
+    return out
+
+
+def _pm_is_execution_status(value) -> bool:
+    norm = normalize_text(value)
+    if not norm:
+        return False
+    if norm.startswith('ready '):
+        return False
+    if any(token in norm for token in _PM_EXECUTION_EXCLUDE_TOKENS):
+        return False
+    return any(token in norm for token in _PM_EXECUTION_INCLUDE_TOKENS)
+
+
+def _pm_is_asset_type(value) -> bool:
+    return normalize_text(value) in _PM_PORTFOLIO_ASSET_TYPES
+
+
+def _pm_clean_issue_key(value) -> str:
+    if pd.isna(value):
+        return ''
+    text = str(value).strip().upper()
+    if not text or text in {'NAN', 'NONE'}:
+        return ''
+    return text
+
+
+def _pm_build_portfolio_lookup(df_portfolio: pd.DataFrame) -> dict:
+    if df_portfolio is None or df_portfolio.empty:
+        return {}
+    id_col = _pm_pick_first_column(df_portfolio, ['ID', 'ItemID'])
+    title_col = _pm_pick_first_column(df_portfolio, ['Titulo', 'Title'])
+    type_col = _pm_pick_first_column(df_portfolio, ['Tipo', 'ItemType'])
+    project_col = _pm_pick_first_column(df_portfolio, ['Projeto'])
+    if not id_col or not title_col:
+        return {}
+
+    lookup = {}
+    for row in df_portfolio.to_dict(orient='records'):
+        item_id = _pm_clean_issue_key(row.get(id_col))
+        if not item_id:
+            continue
+        lookup[item_id] = {
+            'AssetID': item_id,
+            'Descricao do Ativo': str(row.get(title_col, '') or '').strip(),
+            'Tipo do Ativo': str(row.get(type_col, '') or '').strip(),
+            'Projeto Portfólio': str(row.get(project_col, '') or '').strip(),
+        }
+    return lookup
+
+
+def _pm_build_downstream_asset_map(project_key: str, portfolio_lookup: dict) -> pd.DataFrame:
+    canonical_project = _canonical_pm_product_key(project_key) or str(project_key or '').strip().upper()
+    items_df = load_project_downstream_items_csv(canonical_project)
+    if items_df is None or items_df.empty:
+        return pd.DataFrame(columns=[
+            'Issue Key', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo', 'Produto'
+        ])
+
+    id_col = _pm_pick_first_column(items_df, ['ID', 'ItemID'])
+    title_col = _pm_pick_first_column(items_df, ['Title', 'Titulo'])
+    type_col = _pm_pick_first_column(items_df, ['Tipo de Problema', 'Tipo'])
+    if not id_col or not title_col:
+        return pd.DataFrame(columns=[
+            'Issue Key', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo', 'Produto'
+        ])
+
+    local_lookup = {}
+    for row in items_df.to_dict(orient='records'):
+        issue_key = _pm_clean_issue_key(row.get(id_col))
+        if not issue_key:
+            continue
+        local_lookup[issue_key] = {
+            'AssetID': issue_key,
+            'Descrição do Ativo': str(row.get(title_col, '') or '').strip(),
+            'Tipo do Ativo': str(row.get(type_col, '') or '').strip(),
+        }
+
+    rows = []
+    for row in items_df.to_dict(orient='records'):
+        issue_key = _pm_clean_issue_key(row.get(id_col))
+        if not issue_key:
+            continue
+
+        issue_type = str(row.get(type_col, '') or '').strip()
+        issue_title = str(row.get(title_col, '') or '').strip()
+        asset = None
+        source = 'NaoMapeado'
+        candidate_keys = []
+        for col in ['FeatureLinkID', 'EpicLinkID', 'ParentID']:
+            cleaned = _pm_clean_issue_key(row.get(col))
+            if cleaned and cleaned not in candidate_keys:
+                candidate_keys.append(cleaned)
+
+        for candidate_key in candidate_keys:
+            if candidate_key in portfolio_lookup:
+                asset = portfolio_lookup[candidate_key]
+                source = 'BT'
+                break
+
+        if asset is None:
+            for candidate_key in candidate_keys:
+                local_asset = local_lookup.get(candidate_key)
+                if local_asset and _pm_is_asset_type(local_asset.get('Tipo do Ativo')):
+                    asset = local_asset
+                    source = 'ProjetoLocal'
+                    break
+
+        if asset is None and _pm_is_asset_type(issue_type):
+            asset = {
+                'AssetID': issue_key,
+                'Descrição do Ativo': issue_title,
+                'Tipo do Ativo': issue_type,
+            }
+            source = 'ProjetoLocal'
+
+        if asset is None:
+            raw_epic_name = row.get('EpicLinkName', '') or row.get('Epic Name', '') or ''
+            epic_name = '' if pd.isna(raw_epic_name) else str(raw_epic_name).strip()
+            if epic_name and epic_name.lower() != 'nan':
+                asset = {
+                    'AssetID': f'{canonical_project}:EPICNAME:{normalize_text(epic_name)[:80].upper()}',
+                    'Descrição do Ativo': epic_name,
+                    'Tipo do Ativo': 'Epic (proxy)',
+                }
+                source = 'ProjetoLocalNome'
+
+        if asset is None:
+            asset = {
+                'AssetID': 'NAO_MAPEADO',
+                'Descrição do Ativo': 'Não mapeado ao portfólio',
+                'Tipo do Ativo': '',
+            }
+
+        rows.append({
+            'Issue Key': issue_key,
+            'AssetID': str(asset.get('AssetID', '') or '').strip(),
+            'Descrição do Ativo': str(asset.get('Descrição do Ativo', '') or '').strip(),
+            'Tipo do Ativo': str(asset.get('Tipo do Ativo', '') or '').strip(),
+            'Fonte Vínculo': source,
+            'Produto': _pm_product_label(canonical_project),
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=[
+            'Issue Key', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo', 'Produto'
+        ])
+    return pd.DataFrame(rows).drop_duplicates(subset=['Issue Key'], keep='first')
+
+
+def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
+    specs = _pm_portfolio_selected_specs(project_value)
+    rate_map = _pm_load_cost_rate_map()
+    alias_index = _load_person_alias_index()
+    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
+    portfolio_lookup = _pm_build_portfolio_lookup(portfolio_scope_df)
+    period_end_exclusive = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
+
+    product_summary_rows = []
+    event_frames = []
+
+    for spec in specs:
+        project_key = spec['project_key']
+        product_label = spec['product']
+        rate = rate_map.get(project_key)
+        raw_events = load_project_pm_sheet(project_key, 'EventosFiltrados')
+        artifact_available = raw_events is not None and not raw_events.empty
+        project_events = pd.DataFrame()
+
+        if artifact_available:
+            project_events = raw_events.copy()
+            for col in ['Issue Key', 'To Status Norm', 'To Status', 'Author', 'Projeto']:
+                if col not in project_events.columns:
+                    project_events[col] = ''
+            if 'TempoStatusDias' not in project_events.columns:
+                project_events['TempoStatusDias'] = np.nan
+            project_events['Issue Key'] = project_events['Issue Key'].apply(_pm_clean_issue_key)
+            project_events['Projeto'] = project_events['Projeto'].fillna(project_key).astype(str).str.strip()
+            project_events['History Created'] = pd.to_datetime(project_events.get('History Created'), errors='coerce')
+            project_events = project_events[
+                project_events['Issue Key'].ne('')
+                & project_events['History Created'].notna()
+                & (project_events['History Created'] >= pd.to_datetime(start_ts))
+                & (project_events['History Created'] < period_end_exclusive)
+            ].copy()
+            project_events['Responsável PM'] = project_events['Author'].apply(
+                lambda x: _canonical_person_name(x, alias_index=alias_index)
+            )
+            if target_person:
+                project_events = project_events[project_events['Responsável PM'] == target_person].copy()
+            project_events['Status PM Elegível'] = project_events.get('To Status Norm', project_events.get('To Status', '')).apply(_pm_is_execution_status)
+            project_events['Horas PM Elegíveis'] = (
+                pd.to_numeric(project_events['TempoStatusDias'], errors='coerce').fillna(0) * 24.0
+            )
+            project_events.loc[~project_events['Status PM Elegível'], 'Horas PM Elegíveis'] = 0.0
+            project_events = project_events[project_events['Horas PM Elegíveis'] > 0].copy()
+
+        if not project_events.empty:
+            asset_map = _pm_build_downstream_asset_map(project_key, portfolio_lookup)
+            if not asset_map.empty:
+                project_events = project_events.merge(asset_map, how='left', on='Issue Key')
+            for col, default in [
+                ('AssetID', 'NAO_MAPEADO'),
+                ('Descrição do Ativo', 'Não mapeado ao portfólio'),
+                ('Tipo do Ativo', ''),
+                ('Fonte Vínculo', 'NaoMapeado'),
+            ]:
+                if col not in project_events.columns:
+                    project_events[col] = default
+                project_events[col] = project_events[col].fillna(default)
+            project_events['Produto'] = product_label
+            project_events['Projeto PM'] = project_key
+            project_events['Custo PM Estimado'] = (
+                project_events['Horas PM Elegíveis'] * rate if rate is not None else np.nan
+            )
+            event_frames.append(project_events)
+
+        total_hours = float(pd.to_numeric(project_events.get('Horas PM Elegíveis'), errors='coerce').fillna(0).sum()) if not project_events.empty else 0.0
+        mapped_mask = project_events['Fonte Vínculo'].astype(str).ne('NaoMapeado') if not project_events.empty else pd.Series(dtype=bool)
+        mapped_hours = float(
+            pd.to_numeric(project_events.loc[mapped_mask, 'Horas PM Elegíveis'], errors='coerce').fillna(0).sum()
+        ) if not project_events.empty else 0.0
+        product_summary_rows.append({
+            'Produto': product_label,
+            'Projeto PM': project_key,
+            'Artefato PM': 'Disponível' if artifact_available else 'Indisponível',
+            'Horas PM Elegíveis': total_hours,
+            'Horas PM Mapeadas': mapped_hours,
+            'Horas PM Não Mapeadas': max(0.0, total_hours - mapped_hours),
+            '% Horas Mapeadas': (mapped_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+            'Itens com Evidência PM': int(project_events['Issue Key'].nunique()) if not project_events.empty else 0,
+            'Ativos Mapeados': int(project_events.loc[mapped_mask, 'AssetID'].nunique()) if not project_events.empty else 0,
+            'Taxa Hora PM': rate if rate is not None else np.nan,
+            'Custo PM Estimado': (total_hours * rate) if rate is not None else np.nan,
+            'Custo PM Mapeado': (mapped_hours * rate) if rate is not None else np.nan,
+        })
+
+    product_summary = pd.DataFrame(product_summary_rows)
+    if product_summary.empty:
+        product_summary = pd.DataFrame(columns=[
+            'Produto', 'Projeto PM', 'Artefato PM', 'Horas PM Elegíveis', 'Horas PM Mapeadas',
+            'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Itens com Evidência PM', 'Ativos Mapeados',
+            'Taxa Hora PM', 'Custo PM Estimado', 'Custo PM Mapeado',
+        ])
+
+    events_all = pd.concat(event_frames, ignore_index=True) if event_frames else pd.DataFrame(columns=[
+        'Produto', 'Projeto PM', 'Issue Key', 'Horas PM Elegíveis', 'AssetID', 'Descrição do Ativo',
+        'Tipo do Ativo', 'Fonte Vínculo', 'Responsável PM', 'Custo PM Estimado',
+    ])
+
+    top_assets = pd.DataFrame(columns=[
+        'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
+        'Horas PM Elegíveis', 'Issues', 'Custo PM Estimado',
+    ])
+    if not events_all.empty:
+        mapped_events = events_all[events_all['Fonte Vínculo'].astype(str).ne('NaoMapeado')].copy()
+        if not mapped_events.empty:
+            top_assets = (
+                mapped_events
+                .groupby(['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo'], dropna=False)
+                .agg(
+                    **{
+                        'Horas PM Elegíveis': ('Horas PM Elegíveis', 'sum'),
+                        'Issues': ('Issue Key', 'nunique'),
+                        'Custo PM Estimado': ('Custo PM Estimado', 'sum'),
+                    }
+                )
+                .reset_index()
+                .sort_values(['Horas PM Elegíveis', 'Issues'], ascending=[False, False], ignore_index=True)
+            )
+
+    overall_hours = float(pd.to_numeric(product_summary.get('Horas PM Elegíveis'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
+    overall_mapped = float(pd.to_numeric(product_summary.get('Horas PM Mapeadas'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
+    overall_cost = float(pd.to_numeric(product_summary.get('Custo PM Estimado'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
+
+    return {
+        'product_summary': product_summary,
+        'events_all': events_all,
+        'top_assets': top_assets,
+        'overall': {
+            'hours': overall_hours,
+            'mapped_hours': overall_mapped,
+            'mapped_pct': (overall_mapped / overall_hours * 100.0) if overall_hours > 0 else np.nan,
+            'cost': overall_cost,
+            'products_with_artifacts': int((product_summary['Artefato PM'] == 'Disponível').sum()) if not product_summary.empty else 0,
+            'assets_mapped': int(pd.to_numeric(product_summary.get('Ativos Mapeados'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0,
+            'cost_configured': bool(rate_map),
+        },
+    }
+
+
+def build_generated_portfolio_financial_view(start_ts, end_ts, portfolio_scope_df, pm_portfolio_data: dict) -> dict:
+    cost_model = build_portfolio_cost_model_snapshot(portfolio_scope_df, start_ts, end_ts)
+    if not cost_model.get('available'):
+        return {
+            'available': False,
+            'error': cost_model.get('error', 'Modelo de custo não disponível.'),
+        }
+
+    top_assets = pm_portfolio_data.get('top_assets', pd.DataFrame()).copy()
+    overall = pm_portfolio_data.get('overall', {}) if isinstance(pm_portfolio_data, dict) else {}
+    kpis = dict(cost_model.get('kpis', {}))
+    budget_ti_anual = float(kpis.get('Budget TI Anual', 0) or 0)
+    custo_hora = float(kpis.get('Custo Hora Carregado', 0) or 0)
+    portfolio_assets_df = cost_model.get('portfolio_assets_df', pd.DataFrame()).copy()
+    total_assets_portfolio = int(portfolio_assets_df['AssetID'].nunique()) if not portfolio_assets_df.empty and 'AssetID' in portfolio_assets_df.columns else 0
+
+    period_days = max(1, int((pd.to_datetime(end_ts) - pd.to_datetime(start_ts)).days) + 1)
+    period_months = max(1.0 / 30.0, float(period_days) / 30.4375)
+    annualization_factor = 12.0 / period_months
+    custo_periodo = float(overall.get('cost', 0.0) or 0.0)
+    custo_anualizado = custo_periodo * annualization_factor
+    budget_disponivel = budget_ti_anual - custo_anualizado
+    budget_pct = (custo_anualizado / budget_ti_anual) if budget_ti_anual > 0 else np.nan
+    custo_medio_topdown = (budget_ti_anual / total_assets_portfolio) if total_assets_portfolio > 0 else np.nan
+
+    project_costs_df = pd.DataFrame(columns=[
+        'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
+        'Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)',
+        '% do Budget TI Anual', 'Issues'
+    ])
+    if not top_assets.empty:
+        project_costs_df = top_assets.copy()
+        if 'Custo PM Estimado' not in project_costs_df.columns:
+            project_costs_df['Custo PM Estimado'] = np.nan
+        project_costs_df['Custo Estimado Período (R$)'] = pd.to_numeric(project_costs_df['Custo PM Estimado'], errors='coerce').fillna(0)
+        project_costs_df['Custo Estimado Anualizado (R$)'] = project_costs_df['Custo Estimado Período (R$)'] * annualization_factor
+        project_costs_df['% do Budget TI Anual'] = np.where(
+            budget_ti_anual > 0,
+            project_costs_df['Custo Estimado Anualizado (R$)'] / budget_ti_anual,
+            np.nan,
+        )
+        keep_cols = [
+            'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
+            'Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)',
+            '% do Budget TI Anual', 'Issues'
+        ]
+        project_costs_df = project_costs_df[keep_cols].copy()
+        for col in ['Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)', '% do Budget TI Anual']:
+            project_costs_df[col] = pd.to_numeric(project_costs_df[col], errors='coerce')
+
+    custo_medio_bottomup = (
+        float(project_costs_df['Custo Estimado Anualizado (R$)'].mean())
+        if not project_costs_df.empty and 'Custo Estimado Anualizado (R$)' in project_costs_df.columns
+        else np.nan
+    )
+
+    product_cost_summary_df = pd.DataFrame()
+    product_summary = pm_portfolio_data.get('product_summary', pd.DataFrame()).copy() if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
+    if not product_summary.empty:
+        product_cost_summary_df = product_summary.copy()
+        if 'Custo PM Estimado' not in product_cost_summary_df.columns:
+            product_cost_summary_df['Custo PM Estimado'] = np.nan
+        product_cost_summary_df['Custo Estimado Período (R$)'] = pd.to_numeric(product_cost_summary_df['Custo PM Estimado'], errors='coerce').fillna(0)
+        product_cost_summary_df['Custo Estimado Anualizado (R$)'] = product_cost_summary_df['Custo Estimado Período (R$)'] * annualization_factor
+        product_cost_summary_df['% do Budget TI Anual'] = np.where(
+            budget_ti_anual > 0,
+            product_cost_summary_df['Custo Estimado Anualizado (R$)'] / budget_ti_anual,
+            np.nan,
+        )
+
+    notes = []
+    if float(kpis.get('Budget TI Anual', 0) or 0) <= 0:
+        notes.append('Configure `FLOW_PMO_PORTFOLIO_COST_MODEL.fl_mensal` para habilitar budget anual heurístico.')
+    if float(kpis.get('Custo Hora Carregado', 0) or 0) <= 0:
+        notes.append('Configure salário médio ou mapas por papel/BU para o custo hora heurístico.')
+    if float(overall.get('hours', 0) or 0) <= 0:
+        notes.append('Sem horas PM elegíveis no período para monetizar os ativos do portfólio.')
+
+    return {
+        'available': True,
+        'cost_model': cost_model,
+        'kpis': {
+            'Budget TI Anual': budget_ti_anual,
+            'Custo Total do Portfólio': custo_anualizado,
+            'Budget Disponível': budget_disponivel,
+            '% Budget Comprometido': budget_pct,
+            'Custo Hora Carregado': custo_hora,
+            'Custo Médio Projeto (Top-Down)': custo_medio_topdown,
+            'Custo Médio Projeto (Bottom-Up)': custo_medio_bottomup,
+            'Headcount TI': kpis.get('Headcount TI', 0),
+            'Capacidade Total Mensal (h)': kpis.get('Capacidade Total Mensal (h)', 0),
+            'Custo Total TI Mensal': kpis.get('Custo Total TI Mensal', 0),
+        },
+        'project_costs_df': project_costs_df,
+        'product_cost_summary_df': product_cost_summary_df,
+        'product_rates_df': cost_model.get('product_rates_df', pd.DataFrame()).copy(),
+        'notes': notes,
+        'annualization_factor': annualization_factor,
+        'total_assets_portfolio': total_assets_portfolio,
+    }
 
 
 _PM_DEV_STATUS_NAMES = frozenset({
@@ -11449,6 +12214,234 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ))
             not_started_section = html.Div(children, style={'marginTop': '20px'})
 
+        pm_portfolio_data = build_pm_portfolio_capex_view(
+            start_date,
+            end_date,
+            df_portfolio_full_scope,
+            project_value=effective_portfolio_project or projeto,
+            responsavel=responsavel,
+        )
+        generated_financials = build_generated_portfolio_financial_view(
+            start_date,
+            end_date,
+            df_portfolio_full_scope,
+            pm_portfolio_data,
+        )
+        pm_product_summary = pm_portfolio_data.get('product_summary', pd.DataFrame()).copy()
+        pm_top_assets = pm_portfolio_data.get('top_assets', pd.DataFrame()).copy()
+        pm_overall = pm_portfolio_data.get('overall', {})
+
+        pm_chart = go.Figure()
+        if not pm_product_summary.empty:
+            pm_chart_df = pm_product_summary[['Produto', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas']].copy()
+            pm_chart_df = pm_chart_df.melt(
+                id_vars=['Produto'],
+                value_vars=['Horas PM Mapeadas', 'Horas PM Não Mapeadas'],
+                var_name='Faixa',
+                value_name='Horas',
+            )
+            pm_chart = px.bar(
+                pm_chart_df,
+                x='Produto',
+                y='Horas',
+                color='Faixa',
+                barmode='stack',
+                title='Horas PM elegíveis por produto',
+                color_discrete_map={
+                    'Horas PM Mapeadas': '#2e7d32',
+                    'Horas PM Não Mapeadas': '#c62828',
+                },
+            )
+            pm_chart.update_layout(height=420, xaxis_title='Produto', yaxis_title='Horas')
+
+        pm_overall_cards = html.Div([
+            create_kpi_card('Horas PM elegíveis', f"{float(pm_overall.get('hours', 0.0)):,.1f}", class_name=''),
+            create_kpi_card('% horas mapeadas', f"{float(pm_overall.get('mapped_pct')):.1f}%" if pd.notna(pm_overall.get('mapped_pct')) else '—', class_name=''),
+            create_kpi_card('Produtos c/ artefato PM', int(pm_overall.get('products_with_artifacts', 0)), class_name=''),
+            create_kpi_card('Ativos mapeados', int(pm_overall.get('assets_mapped', 0)), class_name=''),
+            create_kpi_card('Custo PM estimado', f"R$ {float(pm_overall.get('cost', 0.0)):,.2f}" if pm_overall.get('cost_configured') else '—', class_name=''),
+        ], style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
+            'gap': '10px',
+        })
+
+        pm_product_cards = []
+        for row in pm_product_summary.to_dict(orient='records'):
+            pm_product_cards.append(
+                create_kpi_card(
+                    f"{row.get('Produto', '')} | h PM",
+                    f"{float(row.get('Horas PM Elegíveis', 0.0)):,.1f}",
+                    class_name='',
+                    **portfolio_kpi_style(_pm_product_color(row.get('Projeto PM')))
+                )
+            )
+
+        pm_summary_display = pm_product_summary.copy()
+        if not pm_summary_display.empty:
+            for col in ['Horas PM Elegíveis', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Taxa Hora PM', 'Custo PM Estimado', 'Custo PM Mapeado']:
+                if col in pm_summary_display.columns:
+                    pm_summary_display[col] = pd.to_numeric(pm_summary_display[col], errors='coerce').round(2)
+
+        pm_top_assets_display = pm_top_assets.head(20).copy()
+        if not pm_top_assets_display.empty:
+            for col in ['Horas PM Elegíveis', 'Custo PM Estimado']:
+                if col in pm_top_assets_display.columns:
+                    pm_top_assets_display[col] = pd.to_numeric(pm_top_assets_display[col], errors='coerce').round(2)
+
+        cost_kpi_cards = html.Div()
+        cost_notes = []
+        cost_portfolio_display = pd.DataFrame()
+        cost_product_display = pd.DataFrame()
+        cost_rates_display = pd.DataFrame()
+        if generated_financials.get('available'):
+            cost_kpis = generated_financials.get('kpis', {})
+
+            def _fmt_currency(value):
+                if pd.isna(value):
+                    return '—'
+                try:
+                    return f"R$ {float(value):,.2f}"
+                except Exception:
+                    return '—'
+
+            def _fmt_pct(value):
+                if pd.isna(value):
+                    return '—'
+                try:
+                    return f"{float(value) * 100:.1f}%"
+                except Exception:
+                    return '—'
+
+            cost_kpi_cards = html.Div([
+                create_kpi_card('Budget TI anual', _fmt_currency(cost_kpis.get('Budget TI Anual')), class_name=''),
+                create_kpi_card('Custo total do portfólio', _fmt_currency(cost_kpis.get('Custo Total do Portfólio')), class_name=''),
+                create_kpi_card('Budget disponível', _fmt_currency(cost_kpis.get('Budget Disponível')), class_name=''),
+                create_kpi_card('% budget comprometido', _fmt_pct(cost_kpis.get('% Budget Comprometido')), class_name=''),
+                create_kpi_card('Custo hora carregado', _fmt_currency(cost_kpis.get('Custo Hora Carregado')), class_name=''),
+                create_kpi_card('Custo médio projeto TD', _fmt_currency(cost_kpis.get('Custo Médio Projeto (Top-Down)')), class_name=''),
+                create_kpi_card('Custo médio projeto BU', _fmt_currency(cost_kpis.get('Custo Médio Projeto (Bottom-Up)')), class_name=''),
+            ], style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
+                'gap': '10px',
+            })
+            cost_notes.append(
+                html.P(
+                    'Régua financeira gerada nativamente a partir do Jira/process mining e de parâmetros heurísticos configuráveis do dashboard.',
+                    style={'color': '#555', 'marginBottom': '8px'}
+                )
+            )
+            cost_model_snapshot = generated_financials.get('cost_model', {})
+            model_kpis = cost_model_snapshot.get('kpis', {}) if isinstance(cost_model_snapshot, dict) else {}
+            if float(model_kpis.get('Budget TI Anual', 0) or 0) <= 0:
+                cost_notes.append(
+                    html.P(
+                        'O budget anual está zerado. Configure `FLOW_PMO_PORTFOLIO_COST_MODEL.fl_mensal` para ativar a régua top-down.',
+                        style={'color': '#8a6d3b', 'marginBottom': '8px'}
+                    )
+                )
+            if float(model_kpis.get('Custo Hora Carregado', 0) or 0) <= 0:
+                cost_notes.append(
+                    html.P(
+                        'O custo hora heurístico está zerado. Configure `FLOW_PMO_PORTFOLIO_COST_MODEL.salario_medio_bruto` ou mapas por papel/BU para monetizar as horas do portfólio.',
+                        style={'color': '#8a6d3b', 'marginBottom': '8px'}
+                    )
+                )
+            for note in generated_financials.get('notes', []):
+                cost_notes.append(
+                    html.P(str(note), style={'color': '#8a6d3b', 'marginBottom': '8px'})
+                )
+            cost_portfolio_display = generated_financials.get('project_costs_df', pd.DataFrame()).copy()
+            cost_product_display = generated_financials.get('product_cost_summary_df', pd.DataFrame()).copy()
+            cost_rates_display = generated_financials.get('product_rates_df', pd.DataFrame()).copy()
+            if not cost_portfolio_display.empty:
+                for col in ['Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)', '% do Budget TI Anual']:
+                    if col in cost_portfolio_display.columns:
+                        cost_portfolio_display[col] = pd.to_numeric(cost_portfolio_display[col], errors='coerce').round(2)
+            if not cost_product_display.empty:
+                for col in ['Horas PM Elegíveis', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Taxa Hora PM', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)', '% do Budget TI Anual']:
+                    if col in cost_product_display.columns:
+                        cost_product_display[col] = pd.to_numeric(cost_product_display[col], errors='coerce').round(2)
+            if not cost_rates_display.empty:
+                for col in ['Headcount', 'Custo Mensal Produto (R$)', 'Capacidade Mensal Produto (h)', 'Custo Hora Produto (R$)']:
+                    if col in cost_rates_display.columns:
+                        cost_rates_display[col] = pd.to_numeric(cost_rates_display[col], errors='coerce').round(2)
+        else:
+            cost_notes.append(
+                html.P(
+                    str(generated_financials.get('error', 'Régua financeira heurística não disponível.')),
+                    style={'color': '#8a6d3b', 'marginBottom': '8px'}
+                )
+            )
+
+        pm_notes = [
+            html.P(
+                'As horas PM elegíveis usam apenas permanência em estados de execução (desenvolvimento, review, teste/QA e homolog), excluindo backlog, ready, done e cancelado.',
+                style={'color': '#555', 'marginBottom': '6px'}
+            )
+        ]
+        if not pm_overall.get('cost_configured'):
+            pm_notes.append(
+                html.P(
+                    'O custo monetário usa o custo hora heurístico do modelo financeiro e pode ser refinado por produto com `FLOW_PMO_PM_COST_PER_HOUR_MAP`.',
+                    style={'color': '#8a6d3b', 'marginBottom': '6px'}
+                )
+            )
+        pm_has_hours = False
+        if not pm_product_summary.empty and 'Horas PM Elegíveis' in pm_product_summary.columns:
+            pm_has_hours = pd.to_numeric(pm_product_summary['Horas PM Elegíveis'], errors='coerce').fillna(0).gt(0).any()
+        if not pm_has_hours:
+            pm_notes.append(
+                html.P(
+                    'Sem horas elegíveis de process mining no período/filtros atuais. Verifique a disponibilidade dos artefatos PM para os produtos em escopo.',
+                    style={'color': '#b22222', 'marginBottom': '0'}
+                )
+            )
+
+        pm_portfolio_section = html.Div([
+            html.Div(pm_notes, style={'marginBottom': '12px'}),
+            pm_overall_cards,
+            html.H4('Régua Financeira do Portfólio', style={'textAlign': 'left', 'marginTop': '18px'}),
+            html.Div(cost_notes, style={'marginBottom': '8px'}),
+            cost_kpi_cards,
+            portfolio_table_component(
+                cost_portfolio_display.head(20),
+                'Top ativos por custo estimado',
+                'table-portfolio-costs-generated-projects'
+            ) if not cost_portfolio_display.empty else html.Div(),
+            portfolio_table_component(
+                cost_product_display,
+                'Resumo financeiro por produto',
+                'table-portfolio-costs-generated-products'
+            ) if not cost_product_display.empty else html.Div(),
+            portfolio_table_component(
+                cost_rates_display,
+                'Parâmetros e taxas heurísticas por produto',
+                'table-portfolio-costs-generated-rates'
+            ) if not cost_rates_display.empty else html.Div(),
+            html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
+            html.Div(pm_product_cards, style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
+                'gap': '10px',
+                'marginTop': '12px',
+            }) if pm_product_cards else html.Div(),
+            html.Div([
+                dcc.Graph(figure=pm_chart)
+            ], style={'marginTop': '14px'}),
+            portfolio_table_component(
+                pm_summary_display,
+                'Resumo PM/CAPEX por produto',
+                'table-portfolio-process-mining-produto'
+            ),
+            portfolio_table_component(
+                pm_top_assets_display,
+                'Top ativos por horas PM elegíveis',
+                'table-portfolio-process-mining-ativos'
+            ),
+        ], style={'paddingTop': '10px'})
+
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
@@ -11467,6 +12460,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     dcc.Tab(label='Hierarquia & Estrutura', value='portfolio-estrutura', children=[estrutura_section]),
                     dcc.Tab(label='Status & Workflow', value='portfolio-status-workflow', children=[workflow_section]),
                     dcc.Tab(label='Effort & Concentração', value='portfolio-effort-concentracao', children=[effort_concentracao_section]),
+                    dcc.Tab(label='Process Mining & CAPEX', value='portfolio-process-mining-capex', children=[pm_portfolio_section]),
                 ]
             ),
             not_started_section,

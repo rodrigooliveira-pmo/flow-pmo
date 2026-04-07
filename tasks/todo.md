@@ -1,3 +1,159 @@
+## Current Task (Gerar régua financeira nativa no dashboard de portfólio)
+- [x] Substituir a dependência de planilha externa por cálculo nativo no `dashboard_full.py`
+- [x] Expor os principais KPIs financeiros da régua na visão de portfólio
+- [x] Exibir tabelas de custos por ativo, produto e taxas heurísticas no dashboard
+- [x] Validar com `py_compile` e smoke test dos cálculos heurísticos
+
+## Specification (Gerar régua financeira nativa no dashboard de portfólio)
+- Objetivo: gerar no próprio `dashboard_full.py`, dentro da visão de portfólio, os principais indicadores financeiros da régua de custos sem depender de planilha manual.
+- Fontes do cálculo:
+  - `people_config.json` para headcount, BU e papel
+  - portfólio Jira (`BT`) para total de ativos/projetos em escopo
+  - process mining e downstream para horas elegíveis e custo por ativo
+  - parâmetros heurísticos via env para premissas financeiras
+- Indicadores alvo:
+  - `Budget TI Anual`
+  - `Custo Total do Portfólio`
+  - `Budget Disponível`
+  - `% Budget Comprometido`
+  - `Custo Hora Carregado`
+  - `Custo Médio por Projeto (top-down)`
+  - `Custo Médio por Projeto (bottom-up)`
+- Parâmetros heurísticos previstos:
+  - `FLOW_PMO_PORTFOLIO_COST_MODEL`
+  - `FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP`
+  - `FLOW_PMO_PORTFOLIO_BU_SALARY_MAP`
+  - `FLOW_PMO_PM_COST_PER_HOUR_MAP` como override opcional por produto
+
+## Review (Gerar régua financeira nativa no dashboard de portfólio)
+- Entregas desta rodada:
+  - o dashboard deixou de depender da leitura da planilha de custos para a visão de portfólio
+  - a aba `Process Mining & CAPEX` agora monta uma régua financeira nativa com:
+    - custo hora carregado
+    - budget anual heurístico
+    - custo estimado do portfólio
+    - budget disponível
+    - médias top-down e bottom-up
+  - foram adicionadas tabelas com:
+    - custos por ativo
+    - resumo financeiro por produto
+    - taxas heurísticas por produto
+- Regras implementadas:
+  - headcount/BU/papel vêm de `people_config.json`
+  - custo monetário do ativo usa horas PM elegíveis monetizadas por taxa heurística do produto
+  - o custo anual do portfólio é anualizado a partir do recorte de período selecionado no dashboard
+  - taxa por produto pode vir de override explícito ou ser derivada da composição do time
+- Validação executada:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - smoke test local de `build_generated_portfolio_financial_view(...)`
+- Resultado observado no ambiente local:
+  - a régua já calcula headcount e capacidade mensal
+  - os valores monetários permanecem zerados enquanto não forem configuradas as premissas de salário/budget
+  - os ativos e produtos já aparecem prontos para monetização assim que os parâmetros forem definidos
+- Suggested commit message:
+  - `feat(dashboard): generate native portfolio cost model from jira and heuristics`
+
+## Current Task (Modelar estimativa de custo dos projetos pela régua da planilha)
+- [x] Inspecionar a estrutura da planilha `portfolio_custos.xlsx`
+- [x] Identificar como a régua top-down e bottom-up está calculada
+- [x] Traduzir a régua para o contexto atual do portfólio, horas estimadas e process mining
+- [x] Definir como preencher a planilha com os dados reais hoje disponíveis
+
+## Specification (Modelar estimativa de custo dos projetos pela régua da planilha)
+- Objetivo: usar a planilha `portfolio_custos.xlsx` como régua operacional de custo por projeto, mesmo sem orçamento individual fechado por projeto.
+- Leitura do modelo da planilha:
+  - `Premissas` calcula duas réguas:
+    - `top-down`: budget TI anual dividido pela quantidade de projetos
+    - `bottom-up`: custo hora carregado da equipe
+  - `Portfólio` calcula:
+    - esforço estimado em horas
+    - custo estimado por projeto
+    - `% do budget TI anual`
+    - `Cost of Delay` e `WSJF`
+- Regra recomendada para o cenário atual:
+  - usar a régua `bottom-up` como principal
+  - usar a régua `top-down` apenas como balizador de sanidade e governança
+  - derivar as horas do projeto a partir da base CAPEX e, quando disponível, calibrar via process mining
+
+## Review (Modelar estimativa de custo dos projetos pela régua da planilha)
+- A planilha possui três abas:
+  - `Premissas`
+  - `Portfólio`
+  - `Dashboard`
+- Fórmulas centrais identificadas:
+  - `Budget TI Mensal = FL mensal * % budget TI`
+  - `Budget TI Anual = Budget TI Mensal * 12`
+  - `Custo hora carregado = Custo total TI mensal / Capacidade total mensal`
+  - `Esforço estimado (h) = Pessoas alocadas * Lead time * Horas/dia`
+  - `Custo estimado do projeto = Esforço estimado * Custo hora`
+- Recomendação operacional:
+  - manter `Custo hora carregado` como base financeira
+  - substituir a coluna de esforço por horas mensais estimadas do projeto já calculadas no pipeline CAPEX/PM
+  - tratar `Cost of Delay` e `WSJF` como segunda etapa, após estabilizar custo por horas
+
+## Current Task (Aba de Portfólio com KPIs de Process Mining e CAPEX por produto)
+- [x] Reaproveitar os artefatos `latest` de process mining de forma consistente para todos os produtos suportados
+- [x] Consolidar uma camada `produto -> ativo -> issue` com horas PM elegíveis e cobertura de vínculo ao portfólio
+- [x] Expor uma nova aba na visão de portfólio do `dashboard_full.py` com KPIs, gráfico por produto e tabelas de detalhamento
+- [x] Incluir custo estimado via taxa horária opcional configurada por produto, sem quebrar o dashboard quando a taxa não estiver configurada
+- [x] Validar com `py_compile` e smoke tests locais dos loaders/agregações
+
+## Specification (Aba de Portfólio com KPIs de Process Mining e CAPEX por produto)
+- Objetivo: adicionar ao `dashboard_full.py` uma nova aba da visão de portfólio que use os artefatos já gerados por `process_mining_jira.py` para mostrar KPIs de esforço relativo por produto e por ativo, com foco em CAPEX.
+- Fontes a reaproveitar:
+  - `*-process-mining-latest.xlsx` e, como fallback, os CSVs `*-process-mining-latest-*.csv` já gerados em `artifacts/process_mining`
+  - downstreams dos projetos operacionais (`BF`, `DT`, `S1NC`, `W1NNR/W1NNER`) para mapear `Issue Key -> ativo`
+  - snapshot de portfólio (`BT`) para enriquecer `épico/feature` quando houver vínculo
+- Regra de horas PM:
+  - usar `EventosFiltrados` como fonte primária
+  - considerar apenas status elegíveis de execução (`development`, `code review`, `qa/testing`, `homolog`, similares)
+  - excluir backlog, triagem, ready, done e cancelado do custo/proxy principal
+  - converter `TempoStatusDias` em horas (`* 24`)
+- Regra de mapeamento do ativo:
+  - priorizar vínculo a `BT` via `FeatureLinkID`, `EpicLinkID`, `ParentID` e chaves equivalentes do downstream
+  - fallback para `Feature/Epic/Story` local quando não houver elo com `BT`
+  - manter bucket explícito para itens não mapeados
+- KPIs esperados na aba:
+  - horas PM elegíveis por produto
+  - itens com evidência PM
+  - ativos mapeados
+  - percentual de horas PM mapeadas ao portfólio
+  - custo PM estimado por produto quando houver taxa horária configurada
+- Custo estimado:
+  - ler mapa opcional `FLOW_PMO_PM_COST_PER_HOUR_MAP` em JSON (`{"W1NNER": 120, "BF": 150, ...}`)
+  - se a taxa não existir para um produto, manter o KPI/tabela com `—` em vez de falhar
+
+## Review (Aba de Portfólio com KPIs de Process Mining e CAPEX por produto)
+- Entregas desta rodada:
+  - o `dashboard_full.py` passou a procurar artefatos PM e downstream também em `artifacts/process_mining`, além das pastas de dados tradicionais
+  - o loader `load_project_pm_sheet(...)` ganhou fallback para CSVs `*-process-mining-latest-*.csv`, o que reaproveita saídas já existentes do `process_mining_jira.py`
+  - foi criada a consolidação `build_pm_portfolio_capex_view(...)`, que monta a camada `produto -> ativo -> issue` com:
+    - horas PM elegíveis
+    - vínculo ao ativo (`BT`, `ProjetoLocal`, `ProjetoLocalNome`, `NaoMapeado`)
+    - custo estimado opcional por produto
+  - foi adicionada a sub-aba `Process Mining & CAPEX` na visão de portfólio do dashboard, com:
+    - KPIs gerais
+    - cards por produto
+    - gráfico de horas mapeadas vs não mapeadas
+    - tabela resumo por produto
+    - tabela dos ativos com maior esforço PM
+- Regras implementadas:
+  - horas PM elegíveis = tempo em estados de execução (`development`, `review`, `qa/testing`, `homolog`, `validation`) convertido de dias para horas
+  - backlog, ready, done e cancelado ficam fora do proxy principal de CAPEX
+  - custo PM monetário depende do mapa opcional `FLOW_PMO_PM_COST_PER_HOUR_MAP`
+- Validação executada:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - smoke test local dos loaders PM/downstream para `W1NNER` e `S1NC`
+  - smoke test local de `build_pm_portfolio_capex_view(...)`
+- Resultado observado no ambiente local:
+  - `S1NC` passou a carregar corretamente os artefatos PM locais
+  - `W1NNER` passou a carregar corretamente o downstream local em `artifacts/process_mining`
+  - no recorte testado de março/2026, havia horas PM elegíveis apenas para `Sync`; `BeFinance` e `Data&Analytics` continuam sem artefato PM disponível neste ambiente
+- Ponto aberto:
+  - a qualidade dos KPIs por produto depende diretamente da existência dos artefatos PM `latest` para cada produto
+- Suggested commit message:
+  - `feat(dashboard): add portfolio tab for process mining capex by product`
+
 ## Current Task (Implementar pipeline base de CAPEX simplificado)
 - [x] Ler tabela mensal de pessoas em `CSV/XLSX` com normalização de datas, decimais e colunas esperadas
 - [x] Carregar a hierarquia `BT` e os downstreams `BF/DT/S1NC/W1NNR` a partir dos arquivos `latest`

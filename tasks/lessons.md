@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-04-07
+- Context: Integração inicial da régua financeira de custos na aba de portfólio do dashboard.
+- User correction: Esclareceu que não quer ler uma planilha externa no dashboard; quer que os dados de custo sejam gerados a partir da extração do Jira e de heurísticas/parâmetros que reproduzam a régua da planilha.
+- Root cause: Eu foquei em trazer rapidamente a visualização da planilha para a UI, mas não reavaliei que a fonte desejada pelo usuário era o próprio pipeline analítico do produto, e não um arquivo manual de apoio.
+- Prevention rule: Quando o usuário pedir indicadores no dashboard, priorizar sempre geração nativa via dados já extraídos e parâmetros configuráveis; só usar planilha externa como referência transitória se isso for explicitamente aceito.
+- Action added to workflow: Em novas integrações financeiras/portfólio no dashboard, validar primeiro `fonte operacional nativa` versus `fonte auxiliar manual` antes de implementar a camada visual.
+
+- Date: 2026-04-07
 - Context: Classificação de status no resumo executivo de projetos.
 - User correction: Esclareceu que `Cancelado` precisa ser diferente de `Done/Finalizado`.
 - Root cause: Eu agrupei estados cancelados e concluídos no mesmo bucket terminal, o que perde uma distinção gerencial importante.
