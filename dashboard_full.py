@@ -12256,24 +12256,104 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
             pm_chart.update_layout(height=420, xaxis_title='Produto', yaxis_title='Horas')
 
-        pm_overall_cards = html.Div([
-            create_kpi_card('Horas PM elegíveis', f"{float(pm_overall.get('hours', 0.0)):,.1f}", class_name=''),
-            create_kpi_card('% horas mapeadas', f"{float(pm_overall.get('mapped_pct')):.1f}%" if pd.notna(pm_overall.get('mapped_pct')) else '—', class_name=''),
-            create_kpi_card('Produtos c/ artefato PM', int(pm_overall.get('products_with_artifacts', 0)), class_name=''),
-            create_kpi_card('Ativos mapeados', int(pm_overall.get('assets_mapped', 0)), class_name=''),
-            create_kpi_card('Custo PM estimado', f"R$ {float(pm_overall.get('cost', 0.0)):,.2f}" if pm_overall.get('cost_configured') else '—', class_name=''),
-        ], style={
+        def _fmt_number_br(value, decimals=1):
+            if pd.isna(value):
+                return '—'
+            try:
+                number = float(value)
+            except Exception:
+                return '—'
+            formatted = f"{number:,.{int(decimals)}f}"
+            return formatted.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+        def _fmt_percent_br(value, decimals=1):
+            if pd.isna(value):
+                return '—'
+            try:
+                number = float(value)
+            except Exception:
+                return '—'
+            return f"{_fmt_number_br(number * 100.0, decimals)}%"
+
+        def _fmt_currency_compact_br(value):
+            if pd.isna(value):
+                return '—'
+            try:
+                number = float(value)
+            except Exception:
+                return '—'
+            abs_number = abs(number)
+            if abs_number >= 1_000_000:
+                return f"R$ {_fmt_number_br(number / 1_000_000.0, 2)} mi"
+            if abs_number >= 1_000:
+                return f"R$ {_fmt_number_br(number / 1_000.0, 2)} mil"
+            return f"R$ {_fmt_number_br(number, 2)}"
+
+        def _fmt_currency_hour_br(value):
+            if pd.isna(value):
+                return '—'
+            try:
+                number = float(value)
+            except Exception:
+                return '—'
+            return f"R$ {_fmt_number_br(number, 2)}/h"
+
+        def _portfolio_metric_card(title, value):
+            return create_kpi_card(
+                title,
+                value,
+                class_name='',
+                card_style={
+                    'padding': '14px 16px',
+                    'borderRadius': '10px',
+                    'backgroundColor': '#f8fafc',
+                    'border': '1px solid #e2e8f0',
+                    'minHeight': '136px',
+                    'display': 'flex',
+                    'flexDirection': 'column',
+                    'justifyContent': 'space-between',
+                },
+                title_style={
+                    'textAlign': 'left',
+                    'fontSize': '15px',
+                    'lineHeight': '1.25',
+                    'margin': '0',
+                    'fontWeight': '600',
+                    'color': '#334155',
+                },
+                value_style={
+                    'textAlign': 'left',
+                    'fontSize': '26px',
+                    'lineHeight': '1.15',
+                    'margin': '8px 0 0 0',
+                    'fontWeight': '700',
+                    'color': '#0f172a',
+                    'whiteSpace': 'nowrap',
+                    'overflow': 'hidden',
+                    'textOverflow': 'ellipsis',
+                },
+            )
+
+        portfolio_metric_grid_style = {
             'display': 'grid',
-            'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
-            'gap': '10px',
-        })
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
+            'gap': '12px',
+        }
+
+        pm_overall_cards = html.Div([
+            _portfolio_metric_card('Horas PM elegíveis', _fmt_number_br(pm_overall.get('hours', 0.0), 1)),
+            _portfolio_metric_card('% horas mapeadas', _fmt_percent_br(pm_overall.get('mapped_pct'), 1)),
+            _portfolio_metric_card('Produtos c/ artefato PM', str(int(pm_overall.get('products_with_artifacts', 0)))),
+            _portfolio_metric_card('Ativos mapeados', str(int(pm_overall.get('assets_mapped', 0)))),
+            _portfolio_metric_card('Custo PM estimado', _fmt_currency_compact_br(pm_overall.get('cost', 0.0)) if pm_overall.get('cost_configured') else '—'),
+        ], style=portfolio_metric_grid_style)
 
         pm_product_cards = []
         for row in pm_product_summary.to_dict(orient='records'):
             pm_product_cards.append(
                 create_kpi_card(
                     f"{row.get('Produto', '')} | h PM",
-                    f"{float(row.get('Horas PM Elegíveis', 0.0)):,.1f}",
+                    _fmt_number_br(row.get('Horas PM Elegíveis', 0.0), 1),
                     class_name='',
                     **portfolio_kpi_style(_pm_product_color(row.get('Projeto PM')))
                 )
@@ -12316,18 +12396,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     return '—'
 
             cost_kpi_cards = html.Div([
-                create_kpi_card('Budget TI anual', _fmt_currency(cost_kpis.get('Budget TI Anual')), class_name=''),
-                create_kpi_card('Custo total do portfólio', _fmt_currency(cost_kpis.get('Custo Total do Portfólio')), class_name=''),
-                create_kpi_card('Budget disponível', _fmt_currency(cost_kpis.get('Budget Disponível')), class_name=''),
-                create_kpi_card('% budget comprometido', _fmt_pct(cost_kpis.get('% Budget Comprometido')), class_name=''),
-                create_kpi_card('Custo hora carregado', _fmt_currency(cost_kpis.get('Custo Hora Carregado')), class_name=''),
-                create_kpi_card('Custo médio projeto TD', _fmt_currency(cost_kpis.get('Custo Médio Projeto (Top-Down)')), class_name=''),
-                create_kpi_card('Custo médio projeto BU', _fmt_currency(cost_kpis.get('Custo Médio Projeto (Bottom-Up)')), class_name=''),
-            ], style={
-                'display': 'grid',
-                'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
-                'gap': '10px',
-            })
+                _portfolio_metric_card('Budget TI anual', _fmt_currency_compact_br(cost_kpis.get('Budget TI Anual'))),
+                _portfolio_metric_card('Custo total do portfólio', _fmt_currency_compact_br(cost_kpis.get('Custo Total do Portfólio'))),
+                _portfolio_metric_card('Budget disponível', _fmt_currency_compact_br(cost_kpis.get('Budget Disponível'))),
+                _portfolio_metric_card('% budget comprometido', _fmt_percent_br(cost_kpis.get('% Budget Comprometido'), 1)),
+                _portfolio_metric_card('Custo hora carregado', _fmt_currency_hour_br(cost_kpis.get('Custo Hora Carregado'))),
+                _portfolio_metric_card('Custo médio projeto TD', _fmt_currency_compact_br(cost_kpis.get('Custo Médio Projeto (Top-Down)'))),
+                _portfolio_metric_card('Custo médio projeto BU', _fmt_currency_compact_br(cost_kpis.get('Custo Médio Projeto (Bottom-Up)'))),
+            ], style=portfolio_metric_grid_style)
             cost_notes.append(
                 html.P(
                     'Régua financeira gerada nativamente a partir do Jira/process mining e de parâmetros heurísticos configuráveis do dashboard.',
