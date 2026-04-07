@@ -764,6 +764,14 @@ def build_activity_description(delivery: dict[str, Any]) -> str:
     return issue_title or issue_type or "Entrega estimada"
 
 
+def is_improvement_delivery(delivery: dict[str, Any]) -> bool:
+    issue_type = normalize_text(delivery.get("TipoEntrega"))
+    asset_type = normalize_text(delivery.get("Tipo do Ativo"))
+    improvement_issue_types = {"epico", "epic", "feature", "historia", "story", "user story"}
+    improvement_asset_types = {"epico", "epic", "feature"}
+    return issue_type in improvement_issue_types or asset_type in improvement_asset_types
+
+
 def build_final_layout_rows(
     people_rows: list[dict[str, Any]],
     deliveries: list[dict[str, Any]],
@@ -817,6 +825,63 @@ def build_final_layout_rows(
     return final_rows
 
 
+def build_final_layout_v2_rows(
+    people_rows: list[dict[str, Any]],
+    deliveries: list[dict[str, Any]],
+    end_date: date,
+) -> list[dict[str, Any]]:
+    deliveries_by_project: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for delivery in deliveries:
+        deliveries_by_project[delivery["ProjetoOperacional"]].append(delivery)
+
+    final_rows: list[dict[str, Any]] = []
+    competency_date = format_br_date(end_date)
+
+    for person in people_rows:
+        project_code = person["project_code"]
+        evolution_hours = round(float(person["evolution_hours"]), 2)
+        if not project_code or evolution_hours <= 0:
+            continue
+
+        project_deliveries = deliveries_by_project.get(project_code, [])
+        if not project_deliveries:
+            continue
+
+        weights = [(delivery["IssueKey"], float(delivery["PesoEntrega"])) for delivery in project_deliveries]
+        allocation_by_issue = allocate_total(evolution_hours, weights)
+        improvement_hours = round(
+            sum(
+                float(allocation_by_issue.get(delivery["IssueKey"], 0.0))
+                for delivery in project_deliveries
+                if is_improvement_delivery(delivery)
+            ),
+            2,
+        )
+        if improvement_hours <= 0:
+            continue
+
+        project_codes = sorted(
+            {
+                delivery["ProjetoOperacional"]
+                for delivery in project_deliveries
+                if is_improvement_delivery(delivery)
+            }
+        )
+        project_label = ", ".join(project_codes) if project_codes else project_code
+        final_rows.append(
+            {
+                "ID do Projeto": project_label,
+                "Descrição do Ativo": "Melhorias do mês",
+                "Colaborador": person["name"],
+                "Data do Apontamento das Horas": competency_date,
+                "Horas": improvement_hours,
+                "Atividade Desenvolvida": "Melhorias (epicos, features e historias)",
+            }
+        )
+
+    return final_rows
+
+
 def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -832,6 +897,7 @@ def write_xlsx_if_possible(
     people_rows: list[dict[str, Any]],
     project_rows: list[dict[str, Any]],
     final_layout_rows: list[dict[str, Any]],
+    final_layout_v2_rows: list[dict[str, Any]],
 ) -> bool:
     if pd is None:
         return False
@@ -843,6 +909,7 @@ def write_xlsx_if_possible(
             pd.DataFrame(people_rows, columns=PERSON_COLUMNS).to_excel(writer, sheet_name="AlocacaoPessoas", index=False)
             pd.DataFrame(project_rows, columns=PROJECT_COLUMNS).to_excel(writer, sheet_name="ResumoProjetos", index=False)
             pd.DataFrame(final_layout_rows, columns=FINAL_LAYOUT_COLUMNS).to_excel(writer, sheet_name="LayoutFinal", index=False)
+            pd.DataFrame(final_layout_v2_rows, columns=FINAL_LAYOUT_COLUMNS).to_excel(writer, sheet_name="LayoutFinalV2", index=False)
         return True
     except PermissionError:
         print(
@@ -957,6 +1024,11 @@ def main() -> int:
         start_date=start_date,
         end_date=end_date,
     )
+    final_layout_v2_rows = build_final_layout_v2_rows(
+        people_rows=people_rows,
+        deliveries=deliveries,
+        end_date=end_date,
+    )
 
     prefix = build_output_prefix(list(project_files.keys()), start_date, end_date)
     raw_out = out_dir / f"{prefix}-entregas.csv"
@@ -964,6 +1036,7 @@ def main() -> int:
     people_out = out_dir / f"{prefix}-pessoas.csv"
     project_out = out_dir / f"{prefix}-projetos.csv"
     final_layout_out = out_dir / f"{prefix}-layout-final.csv"
+    final_layout_v2_out = out_dir / f"{prefix}-layout-final-v2.csv"
     xlsx_out = out_dir / f"{prefix}.xlsx"
 
     write_csv(raw_out, deliveries, RAW_COLUMNS)
@@ -971,6 +1044,7 @@ def main() -> int:
     write_csv(people_out, people_allocations, PERSON_COLUMNS)
     write_csv(project_out, project_rows, PROJECT_COLUMNS)
     write_csv(final_layout_out, final_layout_rows, FINAL_LAYOUT_COLUMNS)
+    write_csv(final_layout_v2_out, final_layout_v2_rows, FINAL_LAYOUT_COLUMNS)
 
     workbook_written = False
     if not args.no_xlsx:
@@ -981,11 +1055,13 @@ def main() -> int:
             people_rows=people_allocations,
             project_rows=project_rows,
             final_layout_rows=final_layout_rows,
+            final_layout_v2_rows=final_layout_v2_rows,
         )
 
     total_input_hours = round(sum(float(row["evolution_hours"]) for row in people_rows if row["project_code"]), 2)
     total_distributed_hours = round(sum(float(row["HorasCapexAlocadas"]) for row in people_allocations), 2)
     total_final_layout_hours = round(sum(float(row["Horas"]) for row in final_layout_rows), 2)
+    total_final_layout_v2_hours = round(sum(float(row["Horas"]) for row in final_layout_v2_rows), 2)
     origin_counts = Counter(row["OrigemVinculo"] for row in deliveries)
 
     print(f"Linhas de pessoas: {people_diagnostics['input_rows']} | mapeadas em BU/projeto: {people_diagnostics['mapped_rows']}")
@@ -997,6 +1073,7 @@ def main() -> int:
     )
     print(f"Horas de evolucao: entrada={total_input_hours:.2f} | distribuidas={total_distributed_hours:.2f}")
     print(f"Layout final executivo: {len(final_layout_rows)} linha(s) | horas={total_final_layout_hours:.2f}")
+    print(f"Layout final V2 melhorias: {len(final_layout_v2_rows)} linha(s) | horas={total_final_layout_v2_hours:.2f}")
     print(
         f"Cobertura de vinculo: BT={origin_counts.get('BT', 0)} | "
         f"ProjetoLocal={origin_counts.get('ProjetoLocal', 0)} | "
@@ -1007,6 +1084,7 @@ def main() -> int:
     print(f"CSV pessoas: {people_out}")
     print(f"CSV projetos: {project_out}")
     print(f"CSV layout final: {final_layout_out}")
+    print(f"CSV layout final V2: {final_layout_v2_out}")
     if workbook_written:
         print(f"Workbook XLSX: {xlsx_out}")
     return 0
