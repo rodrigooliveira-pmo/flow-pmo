@@ -1,3 +1,32 @@
+## Current Task (Corrigir regressão do WIP atual no Painel Fluxo com flag de data)
+- [x] Rastrear no Painel Fluxo onde o snapshot de WIP ainda depende do recorte global por DataDone/Created
+- [x] Ajustar a aba para usar base viva sem `apply_date` no cálculo de WIP/backlog/estoque atual
+- [x] Validar sintaxe e registrar review com commit sugerido
+
+## Specification (Corrigir regressão do WIP atual no Painel Fluxo com flag de data)
+- Objetivo: impedir que `WIP atual` e `CFD / Estoque` da aba `Painel Fluxo` voltem a mudar artificialmente quando o usuário marca ou desmarca `Usar data de criação do card`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - os snapshots de backlog/WIP/estoque do `Painel Fluxo` deixam de depender da base global filtrada por `DataDone` ou `Created`
+  - ligar/desligar o flag não zera artificialmente o WIP vivo do mesmo período
+  - o arquivo continua válido sintaticamente
+
+## Review (Corrigir regressão do WIP atual no Painel Fluxo com flag de data)
+- Causa raiz confirmada:
+  - no `Painel Fluxo`, `df_signal_base` vinha de `df`, que já está recortado pela base temporal global (`DataDone` quando o flag está desligado, `Created` quando está ligado)
+  - os snapshots `df_backlog_start/end`, `df_wip_start/end` e `df_inventory_start/end` eram montados em cima dessa base já filtrada
+  - com isso, ao desligar o flag, itens vivos sem `DataDone` podiam desaparecer do snapshot e zerar artificialmente `WIP atual`
+- Correção aplicada:
+  - criei uma base dedicada `df_snapshot_base` no `Painel Fluxo`, usando `filter_df(..., apply_date=False)` para preservar somente os filtros dimensionais
+  - essa base passa a alimentar os snapshots de `backlog`, `WIP` e `estoque` no início/fim do período
+  - a métrica semanal e o restante da leitura do painel continuam no fluxo existente; a correção ficou focada em remover a contaminação do flag nos snapshots atuais
+- Validação executada:
+  - `python -m py_compile dashboard_full.py`
+- Suggested commit message:
+  - `fix(flow-panel): derive live backlog and wip snapshots independently of date mode`
+
 ## Current Task (Corrigir incoerência de WIP na leitura rápida do Painel Fluxo)
 - [x] Comparar a fórmula da leitura rápida com os cards de referência do mesmo painel
 - [x] Alinhar os indicadores atuais ao snapshot correto de fim do período

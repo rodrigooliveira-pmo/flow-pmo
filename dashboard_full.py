@@ -12553,6 +12553,22 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         df_signal_base, _ = apply_selected_commitment_metric(df_signal_base, projeto, leadtime_stages)
         panel_stage_map = compute_current_stage_map(projeto) if projeto and etapa_fluxo else {}
 
+        # Base viva para snapshots de backlog/WIP/estoque, sem recorte global por DataDone/Created.
+        df_snapshot_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            apply_date=False,
+        )
+        df_snapshot_base, _ = apply_selected_lead_time_metric(df_snapshot_base, projeto, leadtime_stages)
+        df_snapshot_base, _ = apply_selected_commitment_metric(df_snapshot_base, projeto, leadtime_stages)
+
         # Base de referência para thresholds (projeto/tipo), independente de período e responsável.
         df_threshold_base = filter_df(
             fato,
@@ -12742,21 +12758,24 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         df_demand_period = df_arrived_period
         demand_label = "itens que entraram em backlog no período"
 
-        df_backlog_start = df_signal_base[
-            (demand_date < start_ts) &
-            ((commitment_date >= start_ts) | commitment_date.isna())
+        snapshot_demand_date = datetime_col_or_nat(df_snapshot_base, 'DataBacklog')
+        snapshot_commitment_date = datetime_col_or_nat(df_snapshot_base, 'Commitment_Selected')
+
+        df_backlog_start = df_snapshot_base[
+            (snapshot_demand_date < start_ts) &
+            ((snapshot_commitment_date >= start_ts) | snapshot_commitment_date.isna())
         ].copy()
-        df_backlog_end = df_signal_base[
-            (demand_date <= end_ts) &
-            ((commitment_date > end_ts) | commitment_date.isna())
+        df_backlog_end = df_snapshot_base[
+            (snapshot_demand_date <= end_ts) &
+            ((snapshot_commitment_date > end_ts) | snapshot_commitment_date.isna())
         ].copy()
-        df_wip_start = df_signal_base[
-            (commitment_date < start_ts) &
-            ((df_signal_base['DataDone'] >= start_ts) | pd.isna(df_signal_base['DataDone']))
+        df_wip_start = df_snapshot_base[
+            (snapshot_commitment_date < start_ts) &
+            ((df_snapshot_base['DataDone'] >= start_ts) | pd.isna(df_snapshot_base['DataDone']))
         ].copy()
-        df_wip_end = df_signal_base[
-            (commitment_date <= end_ts) &
-            ((df_signal_base['DataDone'] > end_ts) | pd.isna(df_signal_base['DataDone']))
+        df_wip_end = df_snapshot_base[
+            (snapshot_commitment_date <= end_ts) &
+            ((df_snapshot_base['DataDone'] > end_ts) | pd.isna(df_snapshot_base['DataDone']))
         ].copy()
         df_wip_start = filter_items_by_current_stage(
             df_wip_start,
@@ -12770,7 +12789,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             selected_stages=etapa_fluxo,
             stage_map=panel_stage_map,
         )
-        if 'ItemID' in df_signal_base.columns:
+        if 'ItemID' in df_snapshot_base.columns:
             df_inventory_start = pd.concat([df_backlog_start, df_wip_start], axis=0).drop_duplicates(subset=['ItemID']).copy()
             df_inventory_end = pd.concat([df_backlog_end, df_wip_end], axis=0).drop_duplicates(subset=['ItemID']).copy()
         else:
