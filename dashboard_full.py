@@ -13001,7 +13001,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             f"{tp_valor_pct:.1f}% x {tp_falha_pct:.1f}%" if pd.notna(tp_valor_pct) and pd.notna(tp_falha_pct) else '—'
         )
         tp_relacao_status = classify_throughput_mix(tp_falha_pct)
-        inventory_growth_status = classify_direction(inventory_growth, 0.0, 2.0, lower_is_better=True)
 
         # Catálogo único de métricas para todo o painel (id único por indicador).
         metric_catalog = {
@@ -13235,8 +13234,178 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 )
             )
 
-        def build_flow_dimension_card(title, value, subtitle, explanation, status_tuple):
+        period_days = max(1, (pd.Timestamp(end_ts).normalize() - pd.Timestamp(start_ts).normalize()).days + 1)
+        previous_end_ts = pd.Timestamp(start_ts).normalize() - pd.Timedelta(days=1)
+        previous_start_ts = previous_end_ts - pd.Timedelta(days=period_days - 1)
+
+        previous_signal_base = filter_df(
+            fato,
+            previous_start_ts,
+            previous_end_ts,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+        )
+        previous_signal_base, _ = apply_selected_lead_time_metric(previous_signal_base, projeto, leadtime_stages)
+        previous_signal_base, _ = apply_selected_commitment_metric(previous_signal_base, projeto, leadtime_stages)
+
+        def compute_quick_flow_metrics(df_period_base, df_snapshot_scope, start_ref, end_ref, stage_map=None, stage_filter=None):
+            start_ref = pd.Timestamp(start_ref)
+            end_ref = pd.Timestamp(end_ref)
+            weekly_local = build_weekly_metrics(
+                df_period_base,
+                start_ref,
+                end_ref,
+                stage_map=stage_map,
+                stage_filter=stage_filter,
+            ) if df_period_base is not None and not df_period_base.empty else pd.DataFrame()
+
+            throughput_avg_local = float(weekly_local['Throughput'].mean()) if not weekly_local.empty and weekly_local['Throughput'].notna().any() else np.nan
+
+            done_local = df_period_base[
+                (df_period_base['DataDone'] >= start_ref) &
+                (df_period_base['DataDone'] <= end_ref)
+            ].copy() if df_period_base is not None and not df_period_base.empty else pd.DataFrame()
+            done_local_eligible = done_local[done_time_eligible_mask(done_local)].copy() if not done_local.empty else pd.DataFrame()
+
+            throughput_total_local = float(len(done_local_eligible))
+            lead_series_local = time_metric_series(done_local, 'LeadTime_Selected_Dias', non_negative=True)
+            lead_p85_local = exact_empirical_percentile(lead_series_local, 0.85) if not lead_series_local.empty else np.nan
+            lead_p50_local = exact_empirical_percentile(lead_series_local, 0.50) if not lead_series_local.empty else np.nan
+            predictability_local = (
+                lead_p85_local / lead_p50_local
+                if pd.notna(lead_p85_local) and pd.notna(lead_p50_local) and lead_p50_local > 0
+                else np.nan
+            )
+
+            urgency_local = (
+                done_local_eligible.apply(classify_urgency_label, axis=1)
+                if not done_local_eligible.empty
+                else pd.Series(dtype='object')
+            )
+            expedite_pct_local = (
+                float((urgency_local == 'Highest').sum() / throughput_total_local * 100.0)
+                if throughput_total_local > 0
+                else np.nan
+            )
+
+            tipo_local = done_local_eligible['TipoDemanda'] if 'TipoDemanda' in done_local_eligible.columns else pd.Series(dtype='object')
+            failure_pct_local = (
+                float((tipo_local == TYPE_ISSUES).sum() / throughput_total_local * 100.0)
+                if throughput_total_local > 0
+                else np.nan
+            )
+
+            creation_local = resolve_creation_date_series(done_local_eligible)
+            unplanned_pct_local = (
+                float(((creation_local > start_ref) & (creation_local <= end_ref)).sum() / throughput_total_local * 100.0)
+                if throughput_total_local > 0
+                else np.nan
+            )
+
+            snapshot_backlog_local = datetime_col_or_nat(df_snapshot_scope, 'DataBacklog')
+            snapshot_commitment_local = datetime_col_or_nat(df_snapshot_scope, 'Commitment_Selected')
+            snapshot_done_local = datetime_col_or_nat(df_snapshot_scope, 'DataDone')
+
+            backlog_start_local = df_snapshot_scope[
+                (snapshot_backlog_local < start_ref) &
+                ((snapshot_commitment_local >= start_ref) | snapshot_commitment_local.isna())
+            ].copy() if df_snapshot_scope is not None and not df_snapshot_scope.empty else pd.DataFrame()
+
+            backlog_end_local = df_snapshot_scope[
+                (snapshot_backlog_local <= end_ref) &
+                ((snapshot_commitment_local > end_ref) | snapshot_commitment_local.isna())
+            ].copy() if df_snapshot_scope is not None and not df_snapshot_scope.empty else pd.DataFrame()
+
+            wip_end_local = build_live_wip_snapshot(
+                df_snapshot_scope,
+                end_ref,
+                projeto=projeto,
+                selected_stages=stage_filter,
+                stage_map=stage_map if stage_filter else None,
+            )
+
+            if df_snapshot_scope is not None and not df_snapshot_scope.empty and 'ItemID' in df_snapshot_scope.columns:
+                inventory_end_local = pd.concat([backlog_end_local, wip_end_local], axis=0).drop_duplicates(subset=['ItemID']).copy()
+            else:
+                inventory_end_local = pd.concat([backlog_end_local, wip_end_local], axis=0).drop_duplicates().copy()
+
+            backlog_start_commitment_local = datetime_col_or_nat(backlog_start_local, 'Commitment_Selected')
+            backlog_start_done_local = snapshot_done_local.reindex(backlog_start_local.index) if not backlog_start_local.empty else pd.Series(dtype='datetime64[ns]')
+            backlog_planned_unexecuted_pct_local = (
+                float(
+                    (
+                        (
+                            backlog_start_commitment_local.isna() |
+                            (backlog_start_commitment_local > end_ref) |
+                            backlog_start_done_local.isna() |
+                            (backlog_start_done_local > end_ref)
+                        ).sum()
+                    ) / len(backlog_start_local) * 100.0
+                )
+                if not backlog_start_local.empty
+                else np.nan
+            )
+
+            return {
+                'throughput_avg': throughput_avg_local,
+                'lead_time_p85': lead_p85_local,
+                'predictability': predictability_local,
+                'failure_pct': failure_pct_local,
+                'expedite_pct': expedite_pct_local,
+                'unplanned_pct': unplanned_pct_local,
+                'wip_current': float(len(wip_end_local)),
+                'inventory_current': float(len(inventory_end_local)),
+                'backlog_planned_unexecuted_pct': backlog_planned_unexecuted_pct_local,
+            }
+
+        current_quick_metrics = compute_quick_flow_metrics(
+            df_signal_base,
+            df_snapshot_base,
+            start_ts,
+            end_ts,
+            stage_map=panel_stage_map,
+            stage_filter=etapa_fluxo,
+        )
+        previous_quick_metrics = compute_quick_flow_metrics(
+            previous_signal_base,
+            df_snapshot_base,
+            previous_start_ts,
+            previous_end_ts,
+            stage_map=panel_stage_map,
+            stage_filter=etapa_fluxo,
+        )
+
+        def metric_delta(current_value, previous_value):
+            if pd.isna(current_value) or pd.isna(previous_value):
+                return np.nan
+            return float(current_value - previous_value)
+
+        def build_trend_summary(current_value, previous_value, better_when='higher', tolerance=0.5, delta_pattern='{:+.1f}', delta_suffix=''):
+            if pd.isna(current_value) or pd.isna(previous_value):
+                return ('Sem base anterior', '#7b8694', 'Delta indisponível')
+            delta = metric_delta(current_value, previous_value)
+            if pd.isna(delta):
+                return ('Sem base anterior', '#7b8694', 'Delta indisponível')
+            if abs(delta) <= tolerance:
+                return ('Estável', '#7b8694', f"Delta {delta_pattern.format(delta)}{delta_suffix} vs período anterior")
+
+            moved_up = delta > 0
+            direction_label = 'Subiu' if moved_up else 'Caiu'
+            improved = moved_up if better_when == 'higher' else not moved_up
+            direction_color = '#2e7d32' if improved else '#c62828'
+            return (
+                direction_label,
+                direction_color,
+                f"Delta {delta_pattern.format(delta)}{delta_suffix} vs período anterior"
+            )
+
+        def build_flow_dimension_card(title, value, subtitle, explanation, status_tuple, trend_tuple, trend_emphasis=False):
             status_label, status_color = status_tuple
+            trend_label, trend_color, trend_detail = trend_tuple
             return html.Div([
                 html.Div(status_label, style={
                     'fontSize': '11px',
@@ -13244,6 +13413,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'letterSpacing': '0.05em',
                     'textTransform': 'uppercase',
                     'color': status_color,
+                    'marginBottom': '10px',
+                }),
+                html.Div(trend_label, style={
+                    'display': 'inline-block',
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'color': trend_color,
+                    'backgroundColor': '#f8fafc' if trend_emphasis else '#fbfcfe',
+                    'border': f'1px solid {trend_color}',
+                    'borderRadius': '999px',
+                    'padding': '3px 8px',
                     'marginBottom': '10px',
                 }),
                 html.Div(title, style={
@@ -13269,6 +13449,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'fontSize': '12px',
                     'color': '#5f6e7b',
                     'lineHeight': '1.45',
+                    'marginBottom': '8px',
+                }),
+                html.Div(trend_detail, style={
+                    'fontSize': '11px',
+                    'fontWeight': '600',
+                    'color': '#4b5563',
                 }),
             ], style={
                 'backgroundColor': 'white',
@@ -13277,67 +13463,203 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'borderRadius': '12px',
                 'padding': '14px',
                 'boxShadow': '0 1px 4px rgba(15, 23, 32, 0.08)',
-                'minHeight': '170px',
+                'minHeight': '210px',
             })
 
-        six_dimension_cards = [
+        throughput_quick_status = metric_catalog['throughput_avg_week']['status']
+        lead_time_quick_status = metric_catalog['lead_time_p85']['status']
+        wip_quick_status = metric_catalog['wip_current']['status']
+        predictability_quick_status = metric_catalog['predictability']['status']
+        inventory_quick_status = metric_catalog['total_system_current_exec']['status']
+        failure_quick_status = classify_direction(current_quick_metrics['failure_pct'], 20.0, 35.0, lower_is_better=True)
+        expedite_quick_status = classify_direction(current_quick_metrics['expedite_pct'], 10.0, 20.0, lower_is_better=True)
+        unplanned_quick_status = classify_direction(current_quick_metrics['unplanned_pct'], 15.0, 30.0, lower_is_better=True)
+        backlog_unexecuted_status = classify_direction(current_quick_metrics['backlog_planned_unexecuted_pct'], 30.0, 50.0, lower_is_better=True)
+
+        period_dimension_cards = [
             build_flow_dimension_card(
                 'Throughput',
-                fmt_value(metric_catalog['throughput_avg_week']['value'], '{:.1f}'),
-                'itens concluídos por semana',
+                fmt_value(current_quick_metrics['throughput_avg'], '{:.1f}'),
+                'média semanal de itens concluídos',
                 'Capacidade real de saída no recorte filtrado.',
-                metric_catalog['throughput_avg_week']['status'],
+                throughput_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['throughput_avg'],
+                    previous_quick_metrics['throughput_avg'],
+                    better_when='higher',
+                    tolerance=0.3,
+                    delta_pattern='{:+.1f}',
+                    delta_suffix=' itens/sem',
+                ),
+                trend_emphasis=True,
             ),
             build_flow_dimension_card(
                 'Lead Time P85',
-                fmt_value(metric_catalog['lead_time_p85']['value'], '{:.1f}'),
-                'dias para 85% dos itens',
+                fmt_value(current_quick_metrics['lead_time_p85'], '{:.1f}'),
+                'dias para 85% dos itens concluídos',
                 'Mostra o tempo de atravessamento em cenário conservador.',
-                metric_catalog['lead_time_p85']['status'],
-            ),
-            build_flow_dimension_card(
-                'WIP Atual',
-                fmt_value(metric_catalog['wip_current']['value'], '{:.0f}'),
-                'itens em fluxo no fim do período',
-                'Resume a carga ativa que ainda compete por atenção do time.',
-                metric_catalog['wip_current']['status'],
+                lead_time_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['lead_time_p85'],
+                    previous_quick_metrics['lead_time_p85'],
+                    better_when='lower',
+                    tolerance=0.5,
+                    delta_pattern='{:+.1f}',
+                    delta_suffix=' dias',
+                ),
+                trend_emphasis=True,
             ),
             build_flow_dimension_card(
                 'Failure Demand',
-                fmt_value(tp_falha_pct, '{:.1f}%'),
-                'participação de falha no throughput',
-                'Quanto maior esse peso, mais a vazão está indo para retrabalho e correções.',
-                tp_relacao_status,
+                fmt_value(current_quick_metrics['failure_pct'], '{:.1f}%'),
+                '% do throughput concluído que foi falha',
+                'Usa itens de falha concluídos no período como proxy de retrabalho/recuperação.',
+                failure_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['failure_pct'],
+                    previous_quick_metrics['failure_pct'],
+                    better_when='lower',
+                    tolerance=1.0,
+                    delta_pattern='{:+.1f}',
+                    delta_suffix=' p.p.',
+                ),
+                trend_emphasis=True,
+            ),
+            build_flow_dimension_card(
+                'Expedite / Highest',
+                fmt_value(current_quick_metrics['expedite_pct'], '{:.1f}%'),
+                '% do throughput concluído em expedite',
+                'Mede quanto da saída do período foi consumida por demandas de urgência máxima.',
+                expedite_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['expedite_pct'],
+                    previous_quick_metrics['expedite_pct'],
+                    better_when='lower',
+                    tolerance=1.0,
+                    delta_pattern='{:+.1f}',
+                    delta_suffix=' p.p.',
+                ),
+            ),
+            build_flow_dimension_card(
+                'Trabalho Não Planejado',
+                fmt_value(current_quick_metrics['unplanned_pct'], '{:.1f}%'),
+                '% dos concluídos criados dentro do período',
+                'Proxy de trabalho que entrou depois do início do recorte e ainda assim foi entregue.',
+                unplanned_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['unplanned_pct'],
+                    previous_quick_metrics['unplanned_pct'],
+                    better_when='lower',
+                    tolerance=1.0,
+                    delta_pattern='{:+.1f}',
+                    delta_suffix=' p.p.',
+                ),
             ),
             build_flow_dimension_card(
                 'Previsibilidade',
-                fmt_value(metric_catalog['predictability']['value'], '{:.2f}'),
-                'razão P85 / P50',
+                fmt_value(current_quick_metrics['predictability'], '{:.2f}'),
+                'razão P85 / P50 do período',
                 'Quanto mais perto de 1, menor a dispersão e mais confiável o sistema.',
-                metric_catalog['predictability']['status'],
-            ),
-            build_flow_dimension_card(
-                'CFD / Estoque',
-                fmt_value(metric_catalog['total_system_current_exec']['value'], '{:.0f}'),
-                'backlog + WIP no fim do período',
-                'Leitura rápida do tamanho do sistema antes de aprofundar na aba de CFD.',
-                inventory_growth_status,
+                predictability_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['predictability'],
+                    previous_quick_metrics['predictability'],
+                    better_when='lower',
+                    tolerance=0.05,
+                    delta_pattern='{:+.2f}',
+                ),
             ),
         ]
 
+        snapshot_dimension_cards = [
+            build_flow_dimension_card(
+                'WIP Atual',
+                fmt_value(current_quick_metrics['wip_current'], '{:.0f}'),
+                'itens em fluxo no fim do período',
+                'Resume a carga ativa que ainda compete por atenção do time.',
+                wip_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['wip_current'],
+                    previous_quick_metrics['wip_current'],
+                    better_when='lower',
+                    tolerance=1.0,
+                    delta_pattern='{:+.0f}',
+                    delta_suffix=' itens',
+                ),
+                trend_emphasis=True,
+            ),
+            build_flow_dimension_card(
+                'CFD / Estoque',
+                fmt_value(current_quick_metrics['inventory_current'], '{:.0f}'),
+                'backlog + WIP no fim do período',
+                'Leitura rápida do tamanho do sistema antes de aprofundar na aba de CFD.',
+                inventory_quick_status,
+                build_trend_summary(
+                    current_quick_metrics['inventory_current'],
+                    previous_quick_metrics['inventory_current'],
+                    better_when='lower',
+                    tolerance=1.0,
+                    delta_pattern='{:+.0f}',
+                    delta_suffix=' itens',
+                ),
+                trend_emphasis=True,
+            ),
+            build_flow_dimension_card(
+                'Backlog Planejado sem Execução',
+                fmt_value(current_quick_metrics['backlog_planned_unexecuted_pct'], '{:.1f}%'),
+                '% do backlog inicial sem compromisso ou sem entrega',
+                'Proxy de itens já planejados no início que terminaram o recorte ainda sem avanço suficiente.',
+                backlog_unexecuted_status,
+                build_trend_summary(
+                    current_quick_metrics['backlog_planned_unexecuted_pct'],
+                    previous_quick_metrics['backlog_planned_unexecuted_pct'],
+                    better_when='lower',
+                    tolerance=1.0,
+                    delta_pattern='{:+.1f}',
+                    delta_suffix=' p.p.',
+                ),
+            ),
+        ]
+
+        def build_dimension_group(title, subtitle, cards, background_color, border_color):
+            return html.Div([
+                html.Div(title, style={'fontSize': '16px', 'fontWeight': '700', 'color': '#22313f', 'marginBottom': '4px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b', 'marginBottom': '14px'}),
+                html.Div(
+                    cards,
+                    style={
+                        'display': 'grid',
+                        'gridTemplateColumns': 'repeat(auto-fit, minmax(190px, 1fr))',
+                        'gap': '12px',
+                    }
+                ),
+            ], style={
+                'backgroundColor': background_color,
+                'border': f'1px solid {border_color}',
+                'borderRadius': '14px',
+                'padding': '14px',
+            })
+
         flow_dimension_section = html.Div([
-            html.H4('Leitura Rápida em 6 Dimensões', style={'textAlign': 'center', 'marginBottom': '6px'}),
+            html.H4('Leitura Rápida do Fluxo', style={'textAlign': 'center', 'marginBottom': '6px'}),
             html.P(
-                'Comece por esta síntese e depois aprofunde nas abas específicas de Lead Time, CFD, Throughput Breakdown, Work Item Age e WIP por Pessoa.',
+                'A parte superior separa médias do período de snapshots atuais, para evitar confundir cadência semanal com fotografia de fim do recorte.',
                 style={'textAlign': 'center', 'color': '#5f6e7b', 'marginBottom': '16px'}
             ),
-            html.Div(
-                six_dimension_cards,
-                style={
-                    'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
-                    'gap': '12px',
-                }
+            build_dimension_group(
+                'Médias do Período',
+                'Leitura de cadência, qualidade e disciplina do fluxo no recorte selecionado.',
+                period_dimension_cards,
+                '#f8fbff',
+                '#cfe0f3',
+            ),
+            html.Div(style={'height': '12px'}),
+            build_dimension_group(
+                'Snapshot Atual',
+                'Fotografia do fim do período para carga ativa e execução do backlog já planejado.',
+                snapshot_dimension_cards,
+                '#fffaf2',
+                '#f1d7a8',
             ),
         ], style={'maxWidth': '1200px', 'margin': '0 auto 20px auto'})
 

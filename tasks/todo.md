@@ -1,3 +1,54 @@
+## Current Task (Enriquecer leitura rápida do Painel Fluxo com proxies de disciplina e tendência)
+- [x] Adicionar proxies de trabalho não planejado, expedite/highest, falha e backlog planejado não executado
+- [x] Mostrar tendência curta e delta vs período anterior nas dimensões principais da leitura rápida
+- [x] Separar visualmente métricas de snapshot atual versus médias do período
+- [x] Validar sintaxe e registrar review com commit sugerido
+
+## Specification (Enriquecer leitura rápida do Painel Fluxo com proxies de disciplina e tendência)
+- Objetivo: evoluir a seção `Leitura Rápida` do `Painel Fluxo` com proxies implementáveis inspirados no `Team Dashboard` e no `Wrong Order`, sem depender de `Rank`/ordem planejada explícita do Jira.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Entregas esperadas:
+  - `% itens criados após o início do período e entregues no período` como proxy de `trabalho não planejado`
+  - `% throughput expedite/highest`
+  - `% throughput de falha`
+  - `% backlog planejado que ficou sem compromisso/sem entrega`
+  - destaque de tendência curta por dimensão (`subiu`, `caiu`, `estável`)
+  - delta vs período anterior para `Throughput`, `Lead Time P85`, `WIP` e `Failure Demand`
+  - separação visual entre `snapshot atual` e `médias do período`
+- Critério de aceite:
+  - a leitura rápida passa a distinguir claramente o que é `snapshot` e o que é `média do período`
+  - as novas métricas são calculadas com a base atual do dashboard, sem exigir novo campo de ordenação
+  - o arquivo continua válido sintaticamente
+
+## Review (Enriquecer leitura rápida do Painel Fluxo com proxies de disciplina e tendência)
+- O que foi implementado:
+  - a antiga seção `Leitura Rápida em 6 Dimensões` virou `Leitura Rápida do Fluxo`
+  - a leitura rápida agora está separada em dois blocos:
+    - `Médias do Período`
+    - `Snapshot Atual`
+  - isso reduz a ambiguidade entre métricas semanais/médias e fotografia de fim do período
+- Novos proxies adicionados:
+  - `Trabalho Não Planejado`: `% dos concluídos criados dentro do período`
+  - `Expedite / Highest`: `% do throughput concluído em urgência máxima`
+  - `Failure Demand`: `% do throughput concluído que foi falha`
+  - `Backlog Planejado sem Execução`: `% do backlog inicial que terminou o período sem compromisso ou sem entrega`
+- Refino de leitura executiva:
+  - cada card agora mostra tendência curta (`Subiu`, `Caiu`, `Estável` ou `Sem base anterior`)
+  - os cards de `Throughput`, `Lead Time P85`, `WIP Atual` e `Failure Demand` passaram a exibir delta explícito vs período anterior
+  - a comparação usa uma janela anterior de mesma duração
+- Regras de cálculo adotadas:
+  - `trabalho não planejado` usa `resolve_creation_date_series(...)` sobre os itens concluídos elegíveis do período
+  - `expedite/highest` usa `classify_urgency_label(...)` para respeitar a hierarquia `ClasseServico -> Prioridade`
+  - `snapshot atual` continua desacoplado do recorte global `DataDone/Created`, reaproveitando a correção anterior do painel
+- Validação executada:
+  - `python -m py_compile dashboard_full.py`
+- Risco residual:
+  - a validação desta rodada foi sintática; ainda vale um smoke test visual para calibrar se os thresholds dos novos proxies ficaram severos demais ou brandos demais no contexto real
+- Suggested commit message:
+  - `feat(flow-panel): add planning proxies and trend deltas to quick summary`
+
 ## Current Task (Corrigir regressão do WIP atual no Painel Fluxo com flag de data)
 - [x] Rastrear no Painel Fluxo onde o snapshot de WIP ainda depende do recorte global por DataDone/Created
 - [x] Ajustar a aba para usar base viva sem `apply_date` no cálculo de WIP/backlog/estoque atual
