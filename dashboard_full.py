@@ -613,7 +613,15 @@ INTERNAL_SERVICE_TAB_VALUES = SERVICE_TAB_VALUES | {
 
 
 def build_service_tabs():
-    return [dcc.Tab(label=label, value=value) for label, value in SERVICE_TABS]
+    return [
+        dcc.Tab(
+            label=label,
+            value=value,
+            className='service-tab',
+            selected_className='service-tab service-tab--selected',
+        )
+        for label, value in SERVICE_TABS
+    ]
 
 
 def build_portfolio_tab():
@@ -8897,7 +8905,9 @@ app.layout = html.Div([
             value='tab-performance',
             children=build_service_tabs(),
             mobile_breakpoint=0,
-            parent_style={'overflowX': 'auto'}
+            parent_style={'overflowX': 'auto'},
+            className='service-tabs',
+            parent_className='service-tabs-parent',
         ),
         id='tabs-wrapper',
         style={'display': 'none'}
@@ -14342,25 +14352,26 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         today_ts = pd.Timestamp.today().normalize()
         snapshot_ts = min(end_date_ts.normalize(), today_ts)
 
-        df_age_base = df.copy()
-
-        in_progress_series = pd.to_datetime(df_age_base.get('DataInProgress'), errors='coerce')
-        done_series = pd.to_datetime(df_age_base.get('DataDone'), errors='coerce')
-        active_mask = (
-            in_progress_series.notna() &
-            (in_progress_series <= snapshot_ts) &
-            (done_series.isna() | (done_series > snapshot_ts))
+        df_age_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            apply_date=False,
         )
-        df_age = df_age_base[active_mask].copy()
-
-        if etapa_fluxo and projeto:
-            _stage_map_age = compute_current_stage_map(projeto)
-            df_age = filter_items_by_current_stage(
-                df_age,
-                projeto=projeto,
-                selected_stages=etapa_fluxo,
-                stage_map=_stage_map_age,
-            )
+        _stage_map_age = compute_current_stage_map(projeto) if etapa_fluxo and projeto else None
+        df_age = build_live_wip_snapshot(
+            df_age_base,
+            snapshot_ts,
+            projeto=projeto,
+            selected_stages=etapa_fluxo,
+            stage_map=_stage_map_age,
+        )
 
         if df_age.empty:
             return html.Div(
@@ -14368,7 +14379,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
 
         df_age['DataInProgress'] = pd.to_datetime(df_age.get('DataInProgress'), errors='coerce')
-        df_age['WorkItemAge_Dias'] = (snapshot_ts - df_age['DataInProgress']).dt.total_seconds() / 86400.0
+        df_age['WIPStartRef'] = pd.to_datetime(df_age.get('WIPStartRef'), errors='coerce')
+        df_age['DataInicioRef'] = df_age['DataInProgress'].combine_first(df_age['WIPStartRef'])
+        df_age['WorkItemAge_Dias'] = pd.to_numeric(df_age.get('WIPAge'), errors='coerce')
+        if df_age['WorkItemAge_Dias'].isna().any():
+            df_age.loc[df_age['WorkItemAge_Dias'].isna(), 'WorkItemAge_Dias'] = (
+                snapshot_ts - pd.to_datetime(df_age.loc[df_age['WorkItemAge_Dias'].isna(), 'DataInicioRef'], errors='coerce')
+            ).dt.total_seconds() / 86400.0
         df_age['WorkItemAge_Dias'] = pd.to_numeric(df_age['WorkItemAge_Dias'], errors='coerce')
         df_age = df_age[df_age['WorkItemAge_Dias'].notna()].copy()
         if df_age.empty:
@@ -14537,14 +14554,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         scatter_hover = [c for c in ['ItemKey', 'TituloDisplay', 'Status', 'Responsavel', 'ClasseServico', 'Projeto'] if c in df_age.columns]
         fig_age_scatter = px.scatter(
-            df_age.sort_values('DataInProgress'),
-            x='DataInProgress',
+            df_age.sort_values('DataInicioRef'),
+            x='DataInicioRef',
             y='WorkItemAge_Dias',
             color='SaudeAge',
             symbol='BloqueadoLabel',
             hover_data=scatter_hover,
             title='Work Item Age por data de início',
-            labels={'DataInProgress': 'Data de início', 'WorkItemAge_Dias': 'Work Item Age (dias)', 'SaudeAge': 'Saúde'},
+            labels={'DataInicioRef': 'Data de início', 'WorkItemAge_Dias': 'Work Item Age (dias)', 'SaudeAge': 'Saúde'},
             color_discrete_map=severity_colors,
         )
         if pd.notna(cycle_p50):
@@ -14586,8 +14603,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             subtitle_parts.append(f"Cycle P50: {cycle_p50:.1f}d")
         if pd.notna(cycle_p85):
             subtitle_parts.append(f"Cycle P85: {cycle_p85:.1f}d")
-        subtitle = " | ".join(subtitle_parts)
-
         if pd.notna(cycle_p50):
             interpretation = (
                 "Saudável = idade <= Cycle P50; Atenção = entre Cycle P50 e P85; "
@@ -14607,7 +14622,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ('Responsavel', 'Responsável'),
             ('ClasseServico', 'Classe Serviço'),
             ('BloqueadoLabel', 'Bloqueio'),
-            ('DataInProgress', 'Data Início'),
+            ('DataInicioRef', 'Data Início'),
             ('WorkItemAge_Dias', 'Work Item Age (dias)'),
             ('RazaoVsCycleP50', 'Razão vs Cycle P50'),
             ('SaudeAge', 'Saúde'),
@@ -14634,9 +14649,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         return html.Div([
             html.Div([
-                html.H3("Work Item Age", style={'textAlign': 'center'}),
-                html.P(subtitle, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '8px'}),
-                html.P(interpretation, style={'textAlign': 'center', 'color': '#666', 'marginBottom': '18px'}),
+                html.H2("Work Item Age", className='wia-title'),
+                html.Div(
+                    [html.Span(part, className='wia-meta-chip') for part in subtitle_parts],
+                    className='wia-meta-row',
+                ),
+                html.P(interpretation, className='wia-interpretation'),
             ], className='wia-header'),
             html.Div([
                 html.Div([
@@ -14736,16 +14754,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         start_date_ts = pd.to_datetime(start_date)
         end_date_ts = pd.to_datetime(end_date)
 
-        df_wip_base = df.copy()
-
-        if etapa_fluxo and projeto:
-            _stage_map_wip = compute_current_stage_map(projeto)
-            df_wip_base = filter_items_by_current_stage(
-                df_wip_base,
-                projeto=projeto,
-                selected_stages=etapa_fluxo,
-                stage_map=_stage_map_wip,
-            )
+        df_wip_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            apply_date=False,
+        )
+        _stage_map_wip = compute_current_stage_map(projeto) if etapa_fluxo and projeto else None
 
         if 'Responsavel' not in df_wip_base.columns or df_wip_base['Responsavel'].dropna().empty:
             return html.Div('Dados de Responsável não disponíveis para calcular WIP.')
@@ -14756,7 +14777,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         wip_weekly_data = []
         for week_end in weeks:
-            wip_at_date_df = df_wip_base[(df_wip_base['DataInProgress'] <= week_end) & ((df_wip_base['DataDone'] > week_end) | pd.isna(df_wip_base['DataDone']))]
+            wip_at_date_df = build_live_wip_snapshot(
+                df_wip_base,
+                week_end,
+                projeto=projeto,
+                selected_stages=etapa_fluxo,
+                stage_map=_stage_map_wip,
+            )
             wip_counts = wip_at_date_df.groupby('Responsavel').size().reset_index(name='WIP')
             wip_counts['Semana'] = week_end
             wip_weekly_data.append(wip_counts)

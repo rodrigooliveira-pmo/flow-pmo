@@ -11,6 +11,19 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-04-07
+- Context: Implementação inicial do exportador CAPEX mensal baseado em worklogs do Jira.
+- User correction: Esclareceu que os épicos estão no board/projeto `BT` e as features também estão em `BT`, então a hierarquia de portfólio relevante para CAPEX está ancorada em `BT`.
+- Root cause: Eu concentrei a primeira execução do CAPEX nos projetos operacionais e tratei a hierarquia BT apenas como enriquecimento implícito, sem revalidar se `BT` também precisava entrar explicitamente no escopo da coleta.
+- Prevention rule: Quando a demanda envolver épicos/features para CAPEX ou portfólio, validar explicitamente em quais projetos/boards Jira essa hierarquia vive hoje e não assumir que ela está somente nos projetos operacionais.
+- Action added to workflow: Em novas extrações CAPEX/portfólio, confirmar sempre o conjunto `projetos operacionais + projeto(s) de portfólio` antes de fechar a JQL e o escopo da coleta.
+
+- Date: 2026-04-07
+- Context: Correção do `WIP atual` na aba `Serviço e SLA` após divergência entre recorte por `DataDone` e `Data de criação`.
+- User correction: Informou que, ao desmarcar o flag `Usar data de criação do card`, as abas `Work Item Age` e `WIP por Pessoa` também passavam a exibir mensagem de ausência de itens ativos.
+- Root cause: Eu corrigi primeiro a semântica de base viva apenas no card de `WIP atual` de `Serviço e SLA`, mas deixei outras abas que também dependem de trabalho ativo (`Work Item Age` e `WIP por Pessoa`) ancoradas no `df` global já recortado por `DataDone`.
+- Prevention rule: Sempre que eu corrigir uma métrica/aba baseada em WIP vivo, revisar no mesmo turno todas as outras abas que usam itens ativos (`WIP`, `WIP Age`, `Work Item Age`, `WIP por Pessoa`) para garantir que nenhuma continue dependente do recorte global por `DataDone`.
+- Action added to workflow: Em mudanças ligadas ao flag `Usar data de criação do card`, executar checklist cruzado nas abas operacionais com trabalho vivo e validar explicitamente os modos `flag ligado` e `flag desligado`.
 - Date: 2026-04-02
 - Context: Primeira entrega do filtro multi-seleção de `Criador` no dashboard de serviços.
 - User correction: Informou que o campo continuava desabilitado mesmo após atualizar a base, mostrando que o filtro não tinha ficado utilizável no cenário real.

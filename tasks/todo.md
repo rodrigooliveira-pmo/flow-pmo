@@ -1,3 +1,187 @@
+## Current Task (Refatorar legibilidade da aba Work Item Age)
+- [x] Revisar a composição atual da aba `Work Item Age` e identificar os pontos de baixa legibilidade
+- [x] Ajustar tipografia, espaçamento e densidade visual dos cards e do cabeçalho da aba
+- [x] Melhorar a leitura dos tabs superiores nesta resolução sem descaracterizar o dashboard
+- [x] Validar sintaxe, revisar diff e registrar resultado com commit sugerido
+
+## Specification (Refatorar legibilidade da aba Work Item Age)
+- Objetivo: aumentar a legibilidade da tela `Work Item Age`, principalmente em resoluções como a do print enviado, onde títulos, subtítulos e KPIs ficaram pequenos demais para leitura operacional rápida.
+- Escopo:
+  - `dashboard_full.py`
+  - `assets/work-item-age.css`
+  - `tasks/todo.md`
+- Direção visual:
+  - preservar o fundo claro e a linguagem visual já usada no dashboard
+  - reforçar hierarquia tipográfica no cabeçalho, nos cards-resumo e nos painéis de KPI
+  - melhorar espaçamento vertical e horizontal para reduzir sensação de texto “espremido”
+  - aumentar a legibilidade dos tabs superiores sem criar um componente visual destoante
+- Critério de aceite:
+  - o título, subtítulo e texto de apoio da aba ficam confortáveis de ler em desktop
+  - os KPIs principais passam a ter rótulos e valores visivelmente maiores
+  - os tabs do topo ficam mais legíveis no mesmo contexto de largura mostrado no print
+  - a mudança permanece predominantemente visual, sem alterar os cálculos da aba
+
+## Review (Refatorar legibilidade da aba Work Item Age)
+- O que foi alterado:
+  - refatorei o cabeçalho da aba para usar título maior, metadados em chips e texto de interpretação com leitura mais confortável
+  - aumentei a tipografia e o espaçamento dos cards principais (`Itens Ativos`, `Envelhecimento`, `Saúde do WIP`)
+  - estilizei os tabs superiores do módulo de serviços com fonte maior, mais peso visual e melhor área de clique
+- Evidência de validação:
+  - `python -m py_compile dashboard_full.py`
+- Limitação desta validação:
+  - nesta rodada validei sintaxe e diff; não gerei screenshot automatizado da tela renderizada no navegador
+- Suggested commit message:
+  - `style(work-item-age): improve tab and kpi legibility`
+
+## Current Task (Implementar extração CAPEX mensal via worklogs do Jira)
+- [x] Estender o cliente Jira compartilhado para paginação de `worklogs`
+- [x] Criar script dedicado para exportação CAPEX mensal com hierarquia `Epic -> Feature -> Item`
+- [x] Normalizar `Atividade Desenvolvida` com fonte, regra e categoria auditável
+- [x] Gerar saída detalhada e resumo mensal em CSV, com XLSX opcional
+- [x] Validar sintaxe e CLI do novo fluxo
+
+## Specification (Implementar extração CAPEX mensal via worklogs do Jira)
+- Objetivo: entregar a primeira implementação operacional do plano CAPEX, priorizando horas reais de `worklog` e já produzindo uma base mensal auditável com hierarquia e classificação de atividade.
+- Escopo:
+  - `jira/client.py`
+  - `jira_capex_monthly.py`
+  - `tasks/todo.md`
+- Entregável esperado:
+  - um script executável por CLI que consulte issues com `worklog` no período, baixe os apontamentos completos e gere:
+    - CSV detalhado no grão `1 linha = 1 apontamento`
+    - CSV resumo mensal consolidado
+    - XLSX com abas `RawWorklogs` e `ResumoMensal` quando `pandas` estiver disponível
+- Critério de aceite:
+  - paginação de `worklogs` funciona no cliente Jira compartilhado
+  - o consolidado resolve `ID do Projeto` e `Descrição do Ativo` com base na melhor hierarquia disponível
+  - `Atividade Desenvolvida` sai com texto final, texto bruto, categoria normalizada, fonte e regra
+  - o script aceita `--projects` e `--month`/`--date-from`+`--date-to`
+  - os arquivos Python continuam válidos sintaticamente
+
+## Review (Implementar extração CAPEX mensal via worklogs do Jira)
+- O que foi implementado:
+  - `jira/client.py` ganhou `get_issue_worklogs(...)`, com paginação automática do endpoint `/rest/api/3/issue/{key}/worklog`.
+  - Criei `jira_capex_monthly.py`, um novo CLI para exportação CAPEX mensal baseado em `worklogs`.
+  - O CLI agora expande aliases de projeto conhecidos na busca (`W1NNRI`, `W1SFT`, `DA`) para reduzir falso negativo por chave alternativa.
+  - Quando a busca principal por `worklogDate` retorna vazia, o script cai automaticamente para uma busca por `updated` no mesmo período e continua filtrando os `worklogs` reais pelo intervalo solicitado.
+  - No modo fallback por `updated`, o script agora força a leitura do endpoint de `worklogs` por issue, mesmo quando o metadata embutido da busca vier vazio/ausente.
+  - O script monta um dataset detalhado com:
+    - `ID do Projeto`, `Descrição do Ativo`, `Colaborador`, `Data do Apontamento das Horas`, `Horas`, `Atividade Desenvolvida`
+    - colunas auxiliares de rastreabilidade (`Epic ID`, `Feature ID`, `Issue Key`, `Hierarchy Source`, `Fonte Atividade`, `Regra Atividade`, `ConfidenceScore`)
+  - A atividade foi normalizada com taxonomia inicial e ordem de precedência entre `worklog`, `issue summary` e fallback contextual.
+  - O consolidado mensal agrega por `mes + ativo + colaborador + atividade normalizada`, preservando origem e contexto hierárquico.
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile jira_capex_monthly.py jira\client.py`
+  - `C:\ProgramData\anaconda3\python.exe jira_capex_monthly.py --help`
+- Correção motivada por teste real:
+  - no tenant atual, a execução com `worklogDate` retornou `0` issues mesmo no cenário esperado; o script foi endurecido para usar fallback automático por `updated` quando isso acontecer
+  - no teste seguinte, a busca fallback encontrou `2403` issues mas ainda produziu `0` apontamentos; a coleta foi então ajustada para consultar o endpoint de `worklogs` diretamente por issue no modo fallback
+  - o filtro final de período também foi corrigido para aceitar o formato real de data/hora do Jira em worklogs (`...+0000`), que não estava sendo interpretado pelo parser inicial
+- Limitação de validação desta rodada:
+  - ainda não consegui reproduzir a chamada HTTP real deste ambiente dentro do sandbox do agente; a validação desta entrega ficou em CLI/sintaxe + correção dirigida a partir do log real fornecido pelo usuário
+- Comando-base sugerido para teste real:
+  - `C:\ProgramData\anaconda3\python.exe jira_capex_monthly.py --projects BF DT W1NNR S1NC --month 2026-03`
+- Suggested commit message:
+  - `feat(capex): export monthly jira worklogs with hierarchy and normalized activity`
+
+## Current Task (Planejar extração CAPEX mensal por épico, feature e itens vinculados)
+- [x] Revisar as fontes já existentes de portfólio, fluxo e process mining no repositório
+- [x] Mapear como a hierarquia Jira atual chega ao snapshot (`ParentID`, `FeatureLinkID`, `EpicLinkID`, `Principal`)
+- [x] Definir a estratégia para separar horas reais de apontamento versus horas heurísticas
+- [x] Registrar plano de execução, validação e entregáveis para a implementação
+
+## Specification (Planejar extração CAPEX mensal por épico, feature e itens vinculados)
+- Objetivo: preparar a implementação de uma base mensal de CAPEX que permita extrair, consolidar e estimar esforço para `épicos`, `features` e demais itens vinculados, produzindo pelo menos os campos `ID do Projeto`, `Descrição do Ativo`, `Colaborador`, `Data do Apontamento das Horas`, `Horas` e `Atividade Desenvolvida`.
+- Escopo previsto para a implementação:
+  - `jira_portfolio_to_csv.py`
+  - `jira_to_pipeline_csv.py`
+  - novo extrator de `worklogs` do Jira ou extensão do exportador atual
+  - possível consolidado derivado em CSV/XLSX para consumo gerencial
+  - `tasks/todo.md`
+- Premissas confirmadas no código atual:
+  - o snapshot de portfólio já exporta vínculos hierárquicos úteis (`ParentID`, `FeatureLinkID`, `EpicLinkID`, `HierarchyLinkSource`)
+  - o downstream de fluxo também carrega esses vínculos e metadados operacionais por item
+  - o process mining já gera proxy de horas por pessoa/status (`HorasNoFluxo`), útil para heurística e calibração
+  - o repositório atual não extrai `worklogs` do Jira; portanto, `Data do Apontamento das Horas` e `Horas` reais exigem uma nova coleta
+- Plano de execução proposto:
+  - Fase 1: criar a camada de relacionamento hierárquico `Épico -> Feature -> Item`, reconciliando `portfolio snapshot` com `downstream de fluxo`
+  - Fase 2: extrair `worklogs` reais do Jira para todos os itens elegíveis da hierarquia e normalizar um dataset no grão `1 linha = 1 apontamento`
+  - Fase 3: montar a tabela-base CAPEX mensal com as colunas pedidas e colunas técnicas auxiliares (`EpicID`, `FeatureID`, `IssueKey`, `Tipo`, `OrigemHoras`, `ConfidenceScore`, `MesCompetencia`)
+  - Fase 4: aplicar heurísticas apenas onde não houver apontamento real, usando produtividade observada, complexidade (`Story Points`/`T-shirt`) e sinais de process mining
+  - Fase 5: consolidar visão mensal por ativo/projeto/pessoa e gerar saída gerencial em CSV/XLSX
+  - Fase 6: validar reconciliação entre horas reais, horas inferidas e totais mensais por projeto
+- Regras de mapeamento propostas para os campos de negócio:
+  - `ID do Projeto`: chave do item de portfólio/ativo pai (`Epic` ou `Feature`) mais a chave do projeto Jira operacional quando necessário
+  - `Descrição do Ativo`: título do épico/feature pai; quando não houver pai resolvido, usar o título do item de trabalho com flag de órfão
+  - `Colaborador`: autor do `worklog`; em linha heurística, responsável/canonical person name da evidência operacional
+  - `Data do Apontamento das Horas`: `started` do `worklog`; em linha heurística, data de competência derivada da evidência principal (mês de execução)
+  - `Horas`: `timeSpentSeconds / 3600` no caso real; valor estimado/calibrado no caso heurístico
+  - `Atividade Desenvolvida`: comentário do `worklog` quando existir; fallback para resumo do item + etapa/status dominante ou descrição heurística do evento
+- Modelo recomendado para a coluna `Atividade Desenvolvida`:
+  - `AtividadeDesenvolvidaRaw`: texto original do `worklog`, quando existir
+  - `AtividadeDesenvolvidaNormalizada`: categoria padronizada para leitura CAPEX
+  - `FonteAtividade`: origem do texto/categoria (`worklog`, `issue_summary`, `process_mining`, `bitbucket`, `heuristica`)
+  - `RegraAtividade`: regra aplicada para derivação da categoria final, facilitando auditoria posterior
+- Taxonomia inicial proposta para `AtividadeDesenvolvidaNormalizada`:
+  - `Discovery / Refinamento`
+  - `Desenvolvimento`
+  - `Correção de Defeito`
+  - `Code Review`
+  - `Teste / QA`
+  - `Homologação`
+  - `Deploy / Release`
+  - `Suporte / Sustentação`
+  - `Dados / Integração`
+  - `Arquitetura / Tech Debt`
+  - `Gestão / Alinhamento Técnico`
+  - `Não Classificada`
+- Ordem de precedência sugerida para derivar `Atividade Desenvolvida`:
+  - prioridade 1: comentário do `worklog`
+  - prioridade 2: tipo do item + resumo da issue + contexto do pai (`Feature`/`Epic`)
+  - prioridade 3: status/etapa dominante do item no período via changelog ou process mining
+  - prioridade 4: título de PR/commit vinculado quando enriquecer a leitura operacional
+  - prioridade 5: fallback heurístico controlado para `Não Classificada`
+- Regras iniciais de normalização propostas:
+  - item do tipo `Bug`/`Defeito` prioriza `Correção de Defeito`, salvo evidência forte de `Code Review`, `Teste / QA` ou `Deploy / Release`
+  - comentários/textos contendo `review`, `revisão`, `code review`, `pull request`, `pr` priorizam `Code Review`
+  - comentários/textos contendo `teste`, `qa`, `homolog`, `validação`, `validacao` priorizam `Teste / QA` ou `Homologação` conforme o contexto do status
+  - comentários/textos contendo `deploy`, `release`, `publicação`, `publicacao`, `produção`, `producao` priorizam `Deploy / Release`
+  - itens ligados a pipeline/process mining em áreas de espera técnica, modelagem de dados, integrações ou ETL podem cair em `Dados / Integração`
+  - itens com label/tipo/sumário relacionados a arquitetura, refatoração, débito técnico, observabilidade ou performance podem cair em `Arquitetura / Tech Debt`
+  - ausência de sinal suficiente mantém `AtividadeDesenvolvidaNormalizada = Não Classificada`, preservando o texto bruto e a fonte
+- Estratégia de heurística proposta:
+  - prioridade 1: horas reais de `worklog`
+  - prioridade 2: proxy operacional por changelog/process mining (`HorasNoFluxo` e horas úteis normalizadas)
+  - prioridade 3: distribuição por complexidade/entrega (`Story Points`, `T-shirt`, throughput e produtividade histórica)
+  - calibrar fatores usando o subconjunto de itens/pessoas que tiver simultaneamente `worklog` real e evidência operacional, para evitar fator fixo arbitrário
+- Critério de aceite da futura implementação:
+  - conseguimos extrair uma base mensal com linhas reais de apontamento para todos os itens que tiverem `worklog`
+  - itens sem `worklog` passam a receber horas heurísticas explicitamente identificadas, sem misturar com horas reais
+  - a hierarquia `épico -> feature -> item` fica rastreável no consolidado final
+  - o consolidado mensal permite soma por ativo, por colaborador e por mês de competência
+  - `Atividade Desenvolvida` fica auditável com texto bruto, categoria normalizada e fonte de derivação
+  - a solução traz evidência de qualidade, incluindo taxa de cobertura de horas reais e erro da heurística no subconjunto calibrado
+
+## Review (Planejamento da extração CAPEX mensal)
+- Contexto confirmado:
+  - o repositório já possui os blocos necessários para relacionamento hierárquico e sinais de produtividade, mas ainda não possui extração nativa de `worklogs`
+  - `jira_portfolio_to_csv.py` e `jira_to_pipeline_csv.py` já carregam vínculos suficientes para amarrar `épicos`, `features` e itens filhos
+  - `process_mining_jira.py` já produz `HorasPessoaResumo` e `HorasPessoaStatus`, que podem sustentar a camada heurística
+- Principal decisão arquitetural do plano:
+  - separar explicitamente `horas reais` de `horas heurísticas` desde o modelo de dados, em vez de produzir uma única coluna sem rastreabilidade de origem
+- Riscos/lacunas já identificados:
+  - sem novo extrator de `worklog`, não há como preencher de forma confiável `Data do Apontamento das Horas` real
+  - `Atividade Desenvolvida` pode vir incompleta quando o comentário do `worklog` estiver vazio; nesse caso será necessário fallback operacional
+  - parte da hierarquia ainda pode chegar incompleta no Jira; o consolidado precisará tratar órfãos explicitamente
+- Decisão complementar desta rodada:
+  - `Atividade Desenvolvida` não deve ser armazenada apenas como texto livre; o plano passa a prever `texto bruto + categoria normalizada + fonte + regra aplicada`
+- Ordem recomendada de implementação:
+  - primeiro habilitar `worklogs` e consolidado hierárquico
+  - depois implementar a normalização de `Atividade Desenvolvida` e calibrar a heurística com base real observada
+  - por último publicar visão mensal gerencial e indicadores de cobertura/qualidade
+- Suggested commit message:
+  - `docs(capex): plan monthly capex extraction for epics features and linked work items`
+
 ## Current Task (Produtividade Dev: manter time visível sem entregas no recorte)
 - [x] Mapear como derivar a lista oficial de pessoas do time a partir de `people_config.json`
 - [x] Incluir membros oficiais do time no `per_dev` mesmo quando o recorte não trouxer entregas elegíveis
@@ -7274,3 +7458,39 @@
   - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual na UI para confirmar o número esperado do WIP no cenário do print com e sem o checkbox de criação
 - Suggested commit message:
   - `fix(service-sla): derive current wip from live scope and respect stage filter`
+
+## Current Task (Corrigir Work Item Age e WIP por Pessoa para base viva)
+- [x] Registrar a correção das abas `Work Item Age` e `WIP por Pessoa` para não dependerem do recorte global por `DataDone`
+- [x] Ajustar `Work Item Age` para montar o snapshot ativo a partir da base viva e manter referência temporal coerente
+- [x] Ajustar `WIP por Pessoa` para calcular a série semanal sobre base viva e respeitar o filtro de etapas
+- [x] Registrar lição, validar sintaxe e revisar diff com commit sugerido
+
+## Specification (Corrigir Work Item Age e WIP por Pessoa para base viva)
+- Objetivo: impedir que as abas `Work Item Age` e `WIP por Pessoa` fiquem vazias quando o flag `Usar data de criação do card` está desligado, fazendo ambas usarem uma base viva no fim de cada snapshot em vez da base global recortada por `DataDone`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - trocar `df.copy()` por uma base sem recorte de data (`apply_date=False`) mantendo os demais filtros ativos
+  - reaproveitar `build_live_wip_snapshot(...)` para o snapshot ativo de `Work Item Age` e para cada ponto semanal de `WIP por Pessoa`
+  - manter o filtro `Etapa de Fluxo (WIP)` aplicado também nessas duas abas
+  - em `Work Item Age`, expor uma data de início de referência coerente com o snapshot vivo quando `DataInProgress` estiver ausente e o helper cair em fallback
+- Critério de aceite:
+  - desligar o flag de criação não esvazia artificialmente as abas `Work Item Age` e `WIP por Pessoa`
+  - as duas abas continuam respeitando projeto/tipo/classe/responsável/criador e `Etapa de Fluxo (WIP)`
+  - o arquivo continua válido sintaticamente
+
+## Review (Corrigir Work Item Age e WIP por Pessoa para base viva)
+- O que foi ajustado:
+  - a aba `Work Item Age` agora monta `df_age_base` sem recorte global de data e deriva o snapshot ativo com `build_live_wip_snapshot(...)`, em vez de depender do `df` já filtrado por `DataDone`/`Created`
+  - a própria aba passou a usar `DataInicioRef` como fallback visual para a data de início quando o snapshot vivo é sustentado por `WIPStartRef`, preservando coerência entre idade calculada e data exibida
+  - a aba `WIP por Pessoa` agora calcula a série semanal executando `build_live_wip_snapshot(...)` a cada `week_end`, de modo que o WIP semanal reflita base viva e continue respeitando o filtro `Etapa de Fluxo (WIP)`
+  - com isso, desligar `Usar data de criação do card` deixa de remover artificialmente os itens ativos dessas duas abas
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py`, `tasks/todo.md` e `tasks/lessons.md`
+- Risco residual:
+  - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no cenário reportado para conferir as contagens esperadas nas duas abas
+- Suggested commit message:
+  - `fix(wip-tabs): use live scope for work item age and wip per person`

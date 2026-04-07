@@ -317,6 +317,80 @@ class JiraClient:
 
         return histories
 
+    def get_issue_worklogs(
+        self,
+        issue_key: str,
+        page_size: int = 100,
+        start_at: int = 0,
+        initial_worklogs: Optional[List[Dict[str, Any]]] = None,
+        total_hint: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retorna os worklogs completos de uma issue, paginando automaticamente."""
+        worklogs: List[Dict[str, Any]] = list(initial_worklogs or [])
+        cursor = max(0, int(start_at))
+        total = int(total_hint) if total_hint is not None else 0
+
+        while True:
+            payload = self._get(
+                f"/rest/api/3/issue/{issue_key}/worklog",
+                params={"startAt": cursor, "maxResults": page_size},
+            )
+            page_worklogs = payload.get("worklogs", [])
+            worklogs.extend(page_worklogs)
+
+            if not total:
+                total = int(payload.get("total", 0))
+            cursor += len(page_worklogs)
+            if not page_worklogs or (total > 0 and cursor >= total):
+                break
+
+        return worklogs
+
+    def get_updated_worklog_ids(self, since_ms: int) -> List[Dict[str, Any]]:
+        """Lista IDs de worklogs atualizados desde um timestamp em ms."""
+        values: List[Dict[str, Any]] = []
+        cursor = int(since_ms)
+
+        while True:
+            payload = self._get("/rest/api/3/worklog/updated", params={"since": cursor})
+            page_values = payload.get("values", [])
+            if isinstance(page_values, list):
+                values.extend(page_values)
+
+            if payload.get("lastPage") is True:
+                break
+
+            next_cursor = payload.get("until")
+            try:
+                next_cursor_int = int(next_cursor)
+            except (TypeError, ValueError):
+                break
+            if next_cursor_int <= cursor:
+                break
+            cursor = next_cursor_int
+
+        return values
+
+    def get_worklogs_by_ids(self, worklog_ids: List[int | str]) -> List[Dict[str, Any]]:
+        """Busca detalhes de worklogs por ID via endpoint global."""
+        cleaned_ids: List[int] = []
+        for worklog_id in worklog_ids:
+            try:
+                cleaned_ids.append(int(worklog_id))
+            except (TypeError, ValueError):
+                continue
+
+        if not cleaned_ids:
+            return []
+
+        worklogs: List[Dict[str, Any]] = []
+        for start in range(0, len(cleaned_ids), 1000):
+            chunk = cleaned_ids[start : start + 1000]
+            payload = self._post("/rest/api/3/worklog/list", payload={"ids": chunk})
+            if isinstance(payload, list):
+                worklogs.extend(payload)
+        return worklogs
+
     def list_visible_projects(self, page_size: int = 50) -> List[Dict[str, Any]]:
         """Lista projetos visíveis para o token autenticado."""
         payload = self._get("/rest/api/3/project/search", params={"maxResults": page_size})
