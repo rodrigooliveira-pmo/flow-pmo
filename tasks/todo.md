@@ -7205,3 +7205,72 @@
   - os vínculos `parent-child` seguem sendo exportados via coluna `Links` quando o Jira resolve o pai
 - Suggested commit message:
   - `chore(businessmap): generate separated epic, feature, and befinance exports`
+## Current Task (Diagnosticar divergência de WIP com base do período em criação vs done)
+- [x] Mapear como o checkbox `Usar data de criação do card` altera o dataset-base filtrado
+- [x] Rastrear a lógica do card `WIP atual` na aba `Serviço e SLA`
+- [x] Consolidar a causa da diferença observada (`0` vs `39`) com evidências de código
+- [x] Registrar review e commit sugerido da investigação
+
+## Specification (Diagnosticar divergência de WIP com base do período em criação vs done)
+- Objetivo: explicar por que o card `WIP atual` da aba `Serviço e SLA` muda de `0` para `39` quando o filtro `Usar data de criação do card` é ligado no mesmo recorte e projeto.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - seguir o callback principal a partir de `filter_df(...)` para entender a semântica do recorte temporal nos dois modos
+  - rastrear como a aba `Serviço e SLA` deriva `active_wip` e o card `WIP atual`
+  - comparar explicitamente o impacto de `DataDone` vs `Created` sobre itens ainda não finalizados
+- Critério de aceite:
+  - a explicação identifica o ponto exato do código que gera a divergência
+  - fica claro se a diferença é efeito esperado da semântica atual ou indício de inconsistência de desenho
+
+## Review (Diagnosticar divergência de WIP com base do período em criação vs done)
+- Causa principal confirmada:
+  - o callback principal chama `filter_df(...)` com `use_creation_date=False` por padrão, e nesse modo o recorte temporal usa `DataDone`; itens sem `DataDone` ficam fora do dataset porque `build_date_range_mask(...)` compara diretamente essa série contra `start_date` e `end_date`.
+  - como o card `WIP atual` da aba `Serviço e SLA` é calculado depois a partir de `df_scope`, quando a base do período é `DataDone` os itens ainda abertos já foram excluídos antes do cálculo do WIP.
+  - ao marcar `Usar data de criação do card`, o mesmo `filter_df(...)` troca a série-base para `Created`/equivalentes; com isso entram no dataset os cards criados no período mesmo que ainda estejam sem `DataDone`, e o cálculo de `active_wip` passa a encontrar os 39 itens.
+- Evidência direta no código:
+  - `resolve_filter_date_series(...)` alterna entre `Created` e `DataDone` em `dashboard_full.py`.
+  - `filter_df(...)` aplica o recorte temporal global antes de qualquer cálculo da aba.
+  - na aba `Serviço e SLA`, `active_wip` é calculado como itens com `DataInProgress <= end_ts` e `DataDone` nulo ou maior que `end_ts`, mas sempre sobre `df_scope`, que já chega filtrado pelo modo de data.
+- Observação importante:
+  - o dropdown `Etapa de Fluxo (WIP)` não é aplicado no card-resumo `WIP atual` dessa aba; ele entra na série semanal via `compute_weekly_service_metrics(...)`, mas o resumo usa `active_wip` bruto. Então o `39` reflete a base ativa no período filtrado, não necessariamente apenas as cinco etapas selecionadas no filtro de WIP.
+- Conclusão:
+  - a diferença `0` vs `39` é coerente com a semântica atual do código, mas revela uma inconsistência de desenho: no modo `DataDone`, o KPI chamado `WIP atual` deixa de medir WIP vivo e passa a medir apenas o subconjunto de itens concluídos no período, o que tende a zerar itens em aberto.
+- Suggested commit message:
+  - `docs(todo): record root cause for service sla wip divergence between done and created filters`
+## Current Task (Corrigir WIP atual da aba Serviço e SLA para base viva)
+- [x] Especificar a correção do card `WIP atual` para usar base viva no fim do período
+- [x] Ajustar o cálculo do resumo para não depender do recorte global por `DataDone`
+- [x] Fazer o card e os breakdowns de WIP respeitarem o filtro `Etapa de Fluxo (WIP)`
+- [x] Validar a mudança e registrar review com commit sugerido
+
+## Specification (Corrigir WIP atual da aba Serviço e SLA para base viva)
+- Objetivo: fazer com que o `WIP atual` da aba `Serviço e SLA` sempre represente trabalho vivo ao final do período selecionado, independentemente de o recorte global estar ancorado em `DataDone` ou `Data de criação`, e também respeite o filtro de etapas de WIP selecionado na UI.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - separar uma base específica de WIP vivo a partir de `fato`, preservando os filtros de projeto/tipo/classe/responsável/criador, mas sem excluir itens abertos por ausência de `DataDone`
+  - calcular `active_wip` do resumo sobre essa base viva no instante `end_ts`
+  - aplicar o filtro `Etapa de Fluxo (WIP)` ao resumo e aos breakdowns de WIP da aba
+  - manter os KPIs de entregas/lead time/vazão ancorados no recorte global já existente
+- Critério de aceite:
+  - o card `WIP atual` deixa de zerar apenas porque o recorte global está em `DataDone`
+  - ligar/desligar `Usar data de criação do card` não altera artificialmente o WIP vivo do mesmo período
+  - o número do card e as tabelas de WIP passam a respeitar a seleção de etapas de fluxo
+
+## Review (Corrigir WIP atual da aba Serviço e SLA para base viva)
+- O que foi ajustado:
+  - criei o helper `build_live_wip_snapshot(...)` em `dashboard_full.py` para montar um snapshot vivo no fim do período usando base sem recorte global de data, mantendo os filtros dimensionais ativos
+  - o card `WIP atual` e os breakdowns por tipo/urgência da aba `Serviço e SLA` passaram a usar essa base viva, em vez de reaproveitar `df_scope` já recortado por `DataDone` ou `Created`
+  - o resumo agora aplica o filtro `Etapa de Fluxo (WIP)` também ao snapshot do card, alinhando o número do KPI às tabelas de WIP
+  - quando há filtro de etapas de WIP, o snapshot aceita fallback de início por `DataBacklog`/data de criação para não excluir artificialmente itens vivos em etapas anteriores a `DataInProgress`
+  - a aba deixou de retornar `Sem dados` apenas porque a base temporal global ficou vazia; ela agora continua se existir base viva de WIP para os filtros selecionados
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual na UI para confirmar o número esperado do WIP no cenário do print com e sem o checkbox de criação
+- Suggested commit message:
+  - `fix(service-sla): derive current wip from live scope and respect stage filter`

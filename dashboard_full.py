@@ -6666,25 +6666,52 @@ def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, 
     return summary
 
 
+def build_live_wip_snapshot(df_source, end_ts, projeto=None, selected_stages=None, stage_map=None):
+    if df_source is None or getattr(df_source, 'empty', True):
+        return pd.DataFrame()
+
+    active = df_source.copy()
+    active['DataInProgress'] = pd.to_datetime(active.get('DataInProgress'), errors='coerce')
+    active['DataDone'] = pd.to_datetime(active.get('DataDone'), errors='coerce')
+    wip_start_ref = active['DataInProgress'].copy()
+    if selected_stages:
+        if 'DataBacklog' in active.columns:
+            wip_start_ref = wip_start_ref.combine_first(pd.to_datetime(active.get('DataBacklog'), errors='coerce'))
+        wip_start_ref = wip_start_ref.combine_first(resolve_creation_date_series(active))
+    active['WIPStartRef'] = pd.to_datetime(wip_start_ref, errors='coerce')
+    active = active[
+        active['WIPStartRef'].notna() &
+        (active['WIPStartRef'] <= end_ts) &
+        (active['DataDone'].isna() | (active['DataDone'] > end_ts))
+    ].copy()
+    active = filter_items_by_current_stage(
+        active,
+        projeto=projeto,
+        selected_stages=selected_stages,
+        stage_map=stage_map,
+    )
+    if active.empty:
+        return active
+
+    active['WIPAge'] = (pd.Timestamp(end_ts) - active['WIPStartRef']).dt.total_seconds() / 86400.0
+    active['WIPAge'] = pd.to_numeric(active['WIPAge'], errors='coerce')
+    return active
+
+
 def build_service_wip_breakdown(df_scope, end_ts, dimension_col, dimension_label):
     empty = pd.DataFrame(columns=[dimension_label, 'Itens em WIP', 'Age Médio', 'Age P85', 'Mais Antigo'])
     if df_scope is None or df_scope.empty or dimension_col not in df_scope.columns:
         return empty
 
     active = df_scope.copy()
-    active['DataInProgress'] = pd.to_datetime(active.get('DataInProgress'), errors='coerce')
-    active['DataDone'] = pd.to_datetime(active.get('DataDone'), errors='coerce')
-    active = active[
-        active['DataInProgress'].notna() &
-        (active['DataInProgress'] <= end_ts) &
-        (active['DataDone'].isna() | (active['DataDone'] > end_ts))
-    ].copy()
+    if 'WIPAge' not in active.columns:
+        active['DataInProgress'] = pd.to_datetime(active.get('DataInProgress'), errors='coerce')
+        active['WIPAge'] = (pd.Timestamp(end_ts) - active['DataInProgress']).dt.total_seconds() / 86400.0
+        active['WIPAge'] = pd.to_numeric(active['WIPAge'], errors='coerce')
     if active.empty:
         return empty
 
     active[dimension_label] = _service_dimension_label(active[dimension_col])
-    active['WIPAge'] = (pd.Timestamp(end_ts) - active['DataInProgress']).dt.total_seconds() / 86400.0
-    active['WIPAge'] = pd.to_numeric(active['WIPAge'], errors='coerce')
     summary = (
         active.groupby(dimension_label, dropna=False)
         .agg(
@@ -9184,7 +9211,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         end_ts = pd.to_datetime(end_date)
 
         df_scope = df.copy()
-        if df_scope.empty:
+        df_wip_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            apply_date=False,
+        )
+        if df_scope.empty and df_wip_base.empty:
             return html.Div('Sem dados para os filtros selecionados.')
 
         weeks = pd.date_range(start=start_ts, end=end_ts + pd.Timedelta(days=7), freq=WEEK_DATE_RANGE_FREQ)
@@ -9242,15 +9281,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if not df_done_period_eligible.empty:
             df_done_period_eligible['ClassificacaoUrgencia'] = df_done_period_eligible.apply(classify_urgency_label, axis=1)
 
-        active_wip = df_scope[
-            data_in_progress.notna() &
-            (data_in_progress <= end_ts) &
-            (data_done.isna() | (data_done > end_ts))
-        ].copy()
+        active_wip = build_live_wip_snapshot(
+            df_wip_base,
+            end_ts,
+            projeto=projeto,
+            selected_stages=etapa_fluxo,
+            stage_map=wip_stage_map if etapa_fluxo else None,
+        )
         if not active_wip.empty:
             active_wip['ClassificacaoUrgencia'] = active_wip.apply(classify_urgency_label, axis=1)
-            active_wip['WIPAge'] = (end_ts - pd.to_datetime(active_wip['DataInProgress'], errors='coerce')).dt.total_seconds() / 86400.0
-        else:
+        elif 'WIPAge' not in active_wip.columns:
             active_wip['WIPAge'] = pd.Series(dtype=float)
 
         lead_series = time_metric_series(df_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
