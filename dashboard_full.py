@@ -12783,9 +12783,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         backlog_avg = weekly_df['Backlog'].mean() if not weekly_df.empty else np.nan
         wip_avg = weekly_df['WIP'].mean() if not weekly_df.empty else np.nan
         total_system_avg = weekly_df['EstoqueTotal'].mean() if not weekly_df.empty else np.nan
-        backlog_current = float(weekly_df['Backlog'].iloc[-1]) if not weekly_df.empty else np.nan
-        wip_current = float(weekly_df['WIP'].iloc[-1]) if not weekly_df.empty else np.nan
-        total_system_current = float(weekly_df['EstoqueTotal'].iloc[-1]) if not weekly_df.empty else np.nan
         wip_age = (
             end_ts - pd.to_datetime(df_wip_end.get('LeadStart_Selected'), errors='coerce')
         ).dt.days.mean() if not df_wip_end.empty else np.nan
@@ -13138,9 +13135,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'flow_efficiency': {'title': 'Eficiência (1 - ρ)', 'value': queue_efficiency, 'format': '{:.2f}', 'status': classify_efficiency(queue_efficiency)},
             'flow_pressure': {'title': 'Pressão de fluxo (chegada/vazão)', 'value': pressure_ratio, 'format': '{:.2f}', 'status': classify_pressure(pressure_ratio)},
             'predictability': {'title': 'Previsibilidade (P85/P50)', 'value': predictability, 'format': '{:.2f}', 'status': predictability_status},
-            'backlog_current': {'title': 'Backlog atual', 'value': backlog_current, 'format': '{:.0f} itens', 'status': backlog_cv_status},
-            'wip_current': {'title': 'WIP atual (fim do período)', 'value': wip_current, 'format': '{:.0f} itens', 'status': wip_cv_status},
-            'total_system_current_exec': {'title': 'Estoque total atual', 'value': total_system_current, 'format': '{:.0f} itens', 'status': total_system_cv_status},
+            'backlog_current': {'title': 'Backlog atual', 'value': backlog_end_count, 'format': '{:.0f} itens', 'status': backlog_cv_status},
+            'wip_current': {'title': 'WIP atual (fim do período)', 'value': wip_end_count, 'format': '{:.0f} itens', 'status': wip_cv_status},
+            'total_system_current_exec': {'title': 'Estoque total atual', 'value': inventory_end_count, 'format': '{:.0f} itens', 'status': total_system_cv_status},
             'forecast_risk': {'title': 'Risco Forecasting (P98/Mediana)', 'value': risk_forecasting_ratio, 'format': '{:.2f}', 'status': classify_forecasting_risk(risk_forecasting_ratio)},
             'throughput_mix': {'title': 'Throughput valor x falha (%)', 'value': tp_relacao_display, 'format': '{}', 'status': tp_relacao_status},
         }

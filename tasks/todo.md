@@ -1,3 +1,31 @@
+## Current Task (Corrigir incoerência de WIP na leitura rápida do Painel Fluxo)
+- [x] Comparar a fórmula da leitura rápida com os cards de referência do mesmo painel
+- [x] Alinhar os indicadores atuais ao snapshot correto de fim do período
+- [x] Validar a correção e registrar review com commit sugerido
+
+## Specification (Corrigir incoerência de WIP na leitura rápida do Painel Fluxo)
+- Objetivo: corrigir a inconsistência entre os números da seção `Leitura Rápida em 6 Dimensões` e os `Indicadores de Referência do Fluxo`, garantindo que `WIP atual`, `Backlog atual` e `CFD / Estoque` usem o mesmo snapshot de fim do período.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - `WIP Atual` da leitura rápida bate com o `WIP` do card de referência
+  - `CFD / Estoque` da leitura rápida bate com `Estoque total do sistema`
+  - os indicadores atuais deixam de usar a última linha semanal quando o rótulo promete `fim do período`
+
+## Review (Corrigir incoerência de WIP na leitura rápida do Painel Fluxo)
+- Causa raiz confirmada:
+  - a seção `Leitura Rápida em 6 Dimensões` estava lendo `WIP atual`, `Backlog atual` e `Estoque total atual` a partir da última linha de `weekly_df`
+  - esse `weekly_df` representa buckets semanais e a última linha não necessariamente coincide com o `fim do período` selecionado
+  - os cards logo abaixo (`WIP`, `Backlog não comprometido`, `Estoque total do sistema`) já usavam o snapshot correto em `end_ts`, via `wip_end_count`, `backlog_end_count` e `inventory_end_count`
+- Correção aplicada:
+  - alinhei `backlog_current`, `wip_current` e `total_system_current_exec` para usar exatamente `backlog_end_count`, `wip_end_count` e `inventory_end_count`
+  - com isso, a leitura rápida agora usa a mesma fotografia temporal dos indicadores de referência do fluxo
+- Validação executada:
+  - `python -m py_compile dashboard_full.py`
+- Suggested commit message:
+  - `fix(dashboard): align quick flow summary with end-of-period wip snapshot`
+
 ## Current Task (Avaliar referência externa para incrementar o dashboard_full)
 - [x] Inspecionar a referência `https://focusedobjective.com/team-dashboard` e extrair padrões úteis
 - [x] Comparar esses padrões com a estrutura atual do `dashboard_full.py`
