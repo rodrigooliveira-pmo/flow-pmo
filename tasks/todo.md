@@ -1,3 +1,155 @@
+## Current Task (Implementar pipeline base de CAPEX simplificado)
+- [x] Ler tabela mensal de pessoas em `CSV/XLSX` com normalização de datas, decimais e colunas esperadas
+- [x] Carregar a hierarquia `BT` e os downstreams `BF/DT/S1NC/W1NNR` a partir dos arquivos `latest`
+- [x] Resolver o melhor ativo de cada entrega em camadas: `BT` -> `epico/feature local` -> `nao vinculado`
+- [x] Calcular pesos iniciais por tipo de entrega e distribuir `Horas Trabalhadas Evolucao` por BU entre os ativos do mes
+- [x] Gerar bases `detalhada`, `resumo por ativo` e `resumo por colaborador/BU` com rastreabilidade da origem do vinculo
+- [x] Validar com `py_compile` e smoke test do CLI usando um arquivo de capacidade de exemplo
+
+## Specification (Implementar pipeline base de CAPEX simplificado)
+- Objetivo: entregar uma primeira versao operacional do CAPEX mensal que leia a tabela de pessoas/capacidade, consolide as entregas concluidas do mes e distribua as horas de evolucao por ativo.
+- Decisoes da V1:
+  - priorizar arquivos `latest` ja extraidos, sem depender de consulta online ao Jira
+  - aceitar `CSV` ou `XLSX` para a tabela de pessoas
+  - usar vinculo em camadas para o ativo:
+    - `BT` quando `FeatureLinkID`, `EpicLinkID` ou `ParentID` apontarem para a hierarquia de portfolio
+    - `ProjetoLocal` quando existir `EpicLinkID`, `FeatureLinkID` ou `ParentID` no proprio projeto operacional
+    - `NaoVinculado` quando nao houver elo suficiente
+  - distribuir a bolsa mensal de `Horas Trabalhadas Evolucao` por `BU -> projeto operacional`
+- Regras operacionais iniciais:
+  - `Sistemas - W1NNER` -> `W1NNR`
+  - `Sistemas - S1NC` -> `S1NC`
+  - `BeFinance` -> `BF`
+  - `Dados` -> `DT`
+  - peso base por tipo de item:
+    - `Feature/Historia/User Story` = 1.0
+    - `Tarefa/Task/Tech` = 0.7
+    - `Bug/Problema/Bug Incident` = 0.5
+    - `Support/Ad-hoc/Subtarefa` = 0.3
+    - fallback = 0.4
+  - fator de complexidade:
+    - usar `Story Points` quando presente
+    - senao usar `EffortTShirtSize` em escala simples
+    - senao fator 1.0
+- Criterio de aceite desta etapa:
+  - o CLI le um arquivo real de pessoas
+  - produz um consolidado mensal com horas estimadas por ativo
+  - deixa explicita a origem do vinculo (`BT`, `ProjetoLocal`, `NaoVinculado`)
+  - reconcilia o total de horas de evolucao da entrada com o total distribuido na saida
+
+## Review (Implementar pipeline base de CAPEX simplificado)
+- Entregas desta rodada:
+  - criado o CLI `capex_delivery_estimator.py`
+  - criada a amostra `artifacts/capex/capex_people_sample_2026-03.csv` para smoke test local
+  - o pipeline gera quatro artefatos principais:
+    - `entregas.csv`
+    - `ativos.csv`
+    - `pessoas.csv`
+    - `projetos.csv`
+  - alem das bases tecnicas, o pipeline agora gera a camada final `layout-final.csv` exatamente no schema executivo pedido pelo usuario:
+    - `ID do Projeto`
+    - `Descricao do Ativo`
+    - `Colaborador`
+    - `Data do Apontamento das Horas`
+    - `Horas`
+    - `Atividade Desenvolvida`
+  - o workbook `.xlsx` opcional tambem ficou funcional
+- Regras implementadas:
+  - leitura de capacidade em `CSV/XLSX`
+  - mapeamento de `BU -> projeto operacional`
+  - resolucao de ativo em camadas:
+    - `BT` por `FeatureLinkID`, `EpicLinkID`, `ParentID` ou casamento exato por titulo
+    - `ProjetoLocal` por `Feature/Epic/Parent` local
+    - `NaoVinculado` como bucket explicito
+  - distribuicao das horas de evolucao por colaborador usando os pesos das entregas do projeto no mes
+- Validacao executada:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile capex_delivery_estimator.py`
+  - `C:\ProgramData\anaconda3\python.exe capex_delivery_estimator.py --help`
+  - `C:\ProgramData\anaconda3\python.exe capex_delivery_estimator.py --people-file artifacts\capex\capex_people_sample_2026-03.csv --month 2026-03`
+- Resultado do smoke test de marco/2026:
+  - `391` entregas consideradas
+  - `13` ativos consolidados
+  - `91` alocacoes `colaborador x ativo`
+  - `3137` linhas no `layout-final.csv`
+  - horas de evolucao reconciliadas: `2887.81 -> 2887.81`
+  - cobertura de vinculo das entregas:
+    - `BT = 62`
+    - `ProjetoLocal = 39`
+    - `NaoVinculado = 290`
+- Leitura principal do resultado:
+  - o pipeline base ficou operacional
+  - a reconciliacao de horas funciona
+  - a maior limitacao agora nao esta na alocacao, e sim na baixa cobertura de vinculo a `BT`, especialmente em `DT` e `W1NNR`
+- Proximo passo recomendado:
+  - enriquecer a regra de vinculacao para reduzir o bucket `NaoVinculado`
+  - avaliar se `pm4py` entra na calibragem de pesos ou apenas como evidencia complementar
+  - revisar se `Support/Ad-hoc` devem ter peso menor, ir para bucket separado, ou sair do CAPEX evolutivo
+- Suggested commit message:
+  - `feat(capex): estimate monthly asset capex from deliveries and team capacity`
+
+## Current Task (Replanejar CAPEX mensal por abordagem simples de entregas + capacidade)
+- [x] Registrar a mudança de direção após a tentativa detalhada via worklogs
+- [x] Definir a arquitetura simplificada com 4 blocos de dados: hierarquia, entregas, capacidade mensal e process mining
+- [x] Estabelecer a regra de estimativa de horas por projeto/ativo com base nas entregas e na distribuição de horas por BU/equipe
+- [x] Registrar o próximo passo de implementação de menor risco
+
+## Specification (Replanejar CAPEX mensal por abordagem simples de entregas + capacidade)
+- Objetivo: substituir a rota principal baseada em apontamentos reais por um modelo operacional mais simples e confiável para CAPEX mensal, usando `hierarquia de projetos/épicos/features`, `entregas realizadas`, `distribuição mensal de horas por pessoa/equipe` e `process mining` como calibração paralela.
+- Blocos de dados do modelo:
+  - `Hierarquia do ativo`: épicos e features do projeto `BT`, com seus links e vínculos hierárquicos
+  - `Entregas realizadas`: histórias, tarefas, bugs e demais itens concluídos nos projetos operacionais (`BF`, `DT`, `W1NNR`, `S1NC`)
+  - `Capacidade/alocação mensal`: tabela de pessoas por BU/projeto com horas mensais de evolução e sustentação
+  - `Calibração paralela`: dados de process mining via `pm4py`, usados para validar/ajustar pesos e não como fonte principal do CAPEX
+- Regra simplificada de alocação proposta:
+  - cada pessoa já traz uma bolsa mensal de horas de `Evolução` e `Sustentação`
+  - as horas de `Evolução` serão distribuídas entre os ativos/projetos em função das entregas realizadas no mês
+  - a distribuição usará pesos por tipo de entrega (`melhoria`, `feature`, `story`, `task`, `bug`, `support`) e poderá ser refinada por complexidade (`Story Points`, `T-shirt`, volume de itens)
+  - as horas de `Sustentação e Outras` permanecem fora do CAPEX evolutivo ou seguem para bucket separado de OPEX/sustentação
+- Fórmula operacional inicial sugerida:
+  - `peso_entrega = peso_tipo * fator_complexidade * fator_relevancia_hierarquica`
+  - `participacao_do_ativo_no_mes = soma_pesos_do_ativo / soma_pesos_da_BU_no_mes`
+  - `horas_capex_estimadas_do_ativo = participacao_do_ativo_no_mes * soma_horas_evolucao_da_BU_no_mes`
+- Mapeamento de BU/projeto inicial:
+  - `Sistemas - W1NNER` -> `W1NNR`
+  - `Sistemas - S1NC` -> `S1NC`
+  - `BeFinance` -> `BF`
+  - `Dados` -> `DT`
+  - `BT` entra como camada de portfólio/hierarquia dos ativos, não como origem principal das entregas operacionais
+- Saídas previstas:
+  - base detalhada `ativo x item entregue x pessoa/equipe x peso`
+  - resumo mensal `ativo x projeto x horas CAPEX estimadas`
+  - resumo por colaborador/BU para rastreabilidade da distribuição das horas de evolução
+  - camada paralela de calibração `pm4py` com tempos/variantes/gargalos para revisar pesos
+- Papel do process mining no novo desenho:
+  - medir tempo relativo por tipo de fluxo/status
+  - ajudar a calibrar pesos entre `bug`, `feature`, `task`, `suporte`, `dados`
+  - validar se um fluxo consome esforço desproporcional frente ao volume de entregas
+  - não bloquear a primeira versão do consolidado CAPEX
+- Critério de aceite da implementação revisada:
+  - conseguimos ligar `ativo (BT)` -> `entregas concluídas` -> `BU/equipe responsável`
+  - a distribuição mensal de horas de evolução fecha com o total mensal informado na tabela de pessoas
+  - o consolidado produz horas estimadas por ativo/projeto sem depender de worklogs do Jira
+  - a calibragem por process mining fica disponível como evidência complementar, não como pré-requisito
+
+## Review (Replanejamento CAPEX mensal por abordagem simples)
+- Decisão desta rodada:
+  - a rota baseada em `worklogs` deixa de ser a trilha principal do CAPEX mensal
+  - o modelo principal passa a ser `capacidade mensal por BU/equipe` distribuída por `entregas realizadas` e ancorada na hierarquia de `BT`
+  - o script `jira_capex_monthly.py` permanece apenas como experimento auxiliar/diagnóstico, não como peça central da primeira entrega
+- Vantagens da abordagem simplificada:
+  - reduz dependência de permissões/limitações do Jira em worklogs
+  - usa um insumo gerencial já pronto: horas mensais de evolução e sustentação por pessoa
+  - fica mais aderente ao objetivo executivo de CAPEX mensal
+  - permite começar rápido e calibrar depois com `Story Points`, tipos de demanda e `pm4py`
+- Próximo passo recomendado:
+  - implementar primeiro o pipeline de consolidação `BT + projetos operacionais + tabela de pessoas`
+  - em seguida aplicar pesos iniciais por tipo de entrega e fechar o primeiro consolidado mensal
+  - depois usar `pm4py` para revisar/calibrar os pesos
+- Assumption registrada:
+  - vou tratar a tabela de pessoas/hora enviada pelo usuário como a fonte mensal oficial de capacidade/alocação para a primeira versão do modelo
+- Suggested commit message:
+  - `docs(capex): replan monthly capex around deliveries and monthly team capacity`
+
 ## Current Task (Refatorar legibilidade da aba Work Item Age)
 - [x] Revisar a composição atual da aba `Work Item Age` e identificar os pontos de baixa legibilidade
 - [x] Ajustar tipografia, espaçamento e densidade visual dos cards e do cabeçalho da aba
@@ -61,10 +213,12 @@
 ## Review (Implementar extração CAPEX mensal via worklogs do Jira)
 - O que foi implementado:
   - `jira/client.py` ganhou `get_issue_worklogs(...)`, com paginação automática do endpoint `/rest/api/3/issue/{key}/worklog`.
+  - `jira/client.py` também passou a expor os endpoints globais `get_updated_worklog_ids(...)` e `get_worklogs_by_ids(...)` para fallback de extração mensal.
   - Criei `jira_capex_monthly.py`, um novo CLI para exportação CAPEX mensal baseado em `worklogs`.
   - O CLI agora expande aliases de projeto conhecidos na busca (`W1NNRI`, `W1SFT`, `DA`) para reduzir falso negativo por chave alternativa.
   - Quando a busca principal por `worklogDate` retorna vazia, o script cai automaticamente para uma busca por `updated` no mesmo período e continua filtrando os `worklogs` reais pelo intervalo solicitado.
   - No modo fallback por `updated`, o script agora força a leitura do endpoint de `worklogs` por issue, mesmo quando o metadata embutido da busca vier vazio/ausente.
+  - Se a rota por issue ainda não materializar apontamentos, o script tenta uma segunda rota pelos endpoints globais `/worklog/updated` + `/worklog/list` e depois recompõe o contexto hierárquico por `issueId`.
   - O script monta um dataset detalhado com:
     - `ID do Projeto`, `Descrição do Ativo`, `Colaborador`, `Data do Apontamento das Horas`, `Horas`, `Atividade Desenvolvida`
     - colunas auxiliares de rastreabilidade (`Epic ID`, `Feature ID`, `Issue Key`, `Hierarchy Source`, `Fonte Atividade`, `Regra Atividade`, `ConfidenceScore`)
@@ -77,6 +231,7 @@
   - no tenant atual, a execução com `worklogDate` retornou `0` issues mesmo no cenário esperado; o script foi endurecido para usar fallback automático por `updated` quando isso acontecer
   - no teste seguinte, a busca fallback encontrou `2403` issues mas ainda produziu `0` apontamentos; a coleta foi então ajustada para consultar o endpoint de `worklogs` diretamente por issue no modo fallback
   - o filtro final de período também foi corrigido para aceitar o formato real de data/hora do Jira em worklogs (`...+0000`), que não estava sendo interpretado pelo parser inicial
+  - como a rota por issue continuou sem materializar apontamentos no tenant atual, foi adicionada uma rota de fallback global de worklogs para o próximo teste real
 - Limitação de validação desta rodada:
   - ainda não consegui reproduzir a chamada HTTP real deste ambiente dentro do sandbox do agente; a validação desta entrega ficou em CLI/sintaxe + correção dirigida a partir do log real fornecido pelo usuário
 - Comando-base sugerido para teste real:

@@ -811,10 +811,17 @@ def write_xlsx_if_possible(path: str, raw_rows: List[Dict[str, Any]], summary_ro
     raw_df = pd.DataFrame(raw_rows, columns=RAW_COLUMNS)
     summary_df = pd.DataFrame(summary_rows, columns=SUMMARY_COLUMNS)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with pd.ExcelWriter(path) as writer:
-        raw_df.to_excel(writer, sheet_name="RawWorklogs", index=False)
-        summary_df.to_excel(writer, sheet_name="ResumoMensal", index=False)
-    return True
+    try:
+        with pd.ExcelWriter(path) as writer:
+            raw_df.to_excel(writer, sheet_name="RawWorklogs", index=False)
+            summary_df.to_excel(writer, sheet_name="ResumoMensal", index=False)
+        return True
+    except PermissionError:
+        print(
+            f"Workbook XLSX nao gerado por permissao negada: {path}. "
+            "Feche o arquivo se ele estiver aberto e rode novamente se precisar do XLSX."
+        )
+        return False
 
 
 def start_of_day_epoch_ms(day: date) -> int:

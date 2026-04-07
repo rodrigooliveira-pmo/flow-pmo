@@ -12,6 +12,20 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-04-07
+- Context: Primeira versao do pipeline CAPEX simplificado entregou bases tecnicas, mas ainda faltava o layout final de negocio pedido pelo usuario.
+- User correction: Reforcou que ainda precisava dos dados exatamente no formato `ID do Projeto`, `Descricao do Ativo`, `Colaborador`, `Data do Apontamento das Horas`, `Horas`, `Atividade Desenvolvida`.
+- Root cause: Eu tratei as tabelas intermediarias como suficientes porque o modelo interno estava correto, mas nao projetei logo de inicio a camada final no schema executivo consumido pelo negocio.
+- Prevention rule: Sempre que o usuario der um layout final explicito, gerar esse layout como artefato principal ou complementar obrigatorio, mesmo que o pipeline interno use tabelas mais ricas para rastreabilidade.
+- Action added to workflow: Em novos pipelines analiticos, confirmar cedo `schema interno` versus `schema final de entrega` e validar ambos antes de encerrar a implementacao.
+
+- Date: 2026-04-07
+- Context: Redefinição da estratégia do CAPEX mensal após tentativas de extrair worklogs reais do Jira.
+- User correction: Indicou que a abordagem baseada em worklogs estava complexa demais e direcionou para um modelo mais simples: extrair projetos/épicos e entregas realizadas, usar a distribuição mensal de pessoas por BU/projeto e estimar horas por tipo de entrega, com process mining em paralelo para calibração.
+- Root cause: Eu persisti tempo demais numa rota de extração detalhada de worklogs antes de validar se um modelo operacional mais simples e aderente ao uso gerencial já resolveria o problema.
+- Prevention rule: Quando o objetivo for alocação mensal executiva e já existir base de capacidade por pessoa/equipe, priorizar primeiro um modelo simples de estimativa por entregas e distribuição de horas antes de aprofundar integrações detalhadas de apontamento.
+- Action added to workflow: Em novas iniciativas de CAPEX/planejamento, comparar explicitamente duas opções no início: `modelo simples por capacidade + entregas` versus `modelo detalhado por apontamentos`, e começar pela menor que entregue valor confiável.
+
+- Date: 2026-04-07
 - Context: Implementação inicial do exportador CAPEX mensal baseado em worklogs do Jira.
 - User correction: Esclareceu que os épicos estão no board/projeto `BT` e as features também estão em `BT`, então a hierarquia de portfólio relevante para CAPEX está ancorada em `BT`.
 - Root cause: Eu concentrei a primeira execução do CAPEX nos projetos operacionais e tratei a hierarquia BT apenas como enriquecimento implícito, sem revalidar se `BT` também precisava entrar explicitamente no escopo da coleta.
