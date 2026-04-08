@@ -1,8 +1,8 @@
 ## Current Task (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
-- [ ] Localizar a composição atual da aba `tab-process-mining-jira` e mapear quais blocos do `Painel Fluxo` servem como referência visual
-- [ ] Reorganizar a tela com hero, cards executivos e seções visuais alinhadas ao padrão já usado no dashboard
-- [ ] Preservar os cálculos, gráficos e tabelas existentes, alterando apenas estrutura/apresentação
-- [ ] Validar sintaxe, revisar diff e registrar review com commit sugerido
+- [x] Localizar a composição atual da aba `tab-process-mining-jira` e mapear quais blocos do `Painel Fluxo` servem como referência visual
+- [x] Reorganizar a tela com hero, cards executivos e seções visuais alinhadas ao padrão já usado no dashboard
+- [x] Preservar os cálculos, gráficos e tabelas existentes, alterando apenas estrutura/apresentação
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
 
 ## Specification (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
 - Objetivo: fazer a tela `Process Mining Jira - W1NNER (História, Task, Bug)` seguir o mesmo idioma visual do `Painel Fluxo`, com melhor hierarquia, agrupamento e densidade executiva.
@@ -18,6 +18,23 @@
   - a hierarquia visual fica alinhada ao `Painel Fluxo`
   - a leitura inicial da tela melhora com resumo executivo e seções bem demarcadas
   - o arquivo continua válido sintaticamente
+
+## Review (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
+- O que foi reorganizado:
+  - a aba ganhou um hero superior no mesmo idioma visual do `Painel Fluxo`, com contexto do período, fonte do relatório e highlights rápidos
+  - os KPIs antigos foram convertidos em cards executivos com borda superior, hierarquia tipográfica mais forte e grid responsivo
+  - gráficos e tabelas deixaram de ficar em sequência linear e passaram a ser agrupados em seções temáticas: `Operação por Pessoa`, `Descoberta do Fluxo`, `Conformidade PM4Py`, `Rastreabilidade Técnica` e `Bases Analíticas`
+- Decisões de design aplicadas:
+  - preservei todos os cálculos, datasets, gráficos e tabelas já existentes
+  - alinhei a aba ao padrão visual mais recente do dashboard usando hero claro, painéis com fundo suave, cards destacados e largura centralizada
+  - padronizei também o envelope visual de gráficos e `DataTable` para reduzir a sensação de tela “solta”
+- Evidência de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no navegador para calibrar quebra de grids e alturas dos gráficos no viewport real
+- Suggested commit message:
+  - `refactor(process-mining): align jira screen with flow panel visual pattern`
 
 ## Current Task (Ignorar artefatos CSV/XLSX do process mining no Git)
 - [x] Revisar o estado atual do `.gitignore` e da pasta `artifacts/process_mining`
