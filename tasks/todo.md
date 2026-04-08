@@ -8332,9 +8332,9 @@
   - `fix(runner): keep process mining batch running after per-project jira failures`
 ## Current Task (Desbloquear push removendo segredo do histórico local)
 - [x] Revisar `tasks/lessons.md`, estado do Git e o commit apontado pelo GitHub Push Protection
-- [ ] Remover `tmp/jira_env_no_bb.txt` do branch atual e proteger o repositório contra novo versionamento desse arquivo sensível
-- [ ] Reescrever os commits locais à frente de `origin/main` para eliminar o segredo do histórico sem perder as demais mudanças
-- [ ] Validar ausência do token no branch atual, revisar `git log/status` e registrar orientações finais de push
+- [x] Remover `tmp/jira_env_no_bb.txt` do branch atual e proteger o repositório contra novo versionamento desse arquivo sensível
+- [x] Reescrever os commits locais à frente de `origin/main` para eliminar o segredo do histórico sem perder as demais mudanças
+- [x] Validar ausência do token no branch atual, revisar `git log/status` e registrar orientações finais de push
 
 ## Specification (Desbloquear push removendo segredo do histórico local)
 - Objetivo: permitir o push para `main` removendo o token Atlassian detectado em `tmp/jira_env_no_bb.txt` do histórico local ainda não publicado.
@@ -8352,3 +8352,19 @@
   - `tmp/jira_env_no_bb.txt` deixa de ser rastreado neste branch
   - o repositório passa a ignorar esse artefato sensível
   - o branch fica pronto para novo push após atualização do remote para a URL migrada
+
+## Review (Desbloquear push removendo segredo do histórico local)
+- O que foi ajustado:
+  - removi `tmp/jira_env_no_bb.txt` do branch atual e adicionei a regra explícita `tmp/jira_env_no_bb.txt` no `.gitignore`
+  - reescrevi os commits locais à frente de `origin/main` para retirar esse arquivo de toda a linhagem ainda não publicada
+  - atualizei o `origin` para `https://github.com/rodrigooliveira-pmo/flow-pmo.git`, eliminando o aviso de repositório movido
+- Evidência de validação:
+  - `git log --oneline origin/main..HEAD` agora mostra 4 commits reescritos e limpos
+  - `git log --name-only origin/main..HEAD -- tmp/jira_env_no_bb.txt` não retorna ocorrências
+  - `git grep` e `rg` pelo token não encontraram mais o segredo no branch atual
+  - `git remote -v` confirma `origin` apontando para `flow-pmo.git`
+- Risco residual:
+  - o token já foi exposto localmente e bloqueado pelo GitHub; o ideal é revogar/regenerar esse token no Atlassian mesmo após a limpeza do histórico
+  - como os SHAs mudaram, o próximo envio para `main` deve usar push normal para a URL nova; se alguma automação local ainda referenciar SHAs antigos, ela precisará ser atualizada
+- Suggested commit message:
+  - `chore(security): remove local jira env artifact from git`
