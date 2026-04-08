@@ -1,8 +1,8 @@
 ## Current Task (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
-- [ ] Revisar a composição atual do `Painel Fluxo` e consolidar quais KPIs devem aparecer apenas uma vez na leitura rápida
-- [ ] Reorganizar hero, grupos de leitura rápida e seção de referência para reduzir repetição sem perder escaneabilidade
-- [ ] Ajustar a malha de indicadores complementares para deixar apenas sinais que agregam contexto novo
-- [ ] Validar sintaxe, revisar diff e registrar review com commit sugerido
+- [x] Revisar a composição atual do `Painel Fluxo` e consolidar quais KPIs devem aparecer apenas uma vez na leitura rápida
+- [x] Reorganizar hero, grupos de leitura rápida e seção de referência para reduzir repetição sem perder escaneabilidade
+- [x] Ajustar a malha de indicadores complementares para deixar apenas sinais que agregam contexto novo
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
 
 ## Specification (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
 - Objetivo: reavaliar a aba `Painel Fluxo` para reduzir redundância visual e semântica, preservando a estrutura de leitura rápida já consolidada no dashboard.
@@ -19,6 +19,24 @@
   - indicadores duplicados deixam de aparecer em múltiplas camadas
   - a seção de leitura rápida permanece preservada como estrutura principal da aba
   - o arquivo continua válido sintaticamente
+
+## Review (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
+- O que foi refatorado:
+  - o hero da aba deixou de repetir KPIs e passou a funcionar como guia de leitura da tela, preservando o layout rápido sem ecoar `Throughput`, `Lead Time`, `WIP` e `CFD / Estoque`
+  - os painéis laterais de `Médias do Período` e `Snapshot Atual` deixaram de repetir números já exibidos nos cards e passaram a orientar a leitura com contexto e bullets
+  - a seção de referência foi enxugada para focar sinais estruturais complementares (`demanda x capacidade`, `entrada x saída` e leituras de Lei de Little), removendo contagens correntes já mostradas acima
+  - a grade inferior virou explicitamente uma camada de `Indicadores Complementares`, com exclusão dos KPIs âncora que já aparecem na leitura rápida
+- Duplicidades removidas ou reduzidas:
+  - `Throughput`, `Lead Time P85`, `WIP Atual`, `CFD / Estoque` e `Previsibilidade` deixaram de reaparecer na grade complementar
+  - `Backlog atual`, `WIP` e `Estoque total atual` deixaram de ocupar também os tiles de referência
+  - os antigos painéis-resumo deixaram de espelhar os mesmos números dos cards principais
+- Evidência de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no navegador para conferir o respiro final entre seções e a densidade dos cards em desktop/mobile
+- Suggested commit message:
+  - `refactor(flow-panel): remove duplicated indicators and streamline quick-reading layout`
 
 ## Current Task (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
 - [x] Localizar a composição atual da aba `tab-process-mining-jira` e mapear quais blocos do `Painel Fluxo` servem como referência visual
@@ -8322,6 +8340,22 @@
   - tornar `run_process_mining_projects.ps1` resiliente a falhas de `jira_to_pipeline_csv.py` por projeto, acumulando aviso e seguindo, em vez de abortar o lote inteiro no primeiro erro.
 - Suggested commit message:
   - `docs(todo): record live diagnosis of batch runner network exhaustion for bf dt outputs`
+
+## Review Addendum (Smoke test operacional BF/DT + CAPEX latest em 2026-04-08)
+- Evidência operacional mais recente:
+  - o runner completo foi executado com `run_all_projects.ps1` em modo focado no CAPEX, mantendo o loop operacional dos projetos e a publicação final dos aliases `latest`
+  - nessa execução, `BF` e `DT` avançaram com sucesso até a geração/publicação dos artefatos em [`Dados\latest`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest) e no pacote [`Dados\latest\latest-upload`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest/latest-upload)
+  - os artefatos `befinance-process-mining-latest.xlsx`, `befinance-downstream-latest-data.csv`, `dataanalytics-process-mining-latest.xlsx` e `dataanalytics-downstream-latest-data.csv` ficaram com timestamps novos de `2026-04-08`
+- Resultado do smoke test CAPEX:
+  - o runner gerou e publicou com sucesso [`capex-raw-latest.csv`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest/capex-raw-latest.csv), [`capex-summary-latest.csv`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest/capex-summary-latest.csv) e [`capex-latest.xlsx`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest/capex-latest.xlsx)
+  - o pacote final [`latest-upload`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest/latest-upload) também passou a conter os aliases CAPEX e os arquivos de `BF/DT`
+  - o resumo operacional do `jira_capex_monthly.py` nesta execução foi: `2 apontamento(s)`, `0.58 hora(s)`, `2 ativo(s)` e `1 colaborador(es)`
+- Conclusão atualizada:
+  - `BF` e `DT` não estão bloqueados estruturalmente no runner atual; a produção dos dois projetos funcionou nesta execução de validação
+  - o risco que permanece é a instabilidade/custo de rede do lote, com vários `429 Too Many Requests` no enriquecimento Bitbucket e fallback de busca de worklogs no Jira
+  - o pipeline do `CAPEX latest` está operacional de ponta a ponta, mas a cobertura de dados ainda está baixa pelo volume retornado no ambiente atual
+- Suggested commit message:
+  - `test(runner): verify bf dt outputs and capex latest operational flow`
 ## Current Task (Tornar run_process_mining_projects.ps1 resiliente por projeto)
 - [ ] Revisar o fluxo atual de falha do runner por projeto (`jira`, `process mining`, `bitbucket`, `latest-upload`)
 - [ ] Alterar `run_process_mining_projects.ps1` para acumular falhas por projeto sem abortar o lote inteiro

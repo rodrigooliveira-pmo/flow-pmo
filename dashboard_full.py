@@ -15512,19 +15512,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     }),
                     html.H4('Leitura Rápida do Fluxo', style={'marginBottom': '8px', 'fontSize': '34px', 'lineHeight': '1.05', 'color': '#10202f'}),
                     html.P(
-                        'Primeiro lemos as médias do período; depois olhamos a fotografia do fim do recorte. Assim, cadência semanal e estoque atual ficam claramente separados.',
+                        'Primeiro lemos as médias do período; depois olhamos a fotografia do fim do recorte. Assim, cadência semanal, carga ativa e referências estruturais ficam separados sem repetir o mesmo KPI em várias camadas.',
                         style={'color': '#4d5c6b', 'marginBottom': '0', 'fontSize': '14px', 'lineHeight': '1.6'}
                     ),
                 ], style={'flex': '1.6 1 340px'}),
                 html.Div([
-                    build_summary_chip('Throughput', fmt_value(current_quick_metrics['throughput_avg'], '{:.1f}'), 'média semanal concluída'),
-                    build_summary_chip('Lead Time P85', fmt_value(current_quick_metrics['lead_time_p85'], '{:.1f} dias'), 'cenário conservador'),
-                    build_summary_chip('WIP Atual', fmt_value(current_quick_metrics['wip_current'], '{:.0f}'), 'carga ativa atual'),
-                    build_summary_chip('CFD / Estoque', fmt_value(current_quick_metrics['inventory_current'], '{:.0f}'), 'backlog + WIP'),
+                    build_context_chip('1. Médias do Período', 'cadência, prazo, previsibilidade e ruído operacional'),
+                    build_context_chip('2. Snapshot Atual', 'carga viva, estoque total e execução do backlog conhecido'),
+                    build_context_chip('3. Referências Estruturais', 'demanda x capacidade, entrada x saída e leituras pela Lei de Little'),
                 ], style={
                     'flex': '2.2 1 420px',
                     'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fit, minmax(150px, 1fr))',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
                     'gap': '10px',
                 }),
             ], style={
@@ -15610,7 +15609,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
 
         flow_reference_cards = html.Div([
-            html.H4("Indicadores de Referência do Fluxo", style={'textAlign': 'center', 'marginBottom': '12px', 'marginTop': '8px'}),
+            html.H4("Referências Estruturais do Fluxo", style={'textAlign': 'center', 'marginBottom': '8px', 'marginTop': '8px'}),
+            html.P(
+                "Bloco complementar para ler tensão do sistema e relações estruturais de estoque, compromisso e vazão sem repetir os KPIs âncora da leitura rápida.",
+                style={'textAlign': 'center', 'color': '#5f6e7b', 'marginBottom': '14px'}
+            ),
             html.Div([
                 html.Div([
                     indicator_dots(dot_teal),
@@ -15735,6 +15738,30 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             }),
         ], style={'maxWidth': '1200px', 'margin': '0 auto 20px auto', 'padding': '0 6px', 'backgroundColor': ref_panel_bg})
 
+        complementary_metric_section = html.Div([
+            html.Div([
+                html.Div('Leitura complementar', style={
+                    'display': 'inline-block',
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.05em',
+                    'textTransform': 'uppercase',
+                    'color': '#5f6e7b',
+                    'backgroundColor': '#f5f7fa',
+                    'border': '1px solid #d6dee6',
+                    'borderRadius': '999px',
+                    'padding': '5px 10px',
+                    'marginBottom': '10px',
+                }),
+                html.H4("Indicadores Complementares", style={'marginBottom': '8px', 'color': '#10202f'}),
+                html.P(
+                    "Esta grade fica só com sinais adicionais de média, compromisso, pressão e risco que aprofundam a análise sem repetir os indicadores já destacados acima.",
+                    style={'color': '#5f6e7b', 'marginBottom': '0', 'fontSize': '13px', 'lineHeight': '1.6'}
+                ),
+            ], style={'padding': '0 6px'}),
+            html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
+        ], style={'maxWidth': '1200px', 'margin': '0 auto'})
+
         return html.Div([
             html.H3("Painel Principal de Gestão de Fluxo", style={'textAlign': 'center'}),
             leadtime_selection_summary,
@@ -15747,7 +15774,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ),
             flow_dimension_section,
             flow_reference_cards,
-            html.Div(card_rows, style={'maxWidth': '1200px', 'margin': '0 auto'}),
+            complementary_metric_section,
         ])
 
 
