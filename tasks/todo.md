@@ -8727,3 +8727,43 @@
   - a validação desta rodada foi sintática e por smoke tests de dados; ainda vale um smoke test visual no navegador para confirmar que os dois gráficos agora renderizam no cenário do usuário
 - Suggested commit message:
   - `fix(produtividade-dev): unblock monthly ied and ecr trends`
+
+## Current Task (Corrigir falha de abertura da aba Produtividade Dev em produção)
+- [x] Reproduzir localmente a falha ao abrir `tab-produtividade-dev`
+- [x] Identificar a exceção/causa raiz no fluxo recente da aba
+- [x] Aplicar a correção mínima e validar com smoke test + compilação
+
+## Specification (Corrigir falha de abertura da aba Produtividade Dev em produção)
+- Objetivo: restaurar a abertura da aba `Produtividade Dev` em produção, eliminando a exceção silenciosa que impede a renderização da tela.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reproduzir a chamada de `render_tab(..., tab='tab-produtividade-dev', ...)` localmente
+  - revisar os trechos alterados recentemente nessa aba, com foco em variáveis de escopo e dados mensais
+  - corrigir a menor causa raiz possível sem alterar a leitura executiva da tela
+- Critério de aceite:
+  - a chamada da aba deixa de lançar exceção
+  - `dashboard_full.py` continua válido sintaticamente
+  - a investigação fica documentada com evidências e commit sugerido
+
+## Review (Corrigir falha de abertura da aba Produtividade Dev em produção)
+- Causa raiz confirmada:
+  - a aba quebrava em runtime dentro de `render_tab(..., 'tab-produtividade-dev', ...)` ao montar o gráfico `Δ ECR`
+  - o `hovertemplate` desse gráfico usava uma `f-string` contendo `%{customdata[1]}`, e o Python tentava avaliar `customdata` como variável local, gerando `NameError`
+- Evidência da reprodução:
+  - chamada local de `render_tab('services', 'tab-produtividade-dev', '2026-01-01', '2026-04-08', ...)` falhou com:
+    - `NameError: name 'customdata' is not defined`
+    - ponto de falha em `dashboard_full.py`, no bloco do `fig_delta_ecr`
+- Correção aplicada:
+  - extraí o prefixo textual do streak (`Streak ECR≥...`) para `_ecr_streak_hover_label`
+  - o `hovertemplate` agora concatena esse prefixo com a expressão Plotly literal `%{customdata[1]}`, sem deixar a `f-string` interpolar `customdata`
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - nova chamada local de `render_tab('services', 'tab-produtividade-dev', '2026-01-01', '2026-04-08', ...)` retornando `dash.html.Div.Div`
+  - smoke test local confirmando `has_children=True` e `child_count=27`
+- Risco residual:
+  - continuam aparecendo `SettingWithCopyWarning` em outro trecho do dashboard durante a renderização, mas eles não impediram a abertura da aba nesta investigação
+  - não validei no navegador de produção, então ainda vale um smoke test visual após o deploy
+- Suggested commit message:
+  - `fix(produtividade-dev): stop delta-ecr hovertemplate from crashing tab render`

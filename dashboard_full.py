@@ -21409,6 +21409,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         _ecr_trend_df = _ecr_trend_df.sort_values('Δ ECR (p.p.)', ascending=True)
         fig_delta_ecr = go.Figure()
         if not _ecr_trend_df.empty:
+            _ecr_streak_hover_label = f'Streak ECR≥{_ECR_MATURITY_THRESHOLD:.0f}%: '
             def _ecr_color(row):
                 if row.get('Maturidade Estimativa') == 'Maduro em Estimativa':
                     return '#27ae60'
@@ -21427,7 +21428,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     '<b>%{y}</b><br>'
                     'Δ ECR: <b>%{x:+.1f} p.p.</b><br>'
                     'ECR atual: %{customdata[0]:.1f}%<br>'
-                    f'Streak ECR≥{_ECR_MATURITY_THRESHOLD:.0f}%: %{customdata[1]} mês(es)<br>'
+                    + _ecr_streak_hover_label + '%{customdata[1]} mês(es)<br>'
                     'Status: <b>%{customdata[2]}</b><extra></extra>'
                 ),
             ))
