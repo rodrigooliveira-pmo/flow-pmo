@@ -57,6 +57,7 @@ $latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
 $jiraBitbucketCommitDepth = if ($env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH) { $env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH } else { '250' }
 $jiraBitbucketMinIntervalMs = if ($env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS) { $env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS } else { '750' }
+$dtBoardJql = 'project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC'
 
 function Get-ProjectBitbucketRepos {
     param(
@@ -122,7 +123,7 @@ $projects = @(
     @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'W1NNR') },
     @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'S1NC') },
     @{ Key = 'BF'; FilePrefix = 'befinance-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'BF') },
-    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'DT') }
+    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'DT'); Jql = $dtBoardJql }
 )
 
 Write-Host "Iniciando exportação Jira -> CSV..." -ForegroundColor Cyan
@@ -166,6 +167,10 @@ foreach ($p in $projects) {
         '--workers', $Workers,
         '--skip-devexecutor-bitbucket'
     )
+    if ($p.Jql) {
+        $exportArgs += @('--jql', $p.Jql)
+        Write-Host "Usando JQL dedicada do projeto: $($p.Jql)" -ForegroundColor DarkCyan
+    }
     if ($RunDetailedChangelogExport) {
         $exportArgs += @('--detailed-changelog-out', $detailedChangelogOut)
         Write-Host "Changelog detalhado: $detailedChangelogOut"

@@ -1204,6 +1204,7 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alia
     commits = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     pullrequests = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
     stats = {}
+    reviewed_authors_by_person = {}
 
     def _ensure_person(raw_name):
         person = _canonical_person_name(raw_name, alias_index=alias_index)
@@ -1218,7 +1219,9 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alia
                 'Reprovacoes': 0,
                 'PRs Declinados (Autor)': 0,
                 'Commits': 0,
+                'Devs Revisados': 0,
             }
+        reviewed_authors_by_person.setdefault(key, set())
         return key
 
     if not commits.empty and {'author', 'date'}.issubset(commits.columns):
@@ -1258,17 +1261,31 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alia
         if 'updated_on' in prs.columns:
             review_window = prs[(prs['updated_on'] >= start_ts) & (prs['updated_on'] < end_ts)]
         for _, row in review_window.iterrows():
+            reviewed_author = _canonical_person_name(row.get('author'), alias_index=alias_index)
+            reviewed_author_key = reviewed_author.lower() if reviewed_author else None
+            reviewers_in_pr = set()
             for approver in _split_people_field(row.get('approved_by')):
                 person_key = _ensure_person(approver)
                 if person_key:
                     stats[person_key]['Aprovacoes'] += 1
+                    if reviewed_author_key and person_key != reviewed_author_key:
+                        reviewers_in_pr.add(person_key)
             for rejector in _split_people_field(row.get('changes_requested_by')):
                 person_key = _ensure_person(rejector)
                 if person_key:
                     stats[person_key]['Reprovacoes'] += 1
+                    if reviewed_author_key and person_key != reviewed_author_key:
+                        reviewers_in_pr.add(person_key)
+            if reviewed_author:
+                for reviewer_key in reviewers_in_pr:
+                    reviewed_authors_by_person.setdefault(reviewer_key, set()).add(reviewed_author)
 
     if not stats:
         return pd.DataFrame(), {}
+
+    for person_key, reviewed_people in reviewed_authors_by_person.items():
+        if person_key in stats:
+            stats[person_key]['Devs Revisados'] = len(reviewed_people)
 
     df_metrics = pd.DataFrame(stats.values())
     df_metrics['Total Contribuicoes'] = (
@@ -1288,6 +1305,7 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alia
         'Reprovacoes': int(df_metrics['Reprovacoes'].sum()),
         'PRs Declinados (Autor)': int(df_metrics['PRs Declinados (Autor)'].sum()),
         'Commits': int(df_metrics['Commits'].sum()),
+        'Devs Revisados': int(df_metrics['Devs Revisados'].sum()) if 'Devs Revisados' in df_metrics.columns else 0,
     }
 
 
@@ -2287,6 +2305,120 @@ def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None):
         except Exception:
             continue
 
+    return result
+
+
+def _compute_monthly_ecr_series(df_base, start_ts, end_ts, alias_index=None):
+    """Retorna {pessoa: [(month_label, ecr_value, itens_puxados), ...]} para tendência mensal de ECR.
+
+    O ECR é recalculado mês a mês usando a mesma lógica de `build_dev_productivity_metrics`.
+    Meses com menos de 2 itens puxados por dev são omitidos para reduzir ruído.
+    """
+    result = {}
+    if df_base is None or df_base.empty:
+        return result
+    if 'DataInProgress' not in df_base.columns:
+        return result
+
+    try:
+        from dateutil.relativedelta import relativedelta as _rdelta
+    except ImportError:
+        return result
+
+    start_ts = pd.to_datetime(start_ts)
+    end_ts = pd.to_datetime(end_ts)
+
+    months = []
+    cur = start_ts.replace(day=1)
+    while cur < end_ts and len(months) < 24:
+        m_end = cur + _rdelta(months=1)
+        months.append((cur, min(m_end, end_ts), cur.strftime('%b/%y')))
+        cur = m_end
+
+    for m_start, m_end, m_label in months:
+        try:
+            _pd_m, _, _ = build_dev_productivity_metrics(df_base, m_start, m_end)
+            if _pd_m.empty or 'Pessoa' not in _pd_m.columns or 'ECR' not in _pd_m.columns:
+                continue
+            for _, row in _pd_m.iterrows():
+                pessoa = str(row.get('Pessoa', '') or '').strip()
+                ecr = pd.to_numeric(pd.Series([row.get('ECR', np.nan)]), errors='coerce').iloc[0]
+                itens_puxados = int(row.get('Itens Puxados', 0) or 0)
+                if pessoa and pd.notna(ecr) and itens_puxados >= 2:
+                    result.setdefault(pessoa, []).append((m_label, float(ecr), itens_puxados))
+        except Exception:
+            continue
+
+    return result
+
+
+def _compute_dev_aging_rates(df_base, start_ts, end_ts, alias_index=None, threshold_days=30):
+    """Retorna taxa de aging por dev separando `rescue` (entregues) de `pull` (puxados)."""
+    empty = pd.DataFrame(columns=['Pessoa', 'Aging Rescue Rate (%)', 'Aging Pull Rate (%)'])
+    if df_base is None or df_base.empty or 'DataInProgress' not in df_base.columns:
+        return empty
+
+    aging_df = df_base.copy()
+    creation_series = resolve_creation_date_series(aging_df)
+    if not creation_series.notna().any():
+        return empty
+
+    aging_df['_DataCriacao'] = creation_series
+    aging_df['_Pessoa'] = _resolve_dev_person_series(aging_df, alias_index=alias_index)
+    aging_df['DataInProgress'] = pd.to_datetime(aging_df['DataInProgress'], errors='coerce')
+    if 'DataDone' in aging_df.columns:
+        aging_df['DataDone'] = pd.to_datetime(aging_df['DataDone'], errors='coerce')
+    else:
+        aging_df['DataDone'] = pd.NaT
+    aging_df['_aging_days'] = (aging_df['DataInProgress'] - aging_df['_DataCriacao']).dt.days
+
+    aging_base = aging_df[
+        (aging_df['DataInProgress'] >= start_ts) &
+        (aging_df['DataInProgress'] < end_ts) &
+        aging_df['_Pessoa'].astype(str).str.strip().ne('') &
+        aging_df['_aging_days'].notna()
+    ].copy()
+    if aging_base.empty:
+        return empty
+
+    total_pulled_g = aging_base.groupby('_Pessoa').size()
+    aged_pulled_g = aging_base[
+        aging_base['_aging_days'] > threshold_days
+    ].groupby('_Pessoa').size()
+    result = (
+        (aged_pulled_g / total_pulled_g.clip(lower=1) * 100)
+        .round(1)
+        .rename('Aging Pull Rate (%)')
+        .reset_index()
+        .rename(columns={'_Pessoa': 'Pessoa'})
+    )
+
+    aging_delivered = aging_base[
+        (aging_base['DataDone'] >= start_ts) &
+        (aging_base['DataDone'] < end_ts)
+    ].copy()
+    if callable(done_time_eligible_mask):
+        try:
+            aging_delivered = aging_delivered[done_time_eligible_mask(aging_delivered)]
+        except Exception:
+            pass
+    if not aging_delivered.empty:
+        total_delivered_g = aging_delivered.groupby('_Pessoa').size()
+        aged_delivered_g = aging_delivered[
+            aging_delivered['_aging_days'] > threshold_days
+        ].groupby('_Pessoa').size()
+        rescue_df = (
+            (aged_delivered_g / total_delivered_g.clip(lower=1) * 100)
+            .round(1)
+            .rename('Aging Rescue Rate (%)')
+            .reset_index()
+            .rename(columns={'_Pessoa': 'Pessoa'})
+        )
+        result = result.merge(rescue_df, on='Pessoa', how='outer')
+
+    for col in ['Aging Rescue Rate (%)', 'Aging Pull Rate (%)']:
+        if col not in result.columns:
+            result[col] = np.nan
     return result
 
 
@@ -19138,27 +19270,33 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         pm_item_person_map = _build_dev_item_person_map(df_prod_base, alias_index=alias_index_prod)
 
         def _load_bb_for_projects(projects: list[str]) -> tuple[pd.DataFrame, dict]:
-            """Carrega Bitbucket de um ou mais projetos e consolida."""
-            frames = []
+            """Carrega Bitbucket de um ou mais projetos e consolida sobre logs crus."""
+            env_map = _load_bitbucket_prefix_map()
+            loaded_prefixes = set()
+            combined_logs = {'commits': [], 'pullrequests': [], 'pipelines': []}
             for proj in projects:
+                project_key = str(proj or '').strip().upper()
+                prefix = env_map.get(project_key) or PROJECT_BITBUCKET_PREFIX.get(project_key)
+                if prefix and prefix in loaded_prefixes:
+                    continue
+                if prefix:
+                    loaded_prefixes.add(prefix)
                 logs = load_project_bitbucket_logs(proj)
-                df_bb, _ = compute_bitbucket_contributor_metrics(
-                    logs, start_ts_prod, end_ts_prod, alias_index=alias_index_prod
-                )
-                if not df_bb.empty:
-                    frames.append(df_bb)
-            if not frames:
+                if not isinstance(logs, dict):
+                    continue
+                for log_name in ['commits', 'pullrequests', 'pipelines']:
+                    df_log = logs.get(log_name, pd.DataFrame())
+                    if df_log is not None and not df_log.empty:
+                        combined_logs[log_name].append(df_log.copy())
+            if not any(combined_logs.values()):
                 return pd.DataFrame(), {}
-            combined = pd.concat(frames, ignore_index=True)
-            if 'Pessoa' not in combined.columns:
-                return pd.DataFrame(), {}
-            num_cols = [c for c in combined.columns if c != 'Pessoa']
-            agg = {c: 'sum' for c in num_cols if combined[c].dtype.kind in 'if'}
-            if not agg:
-                return combined.drop_duplicates('Pessoa'), {}
-            result = combined.groupby('Pessoa', dropna=False).agg(agg).reset_index()
-            totals = {c: int(result[c].sum()) for c in agg}
-            return result, totals
+            merged_logs = {
+                log_name: pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+                for log_name, frames in combined_logs.items()
+            }
+            return compute_bitbucket_contributor_metrics(
+                merged_logs, start_ts_prod, end_ts_prod, alias_index=alias_index_prod
+            )
 
         # Decide quais projetos carregar para Bitbucket
         # W1NNER e S1NC estão no mesmo repo (w1nner), então basta um dos dois
@@ -19173,12 +19311,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         bb_df_prod, _ = _load_bb_for_projects(bb_projects)
 
         if not bb_df_prod.empty and 'Pessoa' in bb_df_prod.columns:
-            bb_cols_available = [c for c in ['Pessoa', 'Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes'] if c in bb_df_prod.columns]
+            bb_cols_available = [c for c in ['Pessoa', 'Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes', 'Devs Revisados'] if c in bb_df_prod.columns]
             # Enriquece BU nos dados Bitbucket para herdar da config de pessoas
             bb_df_prod['BU'] = bb_df_prod['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index_prod))
             per_dev = pd.merge(per_dev, bb_df_prod[bb_cols_available], on='Pessoa', how='left')
 
-        for col in ['Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes']:
+        for col in ['Commits', 'PRs Abertos', 'PRs Merged', 'PRs Declinados (Autor)', 'Aprovacoes', 'Reprovacoes', 'Devs Revisados']:
             if col not in per_dev.columns:
                 per_dev[col] = 0
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce').fillna(0).astype(int)
@@ -19434,48 +19572,80 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             return np.nan
         per_dev['Δ IED Trend'] = per_dev['Pessoa'].apply(_ied_trend_delta)
 
-        # ── Aging Rescue Rate — % de itens resgatados do backlog antigo ───────
+        # ── Tendência mensal do ECR — confiabilidade de estimativa ───────────
+        # ECR = % de itens puxados com estimativa real (não inferida).
+        # Meta gerencial: ECR ≥ 80% em 3 meses consecutivos => dev maduro em estimativa.
+        _ECR_MATURITY_THRESHOLD = 80.0
+        _ECR_MATURITY_STREAK = 3
+        _monthly_ecr_data = {}
+        if _n_meses_period >= 0.8:
+            try:
+                _monthly_ecr_data = _compute_monthly_ecr_series(
+                    df_prod_base, start_ts_prod, end_ts_prod,
+                    alias_index=alias_index_prod,
+                )
+            except Exception:
+                _monthly_ecr_data = {}
+
+        def _ecr_trend_delta(pessoa):
+            pts = _monthly_ecr_data.get(str(pessoa), [])
+            if len(pts) >= 2:
+                return round(float(pts[-1][1]) - float(pts[0][1]), 1)
+            return np.nan
+
+        def _ecr_tail_streak(pessoa):
+            streak = 0
+            for _, ecr_value, _ in reversed(_monthly_ecr_data.get(str(pessoa), [])):
+                if pd.notna(ecr_value) and float(ecr_value) >= _ECR_MATURITY_THRESHOLD:
+                    streak += 1
+                else:
+                    break
+            return streak
+
+        def _ecr_maturity_label(pessoa):
+            pts = _monthly_ecr_data.get(str(pessoa), [])
+            streak = _ecr_tail_streak(pessoa)
+            if streak >= _ECR_MATURITY_STREAK:
+                return 'Maduro em Estimativa'
+            if len(pts) >= 2:
+                return 'Em evolução'
+            return 'Sem base'
+
+        per_dev['Δ ECR (p.p.)'] = per_dev['Pessoa'].apply(_ecr_trend_delta)
+        per_dev['Meses ECR>=80 Consecutivos'] = per_dev['Pessoa'].apply(_ecr_tail_streak)
+        per_dev['Maturidade Estimativa'] = per_dev['Pessoa'].apply(_ecr_maturity_label)
+
+        # ── Aging Rates — backlog antigo ao ser puxado ────────────────────────
         # Item "antigo" = data_criacao→DataInProgress > 30 dias antes de ser puxado.
-        # Usa resolve_creation_date_series() para suportar qualquer nome de coluna
-        # (DataCriacao, Created, CreatedDate, IssueCreated, etc.).
+        # Separa:
+        # - Aging Rescue Rate: % dos cards ENTREGUES que já estavam envelhecidos ao serem puxados
+        # - Aging Pull Rate: % dos cards PUXADOS que já estavam envelhecidos ao serem puxados
         # Referência: Jørgensen (IST 2023) — itens com high aging têm menor chance de entrega.
         _AGING_THRESHOLD_DAYS = 30
-        if 'DataInProgress' in df_prod_base.columns:
-            _aging_df = df_prod_base.copy()
-            # Resolve data de criação independente do nome da coluna
-            _criacao_series = resolve_creation_date_series(_aging_df)
-            if _criacao_series.notna().any():
-                _aging_df['_DataCriacao'] = _criacao_series
-                _aging_df['_Pessoa'] = _resolve_dev_person_series(_aging_df, alias_index=alias_index_prod)
-                _aging_df['DataInProgress'] = pd.to_datetime(_aging_df['DataInProgress'], errors='coerce')
-                _aging_df['_aging_days'] = (
-                    _aging_df['DataInProgress'] - _aging_df['_DataCriacao']
-                ).dt.days
-                _aging_pulled = _aging_df[
-                    (_aging_df['DataInProgress'] >= start_ts_prod) &
-                    (_aging_df['DataInProgress'] < end_ts_prod) &
-                    _aging_df['_Pessoa'].astype(str).str.strip().ne('') &
-                    _aging_df['_aging_days'].notna()
-                ].copy()
-                if not _aging_pulled.empty:
-                    _total_pulled_g = _aging_pulled.groupby('_Pessoa').size()
-                    _rescued_g = _aging_pulled[
-                        _aging_pulled['_aging_days'] > _AGING_THRESHOLD_DAYS
-                    ].groupby('_Pessoa').size()
-                    _arr = (
-                        _rescued_g / _total_pulled_g.clip(lower=1) * 100
-                    ).round(1).rename('Aging Rescue Rate (%)')
-                    per_dev = per_dev.merge(
-                        _arr.reset_index().rename(columns={'_Pessoa': 'Pessoa'}),
-                        on='Pessoa', how='left',
-                    )
-                    per_dev['Aging Rescue Rate (%)'] = per_dev['Aging Rescue Rate (%)'].fillna(0.0)
-                else:
-                    per_dev['Aging Rescue Rate (%)'] = np.nan
-            else:
-                per_dev['Aging Rescue Rate (%)'] = np.nan
+        _aging_rates_df = _compute_dev_aging_rates(
+            df_prod_base,
+            start_ts_prod,
+            end_ts_prod,
+            alias_index=alias_index_prod,
+            threshold_days=_AGING_THRESHOLD_DAYS,
+        )
+        if not _aging_rates_df.empty:
+            per_dev = per_dev.merge(_aging_rates_df, on='Pessoa', how='left')
+            per_dev['Aging Rescue Rate (%)'] = pd.to_numeric(
+                per_dev['Aging Rescue Rate (%)'], errors='coerce'
+            )
+            per_dev['Aging Pull Rate (%)'] = pd.to_numeric(
+                per_dev['Aging Pull Rate (%)'], errors='coerce'
+            )
+            per_dev.loc[per_dev['Itens Entregues'].gt(0), 'Aging Rescue Rate (%)'] = (
+                per_dev.loc[per_dev['Itens Entregues'].gt(0), 'Aging Rescue Rate (%)'].fillna(0.0)
+            )
+            per_dev.loc[per_dev['Itens Puxados'].gt(0), 'Aging Pull Rate (%)'] = (
+                per_dev.loc[per_dev['Itens Puxados'].gt(0), 'Aging Pull Rate (%)'].fillna(0.0)
+            )
         else:
             per_dev['Aging Rescue Rate (%)'] = np.nan
+            per_dev['Aging Pull Rate (%)'] = np.nan
 
         # Filtro por BU (inline, sem necessidade de novo callback)
         bus_disponiveis = sorted(per_dev['BU'].dropna().unique().tolist())
@@ -20123,7 +20293,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Commits', 'PRs Abertos', 'PRs Merged',
             'Pipelines Total', 'Pipeline Success Rate (%)',
             # Revisão
-            'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao',
+            'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao', 'Devs Revisados',
             # Process Mining — qualidade de processo
             'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
             'Complexidade Variante',
@@ -20146,14 +20316,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Score Complexidade Puxado',
             # Novos indicadores
             'DD_FP', 'KCR', 'ECR', 'Estabilidade_Throughput',
+            'Δ ECR (p.p.)', 'Maturidade Estimativa',
             # Previsibilidade de Lead Time (P85/P50)
             'Lead Time P50 (dias)', 'Lead Time P85 (dias)', 'Razão P85/P50', 'Previsibilidade LT',
             # WIP médio (Little's Law)
             'WIP Medio',
             # IED trend mensal
             'Δ IED Trend',
-            # Aging Rescue Rate
+            # Aging rates
             'Aging Rescue Rate (%)',
+            'Aging Pull Rate (%)',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
 
@@ -20187,6 +20359,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             prod_display['Δ IEF–IED'] = prod_display['Δ IEF–IED'].apply(
                 lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
             )
+        if 'Δ ECR (p.p.)' in prod_display.columns:
+            prod_display['Δ ECR (p.p.)'] = prod_display['Δ ECR (p.p.)'].apply(
+                lambda v: f'{float(v):+.1f}' if pd.notna(v) else '—'
+            )
         for _lt_num_col in ['Lead Time P50 (dias)', 'Lead Time P85 (dias)', 'Razão P85/P50', 'WIP Medio']:
             if _lt_num_col in prod_display.columns:
                 prod_display[_lt_num_col] = prod_display[_lt_num_col].apply(
@@ -20198,6 +20374,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             )
         if 'Aging Rescue Rate (%)' in prod_display.columns:
             prod_display['Aging Rescue Rate (%)'] = prod_display['Aging Rescue Rate (%)'].apply(
+                lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
+            )
+        if 'Aging Pull Rate (%)' in prod_display.columns:
+            prod_display['Aging Pull Rate (%)'] = prod_display['Aging Pull Rate (%)'].apply(
                 lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
             )
 
@@ -20254,6 +20434,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                  'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
                 {'if': {'filter_query': '{Δ IED Trend} contains "-"', 'column_id': 'Δ IED Trend'},
                  'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                # Δ ECR — melhoria ou deterioração da confiabilidade de estimativa
+                {'if': {'filter_query': '{Δ ECR (p.p.)} contains "+"', 'column_id': 'Δ ECR (p.p.)'},
+                 'backgroundColor': '#d1ecf1', 'color': '#0c5460', 'fontWeight': '700'},
+                {'if': {'filter_query': '{Δ ECR (p.p.)} contains "-"', 'column_id': 'Δ ECR (p.p.)'},
+                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                # Maturidade de estimativa
+                {'if': {'filter_query': '{Maturidade Estimativa} = "Maduro em Estimativa"', 'column_id': 'Maturidade Estimativa'},
+                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                {'if': {'filter_query': '{Maturidade Estimativa} = "Em evolução"', 'column_id': 'Maturidade Estimativa'},
+                 'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
+                {'if': {'filter_query': '{Maturidade Estimativa} = "Sem base"', 'column_id': 'Maturidade Estimativa'},
+                 'backgroundColor': '#f1f3f5', 'color': '#495057', 'fontWeight': '600'},
             ],
         )
 
@@ -21128,10 +21320,52 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             plot_bgcolor='#fafafa',
         )
 
-        # ── Fig: Aging Rescue Rate — % de itens antigos resgatados ───────────
+        # ── Fig: Δ ECR — variação mensal da confiabilidade de estimativa ─────
+        _ecr_trend_df = per_dev[per_dev['Δ ECR (p.p.)'].notna()].copy() if 'Δ ECR (p.p.)' in per_dev.columns else pd.DataFrame()
+        _ecr_trend_df = _ecr_trend_df.sort_values('Δ ECR (p.p.)', ascending=True)
+        fig_delta_ecr = go.Figure()
+        if not _ecr_trend_df.empty:
+            def _ecr_color(row):
+                if row.get('Maturidade Estimativa') == 'Maduro em Estimativa':
+                    return '#27ae60'
+                return '#2980b9' if float(row.get('Δ ECR (p.p.)', 0) or 0) >= 0 else '#e74c3c'
+            _ecr_colors = [_ecr_color(row) for _, row in _ecr_trend_df.iterrows()]
+            fig_delta_ecr.add_trace(go.Bar(
+                y=_ecr_trend_df['Pessoa'],
+                x=_ecr_trend_df['Δ ECR (p.p.)'],
+                orientation='h',
+                marker_color=_ecr_colors,
+                marker_line_width=0,
+                text=[f'{v:+.1f}' for v in _ecr_trend_df['Δ ECR (p.p.)']],
+                textposition='outside',
+                customdata=_ecr_trend_df[['ECR', 'Meses ECR>=80 Consecutivos', 'Maturidade Estimativa']].values,
+                hovertemplate=(
+                    '<b>%{y}</b><br>'
+                    'Δ ECR: <b>%{x:+.1f} p.p.</b><br>'
+                    'ECR atual: %{customdata[0]:.1f}%<br>'
+                    f'Streak ECR≥{_ECR_MATURITY_THRESHOLD:.0f}%: %{customdata[1]} mês(es)<br>'
+                    'Status: <b>%{customdata[2]}</b><extra></extra>'
+                ),
+            ))
+            fig_delta_ecr.add_vline(x=0, line_color='#495057', line_width=1.5)
+        fig_delta_ecr.update_layout(
+            title=dict(
+                text='Δ ECR — Tendência Mensal da Confiabilidade de Estimativa<br>'
+                     f'<sup>Meta: ECR ≥ {_ECR_MATURITY_THRESHOLD:.0f}% por {_ECR_MATURITY_STREAK} meses consecutivos = maduro em estimativa.</sup>',
+                font=dict(size=13),
+            ),
+            xaxis=dict(title='Variação do ECR (pontos percentuais)', gridcolor='#f0f0f0'),
+            yaxis=dict(title='', automargin=True),
+            template='plotly_white',
+            height=max(300, 28 * max(len(_ecr_trend_df), 1) + 110),
+            margin=dict(t=80, b=50, l=180, r=90),
+            plot_bgcolor='#fafafa',
+        )
+
+        # ── Fig: Aging Rescue Rate — % de entregues envelhecidos resgatados ──
         _arr_df = per_dev[
             per_dev['Aging Rescue Rate (%)'].notna() &
-            per_dev['Itens Puxados'].gt(0)
+            per_dev['Itens Entregues'].gt(0)
         ].copy() if 'Aging Rescue Rate (%)' in per_dev.columns else pd.DataFrame()
         _arr_df = _arr_df.sort_values('Aging Rescue Rate (%)', ascending=False).head(30)
         fig_aging_rescue = go.Figure()
@@ -21149,12 +21383,45 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ))
         fig_aging_rescue.update_layout(
             title=dict(
-                text=f'Aging Rescue Rate — % de Itens com > {_AGING_THRESHOLD_DAYS} dias em Backlog ao ser Puxado<br>'
-                     '<sup>Dev que regularmente resgata itens antigos demonstra iniciativa e reduz aging do backlog.</sup>',
+                text=f'Aging Rescue Rate — % dos Cards Entregues que já tinham > {_AGING_THRESHOLD_DAYS} dias de Backlog ao ser Puxados<br>'
+                     '<sup>Produtividade sobre itens envelhecidos: sinaliza quem pega card antigo e efetivamente entrega.</sup>',
                 font=dict(size=13),
             ),
             xaxis=dict(title='', automargin=True, tickangle=-30),
-            yaxis=dict(title='% Itens Antigos Resgatados', gridcolor='#f0f0f0'),
+            yaxis=dict(title='% Entregues com Aging Alto', gridcolor='#f0f0f0'),
+            template='plotly_white',
+            height=420,
+            margin=dict(t=80, b=90, l=60, r=30),
+            plot_bgcolor='#fafafa',
+        )
+
+        # ── Fig: Aging Pull Rate — % de puxados envelhecidos ─────────────────
+        _apr_df = per_dev[
+            per_dev['Aging Pull Rate (%)'].notna() &
+            per_dev['Itens Puxados'].gt(0)
+        ].copy() if 'Aging Pull Rate (%)' in per_dev.columns else pd.DataFrame()
+        _apr_df = _apr_df.sort_values('Aging Pull Rate (%)', ascending=False).head(30)
+        fig_aging_pull = go.Figure()
+        if not _apr_df.empty:
+            _apr_colors = ['#2980b9' if v >= 30 else '#5dade2' if v >= 10 else '#95a5a6'
+                           for v in _apr_df['Aging Pull Rate (%)']]
+            fig_aging_pull.add_trace(go.Bar(
+                x=_apr_df['Pessoa'],
+                y=_apr_df['Aging Pull Rate (%)'],
+                marker_color=_apr_colors,
+                marker_line_width=0,
+                text=[f'{v:.1f}%' for v in _apr_df['Aging Pull Rate (%)']],
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Aging Pull Rate: <b>%{y:.1f}%</b><extra></extra>',
+            ))
+        fig_aging_pull.update_layout(
+            title=dict(
+                text=f'Aging Pull Rate — % dos Cards Puxados com > {_AGING_THRESHOLD_DAYS} dias de Backlog<br>'
+                     '<sup>Iniciativa operacional: sinaliza quem se dispõe a puxar itens antigos do backlog.</sup>',
+                font=dict(size=13),
+            ),
+            xaxis=dict(title='', automargin=True, tickangle=-30),
+            yaxis=dict(title='% Puxados com Aging Alto', gridcolor='#f0f0f0'),
             template='plotly_white',
             height=420,
             margin=dict(t=80, b=90, l=60, r=30),
@@ -21357,21 +21624,63 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ],
             ),
 
+            # ── Δ ECR / maturidade de estimativa ─────────────────────────────
+            _section(
+                'Confiabilidade de Estimativa — Δ ECR e Maturidade',
+                [
+                    html.Span('Diferença entre o ECR do último mês válido e o primeiro mês do período. '),
+                    html.Span('ECR', style={'color': '#8e44ad', 'fontWeight': '600'}),
+                    html.Span(' mede a cobertura de estimativas reais nos itens puxados. '),
+                    html.Span(
+                        f'Maduro em estimativa = ECR ≥ {_ECR_MATURITY_THRESHOLD:.0f}% por {_ECR_MATURITY_STREAK} meses consecutivos.',
+                        style={'color': '#27ae60', 'fontWeight': '600'},
+                    ),
+                    html.Span(' `Devs Revisados` aparece na tabela como breadth de revisão/capacidade cruzada.', style={'color': '#6c757d'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_delta_ecr, config={'displayModeBar': False})
+                    if not _ecr_trend_df.empty else html.P(
+                        'Período sem base mensal suficiente para calcular a tendência de ECR.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
             # ── Aging Rescue Rate ─────────────────────────────────────────────
             _section(
-                f'Aging Rescue Rate — Itens com > {_AGING_THRESHOLD_DAYS} dias em Backlog ao ser Puxado',
+                f'Aging Rescue Rate — Entregues com > {_AGING_THRESHOLD_DAYS} dias de Backlog ao ser Puxados',
                 [
-                    html.Span('% dos itens puxados pelo dev que estavam em backlog há mais de '),
+                    html.Span('% dos cards entregues pelo dev que já estavam em backlog há mais de '),
                     html.Span(f'{_AGING_THRESHOLD_DAYS} dias', style={'fontWeight': '600'}),
-                    html.Span(' (DataCriacao → DataInProgress). '),
-                    html.Span('Devs com taxa alta demonstram iniciativa em reduzir aging do backlog. ',
+                    html.Span(' quando foram puxados (DataCriacao → DataInProgress). '),
+                    html.Span('Esse é o indicador de produtividade sobre backlog antigo: puxou item envelhecido e entregou. ',
                               style={'color': '#27ae60'}),
                     html.Span('Requer data de criação no Jira (DataCriacao, Created ou CreatedDate).', style={'color': '#6c757d'}),
                 ],
                 [
                     dcc.Graph(figure=fig_aging_rescue, config={'displayModeBar': False})
                     if not _arr_df.empty else html.P(
-                        'Data de criação não disponível ou sem itens puxados no período para calcular Aging Rescue Rate.',
+                        'Data de criação não disponível ou sem itens entregues elegíveis no período para calcular Aging Rescue Rate.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── Aging Pull Rate ───────────────────────────────────────────────
+            _section(
+                f'Aging Pull Rate — Puxados com > {_AGING_THRESHOLD_DAYS} dias de Backlog',
+                [
+                    html.Span('% dos cards puxados pelo dev que já estavam em backlog há mais de '),
+                    html.Span(f'{_AGING_THRESHOLD_DAYS} dias', style={'fontWeight': '600'}),
+                    html.Span(' quando foram puxados (DataCriacao → DataInProgress). '),
+                    html.Span('Esse é o indicador de iniciativa operacional: quem não pega só o topo da fila. ',
+                              style={'color': '#2980b9'}),
+                    html.Span('Complementa o Aging Rescue Rate, mas não substitui o sinal de entrega.', style={'color': '#6c757d'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_aging_pull, config={'displayModeBar': False})
+                    if not _apr_df.empty else html.P(
+                        'Data de criação não disponível ou sem itens puxados no período para calcular Aging Pull Rate.',
                         style={'color': '#aaa', 'fontStyle': 'italic'},
                     ),
                 ],

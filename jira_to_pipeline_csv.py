@@ -1230,6 +1230,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Exporta Jira para CSV no formato do pipeline.")
     parser.add_argument("--projects", nargs="+", required=True, help="Chaves dos projetos Jira (ex: W1NNR BF DT)")
     parser.add_argument("--out", required=True, help="Caminho do CSV de saída")
+    parser.add_argument(
+        "--jql",
+        default="",
+        help="JQL completa; quando informada, tem precedencia sobre --projects/--jql-extra",
+    )
     parser.add_argument("--jql-extra", default="", help="Filtro JQL adicional")
     parser.add_argument(
         "--workers",
@@ -1429,10 +1434,16 @@ def main() -> int:
             if logical_name == "effort_tshirt_size":
                 print(f"Adicionado {jira_field} (EffortTShirtSize) ao fetch de campos.")
 
-    excluded_issue_types = resolve_excluded_issue_types()
+    raw_jql = str(args.jql or "").strip()
+    excluded_issue_types = resolve_excluded_issue_types() if not raw_jql else []
     if excluded_issue_types:
         print(f"Excluindo issue types no downstream: {', '.join(excluded_issue_types)}")
-    jql = build_jql(args.projects, args.jql_extra, exclude_issue_types=excluded_issue_types)
+    if raw_jql:
+        if str(args.jql_extra or "").strip():
+            print("JQL completa informada; --jql-extra sera ignorado nesta execucao.")
+        jql = raw_jql
+    else:
+        jql = build_jql(args.projects, args.jql_extra, exclude_issue_types=excluded_issue_types)
     print(f"Consultando Jira com JQL: {jql}")
 
     client = JiraClient(base_url=base_url, email=email, api_token=token)

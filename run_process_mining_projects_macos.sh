@@ -15,6 +15,7 @@ BITBUCKET_FAILURES=()
 JIRA_BITBUCKET_MIN_INTERVAL_MS="${FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS:-750}"
 BITBUCKET_EXPORT_WORKERS="${FLOW_PMO_BITBUCKET_EXPORT_WORKERS:-1}"
 BITBUCKET_EXPORT_MIN_INTERVAL_MS="${FLOW_PMO_BITBUCKET_EXPORT_MIN_REQUEST_INTERVAL_MS:-900}"
+DT_BOARD_JQL='project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC'
 
 usage() {
     cat <<'EOF_HELP'
@@ -158,6 +159,14 @@ PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
 PROJECT_PREFIXES=("w1nner-downstream" "s1nc-downstream" "befinance-downstream" "dataanalytics-downstream")
 PROCESS_MINING_PREFIXES=("w1nner-process-mining" "s1nc-process-mining" "befinance-process-mining" "dataanalytics-process-mining")
 
+get_project_custom_jql() {
+    local key="$1"
+    case "${key}" in
+        DT) printf '%s\n' "${DT_BOARD_JQL}" ;;
+        *) printf '\n' ;;
+    esac
+}
+
 echo "Iniciando exportacao dedicada de process mining..."
 echo "Base URL: ${JIRA_BASE_URL}"
 echo "Saida changelog: ${OUT_DIR}"
@@ -184,6 +193,7 @@ for i in "${!PROJECT_KEYS[@]}"; do
     echo
     echo "Projeto: ${key}"
     echo "Changelog detalhado: ${detailed_changelog_out}"
+    project_jql="$(get_project_custom_jql "$key")"
 
     jira_cmd=(
         "$PYTHON_BIN" "$SCRIPT_PATH"
@@ -194,7 +204,13 @@ for i in "${!PROJECT_KEYS[@]}"; do
         --detailed-changelog-out "$detailed_changelog_out"
         --skip-devexecutor-bitbucket
     )
-    if [[ -n "${JQL_EXTRA}" ]]; then
+    if [[ -n "${project_jql}" ]]; then
+        jira_cmd+=(--jql "$project_jql")
+        echo "Usando JQL dedicada do projeto: ${project_jql}"
+        if [[ -n "${JQL_EXTRA}" ]]; then
+            echo "Aviso: --jql-extra global foi ignorado para ${key} porque este projeto usa uma JQL completa dedicada." >&2
+        fi
+    elif [[ -n "${JQL_EXTRA}" ]]; then
         jira_cmd+=(--jql-extra "$JQL_EXTRA")
     fi
 

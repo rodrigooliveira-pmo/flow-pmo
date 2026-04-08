@@ -265,6 +265,7 @@ $jiraBitbucketCommitDepth = if ($env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH) { $env:FLOW_
 $jiraBitbucketMinIntervalMs = if ($env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS) { $env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS } else { '750' }
 $bitbucketExportWorkers = if ($env:FLOW_PMO_BITBUCKET_EXPORT_WORKERS) { [int]$env:FLOW_PMO_BITBUCKET_EXPORT_WORKERS } else { 1 }
 $bitbucketExportMinIntervalMs = if ($env:FLOW_PMO_BITBUCKET_EXPORT_MIN_REQUEST_INTERVAL_MS) { $env:FLOW_PMO_BITBUCKET_EXPORT_MIN_REQUEST_INTERVAL_MS } else { '900' }
+$dtBoardJql = 'project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC'
 $jiraFailures = New-Object System.Collections.Generic.List[string]
 $processMiningFailures = New-Object System.Collections.Generic.List[string]
 $bitbucketFailures = New-Object System.Collections.Generic.List[string]
@@ -315,7 +316,7 @@ $projects = @(
     @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream'; ProcessMiningPrefix = 'w1nner-process-mining'; BitbucketProject = 'W1NNR'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'W1NNR') },
     @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream'; ProcessMiningPrefix = 's1nc-process-mining'; BitbucketProject = 'S1NC'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'S1NC') },
     @{ Key = 'BF'; FilePrefix = 'befinance-downstream'; ProcessMiningPrefix = 'befinance-process-mining'; BitbucketProject = 'BF'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'BF') },
-    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream'; ProcessMiningPrefix = 'dataanalytics-process-mining'; BitbucketProject = 'DT'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'DT') }
+    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream'; ProcessMiningPrefix = 'dataanalytics-process-mining'; BitbucketProject = 'DT'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'DT'); Jql = $dtBoardJql }
 )
 
 Write-Host "Iniciando exportação dedicada de process mining..." -ForegroundColor Cyan
@@ -366,7 +367,14 @@ foreach ($p in $projects) {
         '--detailed-changelog-out', $detailedChangelogOut,
         '--skip-devexecutor-bitbucket'
     )
-    if ($JqlExtra) {
+    if ($p.Jql) {
+        $jiraArgs += @('--jql', $p.Jql)
+        Write-Host "Usando JQL dedicada do projeto: $($p.Jql)" -ForegroundColor DarkCyan
+        if ($JqlExtra) {
+            Write-Warning "JqlExtra global foi ignorado para $($p.Key) porque este projeto usa uma JQL completa dedicada."
+        }
+    }
+    elseif ($JqlExtra) {
         $jiraArgs += @('--jql-extra', $JqlExtra)
     }
 

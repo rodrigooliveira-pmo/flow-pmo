@@ -192,6 +192,15 @@ mkdir -p "$LATEST_DIR"
 
 PROJECT_KEYS=("W1NNR" "S1NC" "BF" "DT")
 PROJECT_PREFIXES=("w1nner-downstream" "s1nc-downstream" "befinance-downstream" "dataanalytics-downstream")
+DT_BOARD_JQL='project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC'
+
+get_project_custom_jql() {
+    local key="$1"
+    case "${key}" in
+        DT) printf '%s\n' "${DT_BOARD_JQL}" ;;
+        *) printf '\n' ;;
+    esac
+}
 
 export_project_dashboard_artifacts() {
     local key="$1"
@@ -202,6 +211,8 @@ export_project_dashboard_artifacts() {
     echo
     echo "Projeto: ${key}"
     echo "Arquivo: ${out_file}"
+    local project_jql
+    project_jql="$(get_project_custom_jql "$key")"
 
     local export_cmd=(
         "$PYTHON_BIN" "$SCRIPT_PATH"
@@ -211,6 +222,10 @@ export_project_dashboard_artifacts() {
         --workers "$WORKERS"
         --skip-devexecutor-bitbucket
     )
+    if [[ -n "$project_jql" ]]; then
+        export_cmd+=(--jql "$project_jql")
+        echo "Usando JQL dedicada do projeto: ${project_jql}"
+    fi
 
     if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
         export_cmd+=(--detailed-changelog-out "$detailed_changelog_out")

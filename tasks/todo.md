@@ -1,3 +1,42 @@
+## Current Task (Usar a JQL do novo quadro na extracao de Data & Analytics)
+- [x] Mapear onde o runner/exportador monta a JQL do projeto `DT`
+- [x] Implementar override de JQL completa por projeto para `DT` sem afetar os demais projetos
+- [x] Validar sintaxe dos scripts alterados e registrar review com commit sugerido
+
+## Specification (Usar a JQL do novo quadro na extracao de Data & Analytics)
+- Objetivo: fazer a extracao Jira do projeto `Data & Analytics` usar a JQL do novo quadro, preservando o comportamento atual dos demais projetos.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `run_all_projects.ps1`
+  - `run_all_projects_macos.sh`
+  - `run_process_mining_projects.ps1`
+  - `run_process_mining_projects_macos.sh`
+- Regra:
+  - `DT` deve usar `project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC`
+- Criterio de aceite:
+  - o runner passa a enviar a consulta correta para `DT`
+  - `W1NNR`, `S1NC` e `BF` continuam com a montagem atual de JQL
+  - os arquivos alterados continuam validos sintaticamente
+
+## Review (Usar a JQL do novo quadro na extracao de Data & Analytics)
+- O que foi ajustado:
+  - `jira_to_pipeline_csv.py` ganhou suporte a `--jql` completa, com precedencia sobre `--projects/--jql-extra`
+  - `run_all_projects.ps1` e `run_process_mining_projects.ps1` passaram a configurar uma JQL dedicada para `DT`
+  - `run_all_projects_macos.sh` e `run_process_mining_projects_macos.sh` receberam a mesma regra para manter o comportamento alinhado entre Windows e macOS
+  - quando `DT` usa a JQL dedicada, o runner ignora `JqlExtra` global apenas para esse projeto e preserva a montagem atual para `W1NNR`, `S1NC` e `BF`
+- JQL aplicada ao `DT`:
+  - `project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC`
+- Evidencias de validacao:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile jira_to_pipeline_csv.py`
+  - parser PowerShell de `run_all_projects.ps1` retornando `OK`
+  - parser PowerShell de `run_process_mining_projects.ps1` retornando `OK`
+  - `C:\ProgramData\anaconda3\python.exe jira_to_pipeline_csv.py --help` exibindo o novo argumento `--jql`
+- Risco residual:
+  - nao consegui validar sintaticamente os scripts macOS via `bash -n` neste ambiente porque o `bash` local falhou ao iniciar com erro de permissao/pipe do Windows
+  - como a JQL do `DT` agora e completa, qualquer filtro global via `JqlExtra` deixara de afetar apenas esse projeto enquanto essa regra dedicada estiver ativa
+- Suggested commit message:
+  - `fix(dt-extraction): use dedicated board jql for data analytics`
+
 ## Current Task (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
 - [x] Revisar a composição atual do `Painel Fluxo` e consolidar quais KPIs devem aparecer apenas uma vez na leitura rápida
 - [x] Reorganizar hero, grupos de leitura rápida e seção de referência para reduzir repetição sem perder escaneabilidade
@@ -71,6 +110,8 @@
 - Evidência de validação:
   - `python -m py_compile dashboard_full.py`
   - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+  - smoke test real de `compute_bitbucket_contributor_metrics(...)` com logs locais de `W1NNER`, retornando `Devs Revisados` para revisores presentes no período
+  - smoke test sintético de `_compute_monthly_ecr_series(...)`, retornando `Jan/26`, `Feb/26` e `Mar/26` com `ECR=100%` para uma série mensal mínima
 - Risco residual:
   - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no navegador para calibrar quebra de grids e alturas dos gráficos no viewport real
 - Suggested commit message:
@@ -8528,3 +8569,83 @@
 - Leitura consolidada:
   - a frente de `429` melhorou estruturalmente porque o runner agora pode operar sem o Bitbucket interno do downstream e, quando esse enriquecimento é usado, ele fica escopado por projeto e com pacing mais conservador
   - a frente de `CAPEX latest` ficou mais correta e auditável, mas ainda depende de validação com o dono dos dados para explicar a ausência de worklogs reais no intervalo testado
+
+## Current Task (Implementar itens 7 e 8 na Produtividade Individual)
+- [x] Revisar a estrutura atual da aba `Produtividade Individual por Desenvolvedor`, incluindo Bitbucket reviews e séries mensais de IED/ECR
+- [x] Implementar `Devs Revisados` (únicos) a partir dos autores de PR revisados por cada dev no período
+- [x] Implementar `Delta ECR mês a mês` e o sinal de `Maduro em Estimativa` com base em 3 meses consecutivos de ECR >= 80%
+- [x] Expor os novos indicadores na tabela/ranking e nas leituras auxiliares da aba sem quebrar o layout atual
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Implementar itens 7 e 8 na Produtividade Individual)
+- Objetivo: concluir as lacunas 7 e 8 da avaliação do dashboard, adicionando um sinal simples de mentoria/capacidade cruzada e um score temporal de confiabilidade de estimativa por desenvolvedor.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reaproveitar o CSV de pull requests do Bitbucket já carregado pelo dashboard para derivar, por revisor, a quantidade de autores únicos de PR revisados no período
+  - criar um helper mensal para ECR, em paralelo ao helper mensal de IED, evitando duplicar lógica de renderização no miolo da aba
+  - calcular por dev o `Delta ECR (p.p.)` entre o primeiro e o último mês com base suficiente e marcar `Maduro em Estimativa` quando houver 3 meses consecutivos com `ECR >= 80%`
+  - integrar as novas colunas na tabela principal e, quando houver base, adicionar uma visualização sintética da tendência de ECR para leitura gerencial
+- Critério de aceite:
+  - a tabela principal passa a exibir `Devs Revisados`, `Delta ECR (p.p.)` e `Maturidade Estimativa`
+  - `Devs Revisados` usa autores únicos de PR efetivamente revisados por cada dev no período selecionado
+  - `Delta ECR (p.p.)` reflete a variação mês a mês do ECR com base mensal consistente
+  - o arquivo continua válido sintaticamente e sem regressão óbvia no bloco de produtividade individual
+
+## Review (Implementar itens 7 e 8 na Produtividade Individual)
+- O que foi implementado:
+  - `dashboard_full.py` agora calcula `Devs Revisados` a partir dos autores únicos de PR revisados por cada pessoa no período, usando `author`, `approved_by` e `changes_requested_by` do CSV de pull requests do Bitbucket
+  - a consolidação multi-projeto do Bitbucket na aba de produtividade passou a unir os logs crus por repositório antes de agregar, evitando duplicidade quando projetos compartilham o mesmo repo
+  - foi criado o helper `_compute_monthly_ecr_series(...)` para recalcular o `ECR` mês a mês com a mesma régua da produtividade individual
+  - a tabela principal passou a exibir `Devs Revisados`, `Δ ECR (p.p.)` e `Maturidade Estimativa`, com formatação e destaque visual
+  - a aba ganhou a seção `Confiabilidade de Estimativa — Δ ECR e Maturidade`, com gráfico horizontal da tendência do ECR e hover mostrando streak de meses acima da meta
+- Regra gerencial aplicada:
+  - `Maduro em Estimativa` = `ECR >= 80%` por `3` meses consecutivos válidos no fim da série do período selecionado
+  - meses com menos de `2` itens puxados por dev são ignorados na série mensal de ECR para reduzir ruído
+- Evidência de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a maturidade de estimativa depende do recorte selecionado na tela; se o período tiver menos de 3 meses válidos para um dev, o status ficará como `Sem base`
+  - `Devs Revisados` reflete breadth de revisão em nível de PR agregado; ele não mede ainda profundidade/qualidade textual dos comentários de review
+- Suggested commit message:
+  - `feat(produtividade-dev): add review breadth and monthly ecr reliability signals`
+
+## Current Task (Separar Aging Rescue Rate de Aging Pull Rate)
+- [x] Revisar o cálculo atual de aging na aba de produtividade e mapear os pontos de tabela/gráfico afetados
+- [x] Implementar `Aging Rescue Rate` sobre cards entregues e `Aging Pull Rate` sobre cards puxados
+- [x] Atualizar a tabela e as seções visuais da aba com os dois indicadores e rótulos corretos
+- [x] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Separar Aging Rescue Rate de Aging Pull Rate)
+- Objetivo: alinhar o item 6 à semântica pedida, separando o indicador de produtividade (`resgate` sobre entregues) do indicador de iniciativa (`pull` sobre puxados).
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reaproveitar a base de aging já calculada a partir de `DataCriacao/Created` até `DataInProgress`
+  - derivar `Aging Rescue Rate (%)` com denominador em cards entregues no período
+  - derivar `Aging Pull Rate (%)` com denominador em cards puxados no período
+  - ajustar tabela, gráficos e textos da aba para refletir claramente as duas leituras
+- Critério de aceite:
+  - `Aging Rescue Rate (%)` passa a representar `% dos cards entregues que já tinham > N dias de backlog quando foram puxados`
+  - `Aging Pull Rate (%)` passa a representar `% dos cards puxados que já tinham > N dias de backlog`
+  - o dashboard continua válido sintaticamente e sem quebrar as demais seções da aba
+
+## Review (Separar Aging Rescue Rate de Aging Pull Rate)
+- O que foi ajustado:
+  - extraí o cálculo para o helper `_compute_dev_aging_rates(...)`, deixando explícita a separação entre `rescue` (entregues) e `pull` (puxados)
+  - `Aging Rescue Rate (%)` agora usa denominador em cards entregues no período e só contabiliza os que já tinham aging acima do threshold quando foram puxados
+  - `Aging Pull Rate (%)` agora usa denominador em cards puxados no período e mede iniciativa de puxar backlog envelhecido
+  - a tabela principal passou a exibir os dois indicadores e a aba ganhou duas seções visuais distintas, com textos alinhados à semântica correta
+- Evidência de validação:
+  - `python -m py_compile dashboard_full.py`
+  - smoke test sintético de `_compute_dev_aging_rates(...)` retornando:
+    - `Dev A => Aging Pull Rate 66.7% | Aging Rescue Rate 50.0%`
+    - `Dev B => Aging Pull Rate 100.0% | Aging Rescue Rate NaN` (sem entregas elegíveis no período)
+- Risco residual:
+  - os dois indicadores continuam dependentes da presença de uma coluna de criação resolvível pelo helper (`DataCriacao`, `Created`, `CreatedDate`, etc.)
+  - `Aging Rescue Rate` fica `NaN` quando o dev não tem entregas elegíveis no período, o que é intencional para não confundir ausência de base com zero
+- Suggested commit message:
+  - `fix(produtividade-dev): separate aging rescue from aging pull rates`
