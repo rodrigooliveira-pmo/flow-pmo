@@ -8330,3 +8330,25 @@
   - se `BF` ou `DT` falharem no Jira detalhado, `W1NNR` e `S1NC` continuam preservados, os próximos projetos seguem sendo tentados e a atualização final de `latest-upload` ainda acontece com os artefatos que existirem
 - Suggested commit message:
   - `fix(runner): keep process mining batch running after per-project jira failures`
+## Current Task (Desbloquear push removendo segredo do histórico local)
+- [x] Revisar `tasks/lessons.md`, estado do Git e o commit apontado pelo GitHub Push Protection
+- [ ] Remover `tmp/jira_env_no_bb.txt` do branch atual e proteger o repositório contra novo versionamento desse arquivo sensível
+- [ ] Reescrever os commits locais à frente de `origin/main` para eliminar o segredo do histórico sem perder as demais mudanças
+- [ ] Validar ausência do token no branch atual, revisar `git log/status` e registrar orientações finais de push
+
+## Specification (Desbloquear push removendo segredo do histórico local)
+- Objetivo: permitir o push para `main` removendo o token Atlassian detectado em `tmp/jira_env_no_bb.txt` do histórico local ainda não publicado.
+- Escopo:
+  - `.gitignore`
+  - `tasks/todo.md`
+  - histórico local de `main` à frente de `origin/main`
+- Estratégia:
+  - confirmar o arquivo/commit exatos bloqueados pelo Push Protection
+  - retirar o arquivo sensível do estado atual do branch e ignorá-lo no Git para prevenir recorrência
+  - reescrever apenas os 3 commits locais à frente de `origin/main`, preservando o conteúdo legítimo e removendo o arquivo secreto da linhagem
+  - validar com busca textual, inspeção do log e conferência do remote
+- Critério de aceite:
+  - o token não aparece mais no conteúdo atual nem nos commits locais à frente de `origin/main`
+  - `tmp/jira_env_no_bb.txt` deixa de ser rastreado neste branch
+  - o repositório passa a ignorar esse artefato sensível
+  - o branch fica pronto para novo push após atualização do remote para a URL migrada
