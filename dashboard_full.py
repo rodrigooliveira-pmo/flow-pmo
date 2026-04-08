@@ -5761,6 +5761,17 @@ def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=N
     return fig
 
 
+def format_currency_br(value, decimals=2, suffix=''):
+    if pd.isna(value):
+        return '—'
+    try:
+        number = float(value)
+    except Exception:
+        return '—'
+    formatted = f"{number:,.{decimals}f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    return f"R$ {formatted}{suffix}"
+
+
 def compute_process_capability_metrics(values, lsl=None, usl=None):
     series = pd.to_numeric(pd.Series(values), errors='coerce').dropna()
     result = {
@@ -7795,6 +7806,146 @@ def _pm_load_cost_rate_map() -> dict:
             if rate >= 0:
                 out[canonical_key] = rate
     return out
+
+
+def build_throughput_avg_cost_series(tp_done: pd.DataFrame, scope_df: pd.DataFrame, start_ts, end_ts, use_creation_date=False) -> dict:
+    series_columns = [
+        'Semana',
+        'Throughput',
+        'DiasUteisRateados',
+        'CustoCapacidadeBucket (R$)',
+        'HorasProdutivasBucket',
+        'Custo Medio Demanda (R$)',
+        'Media Movel Custo Medio (R$)',
+    ]
+    empty_series = pd.DataFrame(columns=series_columns)
+
+    if tp_done is None or tp_done.empty:
+        return {
+            'available': False,
+            'error': 'Sem demandas entregues suficientes para monetizar a vazão no período.',
+            'series_df': empty_series,
+        }
+
+    cost_snapshot = build_portfolio_cost_model_snapshot(pd.DataFrame(), pd.to_datetime(start_ts), pd.to_datetime(end_ts))
+    if not isinstance(cost_snapshot, dict) or not cost_snapshot.get('available'):
+        return {
+            'available': False,
+            'error': (cost_snapshot or {}).get('error', 'Modelo de custo heurístico indisponível.'),
+            'series_df': empty_series,
+        }
+
+    product_rates_df = cost_snapshot.get('product_rates_df', pd.DataFrame()).copy()
+    model = cost_snapshot.get('model', {}) if isinstance(cost_snapshot.get('model', {}), dict) else {}
+    model_kpis = cost_snapshot.get('kpis', {}) if isinstance(cost_snapshot.get('kpis', {}), dict) else {}
+
+    canonical_projects = []
+    if scope_df is not None and not scope_df.empty and 'Projeto' in scope_df.columns:
+        raw_projects = scope_df['Projeto'].dropna().astype(str).str.strip().unique().tolist()
+        canonical_projects = sorted({
+            _canonical_pm_product_key(project)
+            for project in raw_projects
+            if _canonical_pm_product_key(project)
+        })
+
+    scoped_rates_df = pd.DataFrame()
+    if canonical_projects and product_rates_df is not None and not product_rates_df.empty and 'Projeto PM' in product_rates_df.columns:
+        scoped_rates_df = product_rates_df[product_rates_df['Projeto PM'].isin(canonical_projects)].copy()
+
+    if scoped_rates_df is not None and not scoped_rates_df.empty:
+        custo_mensal_escopo = float(pd.to_numeric(scoped_rates_df['Custo Mensal Produto (R$)'], errors='coerce').fillna(0).sum())
+        capacidade_mensal_escopo = float(pd.to_numeric(scoped_rates_df['Capacidade Mensal Produto (h)'], errors='coerce').fillna(0).sum())
+        scope_label = ', '.join(scoped_rates_df['Produto'].dropna().astype(str).str.strip().unique().tolist())
+        scope_source = 'produtos filtrados'
+    else:
+        custo_mensal_escopo = float(model_kpis.get('Custo Total TI Mensal', 0) or 0)
+        capacidade_mensal_escopo = float(model_kpis.get('Capacidade Total Mensal (h)', 0) or 0)
+        scope_label = 'TI total'
+        scope_source = 'escopo global'
+
+    dias_uteis_mes = max(1.0, float(model.get('dias_uteis_mes', 22) or 22))
+    custo_hora_escopo = (
+        custo_mensal_escopo / capacidade_mensal_escopo
+        if capacidade_mensal_escopo > 0
+        else float(model_kpis.get('Custo Hora Carregado', 0) or 0)
+    )
+
+    if custo_mensal_escopo <= 0 or capacidade_mensal_escopo <= 0 or custo_hora_escopo <= 0:
+        return {
+            'available': False,
+            'error': 'Parâmetros de custo insuficientes para monetizar a vazão. Revise `FLOW_PMO_PORTFOLIO_COST_MODEL` e os mapas salariais.',
+            'series_df': empty_series,
+            'scope_label': scope_label,
+            'scope_source': scope_source,
+        }
+
+    cost_df = tp_done.copy()
+    cost_df['_FilterDate'] = resolve_filter_date_series(cost_df, use_creation_date=use_creation_date)
+    cost_df = cost_df.dropna(subset=['_FilterDate']).copy()
+    if cost_df.empty:
+        return {
+            'available': False,
+            'error': 'Sem datas válidas para distribuir o custo médio da demanda.',
+            'series_df': empty_series,
+            'scope_label': scope_label,
+            'scope_source': scope_source,
+        }
+
+    cost_df['Semana'] = weekly_bucket_start(cost_df['_FilterDate'])
+    series_df = (
+        cost_df.groupby('Semana')
+        .size()
+        .reset_index(name='Throughput')
+        .sort_values('Semana')
+        .reset_index(drop=True)
+    )
+
+    period_start = pd.to_datetime(start_ts)
+    period_end_exclusive = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
+    custo_dia_util = custo_mensal_escopo / dias_uteis_mes
+    horas_produtivas_dia = capacidade_mensal_escopo / dias_uteis_mes
+
+    def _bucket_business_days(bucket_start):
+        bucket_start = pd.to_datetime(bucket_start)
+        bucket_end = bucket_start + pd.Timedelta(days=7)
+        effective_start = max(bucket_start, period_start)
+        effective_end = min(bucket_end, period_end_exclusive)
+        if effective_end <= effective_start:
+            return 0
+        last_inclusive = effective_end - pd.Timedelta(days=1)
+        return int(len(pd.bdate_range(effective_start.normalize(), last_inclusive.normalize())))
+
+    series_df['DiasUteisRateados'] = series_df['Semana'].apply(_bucket_business_days)
+    series_df['CustoCapacidadeBucket (R$)'] = series_df['DiasUteisRateados'] * custo_dia_util
+    series_df['HorasProdutivasBucket'] = series_df['DiasUteisRateados'] * horas_produtivas_dia
+    series_df['Custo Medio Demanda (R$)'] = np.where(
+        series_df['Throughput'] > 0,
+        series_df['CustoCapacidadeBucket (R$)'] / series_df['Throughput'],
+        np.nan,
+    )
+    series_df['Media Movel Custo Medio (R$)'] = (
+        pd.to_numeric(series_df['Custo Medio Demanda (R$)'], errors='coerce')
+        .rolling(5, min_periods=1)
+        .mean()
+    )
+
+    avg_cost_series = pd.to_numeric(series_df['Custo Medio Demanda (R$)'], errors='coerce').dropna()
+    avg_cost_mean = float(avg_cost_series.mean()) if not avg_cost_series.empty else np.nan
+    avg_cost_p85 = float(exact_empirical_percentile(avg_cost_series, 0.85)) if not avg_cost_series.empty else np.nan
+
+    return {
+        'available': True,
+        'series_df': series_df,
+        'avg_cost_mean': avg_cost_mean,
+        'avg_cost_p85': avg_cost_p85,
+        'cost_hour': custo_hora_escopo,
+        'monthly_cost': custo_mensal_escopo,
+        'monthly_capacity_hours': capacidade_mensal_escopo,
+        'dias_uteis_mes': dias_uteis_mes,
+        'scope_label': scope_label,
+        'scope_source': scope_source,
+        'product_rates_df': scoped_rates_df if scoped_rates_df is not None else pd.DataFrame(),
+    }
 
 
 def _pm_is_execution_status(value) -> bool:
@@ -13403,28 +13554,34 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 f"Delta {delta_pattern.format(delta)}{delta_suffix} vs período anterior"
             )
 
-        def build_flow_dimension_card(title, value, subtitle, explanation, status_tuple, trend_tuple, trend_emphasis=False):
+        def build_flow_dimension_card(title, value, subtitle, explanation, status_tuple, trend_tuple, trend_emphasis=False, featured=False):
             status_label, status_color = status_tuple
             trend_label, trend_color, trend_detail = trend_tuple
             return html.Div([
-                html.Div(status_label, style={
-                    'fontSize': '11px',
-                    'fontWeight': '700',
-                    'letterSpacing': '0.05em',
-                    'textTransform': 'uppercase',
-                    'color': status_color,
-                    'marginBottom': '10px',
-                }),
-                html.Div(trend_label, style={
-                    'display': 'inline-block',
-                    'fontSize': '11px',
-                    'fontWeight': '700',
-                    'color': trend_color,
-                    'backgroundColor': '#f8fafc' if trend_emphasis else '#fbfcfe',
-                    'border': f'1px solid {trend_color}',
-                    'borderRadius': '999px',
-                    'padding': '3px 8px',
-                    'marginBottom': '10px',
+                html.Div([
+                    html.Div(status_label, style={
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'letterSpacing': '0.05em',
+                        'textTransform': 'uppercase',
+                        'color': status_color,
+                    }),
+                    html.Div(trend_label, style={
+                        'display': 'inline-block',
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'color': trend_color,
+                        'backgroundColor': '#f4f8fc' if trend_emphasis else '#f8fafc',
+                        'border': f'1px solid {trend_color}',
+                        'borderRadius': '999px',
+                        'padding': '4px 9px',
+                    }),
+                ], style={
+                    'display': 'flex',
+                    'justifyContent': 'space-between',
+                    'alignItems': 'flex-start',
+                    'gap': '10px',
+                    'marginBottom': '14px',
                 }),
                 html.Div(title, style={
                     'fontSize': '14px',
@@ -13433,7 +13590,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'marginBottom': '6px',
                 }),
                 html.Div(value, style={
-                    'fontSize': '28px',
+                    'fontSize': '32px' if featured else '28px',
                     'fontWeight': '700',
                     'lineHeight': '1.0',
                     'color': '#0f1720',
@@ -13457,13 +13614,125 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'color': '#4b5563',
                 }),
             ], style={
-                'backgroundColor': 'white',
-                'border': '1px solid #d9e2ec',
+                'background': 'linear-gradient(180deg, #ffffff 0%, #f9fbfe 100%)' if featured else 'white',
+                'border': f'1px solid {status_color}33' if featured else '1px solid #d9e2ec',
                 'borderTop': f'5px solid {status_color}',
-                'borderRadius': '12px',
-                'padding': '14px',
-                'boxShadow': '0 1px 4px rgba(15, 23, 32, 0.08)',
-                'minHeight': '210px',
+                'borderRadius': '16px',
+                'padding': '16px',
+                'boxShadow': '0 10px 24px rgba(15, 23, 32, 0.08)' if featured else '0 2px 8px rgba(15, 23, 32, 0.06)',
+                'minHeight': '224px' if featured else '210px',
+                'height': '100%',
+            })
+
+        def build_summary_chip(label, value, note):
+            return html.Div([
+                html.Div(label, style={
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.04em',
+                    'textTransform': 'uppercase',
+                    'color': '#6b7a88',
+                    'marginBottom': '4px',
+                }),
+                html.Div(value, style={
+                    'fontSize': '24px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.0',
+                    'color': '#0f1720',
+                    'marginBottom': '4px',
+                }),
+                html.Div(note, style={
+                    'fontSize': '12px',
+                    'color': '#5f6e7b',
+                    'lineHeight': '1.35',
+                }),
+            ], style={
+                'backgroundColor': 'rgba(255,255,255,0.88)',
+                'border': '1px solid #d6e0eb',
+                'borderRadius': '14px',
+                'padding': '12px 14px',
+                'minHeight': '92px',
+            })
+
+        def build_overview_panel(kicker, title, headline_value, headline_note, details, body_text, accent_color, background_color):
+            detail_cards = [
+                html.Div([
+                    html.Div(label, style={
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'letterSpacing': '0.04em',
+                        'textTransform': 'uppercase',
+                        'color': '#6b7a88',
+                        'marginBottom': '4px',
+                    }),
+                    html.Div(value, style={
+                        'fontSize': '18px',
+                        'fontWeight': '700',
+                        'lineHeight': '1.0',
+                        'color': '#0f1720',
+                    }),
+                ], style={
+                    'backgroundColor': 'rgba(255,255,255,0.7)',
+                    'border': '1px solid rgba(148, 163, 184, 0.28)',
+                    'borderRadius': '12px',
+                    'padding': '10px 12px',
+                })
+                for label, value in details
+            ]
+
+            return html.Div([
+                html.Div(kicker, style={
+                    'display': 'inline-block',
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.05em',
+                    'textTransform': 'uppercase',
+                    'color': accent_color,
+                    'backgroundColor': 'rgba(255,255,255,0.78)',
+                    'border': f'1px solid {accent_color}44',
+                    'borderRadius': '999px',
+                    'padding': '4px 10px',
+                    'marginBottom': '14px',
+                }),
+                html.Div(title, style={
+                    'fontSize': '22px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.15',
+                    'color': '#10202f',
+                    'marginBottom': '12px',
+                }),
+                html.Div(headline_value, style={
+                    'fontSize': '42px',
+                    'fontWeight': '800',
+                    'lineHeight': '0.95',
+                    'color': '#0f1720',
+                    'marginBottom': '8px',
+                }),
+                html.Div(headline_note, style={
+                    'fontSize': '13px',
+                    'fontWeight': '600',
+                    'color': '#516170',
+                    'marginBottom': '16px',
+                }),
+                html.Div(detail_cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(120px, 1fr))',
+                    'gap': '10px',
+                    'marginBottom': '14px',
+                }),
+                html.Div(body_text, style={
+                    'fontSize': '12px',
+                    'color': '#4d5c6b',
+                    'lineHeight': '1.55',
+                }),
+            ], style={
+                'flex': '1 1 280px',
+                'minWidth': '280px',
+                'background': background_color,
+                'border': f'1px solid {accent_color}33',
+                'borderRadius': '18px',
+                'padding': '18px',
+                'boxShadow': 'inset 0 1px 0 rgba(255,255,255,0.65)',
             })
 
         throughput_quick_status = metric_catalog['throughput_avg_week']['status']
@@ -13492,6 +13761,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     delta_suffix=' itens/sem',
                 ),
                 trend_emphasis=True,
+                featured=True,
             ),
             build_flow_dimension_card(
                 'Lead Time P85',
@@ -13508,6 +13778,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     delta_suffix=' dias',
                 ),
                 trend_emphasis=True,
+                featured=True,
             ),
             build_flow_dimension_card(
                 'Failure Demand',
@@ -13587,6 +13858,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     delta_suffix=' itens',
                 ),
                 trend_emphasis=True,
+                featured=True,
             ),
             build_flow_dimension_card(
                 'CFD / Estoque',
@@ -13603,6 +13875,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     delta_suffix=' itens',
                 ),
                 trend_emphasis=True,
+                featured=True,
             ),
             build_flow_dimension_card(
                 'Backlog Planejado sem Execução',
@@ -13621,34 +13894,140 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ),
         ]
 
-        def build_dimension_group(title, subtitle, cards, background_color, border_color):
+        def build_dimension_group(title, subtitle, helper_label, overview_panel, cards, background_color, border_color):
             return html.Div([
-                html.Div(title, style={'fontSize': '16px', 'fontWeight': '700', 'color': '#22313f', 'marginBottom': '4px'}),
-                html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b', 'marginBottom': '14px'}),
-                html.Div(
-                    cards,
-                    style={
-                        'display': 'grid',
-                        'gridTemplateColumns': 'repeat(auto-fit, minmax(190px, 1fr))',
-                        'gap': '12px',
-                    }
-                ),
+                html.Div([
+                    html.Div([
+                        html.Div(title, style={'fontSize': '18px', 'fontWeight': '700', 'color': '#22313f', 'marginBottom': '4px'}),
+                        html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b'}),
+                    ], style={'flex': '1 1 320px'}),
+                    html.Div(helper_label, style={
+                        'display': 'inline-block',
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'letterSpacing': '0.04em',
+                        'textTransform': 'uppercase',
+                        'color': '#607080',
+                        'backgroundColor': 'rgba(255,255,255,0.72)',
+                        'border': '1px solid rgba(148, 163, 184, 0.35)',
+                        'borderRadius': '999px',
+                        'padding': '6px 10px',
+                        'alignSelf': 'flex-start',
+                    }),
+                ], style={
+                    'display': 'flex',
+                    'justifyContent': 'space-between',
+                    'alignItems': 'flex-start',
+                    'gap': '12px',
+                    'flexWrap': 'wrap',
+                    'marginBottom': '16px',
+                }),
+                html.Div([
+                    overview_panel,
+                    html.Div(
+                        cards,
+                        style={
+                            'flex': '2.4 1 680px',
+                            'display': 'grid',
+                            'gridTemplateColumns': 'repeat(auto-fit, minmax(220px, 1fr))',
+                            'gap': '12px',
+                            'alignContent': 'start',
+                        }
+                    ),
+                ], style={
+                    'display': 'flex',
+                    'flexWrap': 'wrap',
+                    'gap': '14px',
+                    'alignItems': 'stretch',
+                }),
             ], style={
                 'backgroundColor': background_color,
                 'border': f'1px solid {border_color}',
-                'borderRadius': '14px',
-                'padding': '14px',
+                'borderRadius': '20px',
+                'padding': '18px',
+                'boxShadow': '0 6px 18px rgba(15, 23, 32, 0.04)',
             })
 
+        period_overview_panel = build_overview_panel(
+            'Cadência do período',
+            'Como o sistema performou no recorte',
+            fmt_value(current_quick_metrics['throughput_avg'], '{:.1f}'),
+            'itens/sem concluídos no filtro atual',
+            [
+                ('Lead Time P85', fmt_value(current_quick_metrics['lead_time_p85'], '{:.1f} dias')),
+                ('Failure Demand', fmt_value(current_quick_metrics['failure_pct'], '{:.1f}%')),
+                ('Previsibilidade', fmt_value(current_quick_metrics['predictability'], '{:.2f}')),
+            ],
+            'Use este bloco para ler velocidade, dispersão e disciplina do fluxo ao longo do período, sem misturar com a fotografia do último dia.',
+            throughput_quick_status[1],
+            'linear-gradient(180deg, rgba(235, 244, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 100%)',
+        )
+
+        snapshot_overview_panel = build_overview_panel(
+            'Fotografia do período',
+            'Carga ativa e tamanho atual do sistema',
+            fmt_value(current_quick_metrics['wip_current'], '{:.0f}'),
+            'itens em fluxo no fim do recorte',
+            [
+                ('CFD / Estoque', fmt_value(current_quick_metrics['inventory_current'], '{:.0f}')),
+                ('Backlog sem execução', fmt_value(current_quick_metrics['backlog_planned_unexecuted_pct'], '{:.1f}%')),
+                ('Expedite / Highest', fmt_value(current_quick_metrics['expedite_pct'], '{:.1f}%')),
+            ],
+            'Aqui a leitura é de snapshot: volume ativo, estoque acumulado e quanto do backlog já conhecido saiu ou ficou parado até o fim do recorte.',
+            wip_quick_status[1],
+            'linear-gradient(180deg, rgba(255, 243, 224, 0.95) 0%, rgba(255, 250, 242, 0.92) 100%)',
+        )
+
         flow_dimension_section = html.Div([
-            html.H4('Leitura Rápida do Fluxo', style={'textAlign': 'center', 'marginBottom': '6px'}),
-            html.P(
-                'A parte superior separa médias do período de snapshots atuais, para evitar confundir cadência semanal com fotografia de fim do recorte.',
-                style={'textAlign': 'center', 'color': '#5f6e7b', 'marginBottom': '16px'}
-            ),
+            html.Div([
+                html.Div([
+                    html.Div('Leitura Executiva', style={
+                        'display': 'inline-block',
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'letterSpacing': '0.06em',
+                        'textTransform': 'uppercase',
+                        'color': '#176ea4',
+                        'backgroundColor': 'rgba(255,255,255,0.72)',
+                        'border': '1px solid rgba(23, 110, 164, 0.18)',
+                        'borderRadius': '999px',
+                        'padding': '5px 10px',
+                        'marginBottom': '12px',
+                    }),
+                    html.H4('Leitura Rápida do Fluxo', style={'marginBottom': '8px', 'fontSize': '34px', 'lineHeight': '1.05', 'color': '#10202f'}),
+                    html.P(
+                        'Primeiro lemos as médias do período; depois olhamos a fotografia do fim do recorte. Assim, cadência semanal e estoque atual ficam claramente separados.',
+                        style={'color': '#4d5c6b', 'marginBottom': '0', 'fontSize': '14px', 'lineHeight': '1.6'}
+                    ),
+                ], style={'flex': '1.6 1 340px'}),
+                html.Div([
+                    build_summary_chip('Throughput', fmt_value(current_quick_metrics['throughput_avg'], '{:.1f}'), 'média semanal concluída'),
+                    build_summary_chip('Lead Time P85', fmt_value(current_quick_metrics['lead_time_p85'], '{:.1f} dias'), 'cenário conservador'),
+                    build_summary_chip('WIP Atual', fmt_value(current_quick_metrics['wip_current'], '{:.0f}'), 'carga ativa atual'),
+                    build_summary_chip('CFD / Estoque', fmt_value(current_quick_metrics['inventory_current'], '{:.0f}'), 'backlog + WIP'),
+                ], style={
+                    'flex': '2.2 1 420px',
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(150px, 1fr))',
+                    'gap': '10px',
+                }),
+            ], style={
+                'display': 'flex',
+                'flexWrap': 'wrap',
+                'alignItems': 'stretch',
+                'gap': '14px',
+                'background': 'linear-gradient(135deg, #eef6ff 0%, #f8fbff 55%, #fffaf2 100%)',
+                'border': '1px solid #d8e5f1',
+                'borderRadius': '22px',
+                'padding': '20px',
+                'marginBottom': '16px',
+                'boxShadow': '0 12px 30px rgba(15, 23, 32, 0.05)',
+            }),
             build_dimension_group(
                 'Médias do Período',
                 'Leitura de cadência, qualidade e disciplina do fluxo no recorte selecionado.',
+                'Cadência, qualidade e previsibilidade',
+                period_overview_panel,
                 period_dimension_cards,
                 '#f8fbff',
                 '#cfe0f3',
@@ -13657,6 +14036,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             build_dimension_group(
                 'Snapshot Atual',
                 'Fotografia do fim do período para carga ativa e execução do backlog já planejado.',
+                'Estoque, carga ativa e execução',
+                snapshot_overview_panel,
                 snapshot_dimension_cards,
                 '#fffaf2',
                 '#f1d7a8',
@@ -14390,6 +14771,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if tp_done.empty:
             return html.Div('Sem dados de Throughput para exibir para o período e filtros selecionados.')
 
+        start_date_ts = pd.to_datetime(start_date)
+        end_date_ts = pd.to_datetime(end_date)
         tp_done['_FilterDate'] = resolve_filter_date_series(tp_done, use_creation_date=use_creation_date)
         tp_done = tp_done.dropna(subset=['_FilterDate'])
         tp_done['Semana'] = weekly_bucket_start(tp_done['_FilterDate'])
@@ -14403,6 +14786,102 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
         add_statistical_lines(fig_tp_weekly, tp_weekly['Semana'], tp_weekly['Throughput'], name_prefix='Total ')
         fig_tp_weekly.update_layout(height=500, xaxis_tickangle=-45, margin=dict(b=100))
+
+        throughput_cost_data = build_throughput_avg_cost_series(
+            tp_done=tp_done,
+            scope_df=df,
+            start_ts=start_date_ts,
+            end_ts=end_date_ts,
+            use_creation_date=use_creation_date,
+        )
+        fig_tp_cost_avg = go.Figure()
+        throughput_cost_summary = html.Div(
+            str(throughput_cost_data.get('error', 'Sem base suficiente para monetizar o throughput no período selecionado.')),
+            style={'textAlign': 'center', 'color': '#666', 'marginBottom': '12px'}
+        )
+        if throughput_cost_data.get('available'):
+            tp_cost_df = throughput_cost_data.get('series_df', pd.DataFrame()).copy()
+            fig_tp_cost_avg = go.Figure()
+            fig_tp_cost_avg.add_trace(
+                go.Scatter(
+                    x=tp_cost_df['Semana'],
+                    y=tp_cost_df['Custo Medio Demanda (R$)'],
+                    mode='lines+markers',
+                    name='Custo médio',
+                    line=dict(color='#1f77b4', width=2),
+                    customdata=tp_cost_df[['Throughput', 'DiasUteisRateados', 'CustoCapacidadeBucket (R$)', 'HorasProdutivasBucket']].to_numpy(),
+                    hovertemplate=(
+                        'Semana %{x|%d/%m/%Y}'
+                        '<br>Custo médio: R$ %{y:,.2f}'
+                        '<br>Throughput: %{customdata[0]}'
+                        '<br>Dias úteis rateados: %{customdata[1]}'
+                        '<br>Custo do bucket: R$ %{customdata[2]:,.2f}'
+                        '<br>Horas produtivas rateadas: %{customdata[3]:,.1f}<extra></extra>'
+                    ),
+                )
+            )
+            fig_tp_cost_avg.add_trace(
+                go.Scatter(
+                    x=tp_cost_df['Semana'],
+                    y=tp_cost_df['Media Movel Custo Medio (R$)'],
+                    mode='lines',
+                    name='MM(5)',
+                    line=dict(color='#6a1b9a', width=2.5, dash='solid'),
+                    hovertemplate='Semana %{x|%d/%m/%Y}<br>MM(5): R$ %{y:,.2f}<extra></extra>',
+                )
+            )
+            avg_cost_mean = throughput_cost_data.get('avg_cost_mean')
+            avg_cost_p85 = throughput_cost_data.get('avg_cost_p85')
+            if pd.notna(avg_cost_mean):
+                fig_tp_cost_avg.add_trace(
+                    go.Scatter(
+                        x=tp_cost_df['Semana'],
+                        y=[avg_cost_mean] * len(tp_cost_df),
+                        mode='lines',
+                        name='Média',
+                        line=dict(color='#1565c0', width=1.5, dash='dot'),
+                        hovertemplate='Média: R$ %{y:,.2f}<extra></extra>',
+                    )
+                )
+            if pd.notna(avg_cost_p85):
+                fig_tp_cost_avg.add_trace(
+                    go.Scatter(
+                        x=tp_cost_df['Semana'],
+                        y=[avg_cost_p85] * len(tp_cost_df),
+                        mode='lines',
+                        name='P85',
+                        line=dict(color='#ef6c00', width=1.5, dash='dash'),
+                        hovertemplate='P85: R$ %{y:,.2f}<extra></extra>',
+                    )
+                )
+            fig_tp_cost_avg.update_layout(
+                title='Custo Médio da Demanda por Semana',
+                template='plotly_white',
+                height=500,
+                xaxis_tickangle=-45,
+                margin=dict(b=100),
+                hovermode='x unified',
+                yaxis_title='Custo médio por demanda (R$)',
+            )
+            fig_tp_cost_avg.update_yaxes(tickprefix='R$ ')
+            throughput_cost_summary = html.Div([
+                html.Div([
+                    create_kpi_card('Custo médio / demanda', format_currency_br(avg_cost_mean), class_name='three columns'),
+                    create_kpi_card('P85 custo / demanda', format_currency_br(avg_cost_p85), class_name='three columns'),
+                    create_kpi_card('Custo hora usado', format_currency_br(throughput_cost_data.get('cost_hour'), suffix='/h'), class_name='three columns'),
+                    create_kpi_card('Custo mensal rateado', format_currency_br(throughput_cost_data.get('monthly_cost')), class_name='three columns'),
+                ], className='row'),
+                html.P(
+                    (
+                        f"Parâmetros reaproveitados da régua financeira nativa: "
+                        f"`FLOW_PMO_PORTFOLIO_COST_MODEL` (dias úteis/mês={int(throughput_cost_data.get('dias_uteis_mes', 0) or 0)}), "
+                        f"`FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP`, `FLOW_PMO_PORTFOLIO_BU_SALARY_MAP` e "
+                        f"`FLOW_PMO_PM_COST_PER_HOUR_MAP` quando houver override por produto. "
+                        f"Escopo monetizado: {throughput_cost_data.get('scope_label', 'TI total')} ({throughput_cost_data.get('scope_source', 'escopo global')})."
+                    ),
+                    style={'textAlign': 'center', 'color': '#666', 'marginTop': '6px', 'marginBottom': '14px'}
+                ),
+            ])
 
         type_breakdown = build_throughput_breakdown(tp_done, 'TipoDemanda', 'Throughput por Tipo de Demanda')
         desired_type_order = [TYPE_ISSUES, TYPE_SUPPORT, TYPE_DEV, TYPE_OTHER]
@@ -14568,6 +15047,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 create_kpi_card('Semanas c/ Cancel.', f"{cancelled_weeks}", class_name='two columns'),
             ], className='row'),
             dcc.Graph(figure=fig_tp_weekly),
+            html.H4("Custo Médio da Demanda", style={'textAlign': 'center', 'marginTop': '16px'}),
+            throughput_cost_summary,
+            (dcc.Graph(figure=fig_tp_cost_avg) if throughput_cost_data.get('available') else html.Div()),
             html.H4("Vazão por Pessoa", style={'textAlign': 'center', 'marginTop': '10px'}),
             (dcc.Graph(figure=fig_tp_by_person_type) if fig_tp_by_person_type is not None else html.Div('Dados de responsável não disponíveis para o gráfico de vazão por pessoa.', style={'textAlign': 'center', 'color': '#666', 'marginBottom': '12px'})),
             html.H4("Breakdown por Tipo de Demanda", style={'textAlign': 'center', 'marginTop': '10px'}),

@@ -1,3 +1,140 @@
+## Current Task (Reorganizar o design da Leitura Rápida do Fluxo)
+- [x] Localizar os helpers e a composição visual da seção `Leitura Rápida do Fluxo` no `dashboard_full.py`
+- [x] Reorganizar a hierarquia visual para melhorar agrupamento, destaque e leitura em desktop/mobile
+- [x] Preservar os cálculos existentes dos indicadores, alterando apenas composição e apresentação
+- [x] Validar sintaxe e registrar review com commit sugerido
+
+## Specification (Reorganizar o design da Leitura Rápida do Fluxo)
+- Objetivo: redesenhar a seção `Leitura Rápida do Fluxo` para que a tela fique mais organizada, com melhor hierarquia visual entre resumo executivo, médias do período e snapshot atual.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar os helpers atuais de card e agrupamento da seção
+  - criar um cabeçalho-resumo mais claro para contextualizar a leitura
+  - reorganizar os cards em uma composição mais intencional, com destaque para métricas âncora e melhor distribuição do grid
+  - manter os thresholds, tendências e textos explicativos já existentes
+- Critério de aceite:
+  - a seção continua mostrando os mesmos indicadores principais
+  - a separação entre `Médias do Período` e `Snapshot Atual` fica mais evidente
+  - a composição reduz a sensação de blocos soltos e melhora a leitura do conjunto
+  - o arquivo continua válido sintaticamente
+
+## Review (Reorganizar o design da Leitura Rápida do Fluxo)
+- O que foi reorganizado:
+  - a seção ganhou um cabeçalho-resumo superior com contexto executivo e quatro chips âncora (`Throughput`, `Lead Time P85`, `WIP Atual` e `CFD / Estoque`)
+  - os blocos `Médias do Período` e `Snapshot Atual` deixaram de ser apenas grids soltos e passaram a ter um painel lateral de leitura guiada
+  - os cards principais (`Throughput`, `Lead Time P85`, `WIP Atual` e `CFD / Estoque`) receberam destaque visual maior para melhorar a hierarquia da tela
+- Decisões de design aplicadas:
+  - mantive a lógica dos indicadores, thresholds, tendências e descrições já existentes
+  - preservei a separação conceitual entre `média do período` e `fotografia do fim do período`
+  - usei uma composição mais densa e intencional, mas ainda alinhada ao visual claro já dominante do dashboard
+- Evidência de validação:
+  - `python -m py_compile dashboard_full.py`
+- Risco residual:
+  - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no navegador para calibrar espaçamento e quebra dos cards no viewport real
+- Suggested commit message:
+  - `refactor(flow-panel): reorganize quick flow summary layout`
+
+## Current Task (Corrigir leitura tolerante dos mapas de custo do .env.local)
+- [x] Confirmar a causa raiz da falha de monetização no parser de env
+- [x] Tornar `parse_json_env` tolerante ao formato de mapa usado no `.env.local`
+- [x] Validar a régua de custo e registrar review com commit sugerido
+
+## Specification (Corrigir leitura tolerante dos mapas de custo do .env.local)
+- Objetivo: corrigir a falha que deixa o gráfico de custo médio da demanda sem monetização quando o ambiente usa mapas em formato pseudo-JSON no `.env.local`.
+- Escopo:
+  - `shared/env_utils.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - manter `json.loads(...)` como caminho principal
+  - adicionar fallback controlado para objetos simples no formato `{CHAVE:valor,...}` com ou sem barras invertidas extras
+  - preservar compatibilidade com URLs e strings com `:` no valor
+- Critério de aceite:
+  - os mapas de custo do `.env.local` passam a ser interpretados corretamente
+  - a régua financeira volta a produzir custo/capacidade positivos no ambiente local
+  - o arquivo continua válido sintaticamente
+
+## Review (Corrigir leitura tolerante dos mapas de custo do .env.local)
+- Causa raiz confirmada:
+  - o `.env.local` usa vários mapas no formato pseudo-JSON, por exemplo `{\BF\:212,\DT\:182}` e `{W1NNER:https://...}`
+  - `parse_json_env(...)` em `shared/env_utils.py` aceitava apenas JSON estrito via `json.loads(...)`
+  - com isso, os mapas de custo eram descartados para `{}` e a régua de monetização ficava sem salário/taxa válidos
+- Correção aplicada:
+  - mantive `json.loads(...)` como caminho principal
+  - adicionei um fallback controlado para objetos simples no formato `{CHAVE:valor,...}`
+  - o fallback também limpa escapes residuais como `\` antes/depois das chaves e `\:`
+  - a rotina preserva valores com `:` no payload, como URLs dos mapas remotos
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile shared\env_utils.py dashboard_full.py`
+  - leitura confirmada dos envs:
+    - `FLOW_PMO_PORTFOLIO_COST_MODEL => {'fl_mensal': 0, 'budget_ti_pct': 0.1, 'fator_encargos': 2.0, 'custo_ferramentas_infra_mensal': 35000, 'dias_uteis_mes': 22, 'horas_dia': 8, 'fator_produtividade': 0.75, 'salario_medio_bruto': 12000}`
+    - `FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP => {'Dev': 10000, 'Tech Lead': 18000}`
+    - `FLOW_PMO_PORTFOLIO_BU_SALARY_MAP => {'BeFinance': 14000, 'Dados': 12000, 'Sistemas - S1NC': 11000, 'Sistemas - W1NNER': 11500, ...}`
+    - `FLOW_PMO_PM_COST_PER_HOUR_MAP => {'BF': 212, 'DT': 182, 'S1NC': 167, 'W1NNER': 174}`
+  - snapshot financeiro validado com:
+    - `available=True`
+    - `Custo Hora Carregado=193.27894327894327`
+    - `Custo Total TI Mensal=995000.0`
+    - `Capacidade Total Mensal (h)=5148.0`
+- Impacto esperado:
+  - o gráfico `Custo Médio da Demanda` deixa de cair na mensagem de parâmetros insuficientes nesse ambiente
+  - outros env maps do projeto definidos nesse mesmo formato também passam a ser interpretados de forma mais robusta
+- Suggested commit message:
+  - `fix(env): support relaxed object maps in parse_json_env`
+
+## Current Task (Adicionar gráfico de custo médio da demanda na aba de throughput)
+- [x] Investigar os parâmetros de custo já existentes no projeto e a forma como são calculados
+- [x] Localizar a estrutura atual da aba de throughput no `dashboard_full.py`
+- [x] Implementar um gráfico de linha com média, média móvel e percentil 85% do custo médio da demanda
+- [x] Validar a alteração e registrar review com commit sugerido
+
+## Specification (Adicionar gráfico de custo médio da demanda na aba de throughput)
+- Objetivo: adicionar na aba de throughput do `dashboard_full.py` um gráfico de custo médio da demanda baseado na vazão entregue, reaproveitando os parâmetros de custo já existentes no projeto.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - mapear primeiro a régua nativa de custos já existente no dashboard
+  - identificar qual taxa/custo-hora pode monetizar os itens entregues no recorte da aba de throughput
+  - consolidar uma série temporal de custo médio por demanda entregue no mesmo bucket de throughput
+  - plotar um gráfico de linha com série base, média móvel e percentil 85%
+- Critério de aceite:
+  - a aba de throughput passa a exibir um gráfico de linha de custo médio da demanda
+  - o cálculo usa parâmetros de custo já existentes no projeto, sem introduzir uma régua paralela desconectada
+  - o gráfico mostra pelo menos a série do custo médio, a média móvel e o percentil 85%
+  - o arquivo continua válido sintaticamente
+
+## Review (Adicionar gráfico de custo médio da demanda na aba de throughput)
+- Parâmetros de custo existentes identificados:
+  - `FLOW_PMO_PORTFOLIO_COST_MODEL`: contém `fator_encargos`, `custo_ferramentas_infra_mensal`, `dias_uteis_mes`, `horas_dia`, `fator_produtividade`, `salario_medio_bruto` e a base top-down de budget
+  - `FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP`: override de salário por papel
+  - `FLOW_PMO_PORTFOLIO_BU_SALARY_MAP`: override de salário por BU/produto
+  - `FLOW_PMO_PM_COST_PER_HOUR_MAP`: override opcional de taxa/hora por produto (`BF`, `DT`, `S1NC`, `W1NNER`)
+- Leitura do código confirmada:
+  - a régua financeira nativa está concentrada em `build_portfolio_cost_model_snapshot(...)`
+  - a aba alvo do gráfico é `tab-throughput-breakdown` em `dashboard_full.py`
+  - o helper `_pm_load_cost_rate_map()` já transforma a régua em taxa/hora por produto e foi reaproveitado indiretamente via snapshot
+- Implementação aplicada:
+  - criei `build_throughput_avg_cost_series(...)` para monetizar a vazão entregue usando o custo mensal e a capacidade mensal do escopo filtrado
+  - o custo semanal é rateado por `dias_uteis_mes` e pelos dias úteis efetivos de cada bucket semanal
+  - o custo médio por demanda é calculado como `custo de capacidade do bucket / throughput do bucket`
+  - a aba `tab-throughput-breakdown` agora exibe:
+    - série de `Custo médio`
+    - `MM(5)` como média móvel
+    - linha horizontal de `Média`
+    - linha horizontal de `P85`
+    - cards-resumo com custo médio, P85, custo/hora usado e custo mensal rateado
+- Regras de escopo adotadas:
+  - quando o filtro atual resolve produtos reconhecidos (`BF`, `DT`, `S1NC`, `W1NNER`), o rateio usa apenas o custo/capacidade desses produtos
+  - quando o filtro não resolve um produto monetizável, o cálculo cai para o custo total heurístico de TI como fallback
+- Validação executada:
+  - `python -m py_compile dashboard_full.py`
+- Risco residual:
+  - o gráfico é heurístico e mede custo médio por demanda via rateio de capacidade, não custo real apontado por item; se quisermos uma versão futura mais precisa por demanda, o próximo passo natural é cruzar entregas com horas de process mining por `Issue Key`
+- Suggested commit message:
+  - `feat(throughput): add average demand cost trend based on delivered flow`
+
 ## Current Task (Enriquecer leitura rápida do Painel Fluxo com proxies de disciplina e tendência)
 - [x] Adicionar proxies de trabalho não planejado, expedite/highest, falha e backlog planejado não executado
 - [x] Mostrar tendência curta e delta vs período anterior nas dimensões principais da leitura rápida
