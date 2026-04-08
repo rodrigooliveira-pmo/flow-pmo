@@ -1,3 +1,25 @@
+## Current Task (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
+- [ ] Revisar a composição atual do `Painel Fluxo` e consolidar quais KPIs devem aparecer apenas uma vez na leitura rápida
+- [ ] Reorganizar hero, grupos de leitura rápida e seção de referência para reduzir repetição sem perder escaneabilidade
+- [ ] Ajustar a malha de indicadores complementares para deixar apenas sinais que agregam contexto novo
+- [ ] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
+- Objetivo: reavaliar a aba `Painel Fluxo` para reduzir redundância visual e semântica, preservando a estrutura de leitura rápida já consolidada no dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - identificar os KPIs âncora da leitura rápida e evitar repeti-los em hero, painéis-resumo e grids inferiores
+  - manter a separação entre `Médias do Período` e `Snapshot Atual`, mas substituir blocos repetitivos por painéis de orientação mais enxutos
+  - simplificar a seção de referência para focar sinais estruturais complementares, não contagens já expostas acima
+  - limpar a grade final para que ela funcione como camada complementar, e não como repetição do topo
+- Critério de aceite:
+  - a tela continua com leitura rápida e hierarquia clara
+  - indicadores duplicados deixam de aparecer em múltiplas camadas
+  - a seção de leitura rápida permanece preservada como estrutura principal da aba
+  - o arquivo continua válido sintaticamente
+
 ## Current Task (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
 - [x] Localizar a composição atual da aba `tab-process-mining-jira` e mapear quais blocos do `Painel Fluxo` servem como referência visual
 - [x] Reorganizar a tela com hero, cards executivos e seções visuais alinhadas ao padrão já usado no dashboard

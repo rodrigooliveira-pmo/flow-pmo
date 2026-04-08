@@ -14861,16 +14861,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         }
 
         reference_metric_ids = [
-            'backlog_uncommitted_current',
-            'wip_in_progress_current',
-            'total_system_current',
+            'throughput_total',
             'backlog_little_weeks',
             'wip_little_weeks',
             'total_system_little_weeks',
             'backlog_required_rate',
             'wip_required_rate',
             'total_system_required_rate',
-            'throughput_total',
         ]
         executive_metric_ids = [
             'backlog_avg_week',
@@ -14892,8 +14889,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'wip_age_avg',
             'commitment_rate',
         ]
+        quick_metric_ids = {
+            'throughput_avg_week',
+            'lead_time_p85',
+            'predictability',
+            'wip_current',
+            'total_system_current_exec',
+        }
         reference_metric_set = set(reference_metric_ids)
-        executive_metric_ids = [mid for mid in executive_metric_ids if mid not in reference_metric_set]
+        executive_metric_ids = [
+            mid for mid in executive_metric_ids
+            if mid not in reference_metric_set and mid not in quick_metric_ids
+        ]
 
         cards = []
         for metric_id in executive_metric_ids:
@@ -15173,7 +15180,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'height': '100%',
             })
 
-        def build_summary_chip(label, value, note):
+        def build_context_chip(label, note):
             return html.Div([
                 html.Div(label, style={
                     'fontSize': '11px',
@@ -15183,15 +15190,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'color': '#6b7a88',
                     'marginBottom': '4px',
                 }),
-                html.Div(value, style={
-                    'fontSize': '24px',
-                    'fontWeight': '700',
-                    'lineHeight': '1.0',
-                    'color': '#0f1720',
-                    'marginBottom': '4px',
-                }),
                 html.Div(note, style={
                     'fontSize': '12px',
+                    'fontWeight': '600',
                     'color': '#5f6e7b',
                     'lineHeight': '1.35',
                 }),
@@ -15200,35 +15201,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'border': '1px solid #d6e0eb',
                 'borderRadius': '14px',
                 'padding': '12px 14px',
-                'minHeight': '92px',
+                'minHeight': '82px',
             })
 
-        def build_overview_panel(kicker, title, headline_value, headline_note, details, body_text, accent_color, background_color):
-            detail_cards = [
-                html.Div([
-                    html.Div(label, style={
-                        'fontSize': '11px',
-                        'fontWeight': '700',
-                        'letterSpacing': '0.04em',
-                        'textTransform': 'uppercase',
-                        'color': '#6b7a88',
-                        'marginBottom': '4px',
-                    }),
-                    html.Div(value, style={
-                        'fontSize': '18px',
-                        'fontWeight': '700',
-                        'lineHeight': '1.0',
-                        'color': '#0f1720',
-                    }),
-                ], style={
-                    'backgroundColor': 'rgba(255,255,255,0.7)',
-                    'border': '1px solid rgba(148, 163, 184, 0.28)',
-                    'borderRadius': '12px',
-                    'padding': '10px 12px',
-                })
-                for label, value in details
-            ]
-
+        def build_reading_panel(kicker, title, body_text, bullets, accent_color, background_color):
             return html.Div([
                 html.Div(kicker, style={
                     'display': 'inline-block',
@@ -15250,26 +15226,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     'color': '#10202f',
                     'marginBottom': '12px',
                 }),
-                html.Div(headline_value, style={
-                    'fontSize': '42px',
-                    'fontWeight': '800',
-                    'lineHeight': '0.95',
-                    'color': '#0f1720',
-                    'marginBottom': '8px',
-                }),
-                html.Div(headline_note, style={
+                html.Div(body_text, style={
                     'fontSize': '13px',
-                    'fontWeight': '600',
-                    'color': '#516170',
-                    'marginBottom': '16px',
-                }),
-                html.Div(detail_cards, style={
-                    'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fit, minmax(120px, 1fr))',
-                    'gap': '10px',
+                    'color': '#4d5c6b',
+                    'lineHeight': '1.6',
                     'marginBottom': '14px',
                 }),
-                html.Div(body_text, style={
+                html.Ul([
+                    html.Li(
+                        bullet,
+                        style={'marginBottom': '8px'}
+                    )
+                    for bullet in bullets
+                ], style={
+                    'paddingLeft': '18px',
+                    'marginBottom': '0',
                     'fontSize': '12px',
                     'color': '#4d5c6b',
                     'lineHeight': '1.55',
@@ -15497,32 +15468,28 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'boxShadow': '0 6px 18px rgba(15, 23, 32, 0.04)',
             })
 
-        period_overview_panel = build_overview_panel(
-            'Cadência do período',
-            'Como o sistema performou no recorte',
-            fmt_value(current_quick_metrics['throughput_avg'], '{:.1f}'),
-            'itens/sem concluídos no filtro atual',
+        period_reading_panel = build_reading_panel(
+            'Como ler',
+            'Médias do Período',
+            'Comece pelos cards âncora e use os demais sinais para entender se a cadência do recorte foi estável ou contaminada por urgência, retrabalho ou entrada fora do plano.',
             [
-                ('Lead Time P85', fmt_value(current_quick_metrics['lead_time_p85'], '{:.1f} dias')),
-                ('Failure Demand', fmt_value(current_quick_metrics['failure_pct'], '{:.1f}%')),
-                ('Previsibilidade', fmt_value(current_quick_metrics['predictability'], '{:.2f}')),
+                'Throughput e Lead Time P85 resumem capacidade real de saída e prazo em cenário conservador.',
+                'Failure Demand, Expedite e Trabalho Não Planejado mostram quanto do período foi consumido por ruído operacional.',
+                'Previsibilidade ajuda a confirmar se o prazo ficou concentrado ou espalhado demais.',
             ],
-            'Use este bloco para ler velocidade, dispersão e disciplina do fluxo ao longo do período, sem misturar com a fotografia do último dia.',
             throughput_quick_status[1],
             'linear-gradient(180deg, rgba(235, 244, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 100%)',
         )
 
-        snapshot_overview_panel = build_overview_panel(
-            'Fotografia do período',
-            'Carga ativa e tamanho atual do sistema',
-            fmt_value(current_quick_metrics['wip_current'], '{:.0f}'),
-            'itens em fluxo no fim do recorte',
+        snapshot_reading_panel = build_reading_panel(
+            'Como ler',
+            'Snapshot Atual',
+            'Aqui a leitura é de fotografia final do sistema: quanta carga ficou ativa, quanto estoque permaneceu aberto e quanto do backlog conhecido não ganhou avanço suficiente até o fim do recorte.',
             [
-                ('CFD / Estoque', fmt_value(current_quick_metrics['inventory_current'], '{:.0f}')),
-                ('Backlog sem execução', fmt_value(current_quick_metrics['backlog_planned_unexecuted_pct'], '{:.1f}%')),
-                ('Expedite / Highest', fmt_value(current_quick_metrics['expedite_pct'], '{:.1f}%')),
+                'WIP Atual mostra a carga viva competindo por atenção agora.',
+                'CFD / Estoque resume o tamanho do sistema somando backlog e trabalho em andamento.',
+                'Backlog Planejado sem Execução evidencia quanto do que já era conhecido continuou parado.',
             ],
-            'Aqui a leitura é de snapshot: volume ativo, estoque acumulado e quanto do backlog já conhecido saiu ou ficou parado até o fim do recorte.',
             wip_quick_status[1],
             'linear-gradient(180deg, rgba(255, 243, 224, 0.95) 0%, rgba(255, 250, 242, 0.92) 100%)',
         )
@@ -15576,7 +15543,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Médias do Período',
                 'Leitura de cadência, qualidade e disciplina do fluxo no recorte selecionado.',
                 'Cadência, qualidade e previsibilidade',
-                period_overview_panel,
+                period_reading_panel,
                 period_dimension_cards,
                 '#f8fbff',
                 '#cfe0f3',
@@ -15586,7 +15553,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Snapshot Atual',
                 'Fotografia do fim do período para carga ativa e execução do backlog já planejado.',
                 'Estoque, carga ativa e execução',
-                snapshot_overview_panel,
+                snapshot_reading_panel,
                 snapshot_dimension_cards,
                 '#fffaf2',
                 '#f1d7a8',
