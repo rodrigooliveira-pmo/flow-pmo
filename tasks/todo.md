@@ -8356,6 +8356,32 @@
   - o pipeline do `CAPEX latest` está operacional de ponta a ponta, mas a cobertura de dados ainda está baixa pelo volume retornado no ambiente atual
 - Suggested commit message:
   - `test(runner): verify bf dt outputs and capex latest operational flow`
+
+## Current Task (Ampliar cobertura do CAPEX latest e reduzir 429 no runner)
+- [ ] Revisar o caminho efetivo de captura de worklogs em `jira_capex_monthly.py`, incluindo fallback `updated` e filtro final por projeto
+- [ ] Ajustar o exportador CAPEX para usar uma rota mais confiável/coberta quando `worklogDate` falhar e evitar linhas fora do escopo solicitado
+- [ ] Reduzir a pressão de Bitbucket no lote, eliminando chamadas internas redundantes do `jira_to_pipeline_csv.py` e tornando o runner mais conservador
+- [ ] Validar sintaxe/smoke tests e registrar review com impacto e riscos residuais
+
+## Specification (Ampliar cobertura do CAPEX latest e reduzir 429 no runner)
+- Objetivo: aumentar a confiabilidade do `capex-latest` e diminuir o risco de rate limit no runner operacional sem quebrar o formato de saída consumido pelo dashboard.
+- Escopo:
+  - `jira_capex_monthly.py`
+  - `jira_to_pipeline_csv.py`
+  - `run_all_projects.ps1`
+  - `run_all_projects_macos.sh`
+  - `run_process_mining_projects.ps1`
+  - `tasks/todo.md`
+- Hipóteses técnicas a validar/atacar:
+  - o fallback global de worklogs está aceitando itens fora dos projetos solicitados
+  - a rota por issue no modo `updated` faz chamadas demais e cobre mal o caso em que `worklogDate` não funciona no tenant
+  - o lote atual consulta Bitbucket dentro de `jira_to_pipeline_csv.py` e, em alguns fluxos, consulta Bitbucket de novo logo depois
+  - o `capex` do runner está deixando `NS` de fora, reduzindo cobertura do portfólio
+- Critério de aceite:
+  - `capex-latest` deixa de aceitar worklogs de projetos fora do escopo solicitado
+  - o caminho de fallback do CAPEX fica mais direto/confiável quando `worklogDate` retorna vazio
+  - o runner reduz chamadas Bitbucket redundantes e adota parâmetros mais conservadores onde ainda consulta Bitbucket
+  - os scripts continuam válidos sintaticamente e o smoke test local/operacional cobre as mudanças principais
 ## Current Task (Tornar run_process_mining_projects.ps1 resiliente por projeto)
 - [ ] Revisar o fluxo atual de falha do runner por projeto (`jira`, `process mining`, `bitbucket`, `latest-upload`)
 - [ ] Alterar `run_process_mining_projects.ps1` para acumular falhas por projeto sem abortar o lote inteiro
@@ -8424,3 +8450,81 @@
   - como os SHAs mudaram, o próximo envio para `main` deve usar push normal para a URL nova; se alguma automação local ainda referenciar SHAs antigos, ela precisará ser atualizada
 - Suggested commit message:
   - `chore(security): remove local jira env artifact from git`
+
+## Current Task (Aumentar cobertura do CAPEX latest e reduzir risco de 429 no runner)
+- [ ] Revisar os pontos de perda de cobertura em `jira_capex_monthly.py` e os pontos de pressão de rede em `jira_to_pipeline_csv.py` / `run_all_projects.ps1`
+- [ ] Implementar uma rota de worklog mais econômica/resiliente para o fallback `updated` do CAPEX
+- [ ] Tornar o enriquecimento Bitbucket interno do `jira_to_pipeline_csv.py` opcional e desligá-lo no lote do runner
+- [ ] Validar com smoke tests locais/sintáticos e registrar review com evidências
+
+## Specification (Aumentar cobertura do CAPEX latest e reduzir risco de 429 no runner)
+- Objetivo: melhorar a chance de o `capex-latest` capturar worklogs reais do período sem explodir o volume de chamadas ao Jira, e reduzir o risco de `429 Too Many Requests` no lote principal ao eliminar chamadas Bitbucket redundantes.
+- Escopo:
+  - `jira_capex_monthly.py`
+  - `jira_to_pipeline_csv.py`
+  - `run_all_projects.ps1`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - o fallback `updated` do CAPEX deixa de forçar busca completa de worklogs por issue quando isso não for necessário
+  - a rota global de fallback do CAPEX só aproveita worklogs dos projetos/issue ids candidatos da execução atual e consegue complementar a coleta quando a rota por issue vier incompleta
+  - o `jira_to_pipeline_csv.py` passa a permitir desligar o enriquecimento interno de Bitbucket
+  - o `run_all_projects.ps1` usa esse modo mais leve no lote principal
+  - a mudança fica validada com compilação/smoke test e review documentado
+
+## Current Task (Aumentar cobertura do CAPEX latest e reduzir 429 no runner)
+- [x] Revisar `jira_capex_monthly.py`, `run_all_projects.ps1`, `run_process_mining_projects.ps1`, `jira_to_pipeline_csv.py` e `bitbucket_export.py` para localizar perdas de cobertura e chamadas redundantes
+- [x] Implementar ajustes de baixo risco para ampliar a captura de worklogs reais no CAPEX latest
+- [x] Implementar ajustes de baixo risco para reduzir pressão/rate limit do Bitbucket no lote operacional
+- [x] Validar com smoke tests locais e, se viável, com execução operacional focada
+- [x] Registrar review com evidências, riscos residuais e commit sugerido
+
+## Specification (Aumentar cobertura do CAPEX latest e reduzir 429 no runner)
+- Objetivo: aumentar a precisão operacional do `CAPEX latest` e reduzir a incidência de `429 Too Many Requests` no lote, preservando o comportamento atual do dashboard e do runner.
+- Escopo:
+  - `jira_capex_monthly.py`
+  - `jira_to_pipeline_csv.py`
+  - `run_all_projects.ps1`
+  - `run_process_mining_projects.ps1`
+  - `tasks/todo.md`
+- Estratégia:
+  - reforçar a extração CAPEX quando a busca por `worklogDate` cair no fallback por `updated`, para não depender apenas das issues retornadas nessa rota
+  - diminuir chamadas Bitbucket redundantes no `jira_to_pipeline_csv.py` e no runner, preferindo escopo por projeto, pacing conservador e menor volume por execução
+  - manter compatibilidade: quando não houver cobertura extra disponível, o fluxo deve seguir funcionando como hoje
+- Critério de aceite:
+  - o `CAPEX latest` deixa de depender exclusivamente da rota por issue quando o tenant Jira não responde bem a `worklogDate`
+  - o lote reduz a pressão de chamadas Bitbucket por projeto sem remover artefatos hoje esperados
+  - os scripts permanecem válidos sintaticamente
+  - a mudança fica documentada com review e evidências de validação
+
+## Review (Aumentar cobertura do CAPEX latest e reduzir 429 no runner)
+- O que foi ajustado:
+  - [`jira_capex_monthly.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_capex_monthly.py) passou a incluir `Issue ID` no contexto, aceitar `timespent > 0` como filtro opcional de JQL e usar fallback `updated` em duas camadas: primeiro mais restritivo e depois sem `timespent` quando o tenant zera a busca.
+  - o mesmo script agora restringe a rota global `/worklog/updated + /worklog/list` ao conjunto de `issue ids` candidatos da execução atual, evitando vazar worklogs de projetos fora do escopo.
+  - no modo `updated`, a coleta por issue deixou de chamar o endpoint de worklog para cada item; ela usa apenas os worklogs embutidos na busca Jira e deixa a rota global complementar a cobertura. Isso reduz bastante a carga de rede no fallback.
+  - [`jira_to_pipeline_csv.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_to_pipeline_csv.py) ganhou a flag `--skip-devexecutor-bitbucket`, permitindo desligar o enriquecimento interno pesado de Bitbucket em execuções em lote.
+  - [`run_all_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_all_projects.ps1) e [`run_all_projects_macos.sh`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_all_projects_macos.sh) passaram a usar esse modo leve no downstream e incluíram `NS` na exportação CAPEX.
+  - [`run_process_mining_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_process_mining_projects.ps1) e [`run_process_mining_projects_macos.sh`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_process_mining_projects_macos.sh) também passaram a desligar o Bitbucket interno do downstream; no macOS, a chamada explícita ao `bitbucket_export.py` ficou com parâmetros mais conservadores.
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile jira_capex_monthly.py jira_to_pipeline_csv.py`
+  - parsing sintático de [`run_all_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_all_projects.ps1) e [`run_process_mining_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_process_mining_projects.ps1) com PowerShell retornando `OK`
+  - smoke test real de [`jira_capex_monthly.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_capex_monthly.py) para `2026-04-01` a `2026-04-08` em `W1NNR S1NC BF DT BT NS`
+- Resultado do smoke test:
+  - o tenant continuou sem retornar worklogs válidos para o escopo pedido nessa janela, então os CSVs de smoke test seguiram vazios
+  - a diferença importante é que o fallback deixou de aceitar os 2 worklogs de `IT` que antes contaminavam o CAPEX; agora eles são descartados explicitamente por estarem fora do conjunto de issues candidatas/projetos solicitados
+  - o smoke test também confirmou que o fallback `updated + timespent` era restritivo demais neste tenant e que a reabertura sem `timespent` recupera candidatos sem reintroduzir vazamento de escopo
+- Risco residual:
+  - a cobertura de worklogs reais continua dependente do comportamento/permissões do tenant Jira; nesta janela testada, o pipeline ficou mais correto e mais econômico, mas não houve aumento observável de linhas válidas
+  - não foi possível validar sintaticamente os scripts macOS neste Windows porque `bash` não está disponível no ambiente atual
+- Suggested commit message:
+  - `feat(capex-runner): tighten capex fallback scope and disable redundant bitbucket enrichment`
+
+## Review Addendum (Smoke tests ao vivo desta rodada)
+- Evidência operacional do `jira_to_pipeline_csv.py`:
+  - um smoke test real de `BF` sem `--skip-devexecutor-bitbucket` confirmou que o enriquecimento interno do Bitbucket deixou de varrer o conjunto global de `13` repositórios e passou a usar apenas os `5` repositórios de `BF`
+  - um segundo smoke test real de `BF` com `--skip-devexecutor-bitbucket` confirmou que o modo leve usado pelo runner realmente desabilita o Bitbucket interno e ainda conclui a exportação Jira com sucesso
+- Evidência operacional do `jira_capex_monthly.py`:
+  - o smoke test real da janela `2026-01-01` a `2026-04-08` para `W1NNR S1NC BF DT BT` confirmou que o script agora tenta a rota global `/worklog/updated + /worklog/list` mesmo quando a busca por issues retorna zero
+  - nessa mesma validação, não surgiram apontamentos válidos no escopo pedido; isso indica que a limitação restante está mais ligada à disponibilidade/permissão/cobertura do tenant para worklogs desses projetos do que ao fluxo de fallback recém-ajustado
+- Leitura consolidada:
+  - a frente de `429` melhorou estruturalmente porque o runner agora pode operar sem o Bitbucket interno do downstream e, quando esse enriquecimento é usado, ele fica escopado por projeto e com pacing mais conservador
+  - a frente de `CAPEX latest` ficou mais correta e auditável, mas ainda depende de validação com o dono dos dados para explicar a ausência de worklogs reais no intervalo testado

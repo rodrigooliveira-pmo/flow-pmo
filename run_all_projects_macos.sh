@@ -209,6 +209,7 @@ export_project_dashboard_artifacts() {
         --out "$out_file"
         --env-file "$ENV_FILE"
         --workers "$WORKERS"
+        --skip-devexecutor-bitbucket
     )
 
     if [[ "$RUN_DETAILED_CHANGELOG_EXPORT" == true ]]; then
@@ -297,7 +298,7 @@ if [[ "$RUN_CAPEX_EXPORT" == true ]]; then
     echo "Arquivos: ${CAPEX_RAW_LATEST} | ${CAPEX_SUMMARY_LATEST}"
 
     if ! "$PYTHON_BIN" "$CAPEX_SCRIPT" \
-        --projects W1NNR S1NC BF DT BT \
+        --projects W1NNR S1NC BF DT BT NS \
         --date-from "$CAPEX_START" \
         --date-to "$CAPEX_END" \
         --out "$CAPEX_RAW_LATEST" \

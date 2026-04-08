@@ -19,9 +19,11 @@ import argparse
 import csv
 import json
 import os
+import random
 import re
 import sys
 import threading
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -133,6 +135,28 @@ METADATA_COLUMNS = [
 
 DEFAULT_EXCLUDED_ISSUE_TYPES = ["Épico", "Epic", "Iniciativa", "Initiative"]
 ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
+BITBUCKET_REPOS_BY_PROJECT: Dict[str, List[str]] = {
+    "W1NNR": ["w1nner"],
+    "S1NC": ["w1nner"],
+    "BF": [
+        "be-finance-api",
+        "be-finance-web",
+        "be-finance-lambda",
+        "be-finance-diagnostic-api",
+        "be-finance-diagnostic-web",
+        "be-finance-dev",
+    ],
+    "DT": [
+        "d-a-analysis",
+        "w1-data-toolbox",
+        "automacao-rfv",
+        "apuracao-indicadores-mensais",
+        "api-resumo-e-insights",
+        "c3po-automation",
+    ],
+}
+_BITBUCKET_GLOBAL_RATE_LIMIT_UNTIL = 0.0
+_BITBUCKET_LAST_REQUEST_AT = 0.0
 DETAILED_CHANGELOG_COLUMNS = [
     "Projeto",
     "Issue Key",
@@ -161,6 +185,109 @@ def normalize_project_key(project: str) -> str:
         "DA": "DT",
     }
     return aliases.get(key, key)
+
+
+def resolve_bitbucket_repos_for_projects(projects: List[str], configured_repos: List[str]) -> List[str]:
+    configured = []
+    seen_configured: set[str] = set()
+    for repo in configured_repos:
+        repo_name = str(repo or "").strip()
+        if not repo_name:
+            continue
+        repo_key = repo_name.lower()
+        if repo_key in seen_configured:
+            continue
+        seen_configured.add(repo_key)
+        configured.append(repo_name)
+
+    selected: List[str] = []
+    selected_seen: set[str] = set()
+    for project in projects:
+        for repo in BITBUCKET_REPOS_BY_PROJECT.get(normalize_project_key(project), []):
+            repo_key = repo.lower()
+            if repo_key in selected_seen:
+                continue
+            selected_seen.add(repo_key)
+            selected.append(repo)
+
+    if not configured or not selected:
+        return configured
+
+    configured_lookup = {repo.lower(): repo for repo in configured}
+    intersection = [configured_lookup[repo.lower()] for repo in selected if repo.lower() in configured_lookup]
+    return intersection or configured
+
+
+def _bitbucket_retry_delay(attempt: int, retry_after_header: str) -> float:
+    if retry_after_header:
+        try:
+            seconds = float(retry_after_header)
+            if seconds > 0:
+                return seconds
+        except ValueError:
+            pass
+    return min(60.0, 1.6 ** attempt)
+
+
+def _bitbucket_request_json(
+    session: requests.Session,
+    url: str,
+    *,
+    auth: tuple[str, str],
+    headers: Dict[str, str],
+    timeout: int = 60,
+    max_attempts: int = 6,
+) -> Dict[str, Any]:
+    global _BITBUCKET_GLOBAL_RATE_LIMIT_UNTIL, _BITBUCKET_LAST_REQUEST_AT
+
+    min_interval_ms = max(0, int(os.getenv("BB_MIN_REQUEST_INTERVAL_MS", "600") or "600"))
+    min_interval_seconds = min_interval_ms / 1000.0
+
+    for attempt in range(1, max_attempts + 1):
+        now = time.monotonic()
+        if _BITBUCKET_GLOBAL_RATE_LIMIT_UNTIL > now:
+            time.sleep(_BITBUCKET_GLOBAL_RATE_LIMIT_UNTIL - now)
+            now = time.monotonic()
+
+        elapsed = now - _BITBUCKET_LAST_REQUEST_AT
+        if min_interval_seconds > 0 and elapsed < min_interval_seconds:
+            time.sleep(min_interval_seconds - elapsed)
+
+        try:
+            resp = session.get(url, auth=auth, headers=headers, timeout=timeout)
+            _BITBUCKET_LAST_REQUEST_AT = time.monotonic()
+        except requests.RequestException as exc:
+            if attempt >= max_attempts:
+                raise
+            delay = min(30.0, 1.5 ** attempt) + random.uniform(0.1, 0.6)
+            print(
+                f"[Bitbucket] Falha de rede em {url} (tentativa {attempt}/{max_attempts}): {exc}. "
+                f"Nova tentativa em {delay:.1f}s."
+            )
+            time.sleep(delay)
+            continue
+
+        if resp.status_code in {429, 500, 502, 503, 504}:
+            if attempt >= max_attempts:
+                resp.raise_for_status()
+            delay = _bitbucket_retry_delay(attempt, str(resp.headers.get("Retry-After") or "").strip())
+            if resp.status_code == 429:
+                delay = max(delay, 8.0)
+                _BITBUCKET_GLOBAL_RATE_LIMIT_UNTIL = max(
+                    _BITBUCKET_GLOBAL_RATE_LIMIT_UNTIL,
+                    time.monotonic() + delay,
+                )
+            print(
+                f"[Bitbucket] HTTP {resp.status_code} em {url} (tentativa {attempt}/{max_attempts}). "
+                f"Nova tentativa em {delay:.1f}s."
+            )
+            time.sleep(delay + random.uniform(0.1, 0.8))
+            continue
+
+        resp.raise_for_status()
+        return resp.json()
+
+    raise RuntimeError(f"Falha inesperada ao consultar Bitbucket: {url}")
 
 
 
@@ -521,53 +648,52 @@ def _fetch_bitbucket_pr_author_index(
     # issue_key -> {author -> count}
     author_votes: Dict[str, Dict[str, int]] = {}
 
-    for repo in repos:
-        repo = repo.strip()
-        if not repo:
-            continue
-        # Sem filtro de campos (fields=...) para não suprimir o link "next" de paginação.
-        # pagelen=50 é o máximo aceito pela API do Bitbucket Cloud.
-        url: Optional[str] = (
-            f"{base_api}/repositories/{workspace}/{repo}/pullrequests"
-            f"?state=MERGED&pagelen=50"
-        )
-        page = 0
-        repo_prs = 0
-        while url:
-            try:
-                resp = requests.get(url, auth=auth, headers=headers, timeout=60)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as exc:
-                print(f"[Bitbucket] Erro ao buscar PRs de {repo} (página {page}): {exc}")
-                break
+    with requests.Session() as session:
+        for repo in repos:
+            repo = repo.strip()
+            if not repo:
+                continue
+            # Sem filtro de campos (fields=...) para não suprimir o link "next" de paginação.
+            # pagelen=50 é o máximo aceito pela API do Bitbucket Cloud.
+            url: Optional[str] = (
+                f"{base_api}/repositories/{workspace}/{repo}/pullrequests"
+                f"?state=MERGED&pagelen=50"
+            )
+            page = 0
+            repo_prs = 0
+            while url:
+                try:
+                    data = _bitbucket_request_json(session, url, auth=auth, headers=headers, timeout=60)
+                except Exception as exc:
+                    print(f"[Bitbucket] Erro ao buscar PRs de {repo} (página {page}): {exc}")
+                    break
 
-            for pr in data.get("values", []):
-                author_name = (pr.get("author") or {}).get("display_name", "").strip()
-                if not author_name:
-                    continue
+                for pr in data.get("values", []):
+                    author_name = (pr.get("author") or {}).get("display_name", "").strip()
+                    if not author_name:
+                        continue
 
-                # Extrai chaves Jira do título e do branch
-                title  = pr.get("title") or ""
-                branch = (pr.get("source") or {}).get("branch", {}).get("name") or ""
-                found_keys: set = set()
-                for text in (title, branch):
-                    for m in _JIRA_KEY_RE.finditer(text):
-                        found_keys.add(m.group(1))
+                    # Extrai chaves Jira do título e do branch
+                    title  = pr.get("title") or ""
+                    branch = (pr.get("source") or {}).get("branch", {}).get("name") or ""
+                    found_keys: set = set()
+                    for text in (title, branch):
+                        for m in _JIRA_KEY_RE.finditer(text):
+                            found_keys.add(m.group(1))
 
-                for jira_key in found_keys:
-                    votes = author_votes.setdefault(jira_key, {})
-                    votes[author_name] = votes.get(author_name, 0) + 1
+                    for jira_key in found_keys:
+                        votes = author_votes.setdefault(jira_key, {})
+                        votes[author_name] = votes.get(author_name, 0) + 1
 
-                repo_prs += 1
+                    repo_prs += 1
 
-            next_url = data.get("next")
-            page += 1
-            if page % 5 == 0:
-                print(f"[Bitbucket]   {repo}: {repo_prs} PRs processados (página {page})...")
-            url = next_url  # None encerra o loop
+                next_url = data.get("next")
+                page += 1
+                if page % 5 == 0:
+                    print(f"[Bitbucket]   {repo}: {repo_prs} PRs processados (página {page})...")
+                url = next_url  # None encerra o loop
 
-        print(f"[Bitbucket]   {repo}: {repo_prs} PRs merged processados ({page} página(s)).")
+            print(f"[Bitbucket]   {repo}: {repo_prs} PRs merged processados ({page} página(s)).")
 
     # Resolve moda: autor com mais PRs por issue key
     result: Dict[str, str] = {}
@@ -602,64 +728,63 @@ def _fetch_bitbucket_commit_author_index(
 
     author_votes: Dict[str, Dict[str, int]] = {}
 
-    for repo in repos:
-        repo = repo.strip()
-        if not repo:
-            continue
-        url: Optional[str] = (
-            f"{base_api}/repositories/{workspace}/{repo}/commits"
-            f"?pagelen=100"
-        )
-        page = 0
-        repo_commits = 0
-        repo_mapped = 0
+    with requests.Session() as session:
+        for repo in repos:
+            repo = repo.strip()
+            if not repo:
+                continue
+            url: Optional[str] = (
+                f"{base_api}/repositories/{workspace}/{repo}/commits"
+                f"?pagelen=100"
+            )
+            page = 0
+            repo_commits = 0
+            repo_mapped = 0
 
-        while url and repo_commits < max_commits_per_repo:
-            try:
-                resp = requests.get(url, auth=auth, headers=headers, timeout=60)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as exc:
-                print(f"[Bitbucket] Erro ao buscar commits de {repo} (página {page}): {exc}")
-                break
-
-            for commit in data.get("values", []):
-                if repo_commits >= max_commits_per_repo:
+            while url and repo_commits < max_commits_per_repo:
+                try:
+                    data = _bitbucket_request_json(session, url, auth=auth, headers=headers, timeout=60)
+                except Exception as exc:
+                    print(f"[Bitbucket] Erro ao buscar commits de {repo} (página {page}): {exc}")
                     break
 
-                # Prefere display_name do Bitbucket; fallback para git raw "Nome <email>"
-                author_info = commit.get("author") or {}
-                user_info   = author_info.get("user") or {}
-                author_name = user_info.get("display_name", "").strip()
-                if not author_name:
-                    raw = author_info.get("raw", "")
-                    author_name = raw.split("<")[0].strip() if raw else ""
-                if not author_name:
+                for commit in data.get("values", []):
+                    if repo_commits >= max_commits_per_repo:
+                        break
+
+                    # Prefere display_name do Bitbucket; fallback para git raw "Nome <email>"
+                    author_info = commit.get("author") or {}
+                    user_info   = author_info.get("user") or {}
+                    author_name = user_info.get("display_name", "").strip()
+                    if not author_name:
+                        raw = author_info.get("raw", "")
+                        author_name = raw.split("<")[0].strip() if raw else ""
+                    if not author_name:
+                        repo_commits += 1
+                        continue
+
+                    message = commit.get("message") or ""
+                    found_keys: set = set()
+                    for m in _JIRA_KEY_RE.finditer(message):
+                        found_keys.add(m.group(1))
+
+                    for jira_key in found_keys:
+                        votes = author_votes.setdefault(jira_key, {})
+                        votes[author_name] = votes.get(author_name, 0) + 1
+                        repo_mapped += 1
+
                     repo_commits += 1
-                    continue
 
-                message = commit.get("message") or ""
-                found_keys: set = set()
-                for m in _JIRA_KEY_RE.finditer(message):
-                    found_keys.add(m.group(1))
+                next_url = data.get("next")
+                page += 1
+                if page % 5 == 0:
+                    print(f"[Bitbucket]   {repo} commits: {repo_commits} processados (página {page})...")
+                url = next_url
 
-                for jira_key in found_keys:
-                    votes = author_votes.setdefault(jira_key, {})
-                    votes[author_name] = votes.get(author_name, 0) + 1
-                    repo_mapped += 1
-
-                repo_commits += 1
-
-            next_url = data.get("next")
-            page += 1
-            if page % 5 == 0:
-                print(f"[Bitbucket]   {repo} commits: {repo_commits} processados (página {page})...")
-            url = next_url
-
-        print(
-            f"[Bitbucket]   {repo}: {repo_commits} commits processados "
-            f"({page} pág.) -> {repo_mapped} refs Jira encontradas."
-        )
+            print(
+                f"[Bitbucket]   {repo}: {repo_commits} commits processados "
+                f"({page} pág.) -> {repo_mapped} refs Jira encontradas."
+            )
 
     result: Dict[str, str] = {}
     for jira_key, votes in author_votes.items():
@@ -1143,6 +1268,14 @@ def main() -> int:
             "Desligado por padrão para evitar payloads grandes/travamentos em projetos maiores."
         ),
     )
+    parser.add_argument(
+        "--skip-devexecutor-bitbucket",
+        action="store_true",
+        help=(
+            "Desabilita o enriquecimento interno de DevExecutor via Bitbucket e mantém apenas o "
+            "fallback por changelog/status. Útil para reduzir carga em execuções em lote."
+        ),
+    )
     args = parser.parse_args()
 
     load_env_file(args.env_file, overwrite=True)
@@ -1185,11 +1318,23 @@ def main() -> int:
     _bb_username  = os.getenv("BB_EMAIL", "").strip()
     _bb_app_pwd   = os.getenv("BB_TOKEN", "").strip()
     _bb_repos     = [r.strip() for r in _bb_repos_raw.split(",") if r.strip()]
+    _bb_repos     = resolve_bitbucket_repos_for_projects(args.projects, _bb_repos)
+
+    skip_devexecutor_bitbucket = args.skip_devexecutor_bitbucket or os.getenv(
+        "FLOW_PMO_SKIP_DEVEXECUTOR_BITBUCKET",
+        "",
+    ).strip().lower() in {"1", "true", "yes", "on"}
 
     pr_author_index: Dict[str, str] = {}
-    if _bb_workspace and _bb_repos and _bb_username and _bb_app_pwd:
+    if not skip_devexecutor_bitbucket and _bb_workspace and _bb_repos and _bb_username and _bb_app_pwd:
         # Profundidade de commits por repo (padrão 500; configure com BB_COMMIT_DEPTH)
         _commit_depth = int(os.getenv("BB_COMMIT_DEPTH", "500"))
+        _bb_min_interval_ms = max(0, int(os.getenv("BB_MIN_REQUEST_INTERVAL_MS", "600") or "600"))
+
+        print(
+            f"[Bitbucket] Repos efetivos para {', '.join(args.projects)}: {', '.join(_bb_repos)} "
+            f"(intervalo minimo {_bb_min_interval_ms} ms)"
+        )
 
         # 1) Índice por commits — cobre repos sem PRs (push direto) e gaps entre PRs
         print(
@@ -1229,7 +1374,8 @@ def main() -> int:
     else:
         print(
             "[Bitbucket] Enriquecimento de DevExecutor desabilitado "
-            "(defina BB_WORKSPACE, BB_REPOS, BB_EMAIL e BB_TOKEN em jira_env.txt)."
+            "(defina BB_WORKSPACE, BB_REPOS, BB_EMAIL e BB_TOKEN em jira_env.txt ou use "
+            "--skip-devexecutor-bitbucket / FLOW_PMO_SKIP_DEVEXECUTOR_BITBUCKET=1)."
         )
 
     # Statuses que indicam "em desenvolvimento" — usados para inferir DevExecutor via changelog.

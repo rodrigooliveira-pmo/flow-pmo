@@ -12,6 +12,9 @@ WORKERS=8
 JQL_EXTRA=""
 PROCESS_MINING_FAILURES=()
 BITBUCKET_FAILURES=()
+JIRA_BITBUCKET_MIN_INTERVAL_MS="${FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS:-750}"
+BITBUCKET_EXPORT_WORKERS="${FLOW_PMO_BITBUCKET_EXPORT_WORKERS:-1}"
+BITBUCKET_EXPORT_MIN_INTERVAL_MS="${FLOW_PMO_BITBUCKET_EXPORT_MIN_REQUEST_INTERVAL_MS:-900}"
 
 usage() {
     cat <<'EOF_HELP'
@@ -189,6 +192,7 @@ for i in "${!PROJECT_KEYS[@]}"; do
         --env-file "$ENV_FILE"
         --workers "$WORKERS"
         --detailed-changelog-out "$detailed_changelog_out"
+        --skip-devexecutor-bitbucket
     )
     if [[ -n "${JQL_EXTRA}" ]]; then
         jira_cmd+=(--jql-extra "$JQL_EXTRA")
@@ -212,7 +216,11 @@ for i in "${!PROJECT_KEYS[@]}"; do
     fi
 
     echo "Exportando Bitbucket para ${key}..."
-    if "$PYTHON_BIN" "$BITBUCKET_SCRIPT" --project "$key" --out-dir "$OUT_DIR"; then
+    if "$PYTHON_BIN" "$BITBUCKET_SCRIPT" \
+        --project "$key" \
+        --out-dir "$OUT_DIR" \
+        --workers "$BITBUCKET_EXPORT_WORKERS" \
+        --min-request-interval-ms "$BITBUCKET_EXPORT_MIN_INTERVAL_MS"; then
         for suffix in commits pullrequests pipelines; do
             bitbucket_file="${OUT_DIR}/${prefix%-downstream}_${suffix}.csv"
             if [[ -f "$bitbucket_file" ]]; then

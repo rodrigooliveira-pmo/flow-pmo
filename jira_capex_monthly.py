@@ -208,12 +208,21 @@ def expand_project_keys(projects: Sequence[str]) -> List[str]:
     return expanded
 
 
-def build_jql(projects: List[str], jql_extra: str, start_date: date, end_date: date, date_field: str = "worklogDate") -> str:
+def build_jql(
+    projects: List[str],
+    jql_extra: str,
+    start_date: date,
+    end_date: date,
+    date_field: str = "worklogDate",
+    require_timespent: bool = False,
+) -> str:
     clauses = [f"project in ({', '.join(projects)})"]
     clauses.append(
         f"{date_field} >= {quote_jql_string(start_date.strftime('%Y-%m-%d'))} "
         f"AND {date_field} <= {quote_jql_string(end_date.strftime('%Y-%m-%d'))}"
     )
+    if require_timespent:
+        clauses.append("timespent > 0")
     if jql_extra.strip():
         clauses.append(f"({jql_extra.strip()})")
     return " AND ".join(clauses)
@@ -436,6 +445,7 @@ def build_issue_context(
             epic_title = parent_title
 
     return {
+        "Issue ID": str(issue.get("id") or "").strip(),
         "Issue Key": issue_key,
         "Issue Link": f"{base_url}/browse/{issue_key}" if issue_key else "",
         "Issue Summary": issue_summary,
@@ -866,6 +876,125 @@ def fetch_issue_contexts_by_ids(
     return issue_context_by_id
 
 
+def capex_row_sort_key(row: Dict[str, Any]) -> tuple[str, str, str, str, str]:
+    return (
+        str(row.get("MesCompetencia") or ""),
+        str(row.get("ID do Projeto") or ""),
+        str(row.get("Colaborador") or ""),
+        str(row.get("Data do Apontamento das Horas") or ""),
+        str(row.get("Issue Key") or ""),
+    )
+
+
+def dedupe_capex_rows(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: Dict[tuple[str, str, str, str, str], Dict[str, Any]] = {}
+    for row in rows:
+        worklog_id = str(row.get("Worklog ID") or "").strip()
+        dedupe_key = (
+            worklog_id,
+            str(row.get("Issue Key") or "").strip(),
+            str(row.get("Data do Apontamento das Horas") or "").strip(),
+            str(row.get("Colaborador") or "").strip(),
+            str(row.get("Horas") or "").strip(),
+        )
+        existing = deduped.get(dedupe_key)
+        if existing is None:
+            deduped[dedupe_key] = row
+            continue
+        existing_score = float(existing.get("ConfidenceScore") or 0.0)
+        current_score = float(row.get("ConfidenceScore") or 0.0)
+        if current_score >= existing_score:
+            deduped[dedupe_key] = row
+    return sorted(deduped.values(), key=capex_row_sort_key)
+
+
+def filter_rows_to_allowed_projects(rows: Sequence[Dict[str, Any]], allowed_projects: Sequence[str]) -> tuple[List[Dict[str, Any]], int]:
+    allowed = {str(project or "").strip().upper() for project in allowed_projects if str(project or "").strip()}
+    if not allowed:
+        return list(rows), 0
+    filtered = [row for row in rows if str(row.get("Projeto Jira") or "").strip().upper() in allowed]
+    return filtered, max(0, len(rows) - len(filtered))
+
+
+def collect_rows_via_global_worklogs(
+    client: JiraClient,
+    *,
+    start_date: date,
+    end_date: date,
+    allowed_projects: Sequence[str],
+    allowed_issue_ids: Optional[Sequence[str]] = None,
+    base_url: str,
+    field_map: Dict[str, Any],
+    fields_to_fetch: List[str],
+    preloaded_issue_context_by_id: Optional[Dict[str, Dict[str, str]]] = None,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    since_ms = max(0, start_of_day_epoch_ms(start_date) - 1)
+    updated_refs = client.get_updated_worklog_ids(since_ms)
+    global_worklog_ids = [item.get("worklogId") for item in updated_refs if item.get("worklogId") is not None]
+    global_worklogs = client.get_worklogs_by_ids(global_worklog_ids)
+    global_worklog_diag = diagnose_worklogs(global_worklogs, start_date=start_date, end_date=end_date)
+
+    allowed_issue_ids_set = {
+        str(issue_id).strip()
+        for issue_id in (allowed_issue_ids or [])
+        if str(issue_id).strip()
+    }
+    matching_worklogs = []
+    issue_ids_from_worklogs: List[str] = []
+    dropped_outside_issue_scope = 0
+    for worklog in global_worklogs:
+        if not worklog_in_period(worklog, start_date, end_date):
+            continue
+        issue_id = str(worklog.get("issueId") or "").strip()
+        if not issue_id:
+            continue
+        if allowed_issue_ids_set and issue_id not in allowed_issue_ids_set:
+            dropped_outside_issue_scope += 1
+            continue
+        matching_worklogs.append(worklog)
+        issue_ids_from_worklogs.append(issue_id)
+
+    if dropped_outside_issue_scope:
+        print(
+            f"Aviso: {dropped_outside_issue_scope} worklog(s) da rota global foram descartados "
+            "por estarem fora do conjunto de issues candidatas do CAPEX."
+        )
+
+    issue_context_by_id = dict(preloaded_issue_context_by_id or {})
+    missing_issue_ids = [issue_id for issue_id in sorted(set(issue_ids_from_worklogs)) if issue_id not in issue_context_by_id]
+    if missing_issue_ids:
+        issue_context_by_id.update(
+            fetch_issue_contexts_by_ids(
+                client,
+                missing_issue_ids,
+                base_url=base_url,
+                field_map=field_map,
+                fields_to_fetch=fields_to_fetch,
+            )
+        )
+
+    allowed = {str(project or "").strip().upper() for project in allowed_projects if str(project or "").strip()}
+    rebuilt_rows: List[Dict[str, Any]] = []
+    for worklog in matching_worklogs:
+        issue_id = str(worklog.get("issueId") or "").strip()
+        issue_context = issue_context_by_id.get(issue_id)
+        if not issue_context:
+            continue
+        issue_project = str(issue_context.get("Projeto Jira") or "").strip().upper()
+        if allowed and issue_project not in allowed:
+            continue
+        rebuilt_rows.extend(
+            build_capex_rows_for_issue(
+                issue_context=issue_context,
+                worklogs=[worklog],
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+
+    return dedupe_capex_rows(rebuilt_rows), global_worklog_diag
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Exporta uma base mensal de CAPEX a partir de worklogs do Jira."
@@ -930,7 +1059,14 @@ def main() -> int:
     if search_projects != projects:
         print(f"Projetos expandidos para busca Jira: {', '.join(search_projects)}")
 
-    jql = build_jql(search_projects, args.jql_extra, start_date, end_date, date_field='worklogDate')
+    jql = build_jql(
+        search_projects,
+        args.jql_extra,
+        start_date,
+        end_date,
+        date_field='worklogDate',
+        require_timespent=True,
+    )
     print(f"Consultando Jira com JQL: {jql}")
     print(f"Janela CAPEX: {start_date:%Y-%m-%d} ate {end_date:%Y-%m-%d}")
 
@@ -938,23 +1074,39 @@ def main() -> int:
     issues = client.search_issues(jql=jql, fields=fields_to_fetch, page_size=100)
     search_mode_used = "worklogDate"
     if not issues:
-        fallback_jql = build_jql(search_projects, args.jql_extra, start_date, end_date, date_field='updated')
+        fallback_jql = build_jql(
+            search_projects,
+            args.jql_extra,
+            start_date,
+            end_date,
+            date_field='updated',
+            require_timespent=True,
+        )
         print(
             "Nenhuma issue retornada com worklogDate; tentando fallback por updated "
             "e filtrando os worklogs reais no cliente."
         )
         print(f"JQL fallback: {fallback_jql}")
         issues = client.search_issues(jql=fallback_jql, fields=fields_to_fetch, page_size=100)
+        if not issues:
+            broader_fallback_jql = build_jql(
+                search_projects,
+                args.jql_extra,
+                start_date,
+                end_date,
+                date_field='updated',
+                require_timespent=False,
+            )
+            print(
+                "Fallback por updated com timespent retornou vazio; repetindo a busca sem timespent "
+                "para ampliar a cobertura neste tenant."
+            )
+            print(f"JQL fallback ampliada: {broader_fallback_jql}")
+            issues = client.search_issues(jql=broader_fallback_jql, fields=fields_to_fetch, page_size=100)
         if issues:
             search_mode_used = "updated"
 
     print(f"Issues com worklog no periodo: {len(issues)}")
-    if not issues:
-        write_csv(raw_out, [], RAW_COLUMNS)
-        write_csv(summary_out, [], SUMMARY_COLUMNS)
-        print(f"Sem issues com worklog no periodo. CSVs vazios gerados em:\n - {raw_out}\n - {summary_out}")
-        return 0
-
     issue_contexts = [
         build_issue_context(issue=issue, base_url=base_url, field_map=field_map)
         for issue in issues
@@ -978,10 +1130,16 @@ def main() -> int:
     }
     reference_lookup.update(issue_lookup)
 
-    enriched_context_by_key = {
-        ctx["Issue Key"]: enrich_issue_context_titles(ctx, reference_lookup)
-        for ctx in issue_contexts
-    }
+    enriched_context_by_key: Dict[str, Dict[str, str]] = {}
+    enriched_context_by_id: Dict[str, Dict[str, str]] = {}
+    for ctx in issue_contexts:
+        enriched = enrich_issue_context_titles(ctx, reference_lookup)
+        issue_key = str(enriched.get("Issue Key") or "").strip()
+        issue_id = str(enriched.get("Issue ID") or "").strip()
+        if issue_key:
+            enriched_context_by_key[issue_key] = enriched
+        if issue_id:
+            enriched_context_by_id[issue_id] = enriched
 
     workers = max(1, int(args.workers))
     worker_local = threading.local()
@@ -1001,12 +1159,9 @@ def main() -> int:
             local_client = get_worker_client()
             initial_worklogs, total_worklogs = get_embedded_worklogs(issue_data)
             embedded_field_present = has_embedded_worklog_field(issue_data)
-            force_endpoint_fetch = (
-                search_mode_used == "updated"
-                or not embedded_field_present
-            )
-
-            if force_endpoint_fetch:
+            if search_mode_used == "updated":
+                worklogs = list(initial_worklogs)
+            elif not embedded_field_present:
                 worklogs = local_client.get_issue_worklogs(issue_key)
             elif total_worklogs == 0:
                 worklogs = []
@@ -1035,6 +1190,13 @@ def main() -> int:
     processing_errors: List[str] = []
     worklog_diagnostics: List[Dict[str, Any]] = []
 
+    if search_mode_used == "updated":
+        print(
+            "Modo de busca efetivo = updated. A coleta por issue usará apenas os worklogs "
+            "embutidos na busca Jira; a rota global complementará a cobertura sem chamar "
+            "o endpoint de worklog para cada issue."
+        )
+
     if workers == 1 or len(issues) <= 1:
         for idx, issue in enumerate(issues, start=1):
             rows, diag, err = process_one(issue)
@@ -1058,71 +1220,57 @@ def main() -> int:
                 if done % 100 == 0:
                     print(f"Processadas {done}/{len(issues)} issues...")
 
-    all_rows = sorted(
-        all_rows,
-        key=lambda row: (
-            str(row.get("MesCompetencia") or ""),
-            str(row.get("ID do Projeto") or ""),
-            str(row.get("Colaborador") or ""),
-            str(row.get("Data do Apontamento das Horas") or ""),
-            str(row.get("Issue Key") or ""),
-        ),
-    )
-
     global_worklog_diag: Dict[str, Any] = {}
-    if issues and not all_rows:
+    all_rows = dedupe_capex_rows(all_rows)
+    all_rows, dropped_by_project = filter_rows_to_allowed_projects(all_rows, search_projects)
+    if dropped_by_project:
         print(
-            "Nenhum apontamento foi materializado pela rota por issue; "
-            "tentando fallback global via /worklog/updated + /worklog/list."
+            f"Aviso: {dropped_by_project} apontamento(s) foram descartados por pertencerem a projetos fora do escopo solicitado."
         )
-        since_ms = max(0, start_of_day_epoch_ms(start_date) - 1)
-        updated_refs = client.get_updated_worklog_ids(since_ms)
-        global_worklog_ids = [item.get("worklogId") for item in updated_refs if item.get("worklogId") is not None]
-        global_worklogs = client.get_worklogs_by_ids(global_worklog_ids)
-        global_worklog_diag = diagnose_worklogs(global_worklogs, start_date=start_date, end_date=end_date)
 
-        matching_worklogs = []
-        issue_ids_from_worklogs: List[str] = []
-        for worklog in global_worklogs:
-            if not worklog_in_period(worklog, start_date, end_date):
-                continue
-            issue_id = str(worklog.get("issueId") or "").strip()
-            if not issue_id:
-                continue
-            matching_worklogs.append(worklog)
-            issue_ids_from_worklogs.append(issue_id)
+    should_collect_global_worklogs = (search_mode_used == "updated") or (not issues) or (not all_rows)
+    if should_collect_global_worklogs:
+        if all_rows and search_mode_used == "updated":
+            print(
+                "Busca Jira caiu no fallback por updated; complementando cobertura com a rota global "
+                "/worklog/updated + /worklog/list."
+            )
+        elif not issues:
+            print(
+                "Busca por issues nao retornou candidatos no tenant atual; "
+                "tentando cobertura direta via /worklog/updated + /worklog/list."
+            )
+        else:
+            print(
+                "Nenhum apontamento foi materializado pela rota por issue; "
+                "tentando fallback global via /worklog/updated + /worklog/list."
+            )
 
-        issue_context_by_id = fetch_issue_contexts_by_ids(
+        global_rows, global_worklog_diag = collect_rows_via_global_worklogs(
             client,
-            issue_ids_from_worklogs,
+            start_date=start_date,
+            end_date=end_date,
+            allowed_projects=search_projects,
+            allowed_issue_ids=list(enriched_context_by_id.keys()),
             base_url=base_url,
             field_map=field_map,
             fields_to_fetch=fields_to_fetch,
+            preloaded_issue_context_by_id=enriched_context_by_id,
         )
-        rebuilt_rows: List[Dict[str, Any]] = []
-        for worklog in matching_worklogs:
-            issue_id = str(worklog.get("issueId") or "").strip()
-            issue_context = issue_context_by_id.get(issue_id)
-            if not issue_context:
-                continue
-            rebuilt_rows.extend(
-                build_capex_rows_for_issue(
-                    issue_context=issue_context,
-                    worklogs=[worklog],
-                    start_date=start_date,
-                    end_date=end_date,
+        if global_rows:
+            previous_count = len(all_rows)
+            all_rows = dedupe_capex_rows([*all_rows, *global_rows])
+            if len(all_rows) > previous_count:
+                print(
+                    f"Rota global acrescentou {len(all_rows) - previous_count} apontamento(s) "
+                    f"ao resultado CAPEX."
                 )
-            )
-        all_rows = sorted(
-            rebuilt_rows,
-            key=lambda row: (
-                str(row.get("MesCompetencia") or ""),
-                str(row.get("ID do Projeto") or ""),
-                str(row.get("Colaborador") or ""),
-                str(row.get("Data do Apontamento das Horas") or ""),
-                str(row.get("Issue Key") or ""),
-            ),
-        )
+
+    if not all_rows:
+        write_csv(raw_out, [], RAW_COLUMNS)
+        write_csv(summary_out, [], SUMMARY_COLUMNS)
+        print(f"Sem apontamentos CAPEX no periodo. CSVs vazios gerados em:\n - {raw_out}\n - {summary_out}")
+        return 0
 
     summary_rows = build_monthly_summary(all_rows)
 

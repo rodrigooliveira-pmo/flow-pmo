@@ -55,6 +55,22 @@ $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
 $copyLatestUploadScript = Join-Path $PSScriptRoot 'copy_latest_upload.py'
 $latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
+$jiraBitbucketCommitDepth = if ($env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH) { $env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH } else { '250' }
+$jiraBitbucketMinIntervalMs = if ($env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS) { $env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS } else { '750' }
+
+function Get-ProjectBitbucketRepos {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectKey
+    )
+
+    switch ($ProjectKey.ToUpperInvariant()) {
+        'W1NNR' { return 'w1nner' }
+        'S1NC' { return 'w1nner' }
+        'BF' { return 'be-finance-api,be-finance-web,be-finance-lambda,be-finance-diagnostic-api,be-finance-diagnostic-web,be-finance-dev' }
+        'DT' { return 'd-a-analysis,w1-data-toolbox,automacao-rfv,apuracao-indicadores-mensais,api-resumo-e-insights,c3po-automation' }
+        default { return '' }
+    }
+}
 
 function Publish-LatestArtifact {
     param(
@@ -103,10 +119,10 @@ if (-not (Test-Path $latestDir)) {
 
 # Ajuste as chaves Jira se necessário.
 $projects = @(
-    @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream' },
-    @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream' },
-    @{ Key = 'BF'; FilePrefix = 'befinance-downstream' },
-    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream' }
+    @{ Key = 'W1NNR'; FilePrefix = 'w1nner-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'W1NNR') },
+    @{ Key = 'S1NC'; FilePrefix = 's1nc-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'S1NC') },
+    @{ Key = 'BF'; FilePrefix = 'befinance-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'BF') },
+    @{ Key = 'DT'; FilePrefix = 'dataanalytics-downstream'; BitbucketRepos = (Get-ProjectBitbucketRepos -ProjectKey 'DT') }
 )
 
 Write-Host "Iniciando exportação Jira -> CSV..." -ForegroundColor Cyan
@@ -122,6 +138,10 @@ if ($env:JIRA_STATUS_MAP) {
 }
 Remove-Item -Path Env:JIRA_STATUS_MAP -ErrorAction SilentlyContinue
 $env:JIRA_IGNORE_STATUS_MAP = '1'
+$originalBbRepos = $env:BB_REPOS
+$originalBbRepo = $env:BB_REPO
+$originalBbCommitDepth = $env:BB_COMMIT_DEPTH
+$originalBbMinIntervalMs = $env:BB_MIN_REQUEST_INTERVAL_MS
 
 foreach ($p in $projects) {
     $outFile = Join-Path $OutDir ("{0}-{1}-data.csv" -f $p.FilePrefix, $DateTag)
@@ -130,12 +150,21 @@ foreach ($p in $projects) {
     Write-Host "`nProjeto: $($p.Key)" -ForegroundColor Yellow
     Write-Host "Arquivo: $outFile"
 
+    if ($p.BitbucketRepos) {
+        $env:BB_REPOS = $p.BitbucketRepos
+        $env:BB_REPO = ($p.BitbucketRepos -split ',')[0]
+        $env:BB_COMMIT_DEPTH = $jiraBitbucketCommitDepth
+        $env:BB_MIN_REQUEST_INTERVAL_MS = $jiraBitbucketMinIntervalMs
+        Write-Host "Bitbucket escopado para o projeto: $($env:BB_REPOS) | depth=$($env:BB_COMMIT_DEPTH) | intervalo=$($env:BB_MIN_REQUEST_INTERVAL_MS)ms" -ForegroundColor DarkYellow
+    }
+
     $exportArgs = @(
         $scriptPath,
         '--projects', $p.Key,
         '--out', $outFile,
         '--env-file', $EnvFile,
-        '--workers', $Workers
+        '--workers', $Workers,
+        '--skip-devexecutor-bitbucket'
     )
     if ($RunDetailedChangelogExport) {
         $exportArgs += @('--detailed-changelog-out', $detailedChangelogOut)
@@ -174,6 +203,26 @@ if ($null -ne $originalJiraStatusMap -and $originalJiraStatusMap -ne '') {
     $env:JIRA_STATUS_MAP = $originalJiraStatusMap
 }
 Remove-Item -Path Env:JIRA_IGNORE_STATUS_MAP -ErrorAction SilentlyContinue
+if ($null -ne $originalBbRepos -and $originalBbRepos -ne '') {
+    $env:BB_REPOS = $originalBbRepos
+} else {
+    Remove-Item -Path Env:BB_REPOS -ErrorAction SilentlyContinue
+}
+if ($null -ne $originalBbRepo -and $originalBbRepo -ne '') {
+    $env:BB_REPO = $originalBbRepo
+} else {
+    Remove-Item -Path Env:BB_REPO -ErrorAction SilentlyContinue
+}
+if ($null -ne $originalBbCommitDepth -and $originalBbCommitDepth -ne '') {
+    $env:BB_COMMIT_DEPTH = $originalBbCommitDepth
+} else {
+    Remove-Item -Path Env:BB_COMMIT_DEPTH -ErrorAction SilentlyContinue
+}
+if ($null -ne $originalBbMinIntervalMs -and $originalBbMinIntervalMs -ne '') {
+    $env:BB_MIN_REQUEST_INTERVAL_MS = $originalBbMinIntervalMs
+} else {
+    Remove-Item -Path Env:BB_MIN_REQUEST_INTERVAL_MS -ErrorAction SilentlyContinue
+}
 
 Write-Host "`nExportações concluídas com sucesso." -ForegroundColor Green
 
@@ -214,7 +263,7 @@ if ($RunCapexExport) {
     Write-Host "Arquivos: $capexRawLatest | $capexSummaryLatest"
 
     & python $capexScript `
-        --projects W1NNR S1NC BF DT BT `
+        --projects W1NNR S1NC BF DT BT NS `
         --date-from $capexStart `
         --date-to $capexEnd `
         --out $capexRawLatest `
