@@ -1982,16 +1982,25 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
         np.where(per_dev['Itens Entregues'] > 0, 100.0, 0.0),
     )
 
-    # Lead Time mediano
+    # Lead Time mediano + P50/P85 por dev
     if not done_window.empty and 'LeadTime_Selected_Dias' in done_window.columns:
         lt = done_window.copy()
         lt['LeadTime_Selected_Dias'] = pd.to_numeric(lt['LeadTime_Selected_Dias'], errors='coerce')
         lt = lt[lt['LeadTime_Selected_Dias'] >= 0]
+        _lt_grp = lt.groupby('_Pessoa')['LeadTime_Selected_Dias']
         per_dev['Lead Time Mediano (dias)'] = per_dev['Pessoa'].map(
-            lt.groupby('_Pessoa')['LeadTime_Selected_Dias'].median()
+            _lt_grp.median()
+        ).fillna(0.0).round(1)
+        per_dev['Lead Time P50 (dias)'] = per_dev['Pessoa'].map(
+            _lt_grp.quantile(0.50)
+        ).fillna(0.0).round(1)
+        per_dev['Lead Time P85 (dias)'] = per_dev['Pessoa'].map(
+            _lt_grp.quantile(0.85)
         ).fillna(0.0).round(1)
     else:
         per_dev['Lead Time Mediano (dias)'] = 0.0
+        per_dev['Lead Time P50 (dias)'] = 0.0
+        per_dev['Lead Time P85 (dias)'] = 0.0
 
     # Cartões puxados por faixa de complexidade — estimativa unificada (SP ou T-shirt).
     # Usa _unified_sp_bucket() para eliminar "Sem estimativa" em itens com T-shirt size.
@@ -2224,6 +2233,61 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
         )
 
     return df
+
+
+def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None):
+    """Retorna {pessoa: [(month_label, ied_value), ...]} para sparklines temporais de IED.
+
+    Divide o período em meses completos, chama build_dev_productivity_metrics +
+    _compute_ied em cada fatia e agrega os resultados por dev. Meses com menos de
+    2 entregas para um dev são omitidos da série (gap no sparkline).
+    Guarda no máximo 24 meses para não tornar a renderização pesada.
+    """
+    result = {}
+    if df_base is None or df_base.empty:
+        return result
+    if 'DataDone' not in df_base.columns:
+        return result
+
+    try:
+        from dateutil.relativedelta import relativedelta as _rdelta
+    except ImportError:
+        return result
+
+    # Monta lista de intervalos mensais dentro do período
+    months = []
+    cur = start_ts.replace(day=1)
+    while cur < end_ts and len(months) < 24:
+        m_end = cur + _rdelta(months=1)
+        months.append((cur, min(m_end, end_ts), cur.strftime('%b/%y')))
+        cur = m_end
+
+    if len(months) < 2:
+        return result
+
+    for m_start, m_end, m_label in months:
+        try:
+            _done_mask = (
+                (pd.to_datetime(df_base['DataDone'], errors='coerce') >= m_start) &
+                (pd.to_datetime(df_base['DataDone'], errors='coerce') < m_end)
+            )
+            _slice = df_base[_done_mask].copy()
+            if _slice.empty:
+                continue
+            _pd_m, _, _ = build_dev_productivity_metrics(_slice, m_start, m_end)
+            if _pd_m.empty or 'Pessoa' not in _pd_m.columns:
+                continue
+            _pd_m = _compute_ied(_pd_m)
+            for _, row in _pd_m.iterrows():
+                pessoa = str(row.get('Pessoa', ''))
+                ied = float(row.get('IED', 0) or 0)
+                n_entregues = int(row.get('Itens Entregues', 0) or 0)
+                if pessoa and n_entregues >= 2:
+                    result.setdefault(pessoa, []).append((m_label, ied))
+        except Exception:
+            continue
+
+    return result
 
 
 def build_bitbucket_contributor_section(
@@ -19299,6 +19363,111 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         else:
             per_dev['Estabilidade_Throughput'] = 100.0
 
+        # ── P85/P50 Lead Time ratio — previsibilidade de entrega ─────────────────
+        # Razão P85/P50: ≤2.0 = Previsível | ≤3.0 = Moderado | >3.0 = Imprevisível
+        # Referência: Reinertsen (2009) — "The Principles of Product Development Flow"
+        if 'Lead Time P50 (dias)' in per_dev.columns and 'Lead Time P85 (dias)' in per_dev.columns:
+            _p50_safe = per_dev['Lead Time P50 (dias)'].clip(lower=0.1)
+            per_dev['Razão P85/P50'] = (per_dev['Lead Time P85 (dias)'] / _p50_safe).round(2)
+            per_dev['Previsibilidade LT'] = per_dev['Razão P85/P50'].apply(
+                lambda r: 'Previsível'   if pd.notna(r) and r <= 2.0 else
+                          'Moderado'     if pd.notna(r) and r <= 3.0 else
+                          'Imprevisível'
+            )
+            # Devs sem Lead Time (zero entregas) ficam com NaN
+            _no_lt_mask = per_dev['Lead Time P50 (dias)'] == 0
+            per_dev.loc[_no_lt_mask, 'Razão P85/P50'] = np.nan
+            per_dev.loc[_no_lt_mask, 'Previsibilidade LT'] = '—'
+        else:
+            per_dev['Razão P85/P50'] = np.nan
+            per_dev['Previsibilidade LT'] = '—'
+
+        # ── WIP Médio por dev (Little's Law: WIP_avg = Throughput × CT_médio) ──
+        # Usa apenas itens com DataInProgress dentro do período (cycle time puro).
+        # Referência: Little (1961); Anderson (2010) Kanban — WIP e LT são co-dependentes.
+        if 'DataDone' in df_prod_base.columns and 'DataInProgress' in df_prod_base.columns:
+            _wm_df = df_prod_base.copy()
+            _wm_df['_Pessoa'] = _resolve_dev_person_series(_wm_df, alias_index=alias_index_prod)
+            _wm_df['DataDone'] = pd.to_datetime(_wm_df['DataDone'], errors='coerce')
+            _wm_df['DataInProgress'] = pd.to_datetime(_wm_df['DataInProgress'], errors='coerce')
+            _wm_done = _wm_df[
+                (_wm_df['DataDone'] >= start_ts_prod) &
+                (_wm_df['DataDone'] < end_ts_prod) &
+                (_wm_df['DataInProgress'] >= start_ts_prod) &
+                _wm_df['_Pessoa'].astype(str).str.strip().ne('')
+            ].copy()
+            _n_days_prod = max((end_ts_prod - start_ts_prod).days, 1)
+            if not _wm_done.empty and 'LeadTime_Selected_Dias' in _wm_done.columns:
+                _wm_done['_lt'] = pd.to_numeric(_wm_done['LeadTime_Selected_Dias'], errors='coerce')
+                _wm_done = _wm_done[_wm_done['_lt'] > 0]
+                _lt_mean_by_dev = _wm_done.groupby('_Pessoa')['_lt'].mean().rename('_lt_mean')
+                _tp_by_dev = (_wm_done.groupby('_Pessoa').size() / _n_days_prod).rename('_tp_day')
+                _wip_frame = pd.concat([_lt_mean_by_dev, _tp_by_dev], axis=1).reset_index()
+                _wip_frame = _wip_frame.rename(columns={'_Pessoa': 'Pessoa'})
+                _wip_frame['WIP Medio'] = (_wip_frame['_tp_day'] * _wip_frame['_lt_mean']).round(2)
+                per_dev = per_dev.merge(_wip_frame[['Pessoa', 'WIP Medio']], on='Pessoa', how='left')
+            else:
+                per_dev['WIP Medio'] = np.nan
+        else:
+            per_dev['WIP Medio'] = np.nan
+        per_dev['WIP Medio'] = pd.to_numeric(per_dev['WIP Medio'], errors='coerce')
+
+        # ── IED Temporal — sparklines mensais por dev ─────────────────────────
+        # Só computa se o período tiver ao menos 2 meses (caso contrário sem tendência).
+        _n_meses_period = (end_ts_prod - start_ts_prod).days / 30.44
+        _monthly_ied_data = {}
+        if _n_meses_period >= 1.8:
+            try:
+                _monthly_ied_data = _compute_monthly_ied_series(
+                    df_prod_base, start_ts_prod, end_ts_prod,
+                    alias_index=alias_index_prod,
+                )
+            except Exception:
+                _monthly_ied_data = {}
+
+        # ── Δ IED Trend — variação IED (primeiro → último mês com dados) ──────
+        # Positivo = dev melhorando; Negativo = dev em queda; NaN = dados insuficientes
+        def _ied_trend_delta(pessoa):
+            pts = _monthly_ied_data.get(str(pessoa), [])
+            if len(pts) >= 2:
+                return round(pts[-1][1] - pts[0][1], 1)
+            return np.nan
+        per_dev['Δ IED Trend'] = per_dev['Pessoa'].apply(_ied_trend_delta)
+
+        # ── Aging Rescue Rate — % de itens resgatados do backlog antigo ───────
+        # Item "antigo" = DataCriacao→DataInProgress > 30 dias antes de ser puxado.
+        # Referência: Jørgensen (IST 2023) — itens com high aging têm menor chance de entrega.
+        _AGING_THRESHOLD_DAYS = 30
+        if ('DataCriacao' in df_prod_base.columns and
+                'DataInProgress' in df_prod_base.columns and
+                df_prod_base['DataCriacao'].notna().any()):
+            _aging_df = df_prod_base.copy()
+            _aging_df['_Pessoa'] = _resolve_dev_person_series(_aging_df, alias_index=alias_index_prod)
+            _aging_df['DataCriacao'] = pd.to_datetime(_aging_df['DataCriacao'], errors='coerce')
+            _aging_df['DataInProgress'] = pd.to_datetime(_aging_df['DataInProgress'], errors='coerce')
+            _aging_df['_aging_days'] = (_aging_df['DataInProgress'] - _aging_df['DataCriacao']).dt.days
+            _aging_pulled = _aging_df[
+                (_aging_df['DataInProgress'] >= start_ts_prod) &
+                (_aging_df['DataInProgress'] < end_ts_prod) &
+                _aging_df['_Pessoa'].astype(str).str.strip().ne('') &
+                _aging_df['_aging_days'].notna()
+            ].copy()
+            if not _aging_pulled.empty:
+                _total_pulled_g = _aging_pulled.groupby('_Pessoa').size()
+                _rescued_g = _aging_pulled[
+                    _aging_pulled['_aging_days'] > _AGING_THRESHOLD_DAYS
+                ].groupby('_Pessoa').size()
+                _arr = (_rescued_g / _total_pulled_g.clip(lower=1) * 100).round(1).rename('Aging Rescue Rate (%)')
+                per_dev = per_dev.merge(
+                    _arr.reset_index().rename(columns={'_Pessoa': 'Pessoa'}),
+                    on='Pessoa', how='left',
+                )
+                per_dev['Aging Rescue Rate (%)'] = per_dev['Aging Rescue Rate (%)'].fillna(0.0)
+            else:
+                per_dev['Aging Rescue Rate (%)'] = np.nan
+        else:
+            per_dev['Aging Rescue Rate (%)'] = np.nan
+
         # Filtro por BU (inline, sem necessidade de novo callback)
         bus_disponiveis = sorted(per_dev['BU'].dropna().unique().tolist())
         bus_disponiveis = [b for b in bus_disponiveis if b]  # remove vazios
@@ -19968,6 +20137,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             'Score Complexidade Puxado',
             # Novos indicadores
             'DD_FP', 'KCR', 'ECR', 'Estabilidade_Throughput',
+            # Previsibilidade de Lead Time (P85/P50)
+            'Lead Time P50 (dias)', 'Lead Time P85 (dias)', 'Razão P85/P50', 'Previsibilidade LT',
+            # WIP médio (Little's Law)
+            'WIP Medio',
+            # IED trend mensal
+            'Δ IED Trend',
+            # Aging Rescue Rate
+            'Aging Rescue Rate (%)',
         ]
         table_cols_prod = [c for c in table_col_order if c in per_dev.columns]
 
@@ -20000,6 +20177,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if 'Δ IEF–IED' in prod_display.columns:
             prod_display['Δ IEF–IED'] = prod_display['Δ IEF–IED'].apply(
                 lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+            )
+        for _lt_num_col in ['Lead Time P50 (dias)', 'Lead Time P85 (dias)', 'Razão P85/P50', 'WIP Medio']:
+            if _lt_num_col in prod_display.columns:
+                prod_display[_lt_num_col] = prod_display[_lt_num_col].apply(
+                    lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+                )
+        if 'Δ IED Trend' in prod_display.columns:
+            prod_display['Δ IED Trend'] = prod_display['Δ IED Trend'].apply(
+                lambda v: f'{float(v):+.1f}' if pd.notna(v) else '—'
+            )
+        if 'Aging Rescue Rate (%)' in prod_display.columns:
+            prod_display['Aging Rescue Rate (%)'] = prod_display['Aging Rescue Rate (%)'].apply(
+                lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
             )
 
         prod_table = dash_table.DataTable(
@@ -20042,6 +20232,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 {'if': {'filter_query': '{IED Classe} = "Abaixo do Esperado"', 'column_id': 'IED'},
                  'backgroundColor': '#ffe5b4', 'color': '#7d4500', 'fontWeight': '700'},
                 {'if': {'filter_query': '{IED Classe} = "Crítico"', 'column_id': 'IED'},
+                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                # Previsibilidade LT — colorização da coluna Razão P85/P50
+                {'if': {'filter_query': '{Previsibilidade LT} = "Previsível"', 'column_id': 'Razão P85/P50'},
+                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                {'if': {'filter_query': '{Previsibilidade LT} = "Moderado"', 'column_id': 'Razão P85/P50'},
+                 'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
+                {'if': {'filter_query': '{Previsibilidade LT} = "Imprevisível"', 'column_id': 'Razão P85/P50'},
+                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                # Δ IED Trend — verde para subida, vermelho para queda
+                {'if': {'filter_query': '{Δ IED Trend} contains "+"', 'column_id': 'Δ IED Trend'},
+                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                {'if': {'filter_query': '{Δ IED Trend} contains "-"', 'column_id': 'Δ IED Trend'},
                  'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
             ],
         )
@@ -20712,6 +20914,244 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'display': 'flex', 'flexWrap': 'wrap', 'gap': '12px', 'marginBottom': '16px',
             })
 
+        # ── Fig: IED Sparklines — evolução temporal mensal ───────────────────────
+        from plotly.subplots import make_subplots as _make_subplots
+        _spark_devs = sorted(
+            _monthly_ied_data.keys(),
+            key=lambda p: next((per_dev.loc[per_dev['Pessoa'] == p, 'IED'].values[0]
+                                 for _ in [None] if p in per_dev['Pessoa'].values), 0),
+            reverse=True,
+        )[:20]
+        fig_ied_sparklines = go.Figure()
+        _spark_palette = [
+            '#27ae60','#2980b9','#8e44ad','#e67e22','#e74c3c',
+            '#1abc9c','#f39c12','#3498db','#9b59b6','#c0392b',
+            '#16a085','#d35400','#2c3e50','#7f8c8d','#e91e63',
+            '#00bcd4','#8bc34a','#ff5722','#607d8b','#795548',
+        ]
+        if _spark_devs:
+            _n_cols_spark = min(4, len(_spark_devs))
+            _n_rows_spark = -(-len(_spark_devs) // _n_cols_spark)  # ceiling div
+            fig_ied_sparklines = _make_subplots(
+                rows=_n_rows_spark, cols=_n_cols_spark,
+                subplot_titles=[p.split()[0] for p in _spark_devs],
+                shared_yaxes=False,
+            )
+            for _si, _sdev in enumerate(_spark_devs):
+                _spts = _monthly_ied_data[_sdev]
+                _sx = [p[0] for p in _spts]
+                _sy = [p[1] for p in _spts]
+                _srow = _si // _n_cols_spark + 1
+                _scol = _si % _n_cols_spark + 1
+                _scol_hex = _spark_palette[_si % len(_spark_palette)]
+                fig_ied_sparklines.add_trace(
+                    go.Scatter(
+                        x=_sx, y=_sy,
+                        mode='lines+markers',
+                        line=dict(color=_scol_hex, width=2),
+                        marker=dict(size=5, color=_scol_hex),
+                        name=_sdev,
+                        showlegend=False,
+                        hovertemplate='%{x}: <b>%{y:.1f}</b><extra></extra>',
+                    ),
+                    row=_srow, col=_scol,
+                )
+                # Faixa de referência: 70 = mínimo esperado
+                fig_ied_sparklines.add_hline(
+                    y=70, line_dash='dot', line_color='#e67e22', line_width=1,
+                    row=_srow, col=_scol,
+                )
+            fig_ied_sparklines.update_yaxes(range=[0, 105], showgrid=True, gridcolor='#f0f0f0')
+            fig_ied_sparklines.update_layout(
+                title=dict(
+                    text='Evolução Mensal do IED por Desenvolvedor<br>'
+                         '<sup>Linha laranja pontilhada = mínimo esperado (IED 70). '
+                         'Top 20 por IED. Devs com < 2 entregas/mês excluídos do mês.</sup>',
+                    font=dict(size=13),
+                ),
+                height=max(240, 200 * _n_rows_spark),
+                margin=dict(t=80, b=30, l=40, r=20),
+                template='plotly_white',
+                plot_bgcolor='#fafafa',
+            )
+
+        # ── Fig: WIP Médio × Lead Time — Little's Law scatter ─────────────────
+        _ied_class_colors = {
+            'Excelente': '#27ae60', 'Bom': '#2ecc71',
+            'Regular': '#f39c12', 'Abaixo do Esperado': '#e67e22', 'Crítico': '#e74c3c',
+        }
+        _wip_lt_df = per_dev[
+            per_dev['WIP Medio'].notna() &
+            per_dev['Lead Time Mediano (dias)'].gt(0) &
+            per_dev['IED'].gt(0)
+        ].copy() if 'WIP Medio' in per_dev.columns else pd.DataFrame()
+
+        fig_wip_lt = go.Figure()
+        if not _wip_lt_df.empty:
+            _wlt_colors = _wip_lt_df['IED Classe'].map(_ied_class_colors).fillna('#aaa')
+            _wlt_sizes = (_wip_lt_df['IED'] / 100 * 36 + 10).clip(10, 48)
+            fig_wip_lt.add_trace(go.Scatter(
+                x=_wip_lt_df['WIP Medio'],
+                y=_wip_lt_df['Lead Time Mediano (dias)'],
+                mode='markers+text',
+                marker=dict(
+                    size=_wlt_sizes,
+                    color=_wlt_colors,
+                    opacity=0.82,
+                    line=dict(width=1.5, color='white'),
+                ),
+                text=_wip_lt_df['Pessoa'].apply(lambda n: n.split()[0]),
+                textposition='top center',
+                textfont=dict(size=9),
+                customdata=_wip_lt_df[['IED', 'IED Classe', 'Itens Entregues', 'WIP Medio']].values,
+                hovertemplate=(
+                    '<b>%{text}</b><br>'
+                    'WIP Médio: %{customdata[3]:.2f} itens<br>'
+                    'LT Mediano: %{y:.1f} dias<br>'
+                    'IED: %{customdata[0]:.1f} (%{customdata[1]})<br>'
+                    'Itens Entregues: %{customdata[2]}<extra></extra>'
+                ),
+            ))
+            # Linha diagonal: LT = WIP / (TP_equipe/dev) — referência Little's Law
+            _wlt_x_max = float(_wip_lt_df['WIP Medio'].max()) * 1.1
+            fig_wip_lt.add_trace(go.Scatter(
+                x=[0, _wlt_x_max], y=[0, _wlt_x_max * float(_wip_lt_df['Lead Time Mediano (dias)'].median())
+                                       / max(float(_wip_lt_df['WIP Medio'].median()), 0.01)],
+                mode='lines',
+                line=dict(color='#aaa', dash='dash', width=1),
+                name='Tendência mediana',
+                showlegend=False,
+                hoverinfo='skip',
+            ))
+        fig_wip_lt.update_layout(
+            title=dict(
+                text='WIP Médio × Lead Time Mediano (Little\'s Law)<br>'
+                     '<sup>WIP_avg = Throughput × CT (Little 1961). '
+                     'Bolha ∝ IED. Alto WIP crônico → LT alto → queda de previsibilidade.</sup>',
+                font=dict(size=13),
+            ),
+            xaxis=dict(title='WIP Médio (itens simultâneos estimados)', gridcolor='#f0f0f0'),
+            yaxis=dict(title='Lead Time Mediano (dias)', gridcolor='#f0f0f0'),
+            template='plotly_white',
+            height=460,
+            margin=dict(t=80, b=50, l=60, r=30),
+            plot_bgcolor='#fafafa',
+        )
+
+        # ── Fig: Previsibilidade de Lead Time — P85/P50 por dev ───────────────
+        _prev_df = per_dev[
+            per_dev['Razão P85/P50'].notna() &
+            per_dev['IED'].gt(0)
+        ].copy() if 'Razão P85/P50' in per_dev.columns else pd.DataFrame()
+        _prev_df = _prev_df.sort_values('Razão P85/P50', ascending=True)
+
+        _prev_colors_map = {'Previsível': '#27ae60', 'Moderado': '#f39c12', 'Imprevisível': '#e74c3c', '—': '#aaa'}
+        fig_lt_predictability = go.Figure()
+        if not _prev_df.empty:
+            _pc_list = _prev_df['Previsibilidade LT'].map(_prev_colors_map).fillna('#aaa').tolist()
+            fig_lt_predictability.add_trace(go.Bar(
+                y=_prev_df['Pessoa'],
+                x=_prev_df['Razão P85/P50'],
+                orientation='h',
+                marker_color=_pc_list,
+                marker_line_width=0,
+                text=[f'{v:.2f}' for v in _prev_df['Razão P85/P50']],
+                textposition='outside',
+                customdata=_prev_df[['Lead Time P50 (dias)', 'Lead Time P85 (dias)', 'Previsibilidade LT']].values,
+                hovertemplate=(
+                    '<b>%{y}</b><br>'
+                    'Razão P85/P50: <b>%{x:.2f}</b><br>'
+                    'P50: %{customdata[0]:.1f} dias | P85: %{customdata[1]:.1f} dias<br>'
+                    'Classificação: <b>%{customdata[2]}</b><extra></extra>'
+                ),
+            ))
+            # Linhas de referência
+            fig_lt_predictability.add_vline(x=2.0, line_dash='dot', line_color='#27ae60', line_width=1.5,
+                                             annotation_text='≤2 Previsível', annotation_position='top right',
+                                             annotation_font_size=10)
+            fig_lt_predictability.add_vline(x=3.0, line_dash='dot', line_color='#e67e22', line_width=1.5,
+                                             annotation_text='≤3 Moderado', annotation_position='top right',
+                                             annotation_font_size=10)
+        fig_lt_predictability.update_layout(
+            title=dict(
+                text='Previsibilidade de Lead Time — Razão P85/P50<br>'
+                     '<sup>Verde ≤2 (Previsível) | Laranja ≤3 (Moderado) | Vermelho >3 (Imprevisível). '
+                     'Reinertsen (2009) — Product Development Flow.</sup>',
+                font=dict(size=13),
+            ),
+            xaxis=dict(title='Razão P85/P50', gridcolor='#f0f0f0'),
+            yaxis=dict(title='', automargin=True),
+            template='plotly_white',
+            height=max(340, 28 * max(len(_prev_df), 1) + 120),
+            margin=dict(t=80, b=50, l=180, r=80),
+            plot_bgcolor='#fafafa',
+        )
+
+        # ── Fig: Δ IED Trend — variação mensal primeiro → último mês ──────────
+        _trend_df = per_dev[per_dev['Δ IED Trend'].notna()].copy() if 'Δ IED Trend' in per_dev.columns else pd.DataFrame()
+        _trend_df = _trend_df.sort_values('Δ IED Trend', ascending=True)
+        fig_delta_ied = go.Figure()
+        if not _trend_df.empty:
+            _trend_colors = ['#27ae60' if v >= 0 else '#e74c3c' for v in _trend_df['Δ IED Trend']]
+            fig_delta_ied.add_trace(go.Bar(
+                y=_trend_df['Pessoa'],
+                x=_trend_df['Δ IED Trend'],
+                orientation='h',
+                marker_color=_trend_colors,
+                marker_line_width=0,
+                text=[f'{v:+.1f}' for v in _trend_df['Δ IED Trend']],
+                textposition='outside',
+                hovertemplate='<b>%{y}</b><br>Δ IED: <b>%{x:+.1f}</b><extra></extra>',
+            ))
+            fig_delta_ied.add_vline(x=0, line_color='#495057', line_width=1.5)
+        fig_delta_ied.update_layout(
+            title=dict(
+                text='Δ IED Trend — Variação Mensal (Primeiro → Último Mês com Dados)<br>'
+                     '<sup>Verde = dev melhorando | Vermelho = dev em queda. '
+                     'Disponível apenas para períodos com ≥ 2 meses de dados.</sup>',
+                font=dict(size=13),
+            ),
+            xaxis=dict(title='Variação do IED (pontos)', gridcolor='#f0f0f0'),
+            yaxis=dict(title='', automargin=True),
+            template='plotly_white',
+            height=max(300, 28 * max(len(_trend_df), 1) + 100),
+            margin=dict(t=80, b=50, l=180, r=80),
+            plot_bgcolor='#fafafa',
+        )
+
+        # ── Fig: Aging Rescue Rate — % de itens antigos resgatados ───────────
+        _arr_df = per_dev[
+            per_dev['Aging Rescue Rate (%)'].notna() &
+            per_dev['Itens Puxados'].gt(0)
+        ].copy() if 'Aging Rescue Rate (%)' in per_dev.columns else pd.DataFrame()
+        _arr_df = _arr_df.sort_values('Aging Rescue Rate (%)', ascending=False).head(30)
+        fig_aging_rescue = go.Figure()
+        if not _arr_df.empty:
+            _arr_colors = ['#27ae60' if v >= 30 else '#f39c12' if v >= 10 else '#95a5a6'
+                           for v in _arr_df['Aging Rescue Rate (%)']]
+            fig_aging_rescue.add_trace(go.Bar(
+                x=_arr_df['Pessoa'],
+                y=_arr_df['Aging Rescue Rate (%)'],
+                marker_color=_arr_colors,
+                marker_line_width=0,
+                text=[f'{v:.1f}%' for v in _arr_df['Aging Rescue Rate (%)']],
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Aging Rescue Rate: <b>%{y:.1f}%</b><extra></extra>',
+            ))
+        fig_aging_rescue.update_layout(
+            title=dict(
+                text=f'Aging Rescue Rate — % de Itens com > {_AGING_THRESHOLD_DAYS} dias em Backlog ao ser Puxado<br>'
+                     '<sup>Dev que regularmente resgata itens antigos demonstra iniciativa e reduz aging do backlog.</sup>',
+                font=dict(size=13),
+            ),
+            xaxis=dict(title='', automargin=True, tickangle=-30),
+            yaxis=dict(title='% Itens Antigos Resgatados', gridcolor='#f0f0f0'),
+            template='plotly_white',
+            height=420,
+            margin=dict(t=80, b=90, l=60, r=30),
+            plot_bgcolor='#fafafa',
+        )
+
         def _section(title, subtitle=None, children=None):
             """Helper: cria bloco de seção com título, linha divisória e conteúdo."""
             return html.Div([
@@ -20823,6 +21263,108 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                                             'fontSize': '13px', 'marginTop': '12px', 'color': '#2c3e50'}),
                         html.Div(ied_breakdown_table, style={'marginTop': '10px'}),
                     ]),
+                ],
+            ),
+
+            # ── Evolução Temporal do IED — sparklines mensais ─────────────────
+            _section(
+                'Evolução Temporal do IED por Desenvolvedor',
+                [
+                    html.Span('IED calculado por mês para os top 20 devs. '),
+                    html.Span('Linha laranja pontilhada = mínimo esperado (IED 70). ', style={'color': '#e67e22'}),
+                    html.Span('Devs com < 2 entregas no mês são excluídos daquele mês. '),
+                    html.Span('Disponível apenas quando o período selecionado abrange ≥ 2 meses.',
+                              style={'color': '#6c757d'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_ied_sparklines, config={'displayModeBar': False})
+                    if _monthly_ied_data else html.P(
+                        'Período selecionado menor que 2 meses — selecione um intervalo mais amplo para ver a evolução temporal.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── WIP Médio × Lead Time (Little's Law) ──────────────────────────
+            _section(
+                'WIP Médio × Lead Time (Little\'s Law)',
+                [
+                    html.Span('WIP médio estimado por Little\'s Law: '),
+                    html.Span('WIP = Throughput × CT', style={'fontFamily': 'monospace', 'fontWeight': '600'}),
+                    html.Span('. Bolha ∝ IED. '),
+                    html.Span('Referência: Little (1961); Anderson (2010) — WIP e Lead Time são co-dependentes. ',
+                              style={'color': '#2980b9'}),
+                    html.Span('Devs com WIP alto e LT alto são candidatos prioritários a coaching de fluxo.',
+                              style={'color': '#e67e22'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_wip_lt, config={'displayModeBar': False})
+                    if not _wip_lt_df.empty else html.P(
+                        'Dados insuficientes para calcular WIP médio (necessário DataInProgress e LeadTime no período).',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── Previsibilidade de Lead Time (P85/P50) ────────────────────────
+            _section(
+                'Previsibilidade de Lead Time — Razão P85/P50',
+                [
+                    html.Span('Razão P85/P50 mede dispersão da distribuição de Lead Time. '),
+                    html.Span('≤ 2.0 = Previsível', style={'color': '#27ae60', 'fontWeight': '600'}),
+                    html.Span(' | '),
+                    html.Span('≤ 3.0 = Moderado', style={'color': '#f39c12', 'fontWeight': '600'}),
+                    html.Span(' | '),
+                    html.Span('> 3.0 = Imprevisível', style={'color': '#e74c3c', 'fontWeight': '600'}),
+                    html.Span('. Referência: Reinertsen (2009) — Product Development Flow.',
+                              style={'color': '#6c757d'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_lt_predictability, config={'displayModeBar': False})
+                    if not _prev_df.empty else html.P(
+                        'Dados insuficientes para calcular P85/P50 (mínimo de 2 entregas por dev).',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── Δ IED Trend ───────────────────────────────────────────────────
+            _section(
+                'Δ IED Trend — Variação Mensal de Produtividade',
+                [
+                    html.Span('Diferença entre o IED do último mês com dados e o primeiro mês do período. '),
+                    html.Span('Verde = dev melhorando', style={'color': '#27ae60', 'fontWeight': '600'}),
+                    html.Span(' | '),
+                    html.Span('Vermelho = dev em queda', style={'color': '#e74c3c', 'fontWeight': '600'}),
+                    html.Span('. Disponível apenas para períodos com ≥ 2 meses de dados suficientes.',
+                              style={'color': '#6c757d'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_delta_ied, config={'displayModeBar': False})
+                    if not _trend_df.empty else html.P(
+                        'Período sem dados mensais suficientes para calcular Δ IED Trend.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── Aging Rescue Rate ─────────────────────────────────────────────
+            _section(
+                f'Aging Rescue Rate — Itens com > {_AGING_THRESHOLD_DAYS} dias em Backlog ao ser Puxado',
+                [
+                    html.Span('% dos itens puxados pelo dev que estavam em backlog há mais de '),
+                    html.Span(f'{_AGING_THRESHOLD_DAYS} dias', style={'fontWeight': '600'}),
+                    html.Span(' (DataCriacao → DataInProgress). '),
+                    html.Span('Devs com taxa alta demonstram iniciativa em reduzir aging do backlog. ',
+                              style={'color': '#27ae60'}),
+                    html.Span('Requer campo DataCriacao no Jira.', style={'color': '#6c757d'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_aging_rescue, config={'displayModeBar': False})
+                    if not _arr_df.empty else html.P(
+                        'DataCriacao não disponível ou sem itens puxados no período para calcular Aging Rescue Rate.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
                 ],
             ),
 
