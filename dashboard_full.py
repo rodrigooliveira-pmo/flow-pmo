@@ -99,6 +99,16 @@ def _download_downstream_items_csv_from_url(url, project_key):
     return out_file
 
 
+def _download_capex_csv_from_url(url, key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_key = ''.join(ch for ch in str(key or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'capex'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'capex-{safe_key}-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
 def _remote_cache_ttl_seconds():
     raw = os.getenv('FLOW_PMO_REMOTE_CACHE_TTL_SECONDS', '').strip()
     if not raw:
@@ -598,6 +608,18 @@ PORTFOLIO_CACHE = {
     'error': None,
     'source_file': None,
     'source_mtime': None,
+}
+CAPEX_CACHE_TTL = timedelta(minutes=10)
+CAPEX_CACHE = {
+    'fetched_at': None,
+    'data': None,
+    'raw_df': None,
+    'summary_df': None,
+    'error': None,
+    'raw_file': None,
+    'raw_mtime': None,
+    'summary_file': None,
+    'summary_mtime': None,
 }
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_TAB_VALUE = 'tab-portfolio'
@@ -4799,6 +4821,715 @@ def get_portfolio_snapshot():
         PORTFOLIO_CACHE['source_mtime'] = None
         return None, None, str(exc)
 
+
+def _capex_local_file_matches(name: str, kind: str) -> bool:
+    low = str(name or '').strip().lower()
+    if not (low.startswith('capex') and low.endswith('.csv')):
+        return False
+    if kind == 'summary':
+        return ('mensal' in low) or ('summary' in low)
+    return 'raw' in low
+
+
+def _capex_required_columns(kind: str) -> set[str]:
+    if kind == 'summary':
+        return {'MesCompetencia', 'ID do Projeto', 'Colaborador', 'Horas', 'Projeto Jira'}
+    return {
+        'MesCompetencia',
+        'ID do Projeto',
+        'Colaborador',
+        'Data do Apontamento das Horas',
+        'Horas',
+        'Issue Key',
+        'Projeto Jira',
+        'Origem Horas',
+    }
+
+
+def _find_latest_capex_csv(kind: str = 'raw'):
+    kind = 'summary' if str(kind or '').strip().lower() == 'summary' else 'raw'
+    env_suffix = 'SUMMARY' if kind == 'summary' else 'RAW'
+    explicit_file = os.getenv(f'FLOW_PMO_CAPEX_{env_suffix}_FILE', '').strip()
+    if explicit_file:
+        candidate = explicit_file if os.path.isabs(explicit_file) else os.path.join(os.path.dirname(__file__), explicit_file)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise RuntimeError(f'FLOW_PMO_CAPEX_{env_suffix}_FILE aponta para arquivo inexistente: {candidate}')
+
+    explicit_url = os.getenv(f'FLOW_PMO_CAPEX_{env_suffix}_URL', '').strip()
+    if explicit_url:
+        return _download_capex_csv_from_url(explicit_url, kind)
+
+    candidates = []
+    latest_candidates = []
+    for folder in DATA_FOLDERS:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            if not _capex_local_file_matches(name, kind):
+                continue
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path):
+                continue
+            candidates.append(path)
+            if 'latest' in str(name).lower():
+                latest_candidates.append(path)
+
+    if latest_candidates:
+        return max(latest_candidates, key=os.path.getctime)
+    if candidates:
+        return max(candidates, key=os.path.getctime)
+    return None
+
+
+def _load_capex_csv(kind: str = 'raw') -> tuple[pd.DataFrame, str | None]:
+    csv_file = _find_latest_capex_csv(kind)
+    if not csv_file:
+        return pd.DataFrame(), None
+
+    df = pd.read_csv(csv_file)
+    missing = [col for col in _capex_required_columns(kind) if col not in df.columns]
+    if missing:
+        raise RuntimeError(
+            f'CSV CAPEX {kind} inválido ({os.path.basename(csv_file)}). Colunas ausentes: {", ".join(missing)}'
+        )
+    return df, csv_file
+
+
+def get_capex_snapshot(kind: str | None = None):
+    now = datetime.now()
+    cached_at = CAPEX_CACHE.get('fetched_at')
+    if cached_at and (now - cached_at) <= CAPEX_CACHE_TTL and CAPEX_CACHE.get('raw_df') is not None:
+        try:
+            raw_file = _find_latest_capex_csv('raw')
+            summary_file = _find_latest_capex_csv('summary')
+            raw_matches = bool(
+                raw_file
+                and CAPEX_CACHE.get('raw_file')
+                and os.path.abspath(raw_file) == os.path.abspath(str(CAPEX_CACHE.get('raw_file')))
+                and CAPEX_CACHE.get('raw_mtime') is not None
+                and float(os.path.getmtime(raw_file)) == float(CAPEX_CACHE.get('raw_mtime'))
+            )
+            summary_matches = (
+                (not summary_file and not CAPEX_CACHE.get('summary_file'))
+                or bool(
+                    summary_file
+                    and CAPEX_CACHE.get('summary_file')
+                    and os.path.abspath(summary_file) == os.path.abspath(str(CAPEX_CACHE.get('summary_file')))
+                    and CAPEX_CACHE.get('summary_mtime') is not None
+                    and float(os.path.getmtime(summary_file)) == float(CAPEX_CACHE.get('summary_mtime'))
+                )
+            )
+            if raw_matches and summary_matches:
+                if kind == 'raw':
+                    return CAPEX_CACHE.get('raw_df'), CAPEX_CACHE.get('error')
+                if kind == 'summary':
+                    return CAPEX_CACHE.get('summary_df'), CAPEX_CACHE.get('error')
+                return CAPEX_CACHE.get('data'), CAPEX_CACHE.get('raw_df'), CAPEX_CACHE.get('summary_df'), CAPEX_CACHE.get('error')
+        except Exception:
+            if kind == 'raw':
+                return CAPEX_CACHE.get('raw_df'), CAPEX_CACHE.get('error')
+            if kind == 'summary':
+                return CAPEX_CACHE.get('summary_df'), CAPEX_CACHE.get('error')
+            return CAPEX_CACHE.get('data'), CAPEX_CACHE.get('raw_df'), CAPEX_CACHE.get('summary_df'), CAPEX_CACHE.get('error')
+
+    try:
+        raw_df, raw_file = _load_capex_csv('raw')
+        summary_df, summary_file = _load_capex_csv('summary')
+        snapshot = {
+            'available': not raw_df.empty,
+            'raw_file': raw_file,
+            'summary_file': summary_file,
+            'updated_at': datetime.fromtimestamp(os.path.getctime(raw_file)).strftime('%Y-%m-%d %H:%M') if raw_file else '',
+        }
+        CAPEX_CACHE['fetched_at'] = now
+        CAPEX_CACHE['data'] = snapshot
+        CAPEX_CACHE['raw_df'] = raw_df
+        CAPEX_CACHE['summary_df'] = summary_df
+        CAPEX_CACHE['error'] = None
+        CAPEX_CACHE['raw_file'] = raw_file
+        CAPEX_CACHE['raw_mtime'] = os.path.getmtime(raw_file) if raw_file else None
+        CAPEX_CACHE['summary_file'] = summary_file
+        CAPEX_CACHE['summary_mtime'] = os.path.getmtime(summary_file) if summary_file else None
+        if kind == 'raw':
+            return raw_df, None
+        if kind == 'summary':
+            return summary_df, None
+        return snapshot, raw_df, summary_df, None
+    except Exception as exc:
+        CAPEX_CACHE['fetched_at'] = now
+        CAPEX_CACHE['data'] = None
+        CAPEX_CACHE['raw_df'] = None
+        CAPEX_CACHE['summary_df'] = None
+        CAPEX_CACHE['error'] = str(exc)
+        CAPEX_CACHE['raw_file'] = None
+        CAPEX_CACHE['raw_mtime'] = None
+        CAPEX_CACHE['summary_file'] = None
+        CAPEX_CACHE['summary_mtime'] = None
+        if kind == 'raw':
+            return pd.DataFrame(), str(exc)
+        if kind == 'summary':
+            return pd.DataFrame(), str(exc)
+        return None, pd.DataFrame(), pd.DataFrame(), str(exc)
+
+
+def _capex_project_key_from_team(team_value) -> str:
+    raw_team = str(team_value or '').strip()
+    if not raw_team:
+        return ''
+    direct = _canonical_pm_product_key(raw_team)
+    if direct:
+        return direct
+
+    team_norm = normalize_text(raw_team)
+    for candidate in ('BF', 'DT', 'S1NC', 'W1NNR'):
+        for alias in portfolio_project_team_aliases(candidate):
+            alias_norm = normalize_text(alias)
+            if not alias_norm:
+                continue
+            if alias_norm in team_norm or team_norm in alias_norm:
+                return _canonical_pm_product_key(candidate)
+    return ''
+
+
+def _build_capex_portfolio_asset_lookup(df_portfolio: pd.DataFrame) -> dict:
+    if df_portfolio is None or df_portfolio.empty:
+        return {}
+    id_col = _pm_pick_first_column(df_portfolio, ['ID', 'ItemID'])
+    title_col = _pm_pick_first_column(df_portfolio, ['Titulo', 'Title'])
+    type_col = _pm_pick_first_column(df_portfolio, ['Tipo', 'ItemType'])
+    team_col = _pm_pick_first_column(df_portfolio, ['Team', 'TEAM'])
+    project_col = _pm_pick_first_column(df_portfolio, ['Projeto'])
+    if not id_col:
+        return {}
+
+    lookup = {}
+    for row in df_portfolio.to_dict(orient='records'):
+        asset_id = _pm_clean_issue_key(row.get(id_col))
+        if not asset_id:
+            continue
+        team_value = str(row.get(team_col, '') or '').strip() if team_col else ''
+        lookup[asset_id] = {
+            'AssetID': asset_id,
+            'Descrição do Ativo': str(row.get(title_col, '') or '').strip() if title_col else '',
+            'Tipo do Ativo': str(row.get(type_col, '') or '').strip() if type_col else '',
+            'Portfolio Team': team_value,
+            'Projeto Portfólio': str(row.get(project_col, '') or '').strip() if project_col else '',
+            'Projeto PM': _capex_project_key_from_team(team_value),
+        }
+    return lookup
+
+
+def _build_capex_person_rate_map(cost_model_snapshot: dict) -> dict:
+    person_rates = {}
+    if not isinstance(cost_model_snapshot, dict):
+        return person_rates
+    team_df = cost_model_snapshot.get('team_df', pd.DataFrame())
+    if team_df is None or team_df.empty:
+        return person_rates
+    for row in team_df.to_dict(orient='records'):
+        person = _canonical_person_name(row.get('Pessoa'))
+        if not person:
+            continue
+        try:
+            rate = float(row.get('Custo Hora Pessoa (R$)', 0) or 0)
+        except Exception:
+            rate = 0.0
+        if rate > 0:
+            person_rates[person] = rate
+    return person_rates
+
+
+def _build_capex_worklog_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
+    columns = [
+        'Data do Apontamento',
+        'MesCompetencia',
+        'Pessoa',
+        'Projeto Jira',
+        'Projeto PM',
+        'Produto',
+        'AssetID',
+        'Descrição do Ativo',
+        'Tipo do Ativo',
+        'Portfolio Team',
+        'Issue Key',
+        'Horas',
+        'Atividade Desenvolvida',
+        'Atividade Desenvolvida Normalizada',
+        'ConfidenceScore',
+        'Origem Horas',
+        'Fonte Vínculo',
+        'Fonte Taxa',
+        'Custo Hora Aplicado (R$)',
+        'Custo Real Apontado (R$)',
+    ]
+    empty_df = pd.DataFrame(columns=columns)
+
+    capex_snapshot, raw_df, _summary_df, capex_error = get_capex_snapshot()
+    if capex_error:
+        return {
+            'available': False,
+            'error': capex_error,
+            'worklog_df': empty_df,
+            'snapshot': capex_snapshot or {},
+        }
+    if raw_df is None or raw_df.empty:
+        return {
+            'available': False,
+            'error': 'Base CAPEX por worklog indisponível ou vazia.',
+            'worklog_df': empty_df,
+            'snapshot': capex_snapshot or {},
+        }
+
+    cost_model_snapshot = build_portfolio_cost_model_snapshot(portfolio_scope_df, start_ts, end_ts)
+    product_rates_df = cost_model_snapshot.get('product_rates_df', pd.DataFrame()) if isinstance(cost_model_snapshot, dict) else pd.DataFrame()
+    model_kpis = cost_model_snapshot.get('kpis', {}) if isinstance(cost_model_snapshot, dict) else {}
+    person_rate_map = _build_capex_person_rate_map(cost_model_snapshot)
+    product_rate_map = {}
+    if product_rates_df is not None and not product_rates_df.empty:
+        for row in product_rates_df.to_dict(orient='records'):
+            project_key = _canonical_pm_product_key(row.get('Projeto PM'))
+            if not project_key:
+                continue
+            try:
+                product_rate_map[project_key] = float(row.get('Custo Hora Produto (R$)', 0) or 0)
+            except Exception:
+                continue
+    global_rate = float(model_kpis.get('Custo Hora Carregado', 0) or 0)
+
+    x = raw_df.copy()
+    x['Data do Apontamento'] = pd.to_datetime(x.get('Data do Apontamento das Horas'), errors='coerce')
+    x['Horas'] = pd.to_numeric(x.get('Horas'), errors='coerce').fillna(0.0)
+    x['ConfidenceScore'] = pd.to_numeric(x.get('ConfidenceScore'), errors='coerce').fillna(0.0)
+    x['Pessoa'] = x.get('Colaborador', '').apply(_canonical_person_name)
+    x['Projeto Jira'] = x.get('Projeto Jira', '').fillna('').astype(str).str.strip().str.upper()
+    x['Projeto PM'] = x['Projeto Jira'].apply(_canonical_pm_product_key)
+    x['Produto'] = x['Projeto PM'].apply(_pm_product_label)
+    x['Issue Key'] = x.get('Issue Key', '').apply(_pm_clean_issue_key)
+    x['AssetID'] = x.get('ID do Projeto', '').apply(_pm_clean_issue_key)
+    x['Descrição do Ativo'] = x.get('Descrição do Ativo', '').fillna('').astype(str).str.strip()
+    x['Tipo do Ativo'] = x.get('Tipo do Ativo', '').fillna('').astype(str).str.strip()
+    x['Atividade Desenvolvida'] = x.get('Atividade Desenvolvida', '').fillna('').astype(str).str.strip()
+    x['Atividade Desenvolvida Normalizada'] = x.get('Atividade Desenvolvida Normalizada', '').fillna('').astype(str).str.strip()
+    x['Origem Horas'] = x.get('Origem Horas', '').fillna('').astype(str).str.strip()
+    x['Fonte Vínculo'] = np.where(x['AssetID'].ne(''), 'CAPEX', 'NaoMapeado')
+    x['Portfolio Team'] = ''
+
+    period_start = pd.to_datetime(start_ts)
+    period_end_exclusive = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
+    x = x[
+        x['Data do Apontamento'].notna()
+        & (x['Data do Apontamento'] >= period_start)
+        & (x['Data do Apontamento'] < period_end_exclusive)
+        & (x['Horas'] > 0)
+    ].copy()
+    if x.empty:
+        return {
+            'available': False,
+            'error': 'Sem worklogs CAPEX no período selecionado.',
+            'worklog_df': empty_df,
+            'snapshot': capex_snapshot or {},
+        }
+
+    portfolio_asset_lookup = _build_capex_portfolio_asset_lookup(portfolio_scope_df)
+    if portfolio_asset_lookup:
+        fallback_rows = []
+        for asset_id, meta in portfolio_asset_lookup.items():
+            fallback_rows.append({
+                'AssetID': asset_id,
+                'Descrição do Ativo Fallback': meta.get('Descrição do Ativo', ''),
+                'Tipo do Ativo Fallback': meta.get('Tipo do Ativo', ''),
+                'Portfolio Team Fallback': meta.get('Portfolio Team', ''),
+                'Projeto PM Fallback': meta.get('Projeto PM', ''),
+            })
+        portfolio_assets_df = pd.DataFrame(fallback_rows)
+        if not portfolio_assets_df.empty:
+            x = x.merge(portfolio_assets_df, how='left', on='AssetID')
+            x['Descrição do Ativo'] = x['Descrição do Ativo'].where(
+                x['Descrição do Ativo'].astype(str).str.strip().ne(''),
+                x['Descrição do Ativo Fallback']
+            )
+            x['Tipo do Ativo'] = x['Tipo do Ativo'].where(
+                x['Tipo do Ativo'].astype(str).str.strip().ne(''),
+                x['Tipo do Ativo Fallback']
+            )
+            x['Portfolio Team'] = x['Portfolio Team Fallback'].fillna('').astype(str).str.strip()
+            missing_project = x['Projeto PM'].astype(str).str.strip().eq('')
+            x.loc[missing_project, 'Projeto PM'] = x.loc[missing_project, 'Projeto PM Fallback'].fillna('').astype(str).str.strip()
+            x['Produto'] = x['Projeto PM'].apply(_pm_product_label)
+            x.drop(
+                columns=[
+                    'Descrição do Ativo Fallback',
+                    'Tipo do Ativo Fallback',
+                    'Portfolio Team Fallback',
+                    'Projeto PM Fallback',
+                ],
+                inplace=True,
+                errors='ignore',
+            )
+
+    specs = _pm_portfolio_selected_specs(project_value)
+    selected_projects = {spec['project_key'] for spec in specs}
+    if selected_projects:
+        x = x[x['Projeto PM'].isin(selected_projects)].copy()
+
+    alias_index = _load_person_alias_index()
+    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
+    if target_person:
+        x = x[x['Pessoa'] == target_person].copy()
+
+    if x.empty:
+        return {
+            'available': False,
+            'error': 'Sem worklogs CAPEX compatíveis com os filtros atuais.',
+            'worklog_df': empty_df,
+            'snapshot': capex_snapshot or {},
+        }
+
+    person_rates = x['Pessoa'].map(person_rate_map)
+    product_rates = x['Projeto PM'].map(product_rate_map)
+    x['Custo Hora Aplicado (R$)'] = person_rates.fillna(product_rates).fillna(global_rate).astype(float)
+    x['Fonte Taxa'] = np.where(
+        person_rates.notna(),
+        'Pessoa',
+        np.where(product_rates.notna(), 'Produto', np.where(global_rate > 0, 'Global', 'Indisponível'))
+    )
+    x['Custo Real Apontado (R$)'] = x['Horas'] * x['Custo Hora Aplicado (R$)']
+
+    keep_cols = [col for col in columns if col in x.columns]
+    worklog_df = x[keep_cols].copy()
+    return {
+        'available': not worklog_df.empty,
+        'error': '',
+        'worklog_df': worklog_df,
+        'snapshot': capex_snapshot or {},
+        'cost_model': cost_model_snapshot if isinstance(cost_model_snapshot, dict) else {},
+    }
+
+
+def _capex_project_key(project_value, issue_key='') -> str:
+    project_key = _canonical_pm_product_key(project_value)
+    if project_key:
+        return project_key
+    issue_text = str(issue_key or '').strip().upper()
+    if '-' in issue_text:
+        return _canonical_pm_product_key(issue_text.split('-', 1)[0])
+    return ''
+
+
+def _capex_asset_key(row: dict | pd.Series) -> str:
+    for candidate in ('ID do Projeto', 'Feature ID', 'Epic ID', 'Parent ID'):
+        cleaned = _pm_clean_issue_key(row.get(candidate))
+        if cleaned:
+            return cleaned
+    return ''
+
+
+def _capex_prepare_worklog_df(raw_df: pd.DataFrame) -> pd.DataFrame:
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame()
+
+    df = raw_df.copy()
+    df['Data do Apontamento das Horas'] = pd.to_datetime(df.get('Data do Apontamento das Horas'), errors='coerce')
+    df['Horas'] = pd.to_numeric(df.get('Horas'), errors='coerce').fillna(0)
+    df['ConfidenceScore'] = pd.to_numeric(df.get('ConfidenceScore'), errors='coerce')
+    for col in [
+        'ID do Projeto', 'Descrição do Ativo', 'Tipo do Ativo', 'Colaborador', 'Atividade Desenvolvida',
+        'Origem Horas', 'Issue Key', 'Projeto Jira', 'Epic ID', 'Feature ID', 'Parent ID', 'Worklog ID',
+    ]:
+        if col not in df.columns:
+            df[col] = ''
+        df[col] = df[col].fillna('').astype(str).str.strip()
+
+    alias_index = _load_person_alias_index()
+    df['Pessoa'] = df['Colaborador'].apply(lambda value: _canonical_person_name(value, alias_index=alias_index))
+    df['Projeto PM'] = df.apply(
+        lambda row: _capex_project_key(row.get('Projeto Jira'), row.get('Issue Key')),
+        axis=1,
+    )
+    df['Produto'] = df['Projeto PM'].apply(_pm_product_label)
+    df['AssetID'] = df.apply(_capex_asset_key, axis=1)
+    df['Descrição do Ativo'] = df['Descrição do Ativo'].fillna('').astype(str).str.strip()
+    df['Tipo do Ativo'] = df['Tipo do Ativo'].fillna('').astype(str).str.strip()
+    df['Issue Key'] = df['Issue Key'].apply(_pm_clean_issue_key)
+    df = df[df['Data do Apontamento das Horas'].notna() & (df['Horas'] > 0)].copy()
+    return df
+
+
+def build_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df=None, project_value=None, responsavel=None) -> dict:
+    snapshot, raw_df, _summary_df, error = get_capex_snapshot()
+    if error:
+        return {
+            'available': False,
+            'error': error,
+            'df': pd.DataFrame(),
+            'scoped_df': pd.DataFrame(),
+            'cost_model': {},
+        }
+    if raw_df is None or raw_df.empty:
+        return {
+            'available': False,
+            'error': 'Base CAPEX raw indisponível para monetização por worklog.',
+            'df': pd.DataFrame(),
+            'scoped_df': pd.DataFrame(),
+            'cost_model': {},
+        }
+
+    df = _capex_prepare_worklog_df(raw_df)
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Base CAPEX raw sem apontamentos válidos.',
+            'df': pd.DataFrame(),
+            'scoped_df': pd.DataFrame(),
+            'cost_model': {},
+        }
+
+    period_start = pd.to_datetime(start_ts)
+    period_end = pd.to_datetime(end_ts)
+    df = df[
+        (df['Data do Apontamento das Horas'] >= period_start)
+        & (df['Data do Apontamento das Horas'] <= period_end)
+    ].copy()
+
+    selected_project = _canonical_pm_product_key(project_value)
+    if selected_project:
+        df = df[df['Projeto PM'] == selected_project].copy()
+
+    target_person = _canonical_person_name(responsavel, alias_index=_load_person_alias_index()) if responsavel else ''
+    if target_person:
+        df = df[df['Pessoa'] == target_person].copy()
+
+    cost_model = build_portfolio_cost_model_snapshot(
+        portfolio_scope_df if isinstance(portfolio_scope_df, pd.DataFrame) else pd.DataFrame(),
+        start_ts,
+        end_ts,
+    )
+    team_df = cost_model.get('team_df', pd.DataFrame()).copy() if isinstance(cost_model, dict) else pd.DataFrame()
+    product_rates_df = cost_model.get('product_rates_df', pd.DataFrame()).copy() if isinstance(cost_model, dict) else pd.DataFrame()
+    model_kpis = cost_model.get('kpis', {}) if isinstance(cost_model, dict) else {}
+
+    person_rate_map = {}
+    person_bu_map = {}
+    person_role_map = {}
+    if team_df is not None and not team_df.empty:
+        for row in team_df.to_dict(orient='records'):
+            person = str(row.get('Pessoa') or '').strip()
+            if not person:
+                continue
+            person_rate_map[person] = float(row.get('Custo Hora Pessoa (R$)', 0) or 0)
+            person_bu_map[person] = str(row.get('BU') or '').strip()
+            person_role_map[person] = str(row.get('Papel') or '').strip()
+
+    product_rate_map = {}
+    if product_rates_df is not None and not product_rates_df.empty:
+        for row in product_rates_df.to_dict(orient='records'):
+            canonical_key = _canonical_pm_product_key(row.get('Projeto PM'))
+            if not canonical_key:
+                continue
+            product_rate_map[canonical_key] = float(row.get('Custo Hora Produto (R$)', 0) or 0)
+
+    global_rate = float(model_kpis.get('Custo Hora Carregado', 0) or 0)
+
+    def _resolve_rate(row):
+        person = str(row.get('Pessoa') or '').strip()
+        product_key = str(row.get('Projeto PM') or '').strip()
+        person_rate = float(person_rate_map.get(person, 0) or 0)
+        if person_rate > 0:
+            return person_rate, 'Pessoa'
+        product_rate = float(product_rate_map.get(product_key, 0) or 0)
+        if product_rate > 0:
+            return product_rate, 'Produto'
+        if global_rate > 0:
+            return global_rate, 'Global'
+        return 0.0, 'Indisponível'
+
+    rate_resolution = df.apply(_resolve_rate, axis=1, result_type='expand')
+    df['Taxa Hora Aplicada (R$)'] = pd.to_numeric(rate_resolution[0], errors='coerce').fillna(0)
+    df['Fonte Taxa'] = rate_resolution[1].fillna('Indisponível').astype(str)
+    df['Custo Real (R$)'] = df['Horas'] * df['Taxa Hora Aplicada (R$)']
+    df['BU'] = df['Pessoa'].map(person_bu_map).fillna('')
+    df['Papel'] = df['Pessoa'].map(person_role_map).fillna('')
+    missing_bu = df['BU'].astype(str).str.strip().eq('')
+    if missing_bu.any():
+        bu_index = _load_person_bu_map()
+        df.loc[missing_bu, 'BU'] = df.loc[missing_bu, 'Pessoa'].apply(lambda value: _person_bu(value, bu_index=bu_index))
+    missing_role = df['Papel'].astype(str).str.strip().eq('')
+    if missing_role.any():
+        role_index = _load_person_role_map()
+        df.loc[missing_role, 'Papel'] = df.loc[missing_role, 'Pessoa'].apply(lambda value: _person_role(value, role_index=role_index))
+
+    scope_asset_ids = set()
+    if portfolio_scope_df is not None and not portfolio_scope_df.empty:
+        scope_id_col = _pm_pick_first_column(portfolio_scope_df, ['ID', 'ItemID'])
+        if scope_id_col:
+            scope_asset_ids = {
+                _pm_clean_issue_key(value)
+                for value in portfolio_scope_df[scope_id_col].dropna().astype(str).tolist()
+                if _pm_clean_issue_key(value)
+            }
+
+    df['Asset em Escopo'] = True
+    if scope_asset_ids:
+        df['Asset em Escopo'] = df['AssetID'].isin(scope_asset_ids)
+    df['Asset Mapeado'] = df['AssetID'].astype(str).str.strip().ne('')
+
+    scoped_df = df[df['Asset em Escopo']].copy() if scope_asset_ids else df.copy()
+    return {
+        'available': not scoped_df.empty,
+        'error': '' if not scoped_df.empty else 'Sem worklogs CAPEX compatíveis com o escopo/filtros atuais.',
+        'df': df,
+        'scoped_df': scoped_df,
+        'snapshot': snapshot or {},
+        'cost_model': cost_model,
+    }
+
+
+def _build_worklog_portfolio_cost_view_legacy(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
+    fact_payload = build_worklog_cost_fact(
+        start_ts,
+        end_ts,
+        portfolio_scope_df=portfolio_scope_df,
+        project_value=project_value,
+        responsavel=responsavel,
+    )
+    fact_df = fact_payload.get('df', pd.DataFrame()).copy()
+    scoped_df = fact_payload.get('scoped_df', pd.DataFrame()).copy()
+    if fact_df.empty or scoped_df.empty:
+        return {
+            'available': False,
+            'error': fact_payload.get('error', 'Sem worklogs monetizáveis para o escopo atual.'),
+            'worklog_fact_df': fact_df,
+            'scoped_worklog_df': scoped_df,
+            'product_summary': pd.DataFrame(),
+            'top_assets': pd.DataFrame(),
+            'overall': {
+                'hours': 0.0,
+                'cost': 0.0,
+                'mapped_pct': np.nan,
+                'person_rate_pct': np.nan,
+                'items': 0,
+                'assets_mapped': 0,
+                'cost_model_available': bool((fact_payload.get('cost_model') or {}).get('available')),
+            },
+            'snapshot': fact_payload.get('snapshot', {}),
+            'cost_model': fact_payload.get('cost_model', {}),
+        }
+
+    scoped_df['Horas'] = pd.to_numeric(scoped_df['Horas'], errors='coerce').fillna(0)
+    scoped_df['Custo Real (R$)'] = pd.to_numeric(scoped_df['Custo Real (R$)'], errors='coerce').fillna(0)
+    scoped_df['Asset Mapeado'] = scoped_df['Asset Mapeado'].fillna(False).astype(bool)
+
+    product_summary = (
+        scoped_df
+        .groupby(['Produto', 'Projeto PM'], dropna=False)
+        .agg(
+            **{
+                'Horas Reais': ('Horas', 'sum'),
+                'Custo Real (R$)': ('Custo Real (R$)', 'sum'),
+                'Apontamentos': ('Worklog ID', 'nunique'),
+                'Issues': ('Issue Key', 'nunique'),
+                'Ativos Mapeados': ('AssetID', lambda values: pd.Series(values).astype(str).str.strip().replace('', np.nan).dropna().nunique()),
+            }
+        )
+        .reset_index()
+    )
+    if not product_summary.empty:
+        person_cost = (
+            scoped_df[scoped_df['Fonte Taxa'] == 'Pessoa']
+            .groupby(['Produto', 'Projeto PM'], dropna=False)['Custo Real (R$)']
+            .sum()
+            .reset_index(name='Custo com Taxa Pessoa (R$)')
+        )
+        mapped_cost = (
+            scoped_df[scoped_df['Asset Mapeado']]
+            .groupby(['Produto', 'Projeto PM'], dropna=False)['Custo Real (R$)']
+            .sum()
+            .reset_index(name='Custo Mapeado (R$)')
+        )
+        product_summary = product_summary.merge(person_cost, how='left', on=['Produto', 'Projeto PM'])
+        product_summary = product_summary.merge(mapped_cost, how='left', on=['Produto', 'Projeto PM'])
+        product_summary['Custo com Taxa Pessoa (R$)'] = pd.to_numeric(product_summary['Custo com Taxa Pessoa (R$)'], errors='coerce').fillna(0)
+        product_summary['Custo Mapeado (R$)'] = pd.to_numeric(product_summary['Custo Mapeado (R$)'], errors='coerce').fillna(0)
+        product_summary['% Custo com Taxa Pessoa'] = np.where(
+            product_summary['Custo Real (R$)'] > 0,
+            product_summary['Custo com Taxa Pessoa (R$)'] / product_summary['Custo Real (R$)'],
+            np.nan,
+        )
+        product_summary['% Custo Mapeado'] = np.where(
+            product_summary['Custo Real (R$)'] > 0,
+            product_summary['Custo Mapeado (R$)'] / product_summary['Custo Real (R$)'],
+            np.nan,
+        )
+        product_summary = product_summary.sort_values(['Custo Real (R$)', 'Horas Reais'], ascending=[False, False], ignore_index=True)
+
+    top_assets = pd.DataFrame(columns=[
+        'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Horas Reais',
+        'Custo Real (R$)', 'Issues', 'Apontamentos', '% Custo com Taxa Pessoa'
+    ])
+    mapped_assets_df = scoped_df[scoped_df['Asset Mapeado']].copy()
+    if not mapped_assets_df.empty:
+        top_assets = (
+            mapped_assets_df
+            .groupby(['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo'], dropna=False)
+            .agg(
+                **{
+                    'Horas Reais': ('Horas', 'sum'),
+                    'Custo Real (R$)': ('Custo Real (R$)', 'sum'),
+                    'Issues': ('Issue Key', 'nunique'),
+                    'Apontamentos': ('Worklog ID', 'nunique'),
+                }
+            )
+            .reset_index()
+        )
+        person_cost_assets = (
+            mapped_assets_df[mapped_assets_df['Fonte Taxa'] == 'Pessoa']
+            .groupby(['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo'], dropna=False)['Custo Real (R$)']
+            .sum()
+            .reset_index(name='Custo com Taxa Pessoa (R$)')
+        )
+        top_assets = top_assets.merge(
+            person_cost_assets,
+            how='left',
+            on=['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo'],
+        )
+        top_assets['Custo com Taxa Pessoa (R$)'] = pd.to_numeric(top_assets['Custo com Taxa Pessoa (R$)'], errors='coerce').fillna(0)
+        top_assets['% Custo com Taxa Pessoa'] = np.where(
+            top_assets['Custo Real (R$)'] > 0,
+            top_assets['Custo com Taxa Pessoa (R$)'] / top_assets['Custo Real (R$)'],
+            np.nan,
+        )
+        top_assets = top_assets.sort_values(['Custo Real (R$)', 'Horas Reais'], ascending=[False, False], ignore_index=True)
+
+    total_cost = float(scoped_df['Custo Real (R$)'].sum())
+    mapped_cost = float(scoped_df.loc[scoped_df['Asset Mapeado'], 'Custo Real (R$)'].sum())
+    person_rate_cost = float(scoped_df.loc[scoped_df['Fonte Taxa'] == 'Pessoa', 'Custo Real (R$)'].sum())
+    out_of_scope_cost = float(fact_df.loc[~fact_df['Asset em Escopo'], 'Custo Real (R$)'].sum()) if 'Asset em Escopo' in fact_df.columns else 0.0
+
+    return {
+        'available': True,
+        'worklog_fact_df': fact_df,
+        'scoped_worklog_df': scoped_df,
+        'product_summary': product_summary,
+        'top_assets': top_assets,
+        'overall': {
+            'hours': float(scoped_df['Horas'].sum()),
+            'cost': total_cost,
+            'mapped_cost': mapped_cost,
+            'mapped_pct': (mapped_cost / total_cost) if total_cost > 0 else np.nan,
+            'person_rate_pct': (person_rate_cost / total_cost) if total_cost > 0 else np.nan,
+            'items': int(scoped_df['Issue Key'].nunique()),
+            'assets_mapped': int(scoped_df.loc[scoped_df['Asset Mapeado'], 'AssetID'].nunique()),
+            'out_of_scope_cost': out_of_scope_cost,
+            'cost_model_available': bool((fact_payload.get('cost_model') or {}).get('available')),
+            'updated_at': str((fact_payload.get('snapshot') or {}).get('updated_at') or ''),
+        },
+        'snapshot': fact_payload.get('snapshot', {}),
+        'cost_model': fact_payload.get('cost_model', {}),
+    }
+
 def get_portfolio_project_filter_options():
     options = [{'label': PROJECT_FILTER_ALL_LABEL, 'value': PROJECT_FILTER_ALL_VALUE}]
     teams = set()
@@ -4813,6 +5544,163 @@ def get_portfolio_project_filter_options():
     for team in sorted(teams):
         options.append({'label': team, 'value': team})
     return options
+
+
+def _capex_kind_spec(kind: str) -> dict:
+    normalized = str(kind or '').strip().lower()
+    if normalized == 'summary':
+        return {
+            'kind': 'summary',
+            'env_file': 'FLOW_PMO_CAPEX_SUMMARY_FILE',
+            'env_url': 'FLOW_PMO_CAPEX_SUMMARY_URL',
+            'preferred_latest_names': {'capex-summary-latest.csv', 'capex-mensal-latest.csv'},
+            'suffixes': ('-mensal.csv', '-summary.csv'),
+            'required_cols': {'MesCompetencia', 'ID do Projeto', 'Colaborador', 'Horas', 'Projeto Jira'},
+        }
+    return {
+        'kind': 'raw',
+        'env_file': 'FLOW_PMO_CAPEX_RAW_FILE',
+        'env_url': 'FLOW_PMO_CAPEX_RAW_URL',
+        'preferred_latest_names': {'capex-raw-latest.csv'},
+        'suffixes': ('-raw.csv',),
+        'required_cols': {
+            'MesCompetencia', 'ID do Projeto', 'Descrição do Ativo', 'Colaborador',
+            'Data do Apontamento das Horas', 'Horas', 'Issue Key', 'Projeto Jira',
+        },
+    }
+
+
+def _capex_find_latest_csv_v2_unused(kind: str = 'raw'):
+    spec = _capex_kind_spec(kind)
+    explicit_file = _sanitize_os_path(os.getenv(spec['env_file'], ''))
+    if explicit_file:
+        candidate = explicit_file if os.path.isabs(explicit_file) else os.path.join(os.path.dirname(__file__), explicit_file)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise RuntimeError(f"{spec['env_file']} aponta para arquivo inexistente: {candidate}")
+
+    csv_url = os.getenv(spec['env_url'], '').strip()
+    if csv_url:
+        return _download_capex_csv_from_url(csv_url, spec['kind'])
+
+    candidates = []
+    preferred = {name.lower() for name in spec['preferred_latest_names']}
+    for folder in _iter_local_data_folders():
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low_name = str(name).lower()
+            if not low_name.startswith('capex-'):
+                continue
+            if low_name in preferred or any(low_name.endswith(suffix) for suffix in spec['suffixes']):
+                candidates.append(os.path.join(folder, name))
+
+    candidates = [path for path in candidates if os.path.isfile(path)]
+    if not candidates:
+        return None
+
+    preferred_matches = [path for path in candidates if os.path.basename(path).lower() in preferred]
+    if preferred_matches:
+        return max(preferred_matches, key=os.path.getctime)
+    return max(candidates, key=os.path.getctime)
+
+
+def _prepare_capex_snapshot_df(df: pd.DataFrame, kind: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    if kind == 'raw':
+        optional_defaults = {
+            'Tipo do Ativo': '',
+            'Atividade Desenvolvida': '',
+            'Atividade Desenvolvida Normalizada': '',
+            'Origem Horas': '',
+            'Fonte Atividade': '',
+            'Regra Atividade': '',
+            'ConfidenceScore': np.nan,
+            'Issue Summary': '',
+            'Issue Type': '',
+            'Status Atual': '',
+            'Epic ID': '',
+            'Epic Title': '',
+            'Feature ID': '',
+            'Feature Title': '',
+            'Parent ID': '',
+            'Parent Title': '',
+            'Hierarchy Source': '',
+        }
+        for col, default in optional_defaults.items():
+            if col not in out.columns:
+                out[col] = default
+        out['Data do Apontamento das Horas'] = pd.to_datetime(out['Data do Apontamento das Horas'], errors='coerce')
+        out['Horas'] = pd.to_numeric(out['Horas'], errors='coerce').fillna(0.0)
+        out['ConfidenceScore'] = pd.to_numeric(out.get('ConfidenceScore'), errors='coerce')
+        out['Issue Key'] = out['Issue Key'].apply(_pm_clean_issue_key)
+        out['Projeto Jira'] = out['Projeto Jira'].fillna('').astype(str).str.strip()
+        out['MesCompetencia'] = out['MesCompetencia'].fillna('').astype(str).str.strip()
+    else:
+        if 'Horas' in out.columns:
+            out['Horas'] = pd.to_numeric(out['Horas'], errors='coerce').fillna(0.0)
+        out['Projeto Jira'] = out.get('Projeto Jira', '').fillna('').astype(str).str.strip() if 'Projeto Jira' in out.columns else ''
+        out['MesCompetencia'] = out['MesCompetencia'].fillna('').astype(str).str.strip()
+    return out
+
+
+def _get_capex_snapshot_v2_unused(kind: str = 'raw'):
+    spec = _capex_kind_spec(kind)
+    cache_entry = CAPEX_CACHE.get(spec['kind'], {})
+    now = datetime.now()
+    cached_at = cache_entry.get('fetched_at')
+
+    if cached_at and (now - cached_at) <= CAPEX_CACHE_TTL and cache_entry.get('df') is not None:
+        try:
+            latest_csv = find_latest_capex_csv(spec['kind'])
+            if latest_csv:
+                latest_abs = os.path.abspath(latest_csv)
+                cached_abs = os.path.abspath(str(cache_entry.get('source_file') or ''))
+                latest_mtime = os.path.getmtime(latest_csv)
+                cached_mtime = cache_entry.get('source_mtime')
+                if latest_abs == cached_abs and cached_mtime is not None and float(latest_mtime) == float(cached_mtime):
+                    return cache_entry.get('df'), cache_entry.get('error')
+            else:
+                return cache_entry.get('df'), cache_entry.get('error')
+        except Exception:
+            return cache_entry.get('df'), cache_entry.get('error')
+
+    try:
+        csv_file = find_latest_capex_csv(spec['kind'])
+        if not csv_file:
+            raise RuntimeError(
+                f"CSV CAPEX ({spec['kind']}) não encontrado. Configure {spec['env_file']} ou {spec['env_url']}, "
+                f"ou publique um alias estável em uma destas pastas: {', '.join(DATA_FOLDERS or [DATA_FOLDER])}."
+            )
+        df = pd.read_csv(csv_file)
+        missing = [col for col in spec['required_cols'] if col not in df.columns]
+        if missing:
+            raise RuntimeError(
+                f"CSV CAPEX inválido ({os.path.basename(csv_file)}). Colunas ausentes: {', '.join(missing)}"
+            )
+        df = _prepare_capex_snapshot_df(df, spec['kind'])
+        CAPEX_CACHE[spec['kind']] = {
+            'fetched_at': now,
+            'df': df,
+            'error': None,
+            'source_file': csv_file,
+            'source_mtime': os.path.getmtime(csv_file),
+        }
+        return df, None
+    except Exception as exc:
+        CAPEX_CACHE[spec['kind']] = {
+            'fetched_at': now,
+            'df': pd.DataFrame(),
+            'error': str(exc),
+            'source_file': None,
+            'source_mtime': None,
+        }
+        return pd.DataFrame(), str(exc)
 
 
 def portfolio_table_component(df, title, table_id):
@@ -7613,6 +8501,12 @@ def build_portfolio_cost_model_snapshot(portfolio_scope_df: pd.DataFrame, start_
     fator_produtividade = max(0.01, float(model.get('fator_produtividade', 0.75) or 0.75))
 
     team_cost_df['Horas Produtivas Mensais'] = dias_uteis * horas_dia * fator_produtividade
+    team_cost_df['Custo Hora Pessoa (R$)'] = np.where(
+        pd.to_numeric(team_cost_df['Horas Produtivas Mensais'], errors='coerce').fillna(0) > 0,
+        pd.to_numeric(team_cost_df['Custo Mensal Pessoa (R$)'], errors='coerce').fillna(0)
+        / pd.to_numeric(team_cost_df['Horas Produtivas Mensais'], errors='coerce').fillna(1),
+        0.0,
+    )
 
     custo_equipe_mensal = float(pd.to_numeric(team_cost_df['Custo Mensal Pessoa (R$)'], errors='coerce').fillna(0).sum())
     custo_total_ti_mensal = custo_equipe_mensal + float(model.get('custo_ferramentas_infra_mensal', 0) or 0)
@@ -7668,6 +8562,7 @@ def build_portfolio_cost_model_snapshot(portfolio_scope_df: pd.DataFrame, start_
         'available': True,
         'model': model,
         'team_df': team_cost_df,
+        'person_rates_df': team_cost_df[['Pessoa', 'BU', 'Papel', 'Custo Hora Pessoa (R$)']].copy(),
         'product_rates_df': pd.DataFrame(product_rate_rows),
         'kpis': {
             'Budget TI Mensal': budget_ti_mensal,
@@ -7808,6 +8703,210 @@ def _pm_load_cost_rate_map() -> dict:
     return out
 
 
+def build_capex_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
+    empty_df = pd.DataFrame(columns=[
+        'MesCompetencia', 'Projeto PM', 'Produto', 'Issue Key', 'AssetID', 'Descrição do Ativo',
+        'Tipo do Ativo', 'Colaborador', 'Colaborador Canonico', 'Data do Apontamento das Horas',
+        'Horas', 'Atividade Desenvolvida', 'ConfidenceScore', 'Origem Horas', 'RateSource',
+        'Custo Hora Aplicado (R$)', 'Custo Real Apontado (R$)', 'AtivoMapeado',
+    ])
+    snapshot, raw_df, _summary_df, error = get_capex_snapshot()
+    if error:
+        return {'available': False, 'error': error, 'df': empty_df, 'product_summary': pd.DataFrame(), 'asset_summary': pd.DataFrame(), 'overall': {}}
+    if raw_df is None or raw_df.empty:
+        return {'available': False, 'error': 'Artefato CAPEX raw não encontrado.', 'df': empty_df, 'product_summary': pd.DataFrame(), 'asset_summary': pd.DataFrame(), 'overall': {}}
+
+    df = raw_df.copy()
+    df['Data do Apontamento das Horas'] = pd.to_datetime(df.get('Data do Apontamento das Horas'), errors='coerce')
+    df['Horas'] = pd.to_numeric(df.get('Horas'), errors='coerce').fillna(0.0)
+    df['Issue Key'] = df.get('Issue Key', '').apply(_pm_clean_issue_key)
+    df['Projeto PM'] = df.get('Projeto Jira', '').apply(_canonical_pm_product_key)
+    missing_project_mask = df['Projeto PM'].astype(str).str.strip().eq('')
+    if missing_project_mask.any():
+        df.loc[missing_project_mask, 'Projeto PM'] = df.loc[missing_project_mask, 'Issue Key'].apply(_infer_project_key_from_issue)
+    df['Produto'] = df['Projeto PM'].apply(_pm_product_label)
+    df['AssetID'] = df.get('ID do Projeto', '').apply(_pm_clean_issue_key)
+    df['Descrição do Ativo'] = df.get('Descrição do Ativo', '').fillna('').astype(str).str.strip()
+    df['Tipo do Ativo'] = df.get('Tipo do Ativo', '').fillna('').astype(str).str.strip()
+    df['ConfidenceScore'] = pd.to_numeric(df.get('ConfidenceScore'), errors='coerce')
+    df['Origem Horas'] = df.get('Origem Horas', '').fillna('').astype(str).str.strip()
+
+    alias_index = _load_person_alias_index()
+    df['Colaborador'] = df.get('Colaborador', '').fillna('').astype(str).str.strip()
+    df['Colaborador Canonico'] = df['Colaborador'].apply(lambda value: _canonical_person_name(value, alias_index=alias_index))
+
+    start_bound = pd.to_datetime(start_ts)
+    end_bound = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
+    df = df[
+        df['Data do Apontamento das Horas'].notna()
+        & (df['Data do Apontamento das Horas'] >= start_bound)
+        & (df['Data do Apontamento das Horas'] < end_bound)
+        & (df['Horas'] > 0)
+    ].copy()
+
+    if project_value:
+        selected_project = _canonical_pm_product_key(project_value)
+        if selected_project:
+            df = df[df['Projeto PM'] == selected_project].copy()
+
+    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
+    if target_person:
+        df = df[df['Colaborador Canonico'] == target_person].copy()
+
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Sem worklogs CAPEX no período/filtros atuais.',
+            'df': empty_df,
+            'product_summary': pd.DataFrame(),
+            'asset_summary': pd.DataFrame(),
+            'overall': {'worklogs': 0, 'hours': 0.0, 'cost': 0.0, 'mapped_cost': 0.0, 'mapped_pct_cost': np.nan},
+            'snapshot': snapshot or {},
+        }
+
+    portfolio_lookup = _pm_build_portfolio_lookup(portfolio_scope_df)
+    asset_frames = []
+    for project_key in sorted(set(df['Projeto PM'].dropna().astype(str).str.strip())):
+        if not project_key:
+            continue
+        asset_map = _pm_build_downstream_asset_map(project_key, portfolio_lookup)
+        if asset_map.empty:
+            continue
+        asset_map = asset_map.rename(columns={
+            'AssetID': 'AssetID Fallback',
+            'Descrição do Ativo': 'Descrição do Ativo Fallback',
+            'Tipo do Ativo': 'Tipo do Ativo Fallback',
+        })
+        asset_map['Projeto PM'] = project_key
+        asset_frames.append(asset_map[['Projeto PM', 'Issue Key', 'AssetID Fallback', 'Descrição do Ativo Fallback', 'Tipo do Ativo Fallback']])
+
+    if asset_frames:
+        asset_lookup_df = pd.concat(asset_frames, ignore_index=True)
+        df = df.merge(asset_lookup_df, how='left', on=['Projeto PM', 'Issue Key'])
+        raw_asset_id = df['AssetID'].fillna('').astype(str).str.strip()
+        raw_asset_desc = df['Descrição do Ativo'].fillna('').astype(str).str.strip()
+        raw_asset_type = df['Tipo do Ativo'].fillna('').astype(str).str.strip()
+        fallback_asset_id = df['AssetID Fallback'].fillna('').astype(str).str.strip()
+        fallback_asset_desc = df['Descrição do Ativo Fallback'].fillna('').astype(str).str.strip()
+        fallback_asset_type = df['Tipo do Ativo Fallback'].fillna('').astype(str).str.strip()
+        df['AssetID'] = np.where(raw_asset_id.ne(''), raw_asset_id, fallback_asset_id)
+        df['Descrição do Ativo'] = np.where(raw_asset_desc.ne(''), raw_asset_desc, fallback_asset_desc)
+        df['Tipo do Ativo'] = np.where(raw_asset_type.ne(''), raw_asset_type, fallback_asset_type)
+        df = df.drop(columns=['AssetID Fallback', 'Descrição do Ativo Fallback', 'Tipo do Ativo Fallback'], errors='ignore')
+
+    df['AtivoMapeado'] = df['AssetID'].astype(str).str.strip().ne('')
+
+    cost_snapshot = build_portfolio_cost_model_snapshot(portfolio_scope_df if portfolio_scope_df is not None else pd.DataFrame(), start_ts, end_ts)
+    team_df = cost_snapshot.get('team_df', pd.DataFrame()).copy() if isinstance(cost_snapshot, dict) else pd.DataFrame()
+    person_rate_map = {}
+    if team_df is not None and not team_df.empty:
+        for row in team_df.to_dict(orient='records'):
+            person_key = str(row.get('Pessoa', '') or '').strip()
+            if not person_key:
+                continue
+            try:
+                rate_value = float(row.get('Custo Hora Pessoa (R$)', 0) or 0)
+            except Exception:
+                continue
+            if rate_value > 0:
+                person_rate_map[person_key] = rate_value
+
+    product_rate_map = _pm_load_cost_rate_map()
+    global_rate = 0.0
+    if isinstance(cost_snapshot, dict):
+        global_rate = float(((cost_snapshot.get('kpis', {}) or {}).get('Custo Hora Carregado', 0) or 0))
+
+    def _resolve_rate(row):
+        person = str(row.get('Colaborador Canonico', '') or '').strip()
+        project_key = str(row.get('Projeto PM', '') or '').strip()
+        person_rate = float(person_rate_map.get(person, 0) or 0)
+        if person_rate > 0:
+            return pd.Series([person_rate, 'Pessoa'])
+        product_rate = float(product_rate_map.get(project_key, 0) or 0)
+        if product_rate > 0:
+            return pd.Series([product_rate, 'Produto'])
+        if global_rate > 0:
+            return pd.Series([global_rate, 'Global'])
+        return pd.Series([0.0, 'SemTaxa'])
+
+    df[['Custo Hora Aplicado (R$)', 'RateSource']] = df.apply(_resolve_rate, axis=1)
+    df['Custo Real Apontado (R$)'] = df['Horas'] * pd.to_numeric(df['Custo Hora Aplicado (R$)'], errors='coerce').fillna(0.0)
+
+    keep_cols = [
+        'MesCompetencia', 'Projeto PM', 'Produto', 'Issue Key', 'AssetID', 'Descrição do Ativo',
+        'Tipo do Ativo', 'Colaborador', 'Colaborador Canonico', 'Data do Apontamento das Horas',
+        'Horas', 'Atividade Desenvolvida', 'ConfidenceScore', 'Origem Horas', 'RateSource',
+        'Custo Hora Aplicado (R$)', 'Custo Real Apontado (R$)', 'AtivoMapeado',
+    ]
+    for col in keep_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+    fact_df = df[keep_cols].copy()
+
+    product_summary = (
+        fact_df.groupby(['Produto', 'Projeto PM'], dropna=False)
+        .agg(
+            **{
+                'Horas Reais Apontadas': ('Horas', 'sum'),
+                'Custo Real Apontado (R$)': ('Custo Real Apontado (R$)', 'sum'),
+                'Qtd Worklogs': ('Issue Key', 'size'),
+                'Qtd Issues Custo': ('Issue Key', 'nunique'),
+                'Qtd Pessoas Custo': ('Colaborador Canonico', 'nunique'),
+                'Horas Reais Mapeadas': ('AtivoMapeado', lambda x: float(fact_df.loc[x.index, 'Horas'][x].sum()) if len(x) else 0.0),
+                'Custo Real Mapeado (R$)': ('AtivoMapeado', lambda x: float(fact_df.loc[x.index, 'Custo Real Apontado (R$)'][x].sum()) if len(x) else 0.0),
+            }
+        )
+        .reset_index()
+    )
+    if not product_summary.empty:
+        product_summary['% Custo Real Mapeado'] = np.where(
+            pd.to_numeric(product_summary['Custo Real Apontado (R$)'], errors='coerce').fillna(0) > 0,
+            pd.to_numeric(product_summary['Custo Real Mapeado (R$)'], errors='coerce').fillna(0)
+            / pd.to_numeric(product_summary['Custo Real Apontado (R$)'], errors='coerce').fillna(0),
+            np.nan,
+        )
+
+    asset_summary = pd.DataFrame(columns=[
+        'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo',
+        'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Worklogs', 'Issues'
+    ])
+    mapped_df = fact_df[fact_df['AtivoMapeado']].copy()
+    if not mapped_df.empty:
+        asset_summary = (
+            mapped_df.groupby(['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo'], dropna=False)
+            .agg(
+                **{
+                    'Horas Reais Apontadas': ('Horas', 'sum'),
+                    'Custo Real Apontado (R$)': ('Custo Real Apontado (R$)', 'sum'),
+                    'Worklogs': ('Issue Key', 'size'),
+                    'Issues': ('Issue Key', 'nunique'),
+                }
+            )
+            .reset_index()
+            .sort_values(['Custo Real Apontado (R$)', 'Horas Reais Apontadas'], ascending=[False, False], ignore_index=True)
+        )
+
+    total_cost = float(pd.to_numeric(fact_df['Custo Real Apontado (R$)'], errors='coerce').fillna(0).sum())
+    mapped_cost = float(pd.to_numeric(mapped_df.get('Custo Real Apontado (R$)'), errors='coerce').fillna(0).sum()) if not mapped_df.empty else 0.0
+    return {
+        'available': True,
+        'df': fact_df,
+        'product_summary': product_summary,
+        'asset_summary': asset_summary,
+        'snapshot': snapshot or {},
+        'overall': {
+            'worklogs': int(len(fact_df)),
+            'hours': float(pd.to_numeric(fact_df['Horas'], errors='coerce').fillna(0).sum()),
+            'cost': total_cost,
+            'mapped_cost': mapped_cost,
+            'mapped_pct_cost': (mapped_cost / total_cost) if total_cost > 0 else np.nan,
+            'mapped_assets': int(mapped_df['AssetID'].nunique()) if not mapped_df.empty else 0,
+            'people_with_cost': int(fact_df.loc[fact_df['Colaborador Canonico'].astype(str).str.strip().ne(''), 'Colaborador Canonico'].nunique()),
+            'rate_configured': bool(person_rate_map or product_rate_map or global_rate > 0),
+        },
+    }
+
+
 def build_throughput_avg_cost_series(tp_done: pd.DataFrame, scope_df: pd.DataFrame, start_ts, end_ts, use_creation_date=False) -> dict:
     series_columns = [
         'Semana',
@@ -7890,6 +8989,81 @@ def build_throughput_avg_cost_series(tp_done: pd.DataFrame, scope_df: pd.DataFra
             'scope_label': scope_label,
             'scope_source': scope_source,
         }
+
+    issue_key_col = None
+    for candidate in ['Issue Key', 'ID', 'ItemID']:
+        if candidate in cost_df.columns:
+            issue_key_col = candidate
+            break
+    if issue_key_col:
+        worklog_payload = build_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df=pd.DataFrame())
+        worklog_df = worklog_payload.get('df', pd.DataFrame()).copy()
+        if not worklog_df.empty:
+            if canonical_projects:
+                worklog_df = worklog_df[worklog_df['Projeto PM'].isin(canonical_projects)].copy()
+            issue_cost_df = (
+                worklog_df.groupby('Issue Key', dropna=False)
+                .agg(
+                    **{
+                        'Custo Real Item (R$)': ('Custo Real (R$)', 'sum'),
+                        'Horas Reais Item': ('Horas', 'sum'),
+                    }
+                )
+                .reset_index()
+            )
+            if not issue_cost_df.empty:
+                cost_df['_IssueKeyForCost'] = cost_df[issue_key_col].apply(_pm_clean_issue_key)
+                real_cost_df = cost_df.merge(
+                    issue_cost_df,
+                    how='left',
+                    left_on='_IssueKeyForCost',
+                    right_on='Issue Key',
+                )
+                real_cost_df['Custo Real Item (R$)'] = pd.to_numeric(real_cost_df['Custo Real Item (R$)'], errors='coerce').fillna(0)
+                real_cost_df['Horas Reais Item'] = pd.to_numeric(real_cost_df['Horas Reais Item'], errors='coerce').fillna(0)
+                covered_real_cost_df = real_cost_df[real_cost_df['Custo Real Item (R$)'] > 0].copy()
+                if not covered_real_cost_df.empty:
+                    covered_real_cost_df['Semana'] = weekly_bucket_start(covered_real_cost_df['_FilterDate'])
+                    series_df = (
+                        covered_real_cost_df.groupby('Semana', dropna=False)
+                        .agg(
+                            **{
+                                'Throughput': ('_IssueKeyForCost', 'nunique'),
+                                'DiasUteisRateados': ('_FilterDate', lambda values: int(len(pd.bdate_range(pd.Series(values).min().normalize(), pd.Series(values).max().normalize()))) if len(values) else 0),
+                                'CustoCapacidadeBucket (R$)': ('Custo Real Item (R$)', 'sum'),
+                                'HorasProdutivasBucket': ('Horas Reais Item', 'sum'),
+                            }
+                        )
+                        .reset_index()
+                        .sort_values('Semana')
+                        .reset_index(drop=True)
+                    )
+                    series_df['Custo Medio Demanda (R$)'] = np.where(
+                        series_df['Throughput'] > 0,
+                        series_df['CustoCapacidadeBucket (R$)'] / series_df['Throughput'],
+                        np.nan,
+                    )
+                    series_df['Media Movel Custo Medio (R$)'] = (
+                        pd.to_numeric(series_df['Custo Medio Demanda (R$)'], errors='coerce')
+                        .rolling(5, min_periods=1)
+                        .mean()
+                    )
+                    avg_cost_series = pd.to_numeric(series_df['Custo Medio Demanda (R$)'], errors='coerce').dropna()
+                    avg_cost_mean = float(avg_cost_series.mean()) if not avg_cost_series.empty else np.nan
+                    avg_cost_p85 = float(exact_empirical_percentile(avg_cost_series, 0.85)) if not avg_cost_series.empty else np.nan
+                    return {
+                        'available': True,
+                        'series_df': series_df,
+                        'avg_cost_mean': avg_cost_mean,
+                        'avg_cost_p85': avg_cost_p85,
+                        'cost_hour': custo_hora_escopo,
+                        'monthly_cost': custo_mensal_escopo,
+                        'monthly_capacity_hours': capacidade_mensal_escopo,
+                        'dias_uteis_mes': dias_uteis_mes,
+                        'scope_label': scope_label,
+                        'scope_source': 'worklog_real_por_issue',
+                        'product_rates_df': scoped_rates_df if scoped_rates_df is not None else pd.DataFrame(),
+                    }
 
     cost_df['Semana'] = weekly_bucket_start(cost_df['_FilterDate'])
     series_df = (
@@ -8095,6 +9269,304 @@ def _pm_build_downstream_asset_map(project_key: str, portfolio_lookup: dict) -> 
     return pd.DataFrame(rows).drop_duplicates(subset=['Issue Key'], keep='first')
 
 
+def _infer_project_key_from_issue(issue_key: str) -> str:
+    cleaned = _pm_clean_issue_key(issue_key)
+    if not cleaned or '-' not in cleaned:
+        return ''
+    return _canonical_pm_product_key(cleaned.split('-', 1)[0])
+
+
+def _build_worklog_portfolio_cost_view_v2_unused(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
+    empty_product_summary = pd.DataFrame(columns=[
+        'Produto', 'Projeto PM', 'Horas Reais Worklog', 'Horas Reais Mapeadas', '% Horas Reais Mapeadas',
+        'Custo Real Apontado (R$)', 'Custo Real Mapeado (R$)', 'Issues com Worklog', 'Ativos com Worklog',
+        '% Horas com Taxa Pessoa', '% Horas com Taxa Aplicada',
+    ])
+    empty_top_assets = pd.DataFrame(columns=[
+        'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
+        'Horas Reais Worklog', 'Issues', 'Custo Real Apontado (R$)',
+    ])
+    empty_fact = pd.DataFrame(columns=[
+        'Projeto PM', 'Produto', 'Pessoa', 'Issue Key', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo',
+        'Fonte Vínculo', 'Data do Apontamento das Horas', 'Horas', 'Custo Hora Aplicado (R$)',
+        'Custo Real Apontado (R$)', 'Fonte Taxa', 'ConfidenceScore',
+    ])
+
+    capex_df, capex_error = get_capex_snapshot('raw')
+    if capex_error and (capex_df is None or capex_df.empty):
+        return {
+            'available': False,
+            'error': capex_error,
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    cost_model = build_portfolio_cost_model_snapshot(portfolio_scope_df, start_ts, end_ts)
+    if not cost_model.get('available'):
+        return {
+            'available': False,
+            'error': cost_model.get('error', 'Modelo de custo não disponível.'),
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    df = capex_df.copy()
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Base CAPEX de worklog vazia no período disponível.',
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    start_ts = pd.to_datetime(start_ts)
+    end_ts = pd.to_datetime(end_ts)
+    period_end_exclusive = end_ts + pd.Timedelta(days=1)
+    alias_index = _load_person_alias_index()
+    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
+    selected_project = _canonical_pm_product_key(project_value)
+
+    df['Data do Apontamento das Horas'] = pd.to_datetime(df['Data do Apontamento das Horas'], errors='coerce')
+    df = df[
+        df['Data do Apontamento das Horas'].notna()
+        & (df['Data do Apontamento das Horas'] >= start_ts)
+        & (df['Data do Apontamento das Horas'] < period_end_exclusive)
+    ].copy()
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Sem worklogs CAPEX no período/filtros atuais.',
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    df['Pessoa'] = df['Colaborador'].apply(lambda value: _canonical_person_name(value, alias_index=alias_index))
+    if target_person:
+        df = df[df['Pessoa'] == target_person].copy()
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Sem worklogs CAPEX após aplicar o filtro de responsável.',
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    df['Issue Key'] = df['Issue Key'].apply(_pm_clean_issue_key)
+    df['Projeto PM'] = df['Projeto Jira'].apply(_canonical_pm_product_key)
+    missing_project = df['Projeto PM'].astype(str).str.strip().eq('')
+    if missing_project.any():
+        df.loc[missing_project, 'Projeto PM'] = df.loc[missing_project, 'Issue Key'].apply(_infer_project_key_from_issue)
+    if selected_project:
+        df = df[df['Projeto PM'] == selected_project].copy()
+    df = df[df['Projeto PM'].astype(str).str.strip().ne('')].copy()
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Sem worklogs CAPEX mapeáveis ao projeto/produto selecionado.',
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    df['Produto'] = df['Projeto PM'].apply(_pm_product_label)
+    df['Horas'] = pd.to_numeric(df['Horas'], errors='coerce').fillna(0.0)
+    df = df[df['Horas'] > 0].copy()
+    if df.empty:
+        return {
+            'available': False,
+            'error': 'Sem horas reais positivas de worklog no período.',
+            'product_summary': empty_product_summary,
+            'top_assets': empty_top_assets,
+            'fact_df': empty_fact,
+            'overall': {},
+        }
+
+    portfolio_lookup = _pm_build_portfolio_lookup(portfolio_scope_df)
+    asset_frames = []
+    for project_key in sorted(set(df['Projeto PM'].dropna().astype(str).str.strip())):
+        asset_map = _pm_build_downstream_asset_map(project_key, portfolio_lookup)
+        if asset_map.empty:
+            continue
+        asset_map = asset_map.rename(columns={
+            'AssetID': 'AssetID Fallback',
+            'Descrição do Ativo': 'Descrição do Ativo Fallback',
+            'Tipo do Ativo': 'Tipo do Ativo Fallback',
+            'Fonte Vínculo': 'Fonte Vínculo Fallback',
+        })
+        asset_map['Projeto PM'] = project_key
+        asset_frames.append(asset_map)
+    if asset_frames:
+        combined_asset_map = pd.concat(asset_frames, ignore_index=True)
+        df = df.merge(combined_asset_map, how='left', on=['Projeto PM', 'Issue Key'])
+    else:
+        df['AssetID Fallback'] = np.nan
+        df['Descrição do Ativo Fallback'] = np.nan
+        df['Tipo do Ativo Fallback'] = np.nan
+        df['Fonte Vínculo Fallback'] = np.nan
+
+    raw_asset_id = df['ID do Projeto'].fillna('').astype(str).str.strip()
+    raw_asset_desc = df['Descrição do Ativo'].fillna('').astype(str).str.strip()
+    raw_asset_type = df['Tipo do Ativo'].fillna('').astype(str).str.strip()
+    merged_asset_id = df['AssetID Fallback'].fillna('').astype(str).str.strip()
+    merged_asset_desc = df['Descrição do Ativo Fallback'].fillna('').astype(str).str.strip()
+    merged_asset_type = df['Tipo do Ativo Fallback'].fillna('').astype(str).str.strip()
+    merged_source = df['Fonte Vínculo Fallback'].fillna('').astype(str).str.strip()
+
+    df['AssetID'] = np.where(raw_asset_id.ne(''), raw_asset_id, merged_asset_id)
+    df['Descrição do Ativo Final'] = np.where(raw_asset_desc.ne(''), raw_asset_desc, merged_asset_desc)
+    df['Tipo do Ativo Final'] = np.where(raw_asset_type.ne(''), raw_asset_type, merged_asset_type)
+    df['Fonte Vínculo Final'] = np.where(raw_asset_id.ne(''), 'WorklogCAPEX', merged_source)
+    df.loc[df['AssetID'].astype(str).str.strip().eq(''), 'AssetID'] = 'NAO_MAPEADO'
+    df.loc[df['Descrição do Ativo Final'].astype(str).str.strip().eq(''), 'Descrição do Ativo Final'] = 'Não mapeado ao portfólio'
+    df.loc[df['Fonte Vínculo Final'].astype(str).str.strip().eq(''), 'Fonte Vínculo Final'] = 'NaoMapeado'
+
+    team_cost_df = cost_model.get('team_df', pd.DataFrame()).copy()
+    if team_cost_df is None or team_cost_df.empty:
+        team_cost_df = pd.DataFrame(columns=['Pessoa', 'Custo Hora Pessoa (R$)'])
+    if 'Custo Hora Pessoa (R$)' not in team_cost_df.columns:
+        team_cost_df['Custo Hora Pessoa (R$)'] = np.nan
+    person_rate_df = (
+        team_cost_df[['Pessoa', 'Custo Hora Pessoa (R$)']]
+        .drop_duplicates(subset=['Pessoa'])
+        .copy()
+    ) if 'Pessoa' in team_cost_df.columns else pd.DataFrame(columns=['Pessoa', 'Custo Hora Pessoa (R$)'])
+    person_rate_df['Pessoa'] = person_rate_df['Pessoa'].fillna('').astype(str).str.strip()
+    person_rate_df['Custo Hora Pessoa (R$)'] = pd.to_numeric(person_rate_df['Custo Hora Pessoa (R$)'], errors='coerce')
+    df = df.merge(person_rate_df, how='left', on='Pessoa')
+
+    product_rates_df = cost_model.get('product_rates_df', pd.DataFrame()).copy()
+    if product_rates_df is None or product_rates_df.empty:
+        product_rates_df = pd.DataFrame(columns=['Projeto PM', 'Custo Hora Produto (R$)'])
+    if 'Projeto PM' not in product_rates_df.columns:
+        product_rates_df['Projeto PM'] = ''
+    if 'Custo Hora Produto (R$)' not in product_rates_df.columns:
+        product_rates_df['Custo Hora Produto (R$)'] = np.nan
+    product_rates_df = product_rates_df[['Projeto PM', 'Custo Hora Produto (R$)']].drop_duplicates(subset=['Projeto PM']).copy()
+    product_rates_df['Projeto PM'] = product_rates_df['Projeto PM'].fillna('').astype(str).str.strip()
+    product_rates_df['Custo Hora Produto (R$)'] = pd.to_numeric(product_rates_df['Custo Hora Produto (R$)'], errors='coerce')
+    df = df.merge(product_rates_df, how='left', on='Projeto PM')
+
+    global_rate = float(cost_model.get('kpis', {}).get('Custo Hora Carregado', 0) or 0)
+    person_rate = pd.to_numeric(df['Custo Hora Pessoa (R$)'], errors='coerce')
+    product_rate = pd.to_numeric(df['Custo Hora Produto (R$)'], errors='coerce')
+    df['Custo Hora Aplicado (R$)'] = person_rate
+    df.loc[df['Custo Hora Aplicado (R$)'].isna(), 'Custo Hora Aplicado (R$)'] = product_rate
+    if global_rate > 0:
+        df['Custo Hora Aplicado (R$)'] = df['Custo Hora Aplicado (R$)'].fillna(global_rate)
+    df['Fonte Taxa'] = np.where(
+        person_rate.notna() & (person_rate > 0),
+        'Pessoa',
+        np.where(
+            product_rate.notna() & (product_rate > 0),
+            'Produto',
+            'Global' if global_rate > 0 else 'Indisponivel'
+        )
+    )
+    df['Custo Real Apontado (R$)'] = df['Horas'] * pd.to_numeric(df['Custo Hora Aplicado (R$)'], errors='coerce').fillna(0.0)
+
+    mapped_mask = df['AssetID'].astype(str).str.strip().ne('NAO_MAPEADO')
+    person_rate_mask = df['Fonte Taxa'].astype(str).eq('Pessoa')
+    applied_rate_mask = df['Fonte Taxa'].astype(str).ne('Indisponivel')
+
+    fact_df = pd.DataFrame({
+        'Projeto PM': df['Projeto PM'],
+        'Produto': df['Produto'],
+        'Pessoa': df['Pessoa'],
+        'Issue Key': df['Issue Key'],
+        'AssetID': df['AssetID'],
+        'Descrição do Ativo': df['Descrição do Ativo Final'],
+        'Tipo do Ativo': df['Tipo do Ativo Final'],
+        'Fonte Vínculo': df['Fonte Vínculo Final'],
+        'Data do Apontamento das Horas': df['Data do Apontamento das Horas'],
+        'Horas': df['Horas'],
+        'Atividade Desenvolvida': df.get('Atividade Desenvolvida', ''),
+        'Atividade Desenvolvida Normalizada': df.get('Atividade Desenvolvida Normalizada', ''),
+        'ConfidenceScore': pd.to_numeric(df.get('ConfidenceScore'), errors='coerce'),
+        'Custo Hora Aplicado (R$)': pd.to_numeric(df['Custo Hora Aplicado (R$)'], errors='coerce').fillna(0.0),
+        'Custo Real Apontado (R$)': pd.to_numeric(df['Custo Real Apontado (R$)'], errors='coerce').fillna(0.0),
+        'Fonte Taxa': df['Fonte Taxa'],
+        'Origem Horas': df.get('Origem Horas', ''),
+    }).copy()
+
+    product_summary_rows = []
+    for (produto, projeto_pm), group_df in fact_df.groupby(['Produto', 'Projeto PM'], dropna=False):
+        total_hours = float(pd.to_numeric(group_df['Horas'], errors='coerce').fillna(0).sum())
+        mapped_hours = float(pd.to_numeric(group_df.loc[group_df['AssetID'].astype(str).ne('NAO_MAPEADO'), 'Horas'], errors='coerce').fillna(0).sum())
+        total_cost = float(pd.to_numeric(group_df['Custo Real Apontado (R$)'], errors='coerce').fillna(0).sum())
+        mapped_cost = float(pd.to_numeric(group_df.loc[group_df['AssetID'].astype(str).ne('NAO_MAPEADO'), 'Custo Real Apontado (R$)'], errors='coerce').fillna(0).sum())
+        person_rate_hours = float(pd.to_numeric(group_df.loc[group_df['Fonte Taxa'].astype(str).eq('Pessoa'), 'Horas'], errors='coerce').fillna(0).sum())
+        applied_rate_hours = float(pd.to_numeric(group_df.loc[group_df['Fonte Taxa'].astype(str).ne('Indisponivel'), 'Horas'], errors='coerce').fillna(0).sum())
+        product_summary_rows.append({
+            'Produto': produto,
+            'Projeto PM': projeto_pm,
+            'Horas Reais Worklog': total_hours,
+            'Horas Reais Mapeadas': mapped_hours,
+            '% Horas Reais Mapeadas': (mapped_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+            'Custo Real Apontado (R$)': total_cost,
+            'Custo Real Mapeado (R$)': mapped_cost,
+            'Issues com Worklog': int(group_df.loc[group_df['Issue Key'].astype(str).str.strip().ne(''), 'Issue Key'].nunique()),
+            'Ativos com Worklog': int(group_df.loc[group_df['AssetID'].astype(str).ne('NAO_MAPEADO'), 'AssetID'].nunique()),
+            '% Horas com Taxa Pessoa': (person_rate_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+            '% Horas com Taxa Aplicada': (applied_rate_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+        })
+    product_summary = pd.DataFrame(product_summary_rows)
+    if product_summary.empty:
+        product_summary = empty_product_summary.copy()
+
+    top_assets = pd.DataFrame(columns=empty_top_assets.columns)
+    mapped_events = fact_df[fact_df['AssetID'].astype(str).ne('NAO_MAPEADO')].copy()
+    if not mapped_events.empty:
+        top_assets = (
+            mapped_events
+            .groupby(['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo'], dropna=False)
+            .agg(
+                **{
+                    'Horas Reais Worklog': ('Horas', 'sum'),
+                    'Issues': ('Issue Key', 'nunique'),
+                    'Custo Real Apontado (R$)': ('Custo Real Apontado (R$)', 'sum'),
+                }
+            )
+            .reset_index()
+            .sort_values(['Custo Real Apontado (R$)', 'Horas Reais Worklog'], ascending=[False, False], ignore_index=True)
+        )
+
+    total_hours = float(pd.to_numeric(fact_df['Horas'], errors='coerce').fillna(0).sum())
+    total_cost = float(pd.to_numeric(fact_df['Custo Real Apontado (R$)'], errors='coerce').fillna(0).sum())
+    mapped_hours = float(pd.to_numeric(fact_df.loc[mapped_mask, 'Horas'], errors='coerce').fillna(0).sum())
+    person_rate_hours = float(pd.to_numeric(fact_df.loc[person_rate_mask, 'Horas'], errors='coerce').fillna(0).sum())
+    applied_rate_hours = float(pd.to_numeric(fact_df.loc[applied_rate_mask, 'Horas'], errors='coerce').fillna(0).sum())
+
+    return {
+        'available': True,
+        'error': None,
+        'cost_model': cost_model,
+        'fact_df': fact_df,
+        'product_summary': product_summary,
+        'top_assets': top_assets,
+        'overall': {
+            'hours': total_hours,
+            'cost': total_cost,
+            'mapped_hours': mapped_hours,
+            'mapped_pct': (mapped_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+            'person_rate_pct': (person_rate_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+            'rate_applied_pct': (applied_rate_hours / total_hours * 100.0) if total_hours > 0 else np.nan,
+            'assets_mapped': int(fact_df.loc[mapped_mask, 'AssetID'].nunique()),
+            'products_with_worklogs': int(product_summary['Projeto PM'].nunique()) if not product_summary.empty else 0,
+        },
+    }
+
+
 def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     specs = _pm_portfolio_selected_specs(project_value)
     rate_map = _pm_load_cost_rate_map()
@@ -8102,6 +9574,10 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
     target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
     portfolio_lookup = _pm_build_portfolio_lookup(portfolio_scope_df)
     period_end_exclusive = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
+    capex_cost_data = build_capex_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df, project_value=project_value, responsavel=responsavel)
+    capex_product_summary = capex_cost_data.get('product_summary', pd.DataFrame()).copy() if isinstance(capex_cost_data, dict) else pd.DataFrame()
+    capex_asset_summary = capex_cost_data.get('asset_summary', pd.DataFrame()).copy() if isinstance(capex_cost_data, dict) else pd.DataFrame()
+    capex_overall = capex_cost_data.get('overall', {}) if isinstance(capex_cost_data, dict) else {}
 
     product_summary_rows = []
     event_frames = []
@@ -8189,6 +9665,15 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
             'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Itens com Evidência PM', 'Ativos Mapeados',
             'Taxa Hora PM', 'Custo PM Estimado', 'Custo PM Mapeado',
         ])
+    if capex_product_summary is not None and not capex_product_summary.empty:
+        product_summary = product_summary.merge(
+            capex_product_summary,
+            on=['Produto', 'Projeto PM'],
+            how='outer',
+        )
+        for col in ['Artefato PM']:
+            if col in product_summary.columns:
+                product_summary[col] = product_summary[col].fillna('Indisponível')
 
     events_all = pd.concat(event_frames, ignore_index=True) if event_frames else pd.DataFrame(columns=[
         'Produto', 'Projeto PM', 'Issue Key', 'Horas PM Elegíveis', 'AssetID', 'Descrição do Ativo',
@@ -8215,6 +9700,17 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
                 .reset_index()
                 .sort_values(['Horas PM Elegíveis', 'Issues'], ascending=[False, False], ignore_index=True)
             )
+    if capex_asset_summary is not None and not capex_asset_summary.empty:
+        top_assets = top_assets.merge(
+            capex_asset_summary,
+            on=['Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo'],
+            how='outer',
+        )
+        if 'Fonte Vínculo' in top_assets.columns:
+            top_assets['Fonte Vínculo'] = top_assets['Fonte Vínculo'].fillna('CAPEX')
+        sort_col = 'Custo Real Apontado (R$)' if 'Custo Real Apontado (R$)' in top_assets.columns else 'Custo PM Estimado'
+        secondary_col = 'Horas Reais Apontadas' if 'Horas Reais Apontadas' in top_assets.columns else 'Horas PM Elegíveis'
+        top_assets = top_assets.sort_values([sort_col, secondary_col], ascending=[False, False], ignore_index=True)
 
     overall_hours = float(pd.to_numeric(product_summary.get('Horas PM Elegíveis'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
     overall_mapped = float(pd.to_numeric(product_summary.get('Horas PM Mapeadas'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
@@ -8232,7 +9728,15 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
             'products_with_artifacts': int((product_summary['Artefato PM'] == 'Disponível').sum()) if not product_summary.empty else 0,
             'assets_mapped': int(pd.to_numeric(product_summary.get('Ativos Mapeados'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0,
             'cost_configured': bool(rate_map),
+            'actual_worklogs': int(capex_overall.get('worklogs', 0) or 0),
+            'actual_hours': float(capex_overall.get('hours', 0.0) or 0.0),
+            'actual_cost': float(capex_overall.get('cost', 0.0) or 0.0),
+            'actual_mapped_cost': float(capex_overall.get('mapped_cost', 0.0) or 0.0),
+            'actual_mapped_pct_cost': capex_overall.get('mapped_pct_cost'),
+            'actual_assets_mapped': int(capex_overall.get('mapped_assets', 0) or 0),
+            'actual_cost_configured': bool(capex_overall.get('rate_configured')),
         },
+        'capex_cost_data': capex_cost_data,
     }
 
 
@@ -8255,40 +9759,52 @@ def build_generated_portfolio_financial_view(start_ts, end_ts, portfolio_scope_d
     period_days = max(1, int((pd.to_datetime(end_ts) - pd.to_datetime(start_ts)).days) + 1)
     period_months = max(1.0 / 30.0, float(period_days) / 30.4375)
     annualization_factor = 12.0 / period_months
-    custo_periodo = float(overall.get('cost', 0.0) or 0.0)
-    custo_anualizado = custo_periodo * annualization_factor
+    custo_real_periodo = float(overall.get('actual_cost', 0.0) or 0.0)
+    custo_estimado_pm_periodo = float(overall.get('cost', 0.0) or 0.0)
+    custo_periodo_base = custo_real_periodo if custo_real_periodo > 0 else custo_estimado_pm_periodo
+    custo_anualizado = custo_periodo_base * annualization_factor
     budget_disponivel = budget_ti_anual - custo_anualizado
     budget_pct = (custo_anualizado / budget_ti_anual) if budget_ti_anual > 0 else np.nan
     custo_medio_topdown = (budget_ti_anual / total_assets_portfolio) if total_assets_portfolio > 0 else np.nan
 
     project_costs_df = pd.DataFrame(columns=[
         'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
-        'Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)',
-        '% do Budget TI Anual', 'Issues'
+        'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis',
+        'Custo PM Estimado', 'Custo Base Período (R$)', 'Custo Base Anualizado (R$)',
+        '% do Budget TI Anual', 'Issues', 'Worklogs'
     ])
     if not top_assets.empty:
         project_costs_df = top_assets.copy()
         if 'Custo PM Estimado' not in project_costs_df.columns:
             project_costs_df['Custo PM Estimado'] = np.nan
-        project_costs_df['Custo Estimado Período (R$)'] = pd.to_numeric(project_costs_df['Custo PM Estimado'], errors='coerce').fillna(0)
-        project_costs_df['Custo Estimado Anualizado (R$)'] = project_costs_df['Custo Estimado Período (R$)'] * annualization_factor
+        if 'Custo Real Apontado (R$)' not in project_costs_df.columns:
+            project_costs_df['Custo Real Apontado (R$)'] = np.nan
+        project_costs_df['Custo Base Período (R$)'] = pd.to_numeric(project_costs_df['Custo Real Apontado (R$)'], errors='coerce')
+        missing_base = project_costs_df['Custo Base Período (R$)'].isna() | (project_costs_df['Custo Base Período (R$)'] <= 0)
+        project_costs_df.loc[missing_base, 'Custo Base Período (R$)'] = pd.to_numeric(
+            project_costs_df.loc[missing_base, 'Custo PM Estimado'], errors='coerce'
+        ).fillna(0)
+        project_costs_df['Custo Base Anualizado (R$)'] = project_costs_df['Custo Base Período (R$)'] * annualization_factor
         project_costs_df['% do Budget TI Anual'] = np.where(
             budget_ti_anual > 0,
-            project_costs_df['Custo Estimado Anualizado (R$)'] / budget_ti_anual,
+            project_costs_df['Custo Base Anualizado (R$)'] / budget_ti_anual,
             np.nan,
         )
         keep_cols = [
             'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
-            'Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)',
-            '% do Budget TI Anual', 'Issues'
+            'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis',
+            'Custo PM Estimado', 'Custo Base Período (R$)', 'Custo Base Anualizado (R$)',
+            '% do Budget TI Anual', 'Issues', 'Worklogs'
         ]
-        project_costs_df = project_costs_df[keep_cols].copy()
-        for col in ['Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)', '% do Budget TI Anual']:
-            project_costs_df[col] = pd.to_numeric(project_costs_df[col], errors='coerce')
+        existing_keep_cols = [col for col in keep_cols if col in project_costs_df.columns]
+        project_costs_df = project_costs_df[existing_keep_cols].copy()
+        for col in ['Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis', 'Custo PM Estimado', 'Custo Base Período (R$)', 'Custo Base Anualizado (R$)', '% do Budget TI Anual']:
+            if col in project_costs_df.columns:
+                project_costs_df[col] = pd.to_numeric(project_costs_df[col], errors='coerce')
 
     custo_medio_bottomup = (
-        float(project_costs_df['Custo Estimado Anualizado (R$)'].mean())
-        if not project_costs_df.empty and 'Custo Estimado Anualizado (R$)' in project_costs_df.columns
+        float(project_costs_df['Custo Base Anualizado (R$)'].mean())
+        if not project_costs_df.empty and 'Custo Base Anualizado (R$)' in project_costs_df.columns
         else np.nan
     )
 
@@ -8298,11 +9814,17 @@ def build_generated_portfolio_financial_view(start_ts, end_ts, portfolio_scope_d
         product_cost_summary_df = product_summary.copy()
         if 'Custo PM Estimado' not in product_cost_summary_df.columns:
             product_cost_summary_df['Custo PM Estimado'] = np.nan
-        product_cost_summary_df['Custo Estimado Período (R$)'] = pd.to_numeric(product_cost_summary_df['Custo PM Estimado'], errors='coerce').fillna(0)
-        product_cost_summary_df['Custo Estimado Anualizado (R$)'] = product_cost_summary_df['Custo Estimado Período (R$)'] * annualization_factor
+        if 'Custo Real Apontado (R$)' not in product_cost_summary_df.columns:
+            product_cost_summary_df['Custo Real Apontado (R$)'] = np.nan
+        product_cost_summary_df['Custo Base Período (R$)'] = pd.to_numeric(product_cost_summary_df['Custo Real Apontado (R$)'], errors='coerce')
+        missing_base = product_cost_summary_df['Custo Base Período (R$)'].isna() | (product_cost_summary_df['Custo Base Período (R$)'] <= 0)
+        product_cost_summary_df.loc[missing_base, 'Custo Base Período (R$)'] = pd.to_numeric(
+            product_cost_summary_df.loc[missing_base, 'Custo PM Estimado'], errors='coerce'
+        ).fillna(0)
+        product_cost_summary_df['Custo Base Anualizado (R$)'] = product_cost_summary_df['Custo Base Período (R$)'] * annualization_factor
         product_cost_summary_df['% do Budget TI Anual'] = np.where(
             budget_ti_anual > 0,
-            product_cost_summary_df['Custo Estimado Anualizado (R$)'] / budget_ti_anual,
+            product_cost_summary_df['Custo Base Anualizado (R$)'] / budget_ti_anual,
             np.nan,
         )
 
@@ -8311,6 +9833,10 @@ def build_generated_portfolio_financial_view(start_ts, end_ts, portfolio_scope_d
         notes.append('Configure `FLOW_PMO_PORTFOLIO_COST_MODEL.fl_mensal` para habilitar budget anual heurístico.')
     if float(kpis.get('Custo Hora Carregado', 0) or 0) <= 0:
         notes.append('Configure salário médio ou mapas por papel/BU para o custo hora heurístico.')
+    if float(overall.get('actual_cost', 0) or 0) > 0:
+        notes.append('Custo base do portfólio prioriza worklog real; custo PM permanece como trilha estimada paralela.')
+    elif float(overall.get('cost', 0) or 0) > 0:
+        notes.append('Sem custo real apontado no período; custo base do portfólio está usando estimativa por process mining.')
     if float(overall.get('hours', 0) or 0) <= 0:
         notes.append('Sem horas PM elegíveis no período para monetizar os ativos do portfólio.')
 
@@ -8320,11 +9846,16 @@ def build_generated_portfolio_financial_view(start_ts, end_ts, portfolio_scope_d
         'kpis': {
             'Budget TI Anual': budget_ti_anual,
             'Custo Total do Portfólio': custo_anualizado,
+            'Custo Base Período': custo_periodo_base,
+            'Custo Real Apontado': custo_real_periodo,
+            'Custo Estimado PM': custo_estimado_pm_periodo,
             'Budget Disponível': budget_disponivel,
             '% Budget Comprometido': budget_pct,
             'Custo Hora Carregado': custo_hora,
             'Custo Médio Projeto (Top-Down)': custo_medio_topdown,
             'Custo Médio Projeto (Bottom-Up)': custo_medio_bottomup,
+            '% Custo Real Mapeado': overall.get('actual_mapped_pct_cost'),
+            'Fonte Primária Custo': 'Worklog real' if custo_real_periodo > 0 else ('Process mining' if custo_estimado_pm_periodo > 0 else 'Indisponível'),
             'Headcount TI': kpis.get('Headcount TI', 0),
             'Capacidade Total Mensal (h)': kpis.get('Capacidade Total Mensal (h)', 0),
             'Custo Total TI Mensal': kpis.get('Custo Total TI Mensal', 0),
@@ -12494,8 +14025,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         pm_overall_cards = html.Div([
             _portfolio_metric_card('Horas PM elegíveis', _fmt_number_br(pm_overall.get('hours', 0.0), 1)),
             _portfolio_metric_card('% horas mapeadas', _fmt_percent_br(pm_overall.get('mapped_pct'), 1)),
+            _portfolio_metric_card('Horas reais apontadas', _fmt_number_br(pm_overall.get('actual_hours', 0.0), 1)),
+            _portfolio_metric_card('% custo real mapeado', _fmt_percent_br(pm_overall.get('actual_mapped_pct_cost'), 1)),
             _portfolio_metric_card('Produtos c/ artefato PM', str(int(pm_overall.get('products_with_artifacts', 0)))),
-            _portfolio_metric_card('Ativos mapeados', str(int(pm_overall.get('assets_mapped', 0)))),
+            _portfolio_metric_card('Ativos c/ custo real', str(int(pm_overall.get('actual_assets_mapped', 0)))),
+            _portfolio_metric_card('Custo real apontado', _fmt_currency_compact_br(pm_overall.get('actual_cost', 0.0)) if pm_overall.get('actual_cost_configured') else '—'),
             _portfolio_metric_card('Custo PM estimado', _fmt_currency_compact_br(pm_overall.get('cost', 0.0)) if pm_overall.get('cost_configured') else '—'),
         ], style=portfolio_metric_grid_style)
 
@@ -12512,13 +14046,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         pm_summary_display = pm_product_summary.copy()
         if not pm_summary_display.empty:
-            for col in ['Horas PM Elegíveis', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Taxa Hora PM', 'Custo PM Estimado', 'Custo PM Mapeado']:
+            for col in [
+                'Horas PM Elegíveis', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas', '% Horas Mapeadas',
+                'Taxa Hora PM', 'Custo PM Estimado', 'Custo PM Mapeado',
+                'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Custo Real Mapeado (R$)', '% Custo Real Mapeado'
+            ]:
                 if col in pm_summary_display.columns:
                     pm_summary_display[col] = pd.to_numeric(pm_summary_display[col], errors='coerce').round(2)
 
         pm_top_assets_display = pm_top_assets.head(20).copy()
         if not pm_top_assets_display.empty:
-            for col in ['Horas PM Elegíveis', 'Custo PM Estimado']:
+            for col in ['Horas PM Elegíveis', 'Custo PM Estimado', 'Horas Reais Apontadas', 'Custo Real Apontado (R$)']:
                 if col in pm_top_assets_display.columns:
                     pm_top_assets_display[col] = pd.to_numeric(pm_top_assets_display[col], errors='coerce').round(2)
 
@@ -12548,16 +14086,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
             cost_kpi_cards = html.Div([
                 _portfolio_metric_card('Budget TI anual', _fmt_currency_compact_br(cost_kpis.get('Budget TI Anual'))),
-                _portfolio_metric_card('Custo total do portfólio', _fmt_currency_compact_br(cost_kpis.get('Custo Total do Portfólio'))),
+                _portfolio_metric_card('Custo base do portfólio', _fmt_currency_compact_br(cost_kpis.get('Custo Total do Portfólio'))),
+                _portfolio_metric_card('Fonte primária', str(cost_kpis.get('Fonte Primária Custo', '—'))),
+                _portfolio_metric_card('Custo real apontado', _fmt_currency_compact_br(cost_kpis.get('Custo Real Apontado'))),
+                _portfolio_metric_card('Custo estimado PM', _fmt_currency_compact_br(cost_kpis.get('Custo Estimado PM'))),
                 _portfolio_metric_card('Budget disponível', _fmt_currency_compact_br(cost_kpis.get('Budget Disponível'))),
                 _portfolio_metric_card('% budget comprometido', _fmt_percent_br(cost_kpis.get('% Budget Comprometido'), 1)),
                 _portfolio_metric_card('Custo hora carregado', _fmt_currency_hour_br(cost_kpis.get('Custo Hora Carregado'))),
+                _portfolio_metric_card('% custo real mapeado', _fmt_percent_br(cost_kpis.get('% Custo Real Mapeado'), 1)),
                 _portfolio_metric_card('Custo médio projeto TD', _fmt_currency_compact_br(cost_kpis.get('Custo Médio Projeto (Top-Down)'))),
                 _portfolio_metric_card('Custo médio projeto BU', _fmt_currency_compact_br(cost_kpis.get('Custo Médio Projeto (Bottom-Up)'))),
             ], style=portfolio_metric_grid_style)
             cost_notes.append(
                 html.P(
-                    'Régua financeira gerada nativamente a partir do Jira/process mining e de parâmetros heurísticos configuráveis do dashboard.',
+                    'Régua financeira híbrida: prioriza worklog real do Jira e usa process mining/heurística apenas como trilha complementar.',
                     style={'color': '#555', 'marginBottom': '8px'}
                 )
             )
@@ -12585,11 +14127,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             cost_product_display = generated_financials.get('product_cost_summary_df', pd.DataFrame()).copy()
             cost_rates_display = generated_financials.get('product_rates_df', pd.DataFrame()).copy()
             if not cost_portfolio_display.empty:
-                for col in ['Horas PM Elegíveis', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)', '% do Budget TI Anual']:
+                for col in ['Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis', 'Custo PM Estimado', 'Custo Base Período (R$)', 'Custo Base Anualizado (R$)', '% do Budget TI Anual']:
                     if col in cost_portfolio_display.columns:
                         cost_portfolio_display[col] = pd.to_numeric(cost_portfolio_display[col], errors='coerce').round(2)
             if not cost_product_display.empty:
-                for col in ['Horas PM Elegíveis', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Taxa Hora PM', 'Custo Estimado Período (R$)', 'Custo Estimado Anualizado (R$)', '% do Budget TI Anual']:
+                for col in ['Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Custo Real Mapeado (R$)', '% Custo Real Mapeado', 'Horas PM Elegíveis', 'Horas PM Mapeadas', 'Horas PM Não Mapeadas', '% Horas Mapeadas', 'Taxa Hora PM', 'Custo PM Estimado', 'Custo Base Período (R$)', 'Custo Base Anualizado (R$)', '% do Budget TI Anual']:
                     if col in cost_product_display.columns:
                         cost_product_display[col] = pd.to_numeric(cost_product_display[col], errors='coerce').round(2)
             if not cost_rates_display.empty:
@@ -12606,10 +14148,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         pm_notes = [
             html.P(
-                'As horas PM elegíveis usam apenas permanência em estados de execução (desenvolvimento, review, teste/QA e homolog), excluindo backlog, ready, done e cancelado.',
+                'As horas PM elegíveis usam apenas permanência em estados de execução; custo real apontado vem dos worklogs CAPEX quando disponíveis.',
                 style={'color': '#555', 'marginBottom': '6px'}
             )
         ]
+        if not pm_overall.get('actual_cost', 0):
+            pm_notes.append(
+                html.P(
+                    'Sem worklog real monetizado no período atual; o dashboard continua exibindo a trilha estimada por process mining.',
+                    style={'color': '#8a6d3b', 'marginBottom': '6px'}
+                )
+            )
         if not pm_overall.get('cost_configured'):
             pm_notes.append(
                 html.P(
@@ -12636,12 +14185,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             cost_kpi_cards,
             portfolio_table_component(
                 cost_portfolio_display.head(20),
-                'Top ativos por custo estimado',
+                'Top ativos por custo base do período',
                 'table-portfolio-costs-generated-projects'
             ) if not cost_portfolio_display.empty else html.Div(),
             portfolio_table_component(
                 cost_product_display,
-                'Resumo financeiro por produto',
+                'Resumo financeiro híbrido por produto',
                 'table-portfolio-costs-generated-products'
             ) if not cost_product_display.empty else html.Div(),
             portfolio_table_component(
@@ -12661,12 +14210,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ], style={'marginTop': '14px'}),
             portfolio_table_component(
                 pm_summary_display,
-                'Resumo PM/CAPEX por produto',
+                'Resumo PM + custo real por produto',
                 'table-portfolio-process-mining-produto'
             ),
             portfolio_table_component(
                 pm_top_assets_display,
-                'Top ativos por horas PM elegíveis',
+                'Top ativos por custo real/estimado',
                 'table-portfolio-process-mining-ativos'
             ),
         ], style={'paddingTop': '10px'})
@@ -16009,22 +17558,60 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 itens_com_evidencia = len(keys_done.intersection(tech_keys))
                 cobertura_tecnica_pct = (itens_com_evidencia / len(keys_done) * 100.0) if len(keys_done) > 0 else np.nan
 
+        def _pm_metric_card(title, value, subtitle, accent_color, featured=False):
+            return html.Div([
+                html.Div(title, style={
+                    'fontSize': '12px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.04em',
+                    'textTransform': 'uppercase',
+                    'color': accent_color,
+                    'marginBottom': '10px',
+                }),
+                html.Div(value, style={
+                    'fontSize': '34px' if featured else '28px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.0',
+                    'color': '#0f1720',
+                    'marginBottom': '8px',
+                }),
+                html.Div(subtitle, style={
+                    'fontSize': '12px',
+                    'color': '#556575',
+                    'lineHeight': '1.45',
+                }),
+            ], style={
+                'background': 'linear-gradient(180deg, #ffffff 0%, #f9fbfe 100%)' if featured else 'white',
+                'border': f'1px solid {accent_color}33' if featured else '1px solid #d9e2ec',
+                'borderTop': f'5px solid {accent_color}',
+                'borderRadius': '16px',
+                'padding': '16px',
+                'boxShadow': '0 10px 24px rgba(15, 23, 32, 0.08)' if featured else '0 2px 8px rgba(15, 23, 32, 0.06)',
+                'minHeight': '160px' if featured else '142px',
+                'height': '100%',
+            })
+
         kpis = html.Div([
-            create_kpi_card('Itens Únicos Finalizados (período)', total_concluidos, class_name='three columns'),
-            create_kpi_card('Itens com Retrabalho', itens_retrabalho, class_name='three columns'),
-            create_kpi_card('Taxa de Retrabalho', f"{taxa_retrabalho:.1f}%", class_name='three columns'),
-            create_kpi_card('Conformidade Média', f"{conf_media:.2f}" if pd.notna(conf_media) else '—', class_name='three columns'),
-            create_kpi_card('Cards Puxados p/ Dev', pull_dev_total_cards, class_name='three columns'),
-            create_kpi_card('SP Puxados p/ Dev', f"{pull_dev_total_story_points:,.1f}", class_name='three columns'),
-            create_kpi_card('Horas Execução (período)', f"{horas_execucao_periodo:,.1f}", class_name='three columns'),
-            create_kpi_card('Horas no Fluxo (proxy)', f"{horas_fluxo_total:,.1f}", class_name='three columns'),
-            create_kpi_card('Média h/Evento (proxy)', f"{horas_fluxo_media_evento:.2f}" if pd.notna(horas_fluxo_media_evento) else '—', class_name='three columns'),
-            create_kpi_card('Cobertura Técnica', f"{cobertura_tecnica_pct:.1f}%" if pd.notna(cobertura_tecnica_pct) else '—', class_name='three columns'),
-            create_kpi_card('Commits (Bitbucket)', int(bb_totals.get('Commits', 0)), class_name='three columns'),
-            create_kpi_card('PRs Abertos (Bitbucket)', int(bb_totals.get('PRs Abertos', 0)), class_name='three columns'),
-            create_kpi_card('PRs Declinados (Bitbucket)', int(bb_totals.get('PRs Declinados (Autor)', 0)), class_name='three columns'),
-            create_kpi_card('Itens c/ Evidência Técnica', int(itens_com_evidencia), class_name='three columns'),
-        ], className='row', style={'rowGap': '8px'})
+            _pm_metric_card('Itens Finalizados', str(total_concluidos), 'itens únicos concluídos no período selecionado', '#176ea4', featured=True),
+            _pm_metric_card('Taxa de Retrabalho', f"{taxa_retrabalho:.1f}%", 'percentual de itens concluídos com retrabalho', '#c62828', featured=True),
+            _pm_metric_card('Cobertura Técnica', f"{cobertura_tecnica_pct:.1f}%" if pd.notna(cobertura_tecnica_pct) else '—', 'itens concluídos com evidência técnica em Bitbucket', '#2e7d32', featured=True),
+            _pm_metric_card('Conformidade Média', f"{conf_media:.2f}" if pd.notna(conf_media) else '—', 'média do score de conformidade dos casos analisados', '#c77d12', featured=True),
+            _pm_metric_card('Itens com Retrabalho', str(itens_retrabalho), 'volume absoluto de retrabalho no período', '#c77d12'),
+            _pm_metric_card('Cards Puxados p/ Dev', str(pull_dev_total_cards), 'quantidade de itens puxados para desenvolvimento', '#176ea4'),
+            _pm_metric_card('SP Puxados p/ Dev', f"{pull_dev_total_story_points:,.1f}", 'story points puxados no recorte', '#176ea4'),
+            _pm_metric_card('Horas Execução', f"{horas_execucao_periodo:,.1f}", 'horas inferidas pelas permanências por status', '#2cb3ad'),
+            _pm_metric_card('Horas no Fluxo', f"{horas_fluxo_total:,.1f}", 'proxy agregado das transições observadas', '#2cb3ad'),
+            _pm_metric_card('Média h/Evento', f"{horas_fluxo_media_evento:.2f}" if pd.notna(horas_fluxo_media_evento) else '—', 'tempo médio associado a cada evento do fluxo', '#2cb3ad'),
+            _pm_metric_card('Commits', str(int(bb_totals.get('Commits', 0))), 'commits associados ao período e filtros ativos', '#176ea4'),
+            _pm_metric_card('PRs Abertos', str(int(bb_totals.get('PRs Abertos', 0))), 'pull requests abertas no Bitbucket', '#176ea4'),
+            _pm_metric_card('PRs Declinados', str(int(bb_totals.get('PRs Declinados (Autor)', 0))), 'PRs declinados do autor no recorte', '#c62828'),
+            _pm_metric_card('Itens c/ Evidência Técnica', str(int(itens_com_evidencia)), 'interseção entre itens concluídos e chaves vistas no Bitbucket', '#176ea4'),
+        ], style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(210px, 1fr))',
+            'gap': '12px',
+            'marginBottom': '18px',
+        })
 
         fig_vazao_pessoa = go.Figure()
         if not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
@@ -16211,6 +17798,135 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         align_move_cols = [c for c in ['Move', 'Count', 'CasesAffected'] if c in pm_align_moves.columns]
         conf_table_cols = [c for c in ['Metrica', 'Valor'] if c in pm_summary.columns]
         meta_table_cols = [c for c in ['Metrica', 'Valor'] if c in pm_meta.columns]
+
+        def _pm_section_shell(kicker, title, subtitle, children, background_color, border_color):
+            return html.Div([
+                html.Div(kicker, style={
+                    'display': 'inline-block',
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.05em',
+                    'textTransform': 'uppercase',
+                    'color': '#176ea4',
+                    'backgroundColor': 'rgba(255,255,255,0.72)',
+                    'border': '1px solid rgba(23, 110, 164, 0.18)',
+                    'borderRadius': '999px',
+                    'padding': '5px 10px',
+                    'marginBottom': '10px',
+                }),
+                html.Div(title, style={'fontSize': '24px', 'fontWeight': '700', 'lineHeight': '1.1', 'color': '#10202f', 'marginBottom': '6px'}),
+                html.Div(subtitle, style={'fontSize': '13px', 'color': '#4d5c6b', 'lineHeight': '1.55', 'marginBottom': '16px'}),
+                children,
+            ], style={
+                'backgroundColor': background_color,
+                'border': f'1px solid {border_color}',
+                'borderRadius': '20px',
+                'padding': '18px',
+                'boxShadow': '0 6px 18px rgba(15, 23, 32, 0.04)',
+                'marginBottom': '18px',
+            })
+
+        def _pm_graph_card(title, subtitle, figure, min_width='360px', flex='1 1 420px'):
+            return html.Div([
+                html.Div(title, style={'fontSize': '16px', 'fontWeight': '700', 'color': '#17324d', 'marginBottom': '4px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b', 'lineHeight': '1.45', 'marginBottom': '8px'}),
+                dcc.Graph(figure=figure),
+            ], style={
+                'flex': flex,
+                'minWidth': min_width,
+                'backgroundColor': 'white',
+                'border': '1px solid #d9e2ec',
+                'borderRadius': '18px',
+                'padding': '14px',
+                'boxShadow': '0 2px 10px rgba(15, 23, 32, 0.05)',
+            })
+
+        def _pm_table_card(title, subtitle, columns, data, page_size=12, sort_action='native', filter_action='none', min_width='360px', flex='1 1 420px'):
+            return html.Div([
+                html.Div(title, style={'fontSize': '16px', 'fontWeight': '700', 'color': '#17324d', 'marginBottom': '4px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b', 'lineHeight': '1.45', 'marginBottom': '10px'}),
+                dash_table.DataTable(
+                    columns=[{'name': c, 'id': c} for c in columns],
+                    data=data,
+                    style_table={'overflowX': 'auto'},
+                    style_cell={
+                        'textAlign': 'left',
+                        'padding': '9px 10px',
+                        'minWidth': '100px',
+                        'maxWidth': '260px',
+                        'whiteSpace': 'normal',
+                        'border': 'none',
+                        'fontSize': '13px',
+                        'fontFamily': 'Segoe UI, sans-serif',
+                    },
+                    style_header={'backgroundColor': '#eef4fb', 'color': '#17324d', 'fontWeight': '700', 'border': 'none'},
+                    style_data={'backgroundColor': 'white', 'borderBottom': '1px solid #edf2f7'},
+                    style_as_list_view=True,
+                    sort_action=sort_action,
+                    filter_action=filter_action,
+                    page_size=page_size,
+                ),
+            ], style={
+                'flex': flex,
+                'minWidth': min_width,
+                'backgroundColor': 'white',
+                'border': '1px solid #d9e2ec',
+                'borderRadius': '18px',
+                'padding': '14px',
+                'boxShadow': '0 2px 10px rgba(15, 23, 32, 0.05)',
+            })
+
+        for _figure in [fig_vazao_pessoa, fig_pull_dev_overlay, fig_vazao_semanal, fig_retrabalho_pessoa, fig_tempo_status, fig_variantes, fig_dfg_edges, fig_dfg_perf, fig_tbr_fitness]:
+            _figure.update_layout(
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font={'family': 'Segoe UI, sans-serif', 'color': '#22313f'},
+                margin=dict(l=48, r=24, t=78, b=56),
+                title=dict(x=0.02, xanchor='left', font=dict(size=18, color='#10202f')),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0, bgcolor='rgba(255,255,255,0.65)'),
+            )
+            _figure.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.16)', zeroline=False)
+            _figure.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.16)', zeroline=False)
+
+        report_label = os.path.basename(report_path) if report_path else 'n/d'
+        period_label = f"{pd.Timestamp(start_ts).strftime('%d/%m/%Y')} a {pd.Timestamp(end_ts).strftime('%d/%m/%Y')}"
+        responsavel_label = responsavel if responsavel else 'Todos'
+
+        def _pm_highlight_chip(label, value, note):
+            return html.Div([
+                html.Div(label, style={'fontSize': '11px', 'fontWeight': '700', 'letterSpacing': '0.05em', 'textTransform': 'uppercase', 'color': '#607080', 'marginBottom': '4px'}),
+                html.Div(value, style={'fontSize': '24px', 'fontWeight': '700', 'lineHeight': '1.0', 'color': '#10202f', 'marginBottom': '4px'}),
+                html.Div(note, style={'fontSize': '12px', 'color': '#5f6e7b', 'lineHeight': '1.4'}),
+            ], style={
+                'backgroundColor': 'rgba(255,255,255,0.9)',
+                'border': '1px solid #d6e0eb',
+                'borderRadius': '14px',
+                'padding': '12px 14px',
+                'minHeight': '94px',
+            })
+        top_executor_label = 'Sem base'
+        if not pm_people.empty and {'Responsavel', 'Itens Concluidos'}.issubset(pm_people.columns):
+            _top_people = pm_people.copy()
+            _top_people['Itens Concluidos'] = pd.to_numeric(_top_people['Itens Concluidos'], errors='coerce').fillna(0)
+            _top_people = _top_people.sort_values('Itens Concluidos', ascending=False)
+            if not _top_people.empty:
+                top_executor_label = f"{_top_people.iloc[0]['Responsavel']} ({int(_top_people.iloc[0]['Itens Concluidos'])})"
+
+        status_bottleneck_label = 'Sem base'
+        if not pm_status.empty and {'Status', 'Tempo Mediano (dias)'}.issubset(pm_status.columns):
+            _top_status = pm_status.copy()
+            _top_status['Tempo Mediano (dias)'] = pd.to_numeric(_top_status['Tempo Mediano (dias)'], errors='coerce').fillna(0)
+            _top_status = _top_status.sort_values('Tempo Mediano (dias)', ascending=False)
+            if not _top_status.empty:
+                status_bottleneck_label = f"{_top_status.iloc[0]['Status']} ({_top_status.iloc[0]['Tempo Mediano (dias)']:.1f}d)"
+
+        variant_label = 'Sem base'
+        if not pm_variants.empty and {'Variant', 'Qtde Casos'}.issubset(pm_variants.columns):
+            _top_variant = pm_variants.copy()
+            _top_variant['Qtde Casos'] = pd.to_numeric(_top_variant['Qtde Casos'], errors='coerce').fillna(0)
+            _top_variant = _top_variant.sort_values('Qtde Casos', ascending=False)
+            if not _top_variant.empty:
+                variant_label = f"{_top_variant.iloc[0]['Variant']} ({int(_top_variant.iloc[0]['Qtde Casos'])} casos)"
 
         return html.Div([
             html.H3('Process Mining Jira - W1NNER (História, Task, Bug)', style={'textAlign': 'center'}),

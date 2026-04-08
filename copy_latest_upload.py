@@ -45,6 +45,9 @@ OPTIONAL_RULES = (
     ArtifactRule("s1nc_commits.csv", required=False),
     ArtifactRule("s1nc_pullrequests.csv", required=False),
     ArtifactRule("s1nc_pipelines.csv", required=False),
+    ArtifactRule("capex-raw-latest.csv", required=False),
+    ArtifactRule("capex-summary-latest.csv", required=False),
+    ArtifactRule("capex-latest.xlsx", required=False),
 )
 
 

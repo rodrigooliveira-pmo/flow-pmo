@@ -7,11 +7,11 @@ Lara Junqueira Alvarenga,Cancelled,50897.71,14,14
 Wallison Oliveira,Homolog,43147.8,78,78
 Christopher Alves,Homolog,38085.94,127,127
 Danilo Monreal,Cancelled,20389.23,5,5
-Igor Rezende,Ready To Staging,16643.97,64,64
+Igor Rezende,Ready To Staging,16643.97,65,65
 Christopher Alves,In Progress,16233.64,107,107
 Lara Junqueira Alvarenga,Triagem,15210.82,49,47
 Danilo Monreal,QA Approved Staging,15148.42,502,502
-Christopher Alves,Staging,14409.89,154,154
+Christopher Alves,Staging,14651.51,157,157
 Christopher Alves,Ready to Homolog,13841.31,106,106
 Eder Afonso,To Do,13837.14,8,8
 Heitor Toledo,In Progress,13452.51,65,65
@@ -35,27 +35,28 @@ Wallison Oliveira,Ready to Homolog,5276.2,62,62
 Eder Afonso,Homolog,5133.05,44,44
 Heitor Toledo,Ready to Homolog,5099.53,34,34
 Gabriel Castelo,Production,5028.05,7,7
+Lara Junqueira Alvarenga,READY FOR DEVELOPMENT,4899.43,50,49
 Lara Junqueira Alvarenga,Staging,4831.98,150,150
 Lorraine Caribe,In Staging,4701.57,26,26
 Gabriel Castelo,In Progress,4701.27,46,45
 Gabriel de Oliveira Koehler,Ready to Homolog,4662.44,42,42
-Peterson Bem,Testing / QA,4442.1,19,18
-Lara Junqueira Alvarenga,READY FOR DEVELOPMENT,4377.98,49,48
+Peterson Bem,Testing / QA,4442.1,20,19
 Eder Afonso,Ready to Homolog,4376.08,56,56
 Danilo Monreal,Ready to Homologation,3992.73,6,6
 Lara Junqueira Alvarenga,Backlog,3961.11,47,45
+Danilo Monreal,Ready for Production,3947.42,69,69
 Igor Rezende,Homolog,3915.5,55,55
 Christopher Alves,Cancelled,3908.88,1,1
 Rubens Igesca,Ready to Homolog,3850.34,13,13
 Gabriel Castelo,Ready To Staging,3839.11,32,32
-Christopher Alves,Ready To Staging,3831.51,103,103
+Christopher Alves,Ready To Staging,3831.51,107,107
 Lorraine Caribe,Ready for Production,3822.5,152,152
 Gabriel de Oliveira Koehler,In Progress,3740.82,44,44
 Luciano Ilha Carbonell,In Development,3514.1,11,10
 Gabriel Wiggert,Ready to Homolog,3468.86,15,15
 Gabriel Castelo,Staging,3380.37,34,33
-Danilo Monreal,Ready for Production,3258.73,54,54
-Heitor Toledo,Staging,3028.92,120,120
+Danilo Monreal,Ready To Staging,3379.58,42,42
+Heitor Toledo,Staging,3052.72,121,121
 Luciano Ilha Carbonell,Ready To Staging,2977.74,4,4
 Barbara Rossi,QA Approved Staging,2805.91,47,46
 Mayderson Santos Mello,Ready to Homolog,2795.72,23,23
@@ -72,7 +73,6 @@ Lara Junqueira Alvarenga,To Do,2198.01,2,2
 Lorraine Caribe,Done,2184.83,3,3
 Gabriel Wiggert,In Development,2014.81,3,3
 Thaís Cabral,Ready for Production,2012.37,68,68
-Danilo Monreal,Ready To Staging,2008.42,32,32
 Antigo utilizador,Staging,2001.4,3,3
 Lorraine Caribe,Ready To Staging,1910.52,13,13
 Igor Rezende,in analytics,1878.32,15,15
@@ -97,63 +97,66 @@ Gabriel Wiggert,Ready To Staging,1181.45,15,15
 Igor Rezende,In Validation,1032.12,8,8
 Lara Junqueira Alvarenga,Ready to Homolog,1004.94,11,11
 Antigo utilizador,In Staging,966.27,8,8
+Christopher Alves,CODE REVIEW,962.36,25,21
 Lara Junqueira Alvarenga,In Validation,961.14,14,14
 Heitor Toledo,in analytics,899.83,15,15
 Lorraine Caribe,In Validation,885.3,2,2
 Matheus Bacha,Ready for Production,866.43,3,3
 Igor Rezende,Ready for Production,861.86,6,6
 Igor Rezende,In Development,859.37,15,15
+Peterson Bem,Staging,858.89,44,44
 Rubens Igesca,In Progress,845.76,11,11
 Matheus Carvalho,In Progress,831.43,10,10
+Luciano Ilha Carbonell,In Progess,775.75,6,4
 Lara Junqueira Alvarenga,In Progess,752.11,20,19
 Gabriel Wiggert,Homolog,678.34,21,21
-Peterson Bem,Staging,674.53,34,34
 Heitor Toledo,In Validation,662.11,7,7
+Heitor Toledo,In Progess,657.37,8,8
 Heitor Toledo,In Development,650.75,16,16
 Christopher Alves,Ready for Production,643.82,54,54
 Lara Junqueira Alvarenga,In Progress,625.04,17,17
-Christopher Alves,CODE REVIEW,620.43,18,14
-Luciano Ilha Carbonell,In Progess,608.36,5,3
 Gabriel Azevedo,Ready to Homolog,600.84,12,12
+Peterson Bem,In Progess,588.35,13,11
 Peterson Bem,READY FOR TESTING/QA,558.26,12,11
+Marielle Freire,Backlog,542.48,31,30
+Wallison Oliveira,CODE REVIEW,539.47,12,12
 Wallison Oliveira,Approval,522.88,4,4
 Christopher Alves,Approval,519.09,3,3
 Lorraine Caribe,Homologation,506.93,10,10
+Igor Rezende,In Progess,505.59,7,7
 Igor Rezende,Ready for Staging,487.55,5,4
+Eduardo Pezzi,In Progess,481.9,6,6
 Heitor Toledo,Ready for Production,466.53,27,27
 Eder Afonso,In Development,465.46,14,14
 Gabriel de Oliveira Koehler,In Development,460.14,4,4
+Wallison Oliveira,In Progess,457.49,8,8
 Wallison Oliveira,Ready for Production,441.69,39,39
-Wallison Oliveira,In Progess,439.4,7,7
+Gabriel de Oliveira Koehler,In Progess,436.34,6,4
+Christopher Alves,In Progess,425.53,25,20
 Lucas Pizol,In Development,407.37,11,11
-Peterson Bem,In Progess,407.28,11,10
 Mayderson Santos Mello,In Progress,384.71,19,19
-Christopher Alves,In Progess,380.45,20,15
 Gabriel de Oliveira Koehler,Ready To Staging,373.67,25,25
 Luciano Ilha Carbonell,Ready for code review,365.68,7,3
-Marielle Freire,Backlog,363.48,22,22
 Eder Afonso,Backlog,354.94,1,1
 Matheus Carvalho,Ready To Staging,351.39,4,4
-Wallison Oliveira,CODE REVIEW,351.33,8,8
-Eduardo Pezzi,In Progess,338.74,4,4
-Heitor Toledo,In Progess,326.05,7,7
 Antigo utilizador,In Validation,321.38,4,4
 Gabriel de Oliveira Koehler,Homolog,315.37,11,11
+Wallison Oliveira,READY FOR TESTING/QA,315.19,8,8
+Marielle Freire,READY FOR DEVELOPMENT,302.86,7,7
 Lara Junqueira Alvarenga,Production,289.87,3,3
-Igor Rezende,In Progess,288.23,6,6
-Gabriel de Oliveira Koehler,In Progess,287.88,4,4
+Eduardo Pezzi,Ready for code review,282.8,6,6
 Christopher Alves,In Development,274.18,8,8
 Lara Junqueira Alvarenga,QA Approved,273.06,2,2
+Christopher Alves,READY FOR DEVELOPMENT,270.98,12,12
 Lucas Pizol,Staging,270.64,7,7
-Eduardo Pezzi,Ready for code review,268.83,4,4
 Lucas Pizol,in analytics,261.82,11,11
 Gabriel de Oliveira Koehler,Approval,259.62,2,2
 Wallison Oliveira,in analytics,257.68,9,9
 Lorraine Caribe,in analytics,255.29,7,7
 Lara Junqueira Alvarenga,Ready for code review,254.52,17,17
 Igor Rezende,In Staging,252.95,4,4
-Wallison Oliveira,READY FOR TESTING/QA,248.15,4,4
-Peterson Bem,READY FOR DEVELOPMENT,241.75,10,10
+Igor Rezende,CODE REVIEW,249.09,6,6
+Peterson Bem,READY FOR DEVELOPMENT,241.75,11,11
 Gabriel Castelo,CODE REVIEW,217.57,5,4
 Lara Junqueira Alvarenga,QA Approved Staging,214.27,12,12
 Gabriel Castelo,Ready for Production,213.06,4,4
@@ -161,34 +164,33 @@ Eder Afonso,in analytics,211.92,15,15
 Gabriel Castelo,READY FOR TESTING/QA,208.82,7,6
 Gabriel de Oliveira Koehler,in analytics,204.7,4,4
 Henrique Rocha Menezes Alves,Ready To Staging,201.38,12,12
-Christopher Alves,Ready for code review,194.32,19,14
-Christopher Alves,Testing / QA,193.29,15,15
+Christopher Alves,Ready for code review,194.51,24,19
+Christopher Alves,Testing / QA,193.3,19,19
 Heitor Toledo,Approval,191.06,1,1
 Lorraine Caribe,In Progress,187.87,4,4
 Eder Afonso,QA Approved Hml,186.9,16,16
 Danilo Monreal,Staging,178.3,20,20
-Marielle Freire,READY FOR DEVELOPMENT,175.92,6,6
 Wallison Oliveira,Backlog,172.69,3,2
-Christopher Alves,READY FOR TESTING/QA,167.43,10,9
+Christopher Alves,READY FOR TESTING/QA,167.54,14,13
 Lorraine Caribe,Ready to Design,167.14,1,1
-Gabriel Castelo,In Progess,165.91,3,3
+Gabriel Castelo,In Progess,165.91,4,4
 Gabriel Azevedo,In Development,165.31,2,2
+Evanir de Oliveira Junior,READY FOR TESTING/QA,163.67,2,2
 Heitor Toledo,Testing / QA,162.79,6,6
+Eduardo Pezzi,CODE REVIEW,158.19,3,3
 Heitor Toledo,READY FOR TESTING/QA,157.82,6,6
+Gabriel de Oliveira Koehler,Ready for code review,155.0,6,6
 Gabriel de Oliveira Koehler,Ready for Production,149.45,24,24
 Gabriel de Oliveira Koehler,Staging,148.11,26,26
-Eduardo Pezzi,CODE REVIEW,145.51,2,2
+Marielle Freire,Ready for Production,143.75,3,3
 Lara Junqueira Alvarenga,In Development,140.49,24,24
-Evanir de Oliveira Junior,READY FOR TESTING/QA,136.61,1,1
 Mayderson Santos Mello,Staging,135.5,15,15
-Igor Rezende,CODE REVIEW,125.87,5,5
+Peterson Bem,CODE REVIEW,122.5,13,11
 Heitor Toledo,CODE REVIEW,120.26,6,6
-Peterson Bem,CODE REVIEW,119.5,12,11
 Lara Junqueira Alvarenga,Ready To Staging,116.21,128,128
 Heitor Toledo,In Staging,112.18,2,2
 Gabriel Wiggert,Done,109.73,1,1
 Gabriel de Oliveira Koehler,READY FOR TESTING/QA,108.75,2,2
-Christopher Alves,READY FOR DEVELOPMENT,105.5,7,7
 Thaís Cabral,QA Approved,104.15,3,3
 Christopher Alves,QA Approved Hml,102.6,7,7
 Lorraine Caribe,Triagem,97.49,1,1
@@ -226,31 +228,31 @@ Marielle Freire,In Progess,34.48,4,4
 Peterson Bem,Ready for code review,30.03,10,9
 Lucas Pizol,Ready to Homolog,27.31,1,1
 Thaís Cabral,QA Approved Staging,26.9,1,1
+Wallison Oliveira,Ready for code review,26.4,11,11
 Matheus Carvalho,in analytics,25.56,1,1
 Gabriel Castelo,Ready for code review,24.45,5,4
 Peterson Bem,Ready for Production,24.32,4,4
 Gabriel Azevedo,Staging,24.28,1,1
 Gabriel Azevedo,Done,24.13,1,1
 Eder Afonso,In Staging,23.46,3,3
-Wallison Oliveira,Ready for code review,22.74,10,10
 Mayderson Santos Mello,Homolog,19.99,2,2
 Eder Afonso,In Validation,18.07,2,2
 Gabriel Castelo,READY FOR DEVELOPMENT,17.32,2,2
 Eder Afonso,Ready for Staging,16.42,5,5
-Gabriel de Oliveira Koehler,Ready for code review,13.37,5,5
 Gabriel Wiggert,Ready for Production,11.56,1,1
 Gabriel Castelo,In Development,9.11,3,3
+Evanir de Oliveira Junior,Ready for code review,9.1,3,3
 Luciano Ilha Carbonell,Homolog,9.01,3,3
 Gabriel Azevedo,Homolog,8.78,7,7
-Gabriel de Oliveira Koehler,READY FOR DEVELOPMENT,8.57,3,3
-Evanir de Oliveira Junior,Ready for code review,7.87,2,2
+Gabriel de Oliveira Koehler,READY FOR DEVELOPMENT,8.57,4,4
 Lara Junqueira Alvarenga,QA Approved Hml,6.76,22,22
 Gabriel de Oliveira Koehler,QA Approved Staging,6.35,1,1
 Igor Rezende,Backlog,3.72,3,3
 Gabriel Castelo,in analytics,2.96,4,4
 Thaís Cabral,Ready to Analytics,2.58,2,2
 Gabriel Azevedo,Ready To Staging,2.35,10,10
-Igor Rezende,Testing / QA,2.01,3,3
+Wallison Oliveira,Testing / QA,2.2,4,4
+Igor Rezende,Testing / QA,2.01,4,4
 Rubens Igesca,Staging,1.66,1,1
 Rubens Igesca,Ready for Production,0.96,1,1
 Lorraine Caribe,Prioritized,0.93,12,12
@@ -259,67 +261,66 @@ Peterson Bem,Ready To Staging,0.56,15,15
 Peterson Bem,Backlog,0.34,8,8
 Mayderson Santos Mello,Ready To Staging,0.2,14,14
 Heitor Toledo,READY FOR DEVELOPMENT,0.14,5,5
-Wallison Oliveira,Ready To Staging,0.11,20,20
+Marielle Freire,Triagem,0.14,1,1
+Wallison Oliveira,Ready To Staging,0.11,21,21
 João Pedro Gomes da Silva,Backlog do Produto,0.07,1,1
 Gabriel Castelo,Testing / QA,0.06,2,2
 Lara Junqueira Alvarenga,Ready to Analytics,0.05,4,4
-Wallison Oliveira,READY FOR DEVELOPMENT,0.04,3,3
+Wallison Oliveira,READY FOR DEVELOPMENT,0.04,4,4
 Gabriel Wiggert,QA Approved Hml,0.04,10,10
 Eder Afonso,Ready to Analytics,0.04,2,2
 Igor Rezende,Approval,0.03,1,1
-Antigo utilizador,in analytics,0.02,3,3
-Igor Rezende,QA Approved Hml,0.02,9,9
 Lara Junqueira Alvarenga,Testing / QA,0.02,12,12
-Danilo Monreal,Testing / QA,0.01,8,8
+Igor Rezende,QA Approved Hml,0.02,9,9
+Antigo utilizador,in analytics,0.02,3,3
 Gabriel Azevedo,QA Approved Hml,0.01,1,1
-Lara Junqueira Alvarenga,CODE REVIEW,0.01,15,15
-Eduardo Pezzi,READY FOR DEVELOPMENT,0.01,1,1
-Gabriel Castelo,QA Approved Hml,0.01,2,2
-Gabriel Wiggert,Cancelled,0.01,1,1
 Luciano Ilha Carbonell,Staging,0.01,1,1
-Igor Rezende,READY FOR TESTING/QA,0.01,3,3
+Eduardo Pezzi,READY FOR DEVELOPMENT,0.01,1,1
+Eder Afonso,Production,0.01,5,5
+Danilo Monreal,Testing / QA,0.01,9,9
+Gabriel Castelo,QA Approved Hml,0.01,2,2
+Igor Rezende,READY FOR TESTING/QA,0.01,4,4
 Marielle Freire,Ready To Staging,0.01,3,3
 Mayderson Santos Mello,In Development,0.01,1,1
 Marielle Freire,Staging,0.01,3,3
-Eder Afonso,Production,0.01,5,5
-Barbara Rossi,Homolog,0.0,1,1
-Marielle Freire,Testing / QA,0.0,1,1
-Heitor Toledo,Backlog,0.0,2,2
-Barbara Rossi,Production,0.0,2,2
-Heitor Toledo,QA Approved Hml,0.0,4,4
+Gabriel Wiggert,Cancelled,0.01,1,1
+Lara Junqueira Alvarenga,CODE REVIEW,0.01,15,15
 Barbara Rossi,In Staging,0.0,1,1
+João Pedro Gomes da Silva,Staging,0.0,1,1
+Barbara Rossi,Ready To Staging,0.0,1,1
+João Pedro Gomes da Silva,Ready for code review,0.0,2,2
+João Pedro Gomes da Silva,Testing / QA,0.0,1,1
+Barbara Rossi,Production,0.0,2,2
+Marielle Freire,Testing / QA,0.0,1,1
 Barbara Rossi,In Progress,0.0,1,1
 Barbara Rossi,In Development,0.0,1,1
-Wallison Oliveira,QA Approved Hml,0.0,2,2
-Marielle Freire,Ready for code review,0.0,1,1
-Barbara Rossi,Ready To Staging,0.0,1,1
-Marielle Freire,Ready for Production,0.0,2,2
-Marielle Freire,READY FOR TESTING/QA,0.0,1,1
-Barbara Rossi,Cancelled,0.0,1,1
 João Pedro Gomes da Silva,Ready To Staging,0.0,1,1
+Wallison Oliveira,QA Approved Hml,0.0,2,2
 Lorraine Caribe,READY FOR DEVELOPMENT,0.0,1,1
-João Pedro Gomes da Silva,Ready for code review,0.0,2,2
-Wallison Oliveira,Testing / QA,0.0,1,1
-João Pedro Gomes da Silva,READY FOR TESTING/QA,0.0,1,1
-João Pedro Gomes da Silva,In Progess,0.0,1,1
-Mayderson Santos Mello,in analytics,0.0,1,1
-Danilo Monreal,In Progress,0.0,4,4
-João Pedro Gomes da Silva,Staging,0.0,1,1
-Mayderson Santos Mello,QA Approved Hml,0.0,1,1
-Christopher Alves,Triagem,0.0,1,1
-Luciano Ilha Carbonell,QA Approved Staging,0.0,1,1
-João Pedro Gomes da Silva,Testing / QA,0.0,1,1
-Igor Rezende,Ready for code review,0.0,4,4
-Danilo Monreal,Homolog,0.0,4,4
-Luciano Ilha Carbonell,Ready for Production,0.0,1,1
-Igor Rezende,READY FOR DEVELOPMENT,0.0,2,2
-João Pedro Gomes da Silva,READY FOR DEVELOPMENT,0.0,1,1
-Christopher Alves,Backlog,0.0,1,1
-Barbara Rossi,in analytics,0.0,1,1
-Igor Rezende,QA Approved Staging,0.0,1,1
-Barbara Rossi,Staging,0.0,1,1
+Barbara Rossi,Homolog,0.0,1,1
+Barbara Rossi,Cancelled,0.0,1,1
 Gabriel de Oliveira Koehler,Backlog,0.0,1,1
 Barbara Rossi,Ready to Homolog,0.0,1,1
-Danilo Monreal,Ready to Homolog,0.0,4,4
+João Pedro Gomes da Silva,READY FOR DEVELOPMENT,0.0,1,1
+João Pedro Gomes da Silva,READY FOR TESTING/QA,0.0,1,1
 Rubens Igesca,in analytics,0.0,3,3
+Heitor Toledo,Backlog,0.0,2,2
+Marielle Freire,Ready for code review,0.0,1,1
+Danilo Monreal,Ready to Homolog,0.0,4,4
+Mayderson Santos Mello,QA Approved Hml,0.0,1,1
+Danilo Monreal,In Progress,0.0,4,4
+Mayderson Santos Mello,in analytics,0.0,1,1
+Marielle Freire,READY FOR TESTING/QA,0.0,1,1
+Igor Rezende,READY FOR DEVELOPMENT,0.0,2,2
+Danilo Monreal,Homolog,0.0,4,4
+Christopher Alves,Triagem,0.0,1,1
+Igor Rezende,QA Approved Staging,0.0,1,1
+Luciano Ilha Carbonell,Ready for Production,0.0,1,1
+Heitor Toledo,QA Approved Hml,0.0,4,4
+Luciano Ilha Carbonell,QA Approved Staging,0.0,1,1
+João Pedro Gomes da Silva,In Progess,0.0,1,1
+Christopher Alves,Backlog,0.0,1,1
+Barbara Rossi,in analytics,0.0,1,1
+Barbara Rossi,Staging,0.0,1,1
 Lucas Pizol,Ready for build,0.0,1,1
+Igor Rezende,Ready for code review,0.0,5,5

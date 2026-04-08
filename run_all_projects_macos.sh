@@ -10,6 +10,7 @@ DATE_TAG="$(date +%Y%m%d)"
 ENV_FILE="${SCRIPT_DIR}/jira_env.txt"
 WORKERS=8
 RUN_PORTFOLIO_EXPORT=true
+RUN_CAPEX_EXPORT=true
 RUN_METRICS=true
 OPEN_DASHBOARD=true
 RUN_DETAILED_CHANGELOG_EXPORT=false
@@ -25,6 +26,8 @@ Opcoes:
   --workers N               Numero de workers para exportacao (padrao: 8)
   --run-portfolio-export    Executa exportacao de portfolio (padrao)
   --no-run-portfolio-export Nao executa exportacao de portfolio
+  --run-capex-export        Executa exportacao CAPEX por worklog (padrao)
+  --no-run-capex-export     Nao executa exportacao CAPEX por worklog
   --run-metrics             Executa metricas (padrao)
   --no-run-metrics          Nao executa metricas
   --open-dashboard          Abre dashboard no navegador (padrao)
@@ -63,6 +66,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --run-metrics)
             RUN_METRICS=true
+            shift
+            ;;
+        --run-capex-export)
+            RUN_CAPEX_EXPORT=true
+            shift
+            ;;
+        --no-run-capex-export)
+            RUN_CAPEX_EXPORT=false
             shift
             ;;
         --no-run-metrics)
@@ -169,6 +180,7 @@ fi
 
 SCRIPT_PATH="${SCRIPT_DIR}/jira_to_pipeline_csv.py"
 PORTFOLIO_SCRIPT="${SCRIPT_DIR}/jira_portfolio_to_csv.py"
+CAPEX_SCRIPT="${SCRIPT_DIR}/jira_capex_monthly.py"
 METRICS_SCRIPT="${SCRIPT_DIR}/dash_board_metricas.py"
 DASHBOARD_SCRIPT="${SCRIPT_DIR}/dashboard_full.py"
 COPY_LATEST_UPLOAD_SCRIPT="${SCRIPT_DIR}/copy_latest_upload.py"
@@ -270,6 +282,35 @@ if [[ "$RUN_PORTFOLIO_EXPORT" == true ]]; then
     cp -f "$portfolio_out" "${OUT_DIR}/portfolio-bt-ns-latest-data.csv"
     echo "Arquivo latest atualizado: ${OUT_DIR}/portfolio-bt-ns-latest-data.csv"
     publish_latest_artifact "${OUT_DIR}/portfolio-bt-ns-latest-data.csv" "$LATEST_DIR"
+fi
+
+if [[ "$RUN_CAPEX_EXPORT" == true ]]; then
+    [[ -f "$CAPEX_SCRIPT" ]] || { echo "Arquivo nao encontrado: $CAPEX_SCRIPT"; exit 1; }
+    CAPEX_START="$(date +%Y-01-01)"
+    CAPEX_END="$(date +%Y-%m-%d)"
+    CAPEX_RAW_LATEST="${OUT_DIR}/capex-raw-latest.csv"
+    CAPEX_SUMMARY_LATEST="${OUT_DIR}/capex-summary-latest.csv"
+    CAPEX_XLSX_LATEST="${OUT_DIR}/capex-latest.xlsx"
+    echo
+    echo "Exportando CAPEX real por worklog..."
+    echo "Janela CAPEX: ${CAPEX_START} -> ${CAPEX_END}"
+    echo "Arquivos: ${CAPEX_RAW_LATEST} | ${CAPEX_SUMMARY_LATEST}"
+
+    if ! "$PYTHON_BIN" "$CAPEX_SCRIPT" \
+        --projects W1NNR S1NC BF DT BT \
+        --date-from "$CAPEX_START" \
+        --date-to "$CAPEX_END" \
+        --out "$CAPEX_RAW_LATEST" \
+        --summary-out "$CAPEX_SUMMARY_LATEST" \
+        --xlsx-out "$CAPEX_XLSX_LATEST" \
+        --env-file "$ENV_FILE" \
+        --workers "$WORKERS"; then
+        echo "Aviso: falha na exportacao CAPEX por worklog. O restante do pipeline seguira sem bloquear." >&2
+    else
+        publish_latest_artifact "$CAPEX_RAW_LATEST" "$LATEST_DIR"
+        publish_latest_artifact "$CAPEX_SUMMARY_LATEST" "$LATEST_DIR"
+        publish_latest_artifact "$CAPEX_XLSX_LATEST" "$LATEST_DIR"
+    fi
 fi
 
 if [[ "$RUN_METRICS" == true ]]; then

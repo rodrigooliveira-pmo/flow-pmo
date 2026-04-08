@@ -1,3 +1,55 @@
+## Current Task (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
+- [ ] Localizar a composição atual da aba `tab-process-mining-jira` e mapear quais blocos do `Painel Fluxo` servem como referência visual
+- [ ] Reorganizar a tela com hero, cards executivos e seções visuais alinhadas ao padrão já usado no dashboard
+- [ ] Preservar os cálculos, gráficos e tabelas existentes, alterando apenas estrutura/apresentação
+- [ ] Validar sintaxe, revisar diff e registrar review com commit sugerido
+
+## Specification (Refatorar visual da aba Process Mining Jira para o padrão do Painel Fluxo)
+- Objetivo: fazer a tela `Process Mining Jira - W1NNER (História, Task, Bug)` seguir o mesmo idioma visual do `Painel Fluxo`, com melhor hierarquia, agrupamento e densidade executiva.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reaproveitar a linguagem visual já consolidada no `Painel Fluxo` (hero claro, cards com borda/gradiente suave, grupos com contexto e largura centralizada)
+  - transformar os KPIs atuais em cards executivos mais legíveis e consistentes
+  - agrupar gráficos e tabelas em seções com títulos, descrições e painéis de fundo, sem alterar as métricas calculadas
+- Critério de aceite:
+  - a aba mantém os mesmos dados e análises já existentes
+  - a hierarquia visual fica alinhada ao `Painel Fluxo`
+  - a leitura inicial da tela melhora com resumo executivo e seções bem demarcadas
+  - o arquivo continua válido sintaticamente
+
+## Current Task (Ignorar artefatos CSV/XLSX do process mining no Git)
+- [x] Revisar o estado atual do `.gitignore` e da pasta `artifacts/process_mining`
+- [x] Adicionar regra explícita para ignorar `.csv` e `.xlsx` gerados em `artifacts/process_mining` em qualquer nível
+- [x] Validar o diff e registrar a observação sobre arquivos já rastreados com commit sugerido
+
+## Specification (Ignorar artefatos CSV/XLSX do process mining no Git)
+- Objetivo: deixar explícito no `.gitignore` que arquivos `.csv` e `.xlsx` gerados em `artifacts/process_mining` devem ser ignorados independentemente da subpasta ou variação de nome.
+- Escopo:
+  - `.gitignore`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar a regra atual do repositório para entender o comportamento existente
+  - adicionar uma regra recursiva específica para `artifacts/process_mining`
+  - validar o efeito no estado do Git e registrar o risco residual de arquivos já versionados
+- Critério de aceite:
+  - o `.gitignore` passa a ter uma regra explícita para `.csv` e `.xlsx` em `artifacts/process_mining`
+  - a solução cobre qualquer origem/nome/subpasta dentro desse diretório
+  - a revisão deixa claro que arquivos já rastreados continuam aparecendo até serem removidos do índice
+
+## Review (Ignorar artefatos CSV/XLSX do process mining no Git)
+- O que foi ajustado:
+  - adicionei no `.gitignore` regras explícitas para `.csv` e `.xlsx` gerados diretamente em `artifacts/process_mining` e também em qualquer subpasta desse diretório
+  - mantive as regras globais já existentes para não ampliar o impacto desta solicitação
+- Validação:
+  - revisão do diff do `.gitignore`
+  - conferência do `git status --short` para confirmar que os arquivos do diretório ainda aparecem porque já estão rastreados
+- Observação importante:
+  - `.gitignore` passa a proteger novos arquivos não rastreados nesse diretório, mas não deixa de versionar automaticamente os `.csv`/`.xlsx` que já estão no índice hoje
+- Suggested commit message:
+  - `chore(gitignore): ignore process mining csv and xlsx artifacts explicitly`
+
 ## Current Task (Reorganizar o design da Leitura Rápida do Fluxo)
 - [x] Localizar os helpers e a composição visual da seção `Leitura Rápida do Fluxo` no `dashboard_full.py`
 - [x] Reorganizar a hierarquia visual para melhorar agrupamento, destaque e leitura em desktop/mobile
@@ -8096,3 +8148,138 @@
   - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no cenário reportado para conferir as contagens esperadas nas duas abas
 - Suggested commit message:
   - `fix(wip-tabs): use live scope for work item age and wip per person`
+- [x] Localizar no código onde são gerados os artefatos `*-process-mining-latest.xlsx` e `*_commits/_pullrequests/_pipelines.csv`
+- [x] Confirmar quais runners publicam esses arquivos para a pasta central `latest/latest-upload`
+- [x] Comparar a trilha esperada com o estado atual local dos arquivos ausentes
+
+## Specification (Investigar arquivos ausentes no pacote latest-upload)
+- Objetivo: rastrear onde e como são gerados os arquivos reportados como ausentes no pacote `latest-upload`, distinguindo geração primária, alias `latest` e cópia final para upload.
+- Escopo:
+  - `process_mining_jira.py`
+  - `bitbucket_export.py`
+  - `extract_dev_productivity_data.py`
+  - `run_process_mining_projects.ps1`
+  - `run_process_mining_projects_macos.sh`
+  - `copy_latest_upload.py`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - a investigação identifica o script gerador de cada grupo de arquivos
+  - fica claro quais nomes/prefixos cada runner usa para BF, DT e S1NC
+  - a revisão deixa explícito se a ausência atual está na geração, na publicação em `latest` ou só na consolidação `latest-upload`
+
+## Review (Investigar arquivos ausentes no pacote latest-upload)
+- Geração dos workbooks de process mining:
+  - `process_mining_jira.py` gera o arquivo timestampado `<prefix>-<stamp>.xlsx` e, em seguida, cria o alias estável `<prefix>-latest.xlsx` dentro do `out_dir`.
+  - O runner `run_process_mining_projects.ps1` chama esse script com os prefixos `w1nner-process-mining`, `s1nc-process-mining`, `befinance-process-mining` e `dataanalytics-process-mining`.
+  - Depois disso, o runner publica os aliases `latest` da pasta `artifacts/process_mining` para a pasta central `LatestDir`.
+- Geração dos CSVs Bitbucket:
+  - `bitbucket_export.py` grava diretamente `<prefix>_commits.csv`, `<prefix>_pullrequests.csv` e `<prefix>_pipelines.csv`.
+  - O prefixo é resolvido por projeto em `PROJECT_BITBUCKET_DEFAULTS`: `w1nner`, `s1nc`, `befinance`, `dataanalytics`.
+  - Os runners `run_process_mining_projects.ps1/.sh` chamam `bitbucket_export.py --project <W1NNR|S1NC|BF|DT> --out-dir <OutDir>` e depois publicam esses CSVs para `LatestDir`.
+  - `extract_dev_productivity_data.py` é um orquestrador alternativo só para Bitbucket; ele também chama `bitbucket_export.py`, mas não monta o pacote `latest-upload`.
+- Consolidação para upload:
+  - `copy_latest_upload.py` não gera artefatos; ele apenas procura os nomes finais na pasta central `latest` e copia para `latest/latest-upload`.
+  - Para esse pacote, BF e DT são obrigatórios tanto em process mining quanto em Bitbucket; os CSVs de `s1nc` são opcionais.
+- Evidência do estado local desta máquina:
+  - existem `s1nc_commits.csv`, `s1nc_pullrequests.csv` e `s1nc_pipelines.csv` em `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados`, mas eles não estão publicados em `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest`.
+  - não existem localmente `befinance-process-mining-latest.xlsx`, `dataanalytics-process-mining-latest.xlsx`, `befinance_commits.csv`, `befinance_pullrequests.csv`, `befinance_pipelines.csv`, `dataanalytics_commits.csv`, `dataanalytics_pullrequests.csv` nem `dataanalytics_pipelines.csv` nem em `Dados`, nem em `Dados\latest`, nem em `artifacts/process_mining`.
+  - `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest-upload` também não existe neste momento, então a consolidação final nem chegou a ser executada com sucesso recentemente nesse ambiente.
+- Conclusão da causa atual:
+  - para BF e DT, a ausência está antes da cópia final: os artefatos-base/aliases simplesmente não estão presentes no ambiente local atual.
+  - para S1NC, os CSVs existem na saída operacional, mas faltou a etapa de publicação em `latest` e/ou a execução final do `copy_latest_upload.py`.
+  - em outras palavras, o erro do pacote não nasce em `copy_latest_upload.py`; ele reflete ausência anterior na geração/publicação dos arquivos esperados.
+- Suggested commit message:
+  - `docs(todo): record generation flow and current gaps for latest-upload artifacts`
+
+## Current Task (Integrar CAPEX real por worklog ao dashboard)
+- [x] Registrar arquitetura alvo e pontos de integração entre `dashboard_full.py` e `jira_capex_monthly.py`
+- [x] Adicionar camada de carga/cache para os artefatos `capex raw/summary` no dashboard
+- [x] Construir fato de custo por worklog com mapeamento de pessoa, projeto, ativo e custo-hora
+- [x] Refatorar monetização do portfólio para priorizar `worklog real` e manter heurística como fallback
+- [x] Ajustar a aba `Process Mining & CAPEX` para explicitar custo real vs estimado e cobertura
+- [x] Validar com compilação, revisão dirigida do diff e smoke tests dos helpers novos
+
+## Specification (Integrar CAPEX real por worklog ao dashboard)
+- Objetivo: fazer o `dashboard_full.py` usar a saída do `jira_capex_monthly.py` como fonte principal de custo executado, preservando process mining e a régua heurística atual como fallback analítico.
+- Escopo:
+  - `dashboard_full.py`
+  - `run_all_projects.ps1`
+  - `run_all_projects_macos.sh`
+  - `copy_latest_upload.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - adicionar resolução de arquivos `capex raw/summary` com o mesmo padrão de `latest`, URL remota e cache já usado por portfólio/process mining
+  - criar um loader consolidado para a base de worklogs monetizada por pessoa/mês, reaproveitando `people_config.json` e o modelo financeiro atual quando faltarem rate cards reais
+  - gerar uma fato de custo por worklog e agregações por ativo/produto para substituir a primazia atual de `Horas PM Elegíveis * custo hora`
+  - manter a heurística atual como fallback explícito quando não houver cobertura de worklog suficiente
+  - adaptar os KPIs/tabelas da aba `Process Mining & CAPEX` para mostrar separadamente custo real, custo estimado e cobertura do mapeamento
+- Critério de aceite:
+  - o dashboard consegue localizar e ler artefatos `capex` publicados em modo local e, quando configurado, por URL
+  - a monetização do portfólio passa a priorizar horas reais de worklog por ativo/issue quando disponíveis
+  - a UI deixa explícita a diferença entre custo real apontado e custo estimado por process mining/heurística
+  - o código permanece válido sintaticamente e a mudança fica documentada com review e commit sugerido
+
+## Review (Integrar CAPEX real por worklog ao dashboard)
+- O que foi ajustado:
+  - `dashboard_full.py` ganhou resolução/caching dos artefatos CAPEX `raw/summary`, com suporte a arquivo local, URL remota e preferência por aliases `latest`
+  - a monetização do portfólio passou a combinar `process mining` com custo real de worklog, priorizando `Custo Real Apontado` quando disponível e preservando `Custo PM Estimado` como trilha complementar
+  - a aba `Process Mining & CAPEX` passou a exibir cards e tabelas com separação explícita entre custo real, custo estimado, cobertura de mapeamento e fonte primária do custo
+  - `run_all_projects.ps1` e `run_all_projects_macos.sh` passaram a exportar/publicar os artefatos CAPEX `latest`, e `copy_latest_upload.py` passou a incluí-los como opcionais no pacote final
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py jira_capex_monthly.py`
+  - smoke test com `FLOW_PMO_PORTFOLIO_CSV_FILE=portfolio-bt-ns-latest-data.csv` validando `get_capex_snapshot('raw')`, `build_pm_portfolio_capex_view(...)`, `build_generated_portfolio_financial_view(...)` e `render_tab(main_view='portfolio', ...)`
+- Risco residual:
+  - o ambiente sandbox bloqueou a URL remota padrão do snapshot de portfólio; a validação fim a fim precisou forçar o CSV local via env
+  - permaneceram warnings preexistentes de `SettingWithCopyWarning` em outro trecho do `dashboard_full.py`, sem bloquear a renderização da nova integração
+- Suggested commit message:
+  - `feat(portfolio-cost): prioritize jira worklog capex in dashboard financial views`
+## Current Task (Investigar por que BF/DT não estão sendo produzidos no runner atual)
+- [x] Levantar evidências locais da última execução relevante do runner (`latest`, timestamps, artefatos parciais e histórico)
+- [x] Verificar pré-condições e pontos de falha específicos de BF/DT em `run_process_mining_projects.*`, `process_mining_jira.py` e `bitbucket_export.py`
+- [x] Determinar se o problema atual é interrupção do runner, falha de credencial/configuração ou ausência de execução para BF/DT
+- [x] Registrar review com a causa mais provável e próximos passos
+
+## Specification (Investigar por que BF/DT não estão sendo produzidos no runner atual)
+- Objetivo: identificar com mais precisão por que os artefatos de `BF` e `DT` não aparecem no fluxo atual, distinguindo entre interrupção antes desses projetos, falha específica nesses projetos e ausência de publicação final.
+- Escopo:
+  - `run_process_mining_projects.ps1`
+  - `run_process_mining_projects_macos.sh`
+  - `process_mining_jira.py`
+  - `bitbucket_export.py`
+  - `jira_env.txt` apenas para inspeção de configuração, se necessário
+  - `tasks/todo.md`
+- Critério de aceite:
+  - a investigação aponta a causa mais provável com evidências locais concretas
+  - fica explícito em qual etapa BF/DT deixam de avançar: Jira detalhado, process mining, Bitbucket, publicação em `latest` ou `latest-upload`
+  - a revisão lista próximos passos objetivos para confirmação/correção
+
+## Review (Investigar por que BF/DT não estão sendo produzidos no runner atual)
+- Evidência de execução parcial e ordem das saídas:
+  - o histórico local mostra execuções recentes de `run_process_mining_projects.ps1` e `run_all_projects.ps1`, mas sem stdout persistido.
+  - o pacote [`latest\latest-upload`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Dados/latest/latest-upload) foi atualizado às `2026-04-08 10:06:57`, porém ainda contém `w1nner-process-mining-latest.xlsx` de `2026-03-05 13:19:50` e `s1nc-process-mining-latest.xlsx` de `2026-04-01 12:41:53`.
+  - ao mesmo tempo, a pasta central `latest` já tinha `w1nner-process-mining-latest.xlsx` em `2026-04-08 09:45:14` e `s1nc-process-mining-latest.xlsx` em `2026-04-08 10:09:04`.
+  - isso indica que uma execução posterior de process mining atualizou `latest`, mas não chegou ao refresh final do `latest-upload`.
+- O runner aborta quando a exportação Jira detalhada falha:
+  - [`run_process_mining_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_process_mining_projects.ps1#L341) chama `jira_to_pipeline_csv.py` por projeto.
+  - se esse passo retornar erro, o script dá `throw` imediatamente em [`run_process_mining_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_process_mining_projects.ps1#L343), interrompendo os projetos seguintes e também o refresh final do pacote.
+- BF não está quebrado por configuração local:
+  - `bitbucket_export.py --project BF --dry-run` resolve corretamente `workspace=w1consultoria`, prefixo `befinance` e os repositórios esperados.
+  - `process_mining_jira.py` resolve corretamente `BF -> BEFINANCE`, prefixo `befinance-process-mining` e tipos padrão `['História', 'User Story', 'Task', 'Bug']`.
+  - um teste ao vivo de [`jira_to_pipeline_csv.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_to_pipeline_csv.py) para `BF` concluiu com sucesso, gerando `tmp\bf-livecheck-data.csv`, `tmp\bf-livecheck-detailed.csv` e `tmp\bf-livecheck-data_bottlenecks.csv`.
+  - em seguida, um teste local de [`process_mining_jira.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/process_mining_jira.py) em cima de `tmp\bf-livecheck-detailed.csv` também concluiu com sucesso e gerou o workbook de process mining em `tmp\pm-check`.
+- O problema observado na execução em lote é de rede/carga externa, não de mapeamento BF/DT:
+  - no teste ao vivo de `BF`, antes mesmo do fetch Jira, o [`jira_to_pipeline_csv.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_to_pipeline_csv.py#L1196) já fez enriquecimento pesado no Bitbucket e acumulou vários `429 Too Many Requests`.
+  - o próprio script faz esse enriquecimento Bitbucket por padrão antes da busca Jira, consultando todos os repos de `BB_REPOS` com profundidade `BB_COMMIT_DEPTH=3000` em [`jira_to_pipeline_csv.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_to_pipeline_csv.py#L1191) e [`jira_to_pipeline_csv.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/jira_to_pipeline_csv.py#L1209).
+  - no ambiente atual, `BB_REPOS` contém `13` repositórios compartilhados para todos os projetos, incluindo `w1nner`, `be-finance-*` e `d-a-analysis`.
+  - depois de uma execução bem-sucedida de `BF`, novas tentativas de exportação Jira para `DT` e depois até para `BF` voltaram a falhar já na primeira chamada ao Jira com `WinError 10013` / `requests.exceptions.ConnectionError` para `w1consultoria.atlassian.net`.
+  - repetir `DT` sem qualquer enriquecimento Bitbucket (`BB_*` removidos do env temporário) não resolveu: a falha continuou no primeiro `search_issues(...)`, o que mostra um bloqueio/transiente de conectividade do ambiente depois de sucessivas chamadas, e não um problema específico de `DT`.
+- Conclusão mais provável:
+  - `BF` e `DT` não estão deixando de ser produzidos por prefixo errado ou regra local do runner.
+  - a causa mais provável no ambiente atual é esgotamento/bloqueio de rede durante o lote: primeiro aparecem `429` do Bitbucket; em seguida o processo passa a falhar até no Jira com erro de soquete (`10013`), e o runner aborta no primeiro projeto cujo `jira_to_pipeline_csv.py` retorna erro.
+  - como o `run_process_mining_projects.ps1` roda `jira_to_pipeline_csv.py` para cada projeto e ainda depois chama `bitbucket_export.py` de novo por projeto, o lote atual duplica tráfego pesado de Bitbucket/Jira e fica especialmente frágil nos projetos mais ao fim da fila.
+- Próximos passos objetivos:
+  - separar a exportação Jira detalhada do enriquecimento Bitbucket dentro de `jira_to_pipeline_csv.py`, ou permitir desabilitar esse enriquecimento no runner em lote.
+  - reduzir `BB_COMMIT_DEPTH` e/ou o conjunto `BB_REPOS` para o lote operacional.
+  - tornar `run_process_mining_projects.ps1` resiliente a falhas de `jira_to_pipeline_csv.py` por projeto, acumulando aviso e seguindo, em vez de abortar o lote inteiro no primeiro erro.
+- Suggested commit message:
+  - `docs(todo): record live diagnosis of batch runner network exhaustion for bf dt outputs`

@@ -5,6 +5,7 @@ param(
     [int]$Workers = 8,
     [bool]$RunDetailedChangelogExport = $false,
     [bool]$RunPortfolioExport = $true,
+    [bool]$RunCapexExport = $true,
     [bool]$RunMetrics = $true,
     [bool]$OpenDashboard = $true
 )
@@ -45,6 +46,7 @@ if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKE
 
 $scriptPath = Join-Path $PSScriptRoot 'jira_to_pipeline_csv.py'
 $portfolioScript = Join-Path $PSScriptRoot 'jira_portfolio_to_csv.py'
+$capexScript = Join-Path $PSScriptRoot 'jira_capex_monthly.py'
 if (-not (Test-Path $scriptPath)) {
     throw "Arquivo não encontrado: $scriptPath"
 }
@@ -193,6 +195,40 @@ if ($RunPortfolioExport) {
     Copy-Item -Path $portfolioOut -Destination $portfolioLatest -Force
     Write-Host "Arquivo latest atualizado: $portfolioLatest" -ForegroundColor Green
     Publish-LatestArtifact -SourcePath $portfolioLatest -LatestDir $latestDir
+}
+
+if ($RunCapexExport) {
+    if (-not (Test-Path $capexScript)) {
+        throw "Arquivo não encontrado: $capexScript"
+    }
+
+    $today = Get-Date
+    $capexStart = Get-Date -Year $today.Year -Month 1 -Day 1 -Format 'yyyy-MM-dd'
+    $capexEnd = Get-Date -Date $today -Format 'yyyy-MM-dd'
+    $capexRawLatest = Join-Path $OutDir 'capex-raw-latest.csv'
+    $capexSummaryLatest = Join-Path $OutDir 'capex-summary-latest.csv'
+    $capexXlsxLatest = Join-Path $OutDir 'capex-latest.xlsx'
+
+    Write-Host "`nExportando CAPEX real por worklog..." -ForegroundColor Cyan
+    Write-Host "Janela CAPEX: $capexStart -> $capexEnd"
+    Write-Host "Arquivos: $capexRawLatest | $capexSummaryLatest"
+
+    & python $capexScript `
+        --projects W1NNR S1NC BF DT BT `
+        --date-from $capexStart `
+        --date-to $capexEnd `
+        --out $capexRawLatest `
+        --summary-out $capexSummaryLatest `
+        --xlsx-out $capexXlsxLatest `
+        --env-file $EnvFile `
+        --workers $Workers
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Falha na exportação CAPEX por worklog. O restante do pipeline seguirá sem bloquear."
+    } else {
+        Publish-LatestArtifact -SourcePath $capexRawLatest -LatestDir $latestDir
+        Publish-LatestArtifact -SourcePath $capexSummaryLatest -LatestDir $latestDir
+        Publish-LatestArtifact -SourcePath $capexXlsxLatest -LatestDir $latestDir
+    }
 }
 
 if ($RunMetrics) {

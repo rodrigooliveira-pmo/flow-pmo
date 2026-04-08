@@ -10,3 +10,9 @@ jira_env.txt
 *.csv
 *.xlsx
 *.png
+
+# Process mining artifacts generated locally
+artifacts/process_mining/*.csv
+artifacts/process_mining/*.xlsx
+artifacts/process_mining/**/*.csv
+artifacts/process_mining/**/*.xlsx
