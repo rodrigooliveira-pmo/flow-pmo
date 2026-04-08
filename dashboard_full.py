@@ -5278,6 +5278,124 @@ def _build_capex_person_rate_map(cost_model_snapshot: dict) -> dict:
     return person_rates
 
 
+def _build_custo_por_atividade_section(worklog_df: 'pd.DataFrame') -> 'html.Div':
+    """
+    Renderiza 3 gráficos de custo por categoria de atividade a partir do fact table de worklogs CAPEX.
+    Usa 'Custo Real Apontado (R$)' quando disponível; cai para 'Horas' se taxas não estiverem configuradas.
+    """
+    if worklog_df is None or worklog_df.empty:
+        return html.Div()
+
+    df = worklog_df.copy()
+
+    # Resolve rótulo de atividade: preferência para Normalizada → Desenvolvida → fallback
+    if 'Atividade Desenvolvida Normalizada' in df.columns:
+        ativ = df['Atividade Desenvolvida Normalizada'].fillna('').astype(str).str.strip()
+        fallback = df.get('Atividade Desenvolvida', pd.Series([''] * len(df))).fillna('').astype(str).str.strip()
+        df['_atividade'] = ativ.where(ativ.ne(''), fallback)
+    else:
+        df['_atividade'] = df.get('Atividade Desenvolvida', pd.Series([''] * len(df))).fillna('').astype(str).str.strip()
+    df['_atividade'] = df['_atividade'].replace('', 'Sem Classificação')
+
+    df['Custo Real Apontado (R$)'] = pd.to_numeric(df.get('Custo Real Apontado (R$)'), errors='coerce').fillna(0.0)
+    df['Horas'] = pd.to_numeric(df.get('Horas'), errors='coerce').fillna(0.0)
+
+    has_cost = df['Custo Real Apontado (R$)'].sum() > 0
+    value_col = 'Custo Real Apontado (R$)' if has_cost else 'Horas'
+    value_label = 'Custo (R$)' if has_cost else 'Horas'
+
+    sem_taxa_note = []
+    if not has_cost:
+        sem_taxa_note = [html.P(
+            'Taxas de custo não configuradas — exibindo horas. Configure FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP ou FLOW_PMO_PM_COST_PER_HOUR_MAP para habilitar custo monetário.',
+            style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
+        )]
+
+    # --- Agrupamento por atividade ---
+    by_activity = (
+        df.groupby('_atividade', dropna=False)
+        .agg(**{value_label: (value_col, 'sum'), 'Horas': ('Horas', 'sum')})
+        .reset_index()
+        .rename(columns={'_atividade': 'Atividade'})
+        .sort_values(value_label, ascending=False)
+    )
+
+    def _fmt_brl(v):
+        try:
+            return f'R$ {v:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+        except Exception:
+            return str(v)
+
+    # --- Gráfico 1: Barras por atividade ---
+    fig_bar = px.bar(
+        by_activity,
+        x='Atividade',
+        y=value_label,
+        title='Custo total por categoria de atividade',
+        color='Atividade',
+        text=value_label,
+    )
+    text_fmt = '%{text:,.0f}' if not has_cost else '%{text:,.0f}'
+    fig_bar.update_traces(texttemplate=text_fmt, textposition='outside')
+    fig_bar.update_layout(
+        height=380,
+        showlegend=False,
+        yaxis_title=value_label,
+        xaxis_title='',
+        margin=dict(t=50, b=80, l=60, r=20),
+        xaxis_tickangle=-30,
+    )
+
+    # --- Gráfico 2: Pizza distribuição % ---
+    fig_pie = px.pie(
+        by_activity,
+        names='Atividade',
+        values=value_label,
+        title='Distribuição % por atividade',
+        hole=0.4,
+    )
+    fig_pie.update_traces(textinfo='percent+label')
+    fig_pie.update_layout(height=380, margin=dict(t=50, b=30, l=20, r=20))
+
+    # --- Gráfico 3: Tendência mensal (stacked bar) ---
+    monthly_graph = html.Div()
+    if 'MesCompetencia' in df.columns:
+        by_month = (
+            df.groupby(['MesCompetencia', '_atividade'], dropna=False)
+            .agg(**{value_label: (value_col, 'sum')})
+            .reset_index()
+            .rename(columns={'_atividade': 'Atividade', 'MesCompetencia': 'Mês'})
+            .sort_values('Mês')
+        )
+        if not by_month.empty:
+            fig_trend = px.bar(
+                by_month,
+                x='Mês',
+                y=value_label,
+                color='Atividade',
+                title='Evolução mensal do custo por atividade',
+                barmode='stack',
+            )
+            fig_trend.update_layout(
+                height=380,
+                yaxis_title=value_label,
+                xaxis_title='',
+                margin=dict(t=50, b=100, l=60, r=20),
+                legend=dict(orientation='h', yanchor='bottom', y=-0.55, xanchor='center', x=0.5),
+            )
+            monthly_graph = dcc.Graph(figure=fig_trend)
+
+    return html.Div([
+        html.H4('Custo por Categoria de Atividade', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.Div(sem_taxa_note),
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_bar)], style={'flex': '1', 'minWidth': '320px'}),
+            html.Div([dcc.Graph(figure=fig_pie)], style={'flex': '1', 'minWidth': '280px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
+        html.Div([monthly_graph], style={'marginTop': '12px'}),
+    ])
+
+
 def _build_capex_worklog_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     columns = [
         'Data do Apontamento',
@@ -9071,7 +9189,7 @@ def build_capex_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df, project_
     keep_cols = [
         'MesCompetencia', 'Projeto PM', 'Produto', 'Issue Key', 'AssetID', 'Descrição do Ativo',
         'Tipo do Ativo', 'Colaborador', 'Colaborador Canonico', 'Data do Apontamento das Horas',
-        'Horas', 'Atividade Desenvolvida', 'ConfidenceScore', 'Origem Horas', 'RateSource',
+        'Horas', 'Atividade Desenvolvida', 'Atividade Desenvolvida Normalizada', 'ConfidenceScore', 'Origem Horas', 'RateSource',
         'Custo Hora Aplicado (R$)', 'Custo Real Apontado (R$)', 'AtivoMapeado',
     ]
     for col in keep_cols:
@@ -14424,6 +14542,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 )
             )
 
+        capex_worklog_df = (
+            pm_portfolio_data.get('capex_cost_data', {}).get('df', pd.DataFrame())
+            if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
+        )
+        custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
+
         pm_portfolio_section = html.Div([
             html.Div(pm_notes, style={'marginBottom': '12px'}),
             pm_overall_cards,
@@ -14445,6 +14569,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Parâmetros e taxas heurísticas por produto',
                 'table-portfolio-costs-generated-rates'
             ) if not cost_rates_display.empty else html.Div(),
+            custo_por_atividade_section,
             html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
             html.Div(pm_product_cards, style={
                 'display': 'grid',

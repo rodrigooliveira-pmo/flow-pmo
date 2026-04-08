@@ -41,7 +41,8 @@
       "Bash(find '/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo' -name *.xlsx)",
       "Bash(md5 \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dash_board_metricas.py\")",
       "Bash(find /Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo -type f \\\\\\(-name *.env* -o -name *.config -o -name .env* \\\\\\))",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard_full.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard_full.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard_full.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }
