@@ -5874,6 +5874,320 @@ def _build_custo_estimado_vs_real_section(events_df: 'pd.DataFrame', worklog_df:
     ])
 
 
+def _coerce_bool_flag(series: 'pd.Series') -> 'pd.Series':
+    """Normalise rework flag columns that may arrive as bool, int 0/1 or string 'True'/'False'."""
+    if hasattr(series, 'dtype') and series.dtype == bool:
+        return series
+    return series.astype(str).str.strip().str.lower().isin({'true', '1', 'yes'})
+
+
+def build_custo_retrabalho_data(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> dict:
+    """
+    Computes rework cost from PM event log and CAPEX worklogs.
+
+    Rework events are rows in events_df where any of:
+      Backward Move, QA Return, Reopen Transition  is True.
+
+    PM-estimated rework cost = sum(Custo PM Estimado) for rework events.
+
+    Real rework cost (worklog-based): for each issue with a rework event, finds the
+    EARLIEST rework event timestamp and sums all worklogs for that issue whose
+    'Data do Apontamento das Horas' >= that timestamp.
+
+    Returns dict with:
+      - 'rework_ev_df':   rework event rows with CustoEstimado, HorasEstimadas, tipo_retrabalho
+      - 'kpis':           dict with scalar KPIs
+      - 'by_type_df':     cost per rework type (Backward Move / QA Return / Reopen)
+      - 'by_issue_df':    cost per issue (top issues by rework cost)
+      - 'has_cost':       bool
+    """
+    _empty = {'rework_ev_df': pd.DataFrame(), 'kpis': {}, 'by_type_df': pd.DataFrame(),
+              'by_issue_df': pd.DataFrame(), 'has_cost': False}
+
+    if events_df is None or events_df.empty or 'Issue Key' not in events_df.columns:
+        return _empty
+
+    ev = events_df.copy()
+    ev['Horas PM Elegíveis'] = pd.to_numeric(ev.get('Horas PM Elegíveis'), errors='coerce').fillna(0.0)
+    ev['Custo PM Estimado'] = pd.to_numeric(ev.get('Custo PM Estimado'), errors='coerce').fillna(0.0)
+    ev['History Created'] = pd.to_datetime(ev.get('History Created'), errors='coerce')
+    ev['Produto'] = ev.get('Produto', pd.Series([''] * len(ev))).fillna('').astype(str)
+
+    # Coerce rework flag columns (may be bool, int, or string)
+    rework_flag_cols = {
+        'Backward Move': 'Backward Move',
+        'QA Return': 'QA Return',
+        'Reopen Transition': 'Reopen',
+    }
+    masks = []
+    for col, _label in rework_flag_cols.items():
+        if col in ev.columns:
+            ev[col] = _coerce_bool_flag(ev[col])
+            masks.append(ev[col])
+        else:
+            ev[col] = False
+
+    if not masks:
+        return _empty
+
+    rework_mask = masks[0]
+    for m in masks[1:]:
+        rework_mask = rework_mask | m
+
+    # Assign rework type label (priority: QA Return > Reopen > Backward Move)
+    def _tipo(row):
+        if row.get('QA Return', False):
+            return 'QA Return'
+        if row.get('Reopen Transition', False):
+            return 'Reopen'
+        if row.get('Backward Move', False):
+            return 'Backward Move'
+        return 'Outro'
+
+    ev['TipoRetrabalho'] = ev.apply(_tipo, axis=1)
+
+    rework_ev = ev[rework_mask].copy()
+    normal_ev = ev[~rework_mask].copy()
+
+    if rework_ev.empty:
+        return _empty
+
+    total_pm_cost = float(ev['Custo PM Estimado'].sum())
+    rework_pm_cost = float(rework_ev['Custo PM Estimado'].sum())
+    normal_pm_cost = float(normal_ev['Custo PM Estimado'].sum())
+    rework_pm_hours = float(rework_ev['Horas PM Elegíveis'].sum())
+    n_issues_rework = int(rework_ev['Issue Key'].nunique())
+    rework_pct = (rework_pm_cost / total_pm_cost * 100.0) if total_pm_cost > 0 else np.nan
+
+    # ── By rework type ────────────────────────────────────────────────────────
+    by_type = (
+        rework_ev.groupby('TipoRetrabalho', dropna=False)
+        .agg(
+            CustoEstimado=('Custo PM Estimado', 'sum'),
+            HorasEstimadas=('Horas PM Elegíveis', 'sum'),
+            Ocorrencias=('Issue Key', 'size'),
+            Issues=('Issue Key', 'nunique'),
+        )
+        .reset_index()
+        .sort_values('CustoEstimado', ascending=False)
+    )
+
+    # ── Real rework cost via worklog join ─────────────────────────────────────
+    real_rework_cost = 0.0
+    rework_real_by_issue = pd.DataFrame()
+    has_cost = rework_pm_cost > 0
+
+    if worklog_df is not None and not worklog_df.empty and 'Data do Apontamento das Horas' in worklog_df.columns:
+        wl = worklog_df[['Issue Key', 'Data do Apontamento das Horas', 'Horas', 'Custo Real Apontado (R$)']].copy()
+        wl['Data do Apontamento das Horas'] = pd.to_datetime(wl['Data do Apontamento das Horas'], errors='coerce')
+        wl['Custo Real Apontado (R$)'] = pd.to_numeric(wl.get('Custo Real Apontado (R$)'), errors='coerce').fillna(0.0)
+        wl['Horas'] = pd.to_numeric(wl.get('Horas'), errors='coerce').fillna(0.0)
+        wl = wl[wl['Data do Apontamento das Horas'].notna()].copy()
+
+        if not wl.empty:
+            # Earliest rework timestamp per issue
+            rework_start = (
+                rework_ev[rework_ev['History Created'].notna()]
+                .groupby('Issue Key', dropna=False)['History Created']
+                .min()
+                .reset_index()
+                .rename(columns={'History Created': '_rework_start'})
+            )
+            if not rework_start.empty:
+                wl_rw = wl.merge(rework_start, on='Issue Key', how='inner')
+                wl_rw = wl_rw[wl_rw['Data do Apontamento das Horas'] >= wl_rw['_rework_start']].copy()
+                if not wl_rw.empty:
+                    real_rework_cost = float(wl_rw['Custo Real Apontado (R$)'].sum())
+                    has_cost = has_cost or (real_rework_cost > 0)
+                    rework_real_by_issue = (
+                        wl_rw.groupby('Issue Key', dropna=False)
+                        .agg(
+                            CustoRealRetrabalho=('Custo Real Apontado (R$)', 'sum'),
+                            HorasReaisRetrabalho=('Horas', 'sum'),
+                        )
+                        .reset_index()
+                    )
+
+    # ── Per-issue summary ─────────────────────────────────────────────────────
+    by_issue = (
+        rework_ev.groupby(['Issue Key', 'Produto'], dropna=False)
+        .agg(
+            CustoEstimado=('Custo PM Estimado', 'sum'),
+            HorasEstimadas=('Horas PM Elegíveis', 'sum'),
+            Ocorrencias=('Issue Key', 'size'),
+            TiposRetrabalho=('TipoRetrabalho', lambda x: ', '.join(sorted(set(x)))),
+        )
+        .reset_index()
+    )
+    if not rework_real_by_issue.empty:
+        by_issue = by_issue.merge(rework_real_by_issue, on='Issue Key', how='left')
+        by_issue['CustoRealRetrabalho'] = pd.to_numeric(by_issue.get('CustoRealRetrabalho'), errors='coerce').fillna(0.0)
+        by_issue['HorasReaisRetrabalho'] = pd.to_numeric(by_issue.get('HorasReaisRetrabalho'), errors='coerce').fillna(0.0)
+    else:
+        by_issue['CustoRealRetrabalho'] = 0.0
+        by_issue['HorasReaisRetrabalho'] = 0.0
+
+    by_issue = by_issue.sort_values('CustoEstimado', ascending=False).reset_index(drop=True)
+
+    kpis = {
+        'issues_com_retrabalho': n_issues_rework,
+        'custo_pm_retrabalho': rework_pm_cost,
+        'custo_pm_normal': normal_pm_cost,
+        'custo_pm_total': total_pm_cost,
+        'horas_pm_retrabalho': rework_pm_hours,
+        'pct_retrabalho': rework_pct,
+        'custo_real_retrabalho': real_rework_cost,
+        'has_real': real_rework_cost > 0,
+    }
+
+    return {
+        'rework_ev_df': rework_ev,
+        'kpis': kpis,
+        'by_type_df': by_type,
+        'by_issue_df': by_issue,
+        'has_cost': has_cost,
+    }
+
+
+def _build_custo_retrabalho_section(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> 'html.Div':
+    """
+    Renders the rework cost section:
+      - KPI cards row (issues, custo retrabalho, % do total, custo real)
+      - Chart 1: Stacked bar — rework vs. non-rework PM cost
+      - Chart 2: Rework cost by type (Backward Move / QA Return / Reopen)
+      - Chart 3: Top 15 issues by rework estimated cost
+    """
+    data = build_custo_retrabalho_data(events_df, worklog_df)
+    kpis = data.get('kpis', {})
+    by_type_df = data.get('by_type_df', pd.DataFrame())
+    by_issue_df = data.get('by_issue_df', pd.DataFrame())
+
+    if not kpis or kpis.get('issues_com_retrabalho', 0) == 0:
+        return html.Div()
+
+    has_cost = data.get('has_cost', False)
+    has_real = bool(kpis.get('has_real', False))
+    value_label = 'Custo (R$)' if has_cost else 'Horas'
+
+    pct = kpis.get('pct_retrabalho', np.nan)
+    pct_str = f"{pct:.1f}%" if not pd.isna(pct) else '—'
+
+    def _fmt(v, is_money=True):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return '—'
+        if is_money and has_cost:
+            return f"R$ {float(v):,.0f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        return f"{float(v):,.1f}h"
+
+    # ── KPI cards ─────────────────────────────────────────────────────────────
+    kpi_cards = html.Div([
+        _portfolio_metric_card('Issues com retrabalho', str(kpis.get('issues_com_retrabalho', 0))),
+        _portfolio_metric_card(
+            'Custo estimado retrabalho',
+            _fmt(kpis.get('custo_pm_retrabalho'), is_money=True),
+        ),
+        _portfolio_metric_card('% do custo total', pct_str),
+        _portfolio_metric_card(
+            'Custo real retrabalho' if has_real else 'Horas retrabalho (PM)',
+            _fmt(kpis.get('custo_real_retrabalho') if has_real else kpis.get('horas_pm_retrabalho'), is_money=has_real),
+        ),
+    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
+
+    # ── Chart 1: Retrabalho vs. normal (stacked) ──────────────────────────────
+    rw_val = kpis.get('custo_pm_retrabalho', 0) if has_cost else kpis.get('horas_pm_retrabalho', 0)
+    nm_val = kpis.get('custo_pm_normal', 0) if has_cost else 0.0
+
+    stack_df = pd.DataFrame([
+        {'Categoria': 'Retrabalho', value_label: rw_val},
+        {'Categoria': 'Execução normal', value_label: nm_val},
+    ])
+    fig_stack = px.bar(
+        stack_df, x='Categoria', y=value_label,
+        color='Categoria',
+        title='Custo PM: retrabalho vs. execução normal',
+        color_discrete_map={'Retrabalho': '#d62728', 'Execução normal': '#2ca02c'},
+        text=value_label,
+    )
+    fig_stack.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+    fig_stack.update_layout(
+        height=340, showlegend=False,
+        yaxis_title=value_label, xaxis_title='',
+        margin=dict(t=50, b=60, l=60, r=20),
+    )
+
+    # ── Chart 2: Custo por tipo de retrabalho ────────────────────────────────
+    fig_type = go.Figure()
+    if not by_type_df.empty:
+        col_y = 'CustoEstimado' if has_cost else 'HorasEstimadas'
+        fig_type = px.bar(
+            by_type_df, x='TipoRetrabalho', y=col_y,
+            color='TipoRetrabalho',
+            title='Custo de retrabalho por tipo de evento',
+            text=col_y,
+            color_discrete_map={
+                'QA Return': '#ff7f0e',
+                'Backward Move': '#d62728',
+                'Reopen': '#9467bd',
+                'Outro': '#aaa',
+            },
+        )
+        fig_type.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_type.update_layout(
+            height=340, showlegend=False,
+            yaxis_title=value_label, xaxis_title='',
+            margin=dict(t=50, b=60, l=60, r=20),
+        )
+
+    # ── Chart 3: Top 15 issues por custo de retrabalho ───────────────────────
+    issues_graph = html.Div()
+    if not by_issue_df.empty:
+        top15 = by_issue_df.head(15).copy()
+        top15['_label'] = top15['Issue Key'] + ' (' + top15['Produto'] + ')'
+        col_x = 'CustoEstimado' if has_cost else 'HorasEstimadas'
+        fig_issues = px.bar(
+            top15, x=col_x, y='_label',
+            orientation='h',
+            title='Top 15 issues por custo de retrabalho estimado',
+            color=col_x,
+            color_continuous_scale='Reds',
+            text=col_x,
+            hover_data={'TiposRetrabalho': True, 'Ocorrencias': True, '_label': False},
+            labels={col_x: value_label, '_label': '', 'TiposRetrabalho': 'Tipo', 'Ocorrencias': 'Eventos'},
+        )
+        fig_issues.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_issues.update_layout(
+            height=max(300, len(top15) * 28 + 80),
+            xaxis_title=value_label,
+            yaxis=dict(autorange='reversed'),
+            margin=dict(t=50, b=60, l=220, r=80),
+            coloraxis_showscale=False,
+        )
+        issues_graph = dcc.Graph(figure=fig_issues)
+
+    notes = []
+    if not has_cost:
+        notes.append(html.P(
+            'Taxas de custo não configuradas — valores em horas. Configure FLOW_PMO_PM_COST_PER_HOUR_MAP para custo monetário.',
+            style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
+        ))
+    if has_real:
+        notes.append(html.P(
+            f"Custo real de retrabalho (worklogs após evento de retrabalho): {_fmt(kpis.get('custo_real_retrabalho'))}",
+            style={'color': '#333', 'fontSize': '13px', 'marginBottom': '8px'}
+        ))
+
+    return html.Div([
+        html.H4('Custo de Retrabalho', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.Div(notes),
+        kpi_cards,
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_stack)], style={'flex': '1', 'minWidth': '280px'}),
+            html.Div([dcc.Graph(figure=fig_type)], style={'flex': '1', 'minWidth': '280px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
+        html.Div([issues_graph], style={'marginTop': '12px'}),
+    ])
+
+
 def _build_capex_worklog_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     columns = [
         'Data do Apontamento',
@@ -15028,6 +15342,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
         custo_por_fase_section = _build_custo_por_fase_section(events_all_df, capex_worklog_df)
         custo_estimado_vs_real_section = _build_custo_estimado_vs_real_section(events_all_df, capex_worklog_df)
+        custo_retrabalho_section = _build_custo_retrabalho_section(events_all_df, capex_worklog_df)
 
         pm_portfolio_section = html.Div([
             html.Div(pm_notes, style={'marginBottom': '12px'}),
@@ -15053,6 +15368,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             custo_por_atividade_section,
             custo_por_fase_section,
             custo_estimado_vs_real_section,
+            custo_retrabalho_section,
             html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
             html.Div(pm_product_cards, style={
                 'display': 'grid',
