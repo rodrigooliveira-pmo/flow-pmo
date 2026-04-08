@@ -8300,3 +8300,33 @@
   - tornar `run_process_mining_projects.ps1` resiliente a falhas de `jira_to_pipeline_csv.py` por projeto, acumulando aviso e seguindo, em vez de abortar o lote inteiro no primeiro erro.
 - Suggested commit message:
   - `docs(todo): record live diagnosis of batch runner network exhaustion for bf dt outputs`
+## Current Task (Tornar run_process_mining_projects.ps1 resiliente por projeto)
+- [ ] Revisar o fluxo atual de falha do runner por projeto (`jira`, `process mining`, `bitbucket`, `latest-upload`)
+- [ ] Alterar `run_process_mining_projects.ps1` para acumular falhas por projeto sem abortar o lote inteiro
+- [ ] Validar a sintaxe do script e revisar o comportamento final do resumo de avisos
+- [ ] Registrar review com impacto e commit sugerido
+
+## Specification (Tornar run_process_mining_projects.ps1 resiliente por projeto)
+- Objetivo: impedir que uma falha em um projeto específico interrompa o lote inteiro do `run_process_mining_projects.ps1`, permitindo que os demais projetos e a atualização final do pacote `latest-upload` continuem.
+- Escopo:
+  - `run_process_mining_projects.ps1`
+  - `tasks/todo.md`
+- Critério de aceite:
+  - falha em `jira_to_pipeline_csv.py` para um projeto vira aviso acumulado, não `throw` global imediato
+  - o runner continua tentando os demais projetos
+  - `process_mining_jira.py` só roda quando houver changelog detalhado válido para o projeto
+  - a atualização final de `latest-upload` continua sendo executada ao fim do lote
+
+## Review (Tornar run_process_mining_projects.ps1 resiliente por projeto)
+- O que foi ajustado:
+  - [`run_process_mining_projects.ps1`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/run_process_mining_projects.ps1) agora mantém uma lista dedicada de falhas de `Jira/Downstream` por projeto, além das listas já existentes de `Process Mining` e `Bitbucket`.
+  - a etapa `jira_to_pipeline_csv.py` deixou de dar `throw` global quando um projeto falha; o runner emite warning, registra a falha e segue para os próximos projetos.
+  - `process_mining_jira.py` agora só roda quando o changelog detalhado do projeto foi realmente gerado; quando ele não existe, o projeto recebe um aviso de `skipped-missing-detailed-changelog`.
+  - as etapas de `process mining` e `bitbucket` também passaram a tratar erro de inicialização do comando como falha por projeto, sem encerrar o lote inteiro.
+  - o resumo final do script passou a mostrar `Avisos Jira/Downstream` junto dos avisos de `Process Mining` e `Bitbucket`.
+- Evidência de validação:
+  - parsing sintático do PowerShell com `[System.Management.Automation.Language.Parser]::ParseFile(...)` retornando `OK`
+- Impacto esperado:
+  - se `BF` ou `DT` falharem no Jira detalhado, `W1NNR` e `S1NC` continuam preservados, os próximos projetos seguem sendo tentados e a atualização final de `latest-upload` ainda acontece com os artefatos que existirem
+- Suggested commit message:
+  - `fix(runner): keep process mining batch running after per-project jira failures`

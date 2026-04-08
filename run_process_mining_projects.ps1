@@ -261,6 +261,7 @@ $bitbucketScript = Join-Path $PSScriptRoot 'bitbucket_export.py'
 $dashboardMetricsScript = Join-Path $PSScriptRoot 'dash_board_metricas.py'
 $copyLatestUploadScript = Join-Path $PSScriptRoot 'copy_latest_upload.py'
 $processMiningOutDir = Join-Path $PSScriptRoot 'artifacts\process_mining'
+$jiraFailures = New-Object System.Collections.Generic.List[string]
 $processMiningFailures = New-Object System.Collections.Generic.List[string]
 $bitbucketFailures = New-Object System.Collections.Generic.List[string]
 
@@ -338,38 +339,84 @@ foreach ($p in $projects) {
         $jiraArgs += @('--jql-extra', $JqlExtra)
     }
 
-    $jiraExit = Invoke-PythonScript -ScriptPath $scriptPath -Arguments $jiraArgs -Label "jira_to_pipeline_csv $($p.Key)"
-    if ($jiraExit -ne 0) {
-        throw "Falha na exportação downstream detalhada do projeto $($p.Key) (exit $jiraExit). Consulte a saída do comando acima."
+    $jiraExit = $null
+    $jiraStartFailed = $false
+    try {
+        $jiraExit = Invoke-PythonScript -ScriptPath $scriptPath -Arguments $jiraArgs -Label "jira_to_pipeline_csv $($p.Key)"
+    }
+    catch {
+        Write-Warning "Falha ao iniciar exportação downstream detalhada do projeto $($p.Key). $($_.Exception.Message)"
+        [void]$jiraFailures.Add("$($p.Key):start-error")
+        $jiraStartFailed = $true
+        $jiraExit = -1
     }
 
-    if (Test-Path $detailedChangelogOut) {
+    $canRunProcessMining = $false
+    if ($jiraExit -ne 0) {
+        Write-Warning "Falha na exportação downstream detalhada do projeto $($p.Key) (exit $jiraExit). O lote seguirá para os demais projetos."
+        if (-not $jiraStartFailed) {
+            [void]$jiraFailures.Add("$($p.Key):exit-$jiraExit")
+        }
+    }
+    elseif (Test-Path $detailedChangelogOut) {
+        $canRunProcessMining = $true
+    }
+    else {
+        Write-Warning "Changelog detalhado ausente para $($p.Key); process mining será pulado para este projeto."
+        [void]$processMiningFailures.Add("$($p.Key):skipped-missing-detailed-changelog")
+    }
+
+    if ($canRunProcessMining) {
         Copy-Item -Path $detailedChangelogOut -Destination $detailedChangelogLatest -Force
         Write-Host "Arquivo latest atualizado: $detailedChangelogLatest" -ForegroundColor Green
         Publish-LatestArtifact -SourcePath $detailedChangelogLatest -LatestDir $LatestDir
-    }
 
-    Write-Host "Gerando process mining para $($p.Key)..." -ForegroundColor Cyan
-    $pmExit = Invoke-PythonScript -ScriptPath $processMiningScript -Arguments @(
-        '--input', $detailedChangelogOut,
-        '--out-dir', $processMiningOutDir,
-        '--project', $p.Key,
-        '--prefix', $p.ProcessMiningPrefix
-    ) -Label "process_mining_jira $($p.Key)"
-    if ($pmExit -eq 0) {
-        Sync-LatestArtifactsFromOutDir -SourceDir $processMiningOutDir -LatestDir $LatestDir
-    }
-    else {
-        $status = $pmExit
-        Write-Warning "Process mining falhou para $($p.Key) (exit $status)."
-        [void]$processMiningFailures.Add("$($p.Key):exit-$status")
+        Write-Host "Gerando process mining para $($p.Key)..." -ForegroundColor Cyan
+        $pmExit = $null
+        $pmStartFailed = $false
+        try {
+            $pmExit = Invoke-PythonScript -ScriptPath $processMiningScript -Arguments @(
+                '--input', $detailedChangelogOut,
+                '--out-dir', $processMiningOutDir,
+                '--project', $p.Key,
+                '--prefix', $p.ProcessMiningPrefix
+            ) -Label "process_mining_jira $($p.Key)"
+        }
+        catch {
+            Write-Warning "Falha ao iniciar process mining para $($p.Key). $($_.Exception.Message)"
+            [void]$processMiningFailures.Add("$($p.Key):start-error")
+            $pmStartFailed = $true
+            $pmExit = -1
+        }
+
+        if ($pmExit -eq 0) {
+            Sync-LatestArtifactsFromOutDir -SourceDir $processMiningOutDir -LatestDir $LatestDir
+        }
+        else {
+            $status = $pmExit
+            Write-Warning "Process mining falhou para $($p.Key) (exit $status)."
+            if (-not $pmStartFailed) {
+                [void]$processMiningFailures.Add("$($p.Key):exit-$status")
+            }
+        }
     }
 
     Write-Host "Exportando Bitbucket para $($p.BitbucketProject)..." -ForegroundColor Cyan
-    $bbExit = Invoke-PythonScript -ScriptPath $bitbucketScript -Arguments @(
-        '--project', $p.BitbucketProject,
-        '--out-dir', $OutDir
-    ) -Label "bitbucket_export $($p.BitbucketProject)"
+    $bbExit = $null
+    $bbStartFailed = $false
+    try {
+        $bbExit = Invoke-PythonScript -ScriptPath $bitbucketScript -Arguments @(
+            '--project', $p.BitbucketProject,
+            '--out-dir', $OutDir
+        ) -Label "bitbucket_export $($p.BitbucketProject)"
+    }
+    catch {
+        Write-Warning "Falha ao iniciar extração Bitbucket do projeto $($p.BitbucketProject). $($_.Exception.Message)"
+        [void]$bitbucketFailures.Add("$($p.BitbucketProject):start-error")
+        $bbStartFailed = $true
+        $bbExit = -1
+    }
+
     if ($bbExit -eq 0) {
         foreach ($suffix in @('commits', 'pullrequests', 'pipelines')) {
             $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p.FilePrefix.Replace('-downstream', ''), $suffix)
@@ -381,7 +428,9 @@ foreach ($p in $projects) {
     else {
         $status = $bbExit
         Write-Warning "Falha na extração Bitbucket do projeto $($p.BitbucketProject) (exit $status)."
-        [void]$bitbucketFailures.Add("$($p.BitbucketProject):exit-$status")
+        if (-not $bbStartFailed) {
+            [void]$bitbucketFailures.Add("$($p.BitbucketProject):exit-$status")
+        }
     }
 }
 
@@ -436,6 +485,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "`nExportação dedicada de process mining concluída." -ForegroundColor Green
+if ($jiraFailures.Count -gt 0) {
+    Write-Warning ("Avisos Jira/Downstream: " + ($jiraFailures -join ", "))
+}
 if ($processMiningFailures.Count -gt 0) {
     Write-Warning ("Avisos Process Mining: " + ($processMiningFailures -join ", "))
 }
