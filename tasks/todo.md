@@ -1,3 +1,37 @@
+## Current Task (Permitir multiseleção no filtro de responsável)
+- [x] Mapear o dropdown `filter-responsavel` e os pontos onde o valor ainda é tratado como seleção única
+- [x] Ajustar a UI e os helpers de filtro para aceitar um ou mais responsáveis
+- [x] Validar a alteração com compilação sintática e registrar review com commit sugerido
+
+## Specification (Permitir multiseleção no filtro de responsável)
+- Objetivo: fazer o filtro `Responsável` do dashboard aceitar múltiplos nomes selecionados ao mesmo tempo, preservando o comportamento atual quando apenas um responsável for escolhido.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - trocar o `dcc.Dropdown` de `filter-responsavel` para `multi=True`
+  - centralizar a normalização do filtro de responsável para aceitar `None`, string única ou lista
+  - reaplicar essa lógica nos módulos que filtram por responsável, incluindo portfólio, process mining e visões de custo
+- Critério de aceite:
+  - o campo `Responsável` permite selecionar múltiplos itens na UI
+  - o dashboard continua aceitando seleção única sem regressão
+  - os filtros por responsável passam a usar interseção por lista nos blocos que hoje dependem desse valor
+  - o arquivo alterado continua válido sintaticamente
+
+## Review (Permitir multiseleção no filtro de responsável)
+- O que foi ajustado:
+  - o `dcc.Dropdown` `filter-responsavel` em `dashboard_full.py` passou a usar `multi=True`, `value=[]` e placeholder compatível com seleção múltipla
+  - criei helpers para normalizar o filtro de responsável em modo único ou múltiplo sem duplicar lógica pelo arquivo
+  - adaptei os filtros de serviço, portfólio, process mining e visões de custo para aplicar `isin(...)` em vez de igualdade simples
+  - os labels de escopo e cabeçalhos passaram a resumir corretamente múltiplos responsáveis selecionados
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - a validação desta rodada foi sintática/estática; ainda vale um smoke test visual no navegador para conferir chips/altura do campo com muitas pessoas selecionadas
+- Suggested commit message:
+  - `feat(filters): allow multi-select on responsavel filter`
+
 ## Current Task (Usar a JQL do novo quadro na extracao de Data & Analytics)
 - [x] Mapear onde o runner/exportador monta a JQL do projeto `DT`
 - [x] Implementar override de JQL completa por projeto para `DT` sem afetar os demais projetos
@@ -8649,3 +8683,47 @@
   - `Aging Rescue Rate` fica `NaN` quando o dev não tem entregas elegíveis no período, o que é intencional para não confundir ausência de base com zero
 - Suggested commit message:
   - `fix(produtividade-dev): separate aging rescue from aging pull rates`
+
+## Current Task (Corrigir gráficos mensais vazios na Produtividade Individual)
+- [x] Reproduzir localmente a ausência de dados em `Δ IED Trend` e `Δ ECR` com base real e confirmar a causa raiz
+- [x] Ajustar os helpers mensais para não descartar períodos válidos de forma excessiva
+- [x] Validar com compilação/smoke test e registrar review com commit sugerido
+
+## Specification (Corrigir gráficos mensais vazios na Produtividade Individual)
+- Objetivo: fazer os gráficos `Δ IED Trend` e `Δ ECR` exibirem dados quando o período realmente tem base mensal suficiente, evitando falsos vazios na aba `Produtividade Individual por Desenvolvedor`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reproduzir o problema usando a base atual do dashboard para separar ausência real de base versus descarte indevido pelos helpers
+  - revisar a construção dos buckets mensais e os critérios mínimos por dev para IED/ECR
+  - aplicar a menor correção que preserve a intenção de reduzir ruído sem esconder séries válidas
+- Critério de aceite:
+  - os gráficos voltam a exibir barras quando houver ao menos dois meses válidos no período
+  - períodos realmente sem base continuam mostrando mensagem explicativa
+  - o arquivo continua válido sintaticamente
+
+## Review (Corrigir gráficos mensais vazios na Produtividade Individual)
+- Causa raiz confirmada:
+  - a aba de produtividade calculava as tendências mensais em cima de `df`, que já chega recortado pelo filtro global de data; isso removia da série mensal itens puxados no mês mas concluídos depois
+  - além disso, os helpers mensais exigiam `>= 2` itens por dev em cada mês válido; em recortes de 3 meses com um único responsável ou baixa vazão, isso zerava toda a visão mesmo havendo 2+ meses com atividade
+- O que foi ajustado:
+  - `dashboard_full.py` agora monta `df_prod_monthly_base` com os filtros dimensionais (`projeto`, `tipo`, `classe`, `responsável`, `criador`) mas sem o recorte global de data, deixando o corte mensal acontecer dentro dos helpers
+  - `_compute_monthly_ied_series(...)` deixou de pré-filtrar a base por `DataDone` antes de chamar `build_dev_productivity_metrics(...)`, alinhando o cálculo mensal do IED à régua temporal real do período
+  - `_compute_monthly_ied_series(...)` e `_compute_monthly_ecr_series(...)` passaram a aceitar `min_items_per_month`
+  - a aba mantém a régua padrão de `2` itens/mês, mas faz fallback automático para `1` item/mês quando a régua stricter zeraria toda a tendência num período com 2+ meses
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - smoke test real com `W1NNER / Lucas Pizol / 2026-01-01..2026-04-09`:
+    - antes, `strict ied = []` e `strict ecr = []`
+    - com fallback, `IED = [('Jan/26', 89.6), ('Mar/26', 89.6)]`
+    - com fallback, `ECR = [('Jan/26', 0.0, 1), ('Feb/26', 0.0, 1)]`
+  - smoke test comparando base com/sem recorte global de data no ECR mensal encontrou casos reais onde a base sem recorte recupera meses válidos, por exemplo:
+    - `BEFINANCE / Mayderson Santos Mello: 3 -> 4 pontos`
+    - `DATA&ANALYTICS / Camila Silotto Correia Vertamatti: 1 -> 2 pontos`
+    - `S1NC / Gabriel Wiggert: 3 -> 4 pontos`
+- Risco residual:
+  - o fallback de `1` item/mês evita falso vazio, mas pode tornar alguns deltas mais sensíveis em recortes individuais de baixa amostra
+  - a validação desta rodada foi sintática e por smoke tests de dados; ainda vale um smoke test visual no navegador para confirmar que os dois gráficos agora renderizam no cenário do usuário
+- Suggested commit message:
+  - `fix(produtividade-dev): unblock monthly ied and ecr trends`

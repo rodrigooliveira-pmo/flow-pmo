@@ -501,9 +501,12 @@ def apply_portfolio_module_filters(df_portfolio, projeto=None, tipo=None, classe
     if responsavel:
         responsavel_col = next((col for col in ['Responsavel', 'Responsável'] if col in df_filtered.columns), None)
         if responsavel_col:
-            df_filtered = df_filtered[df_filtered[responsavel_col].fillna('').astype(str) == str(responsavel)].copy()
+            selected_responsaveis = set(_normalize_responsavel_filter_values(responsavel))
+            df_filtered = df_filtered[
+                df_filtered[responsavel_col].fillna('').astype(str).str.strip().isin(selected_responsaveis)
+            ].copy()
             if df_filtered.empty:
-                notes.append(f'Responsável "{responsavel}" sem itens no escopo atual do portfólio.')
+                notes.append(f'Responsável "{_format_responsavel_filter_label(responsavel)}" sem itens no escopo atual do portfólio.')
         else:
             notes.append('O CSV atual de portfólio não possui informação de responsável.')
             df_filtered = df_filtered.iloc[0:0].copy()
@@ -1011,6 +1014,48 @@ def _canonical_person_name(raw_name, alias_index=None):
         if key and key in alias_index:
             return alias_index[key]
     return fallback
+
+
+def _normalize_multiselect_value(raw_value):
+    if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+        return []
+    if isinstance(raw_value, (list, tuple, set, pd.Series, np.ndarray)):
+        candidates = raw_value
+    else:
+        candidates = [raw_value]
+    normalized = []
+    seen = set()
+    for candidate in candidates:
+        if candidate is None or (isinstance(candidate, float) and pd.isna(candidate)):
+            continue
+        text = str(candidate).strip()
+        if not text or text.lower() in {'nan', 'none'} or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+def _normalize_responsavel_filter_values(responsavel, alias_index=None, canonicalize=False):
+    alias_index = alias_index if isinstance(alias_index, dict) else _load_person_alias_index()
+    normalized = []
+    seen = set()
+    for raw_name in _normalize_multiselect_value(responsavel):
+        person = _canonical_person_name(raw_name, alias_index=alias_index) if canonicalize else _normalize_person_name(raw_name)
+        if not person or person in seen:
+            continue
+        seen.add(person)
+        normalized.append(person)
+    return normalized
+
+
+def _format_responsavel_filter_label(responsavel, max_items=3):
+    selected = _normalize_responsavel_filter_values(responsavel)
+    if not selected:
+        return 'Todos'
+    if len(selected) <= max_items:
+        return ', '.join(selected)
+    return f"{', '.join(selected[:max_items])} +{len(selected) - max_items}"
 
 
 def _person_tokens_for_match(raw_name):
@@ -2253,12 +2298,12 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None):
+def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None, min_items_per_month=2):
     """Retorna {pessoa: [(month_label, ied_value), ...]} para sparklines temporais de IED.
 
     Divide o período em meses completos, chama build_dev_productivity_metrics +
-    _compute_ied em cada fatia e agrega os resultados por dev. Meses com menos de
-    2 entregas para um dev são omitidos da série (gap no sparkline).
+    _compute_ied em cada fatia e agrega os resultados por dev. Por padrão, meses
+    com menos de 2 entregas para um dev são omitidos da série (gap no sparkline).
     Guarda no máximo 24 meses para não tornar a renderização pesada.
     """
     result = {}
@@ -2285,14 +2330,7 @@ def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None):
 
     for m_start, m_end, m_label in months:
         try:
-            _done_mask = (
-                (pd.to_datetime(df_base['DataDone'], errors='coerce') >= m_start) &
-                (pd.to_datetime(df_base['DataDone'], errors='coerce') < m_end)
-            )
-            _slice = df_base[_done_mask].copy()
-            if _slice.empty:
-                continue
-            _pd_m, _, _ = build_dev_productivity_metrics(_slice, m_start, m_end)
+            _pd_m, _, _ = build_dev_productivity_metrics(df_base, m_start, m_end)
             if _pd_m.empty or 'Pessoa' not in _pd_m.columns:
                 continue
             _pd_m = _compute_ied(_pd_m)
@@ -2300,7 +2338,7 @@ def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None):
                 pessoa = str(row.get('Pessoa', ''))
                 ied = float(row.get('IED', 0) or 0)
                 n_entregues = int(row.get('Itens Entregues', 0) or 0)
-                if pessoa and n_entregues >= 2:
+                if pessoa and n_entregues >= max(int(min_items_per_month or 0), 1):
                     result.setdefault(pessoa, []).append((m_label, ied))
         except Exception:
             continue
@@ -2308,11 +2346,11 @@ def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None):
     return result
 
 
-def _compute_monthly_ecr_series(df_base, start_ts, end_ts, alias_index=None):
+def _compute_monthly_ecr_series(df_base, start_ts, end_ts, alias_index=None, min_items_per_month=2):
     """Retorna {pessoa: [(month_label, ecr_value, itens_puxados), ...]} para tendência mensal de ECR.
 
     O ECR é recalculado mês a mês usando a mesma lógica de `build_dev_productivity_metrics`.
-    Meses com menos de 2 itens puxados por dev são omitidos para reduzir ruído.
+    Por padrão, meses com menos de 2 itens puxados por dev são omitidos para reduzir ruído.
     """
     result = {}
     if df_base is None or df_base.empty:
@@ -2344,7 +2382,7 @@ def _compute_monthly_ecr_series(df_base, start_ts, end_ts, alias_index=None):
                 pessoa = str(row.get('Pessoa', '') or '').strip()
                 ecr = pd.to_numeric(pd.Series([row.get('ECR', np.nan)]), errors='coerce').iloc[0]
                 itens_puxados = int(row.get('Itens Puxados', 0) or 0)
-                if pessoa and pd.notna(ecr) and itens_puxados >= 2:
+                if pessoa and pd.notna(ecr) and itens_puxados >= max(int(min_items_per_month or 0), 1):
                     result.setdefault(pessoa, []).append((m_label, float(ecr), itens_puxados))
         except Exception:
             continue
@@ -2754,7 +2792,7 @@ def build_pm_commits_vs_jira_report(pm_people, pm_cases, start_ts, end_ts, respo
         'Peterson Bem',
     }
     if responsavel:
-        focus_people.add(str(responsavel))
+        focus_people.update(_normalize_responsavel_filter_values(responsavel, alias_index=alias_index, canonicalize=True))
     for _, row in active[active['Pessoa'].isin(focus_people)].iterrows():
         fig.add_annotation(
             x=row['Commits'],
@@ -2782,7 +2820,9 @@ def build_pm_commits_vs_jira_report(pm_people, pm_cases, start_ts, end_ts, respo
                 ((done_cases['Done Final Date'] >= start_ts) & (done_cases['Done Final Date'] <= end_ts))
             ]
         if responsavel and 'Done Final Author' in done_cases.columns:
-            done_cases = done_cases[done_cases['Done Final Author'].astype(str) == str(responsavel)]
+            selected_people = set(_normalize_responsavel_filter_values(responsavel, alias_index=alias_index, canonicalize=True))
+            done_authors = done_cases['Done Final Author'].apply(lambda value: _canonical_person_name(value, alias_index=alias_index))
+            done_cases = done_cases[done_authors.isin(selected_people)]
         done_cases['Issue Key'] = done_cases['Issue Key'].astype(str).str.strip().str.upper()
         done_cases = done_cases[done_cases['Issue Key'].ne('')]
         tech_keys = _extract_work_item_keys_from_bitbucket_logs(logs, start_ts, end_ts)
@@ -5372,9 +5412,9 @@ def _build_capex_worklog_fact(start_ts, end_ts, portfolio_scope_df, project_valu
         x = x[x['Projeto PM'].isin(selected_projects)].copy()
 
     alias_index = _load_person_alias_index()
-    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
-    if target_person:
-        x = x[x['Pessoa'] == target_person].copy()
+    selected_people = set(_normalize_responsavel_filter_values(responsavel, alias_index=alias_index, canonicalize=True))
+    if selected_people:
+        x = x[x['Pessoa'].isin(selected_people)].copy()
 
     if x.empty:
         return {
@@ -5494,9 +5534,9 @@ def build_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df=None, project_v
     if selected_project:
         df = df[df['Projeto PM'] == selected_project].copy()
 
-    target_person = _canonical_person_name(responsavel, alias_index=_load_person_alias_index()) if responsavel else ''
-    if target_person:
-        df = df[df['Pessoa'] == target_person].copy()
+    selected_people = set(_normalize_responsavel_filter_values(responsavel, alias_index=_load_person_alias_index(), canonicalize=True))
+    if selected_people:
+        df = df[df['Pessoa'].isin(selected_people)].copy()
 
     cost_model = build_portfolio_cost_model_snapshot(
         portfolio_scope_df if isinstance(portfolio_scope_df, pd.DataFrame) else pd.DataFrame(),
@@ -8945,9 +8985,9 @@ def build_capex_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df, project_
         if selected_project:
             df = df[df['Projeto PM'] == selected_project].copy()
 
-    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
-    if target_person:
-        df = df[df['Colaborador Canonico'] == target_person].copy()
+    selected_people = set(_normalize_responsavel_filter_values(responsavel, alias_index=alias_index, canonicalize=True))
+    if selected_people:
+        df = df[df['Colaborador Canonico'].isin(selected_people)].copy()
 
     if df.empty:
         return {
@@ -9525,7 +9565,7 @@ def _build_worklog_portfolio_cost_view_v2_unused(start_ts, end_ts, portfolio_sco
     end_ts = pd.to_datetime(end_ts)
     period_end_exclusive = end_ts + pd.Timedelta(days=1)
     alias_index = _load_person_alias_index()
-    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
+    selected_people = set(_normalize_responsavel_filter_values(responsavel, alias_index=alias_index, canonicalize=True))
     selected_project = _canonical_pm_product_key(project_value)
 
     df['Data do Apontamento das Horas'] = pd.to_datetime(df['Data do Apontamento das Horas'], errors='coerce')
@@ -9545,8 +9585,8 @@ def _build_worklog_portfolio_cost_view_v2_unused(start_ts, end_ts, portfolio_sco
         }
 
     df['Pessoa'] = df['Colaborador'].apply(lambda value: _canonical_person_name(value, alias_index=alias_index))
-    if target_person:
-        df = df[df['Pessoa'] == target_person].copy()
+    if selected_people:
+        df = df[df['Pessoa'].isin(selected_people)].copy()
     if df.empty:
         return {
             'available': False,
@@ -9767,7 +9807,7 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
     specs = _pm_portfolio_selected_specs(project_value)
     rate_map = _pm_load_cost_rate_map()
     alias_index = _load_person_alias_index()
-    target_person = _canonical_person_name(responsavel, alias_index=alias_index) if responsavel else ''
+    selected_people = set(_normalize_responsavel_filter_values(responsavel, alias_index=alias_index, canonicalize=True))
     portfolio_lookup = _pm_build_portfolio_lookup(portfolio_scope_df)
     period_end_exclusive = pd.to_datetime(end_ts) + pd.Timedelta(days=1)
     capex_cost_data = build_capex_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df, project_value=project_value, responsavel=responsavel)
@@ -9805,8 +9845,8 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
             project_events['Responsável PM'] = project_events['Author'].apply(
                 lambda x: _canonical_person_name(x, alias_index=alias_index)
             )
-            if target_person:
-                project_events = project_events[project_events['Responsável PM'] == target_person].copy()
+            if selected_people:
+                project_events = project_events[project_events['Responsável PM'].isin(selected_people)].copy()
             project_events['Status PM Elegível'] = project_events.get('To Status Norm', project_events.get('To Status', '')).apply(_pm_is_execution_status)
             project_events['Horas PM Elegíveis'] = (
                 pd.to_numeric(project_events['TempoStatusDias'], errors='coerce').fillna(0) * 24.0
@@ -11399,7 +11439,17 @@ app.layout = html.Div([
         ], style={'width':'20%', 'display':'inline-block'}),
         html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['TipoDemanda'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Classe Serviço (Prioridade):'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
-        html.Div([html.Label('Responsável:'), dcc.Dropdown(id='filter-responsavel', options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])], value=None, clearable=True)], style={'width':'18%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([
+            html.Label('Responsável:'),
+            dcc.Dropdown(
+                id='filter-responsavel',
+                options=[{'label':r,'value':r} for r in unique_sorted(fato['Responsavel'])],
+                value=[],
+                multi=True,
+                clearable=True,
+                placeholder='Selecione um ou mais responsáveis'
+            )
+        ], style={'width':'18%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([
             html.Label('Criador:'),
             dcc.Dropdown(
@@ -11570,7 +11620,8 @@ def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsav
     if classe_servico:
         d = d[d['ClasseServico'] == classe_servico]
     if responsavel:
-        d = d[d['Responsavel'] == responsavel]
+        selected_responsaveis = set(_normalize_responsavel_filter_values(responsavel))
+        d = d[d['Responsavel'].fillna('').astype(str).str.strip().isin(selected_responsaveis)]
     if criadores or use_creation_date:
         d = enrich_items_with_downstream_metadata(d, projeto=projeto)
     if criadores:
@@ -13824,7 +13875,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if classe_servico:
             scope_parts.append(f'Classe: {classe_servico}')
         if responsavel:
-            scope_parts.append(f'Responsável: {responsavel}')
+            scope_parts.append(f'Responsáveis: {_format_responsavel_filter_label(responsavel)}')
         if portfolio_quarter and portfolio_quarter != 'ALL':
             scope_parts.append(f'Quarter: {portfolio_quarter}')
         scope_label = ' | '.join(scope_parts)
@@ -17399,24 +17450,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ]
 
         if responsavel:
+            selected_people = set(_normalize_responsavel_filter_values(responsavel, canonicalize=True))
             if 'Responsavel' in pm_people.columns:
-                pm_people = pm_people[pm_people['Responsavel'] == responsavel]
+                pm_people = pm_people[pm_people['Responsavel'].apply(_canonical_person_name).isin(selected_people)]
             if 'Responsavel' in pm_weekly.columns:
-                pm_weekly = pm_weekly[pm_weekly['Responsavel'] == responsavel]
+                pm_weekly = pm_weekly[pm_weekly['Responsavel'].apply(_canonical_person_name).isin(selected_people)]
             if 'Responsavel' in pm_hours_people.columns:
-                pm_hours_people = pm_hours_people[pm_hours_people['Responsavel'] == responsavel]
+                pm_hours_people = pm_hours_people[pm_hours_people['Responsavel'].apply(_canonical_person_name).isin(selected_people)]
             if 'Responsavel' in pm_hours_status.columns:
-                pm_hours_status = pm_hours_status[pm_hours_status['Responsavel'] == responsavel]
+                pm_hours_status = pm_hours_status[pm_hours_status['Responsavel'].apply(_canonical_person_name).isin(selected_people)]
             if 'Done Final Author' in pm_rework.columns:
-                pm_rework = pm_rework[pm_rework['Done Final Author'] == responsavel]
+                pm_rework = pm_rework[pm_rework['Done Final Author'].apply(_canonical_person_name).isin(selected_people)]
             if 'Done Final Author' in pm_cases.columns:
-                pm_cases = pm_cases[pm_cases['Done Final Author'] == responsavel]
+                pm_cases = pm_cases[pm_cases['Done Final Author'].apply(_canonical_person_name).isin(selected_people)]
             if 'Author' in pm_events.columns:
-                pm_events = pm_events[pm_events['Author'] == responsavel]
+                pm_events = pm_events[pm_events['Author'].apply(_canonical_person_name).isin(selected_people)]
             if 'Done Final Author' in pm_tbr_cases.columns:
-                pm_tbr_cases = pm_tbr_cases[pm_tbr_cases['Done Final Author'] == responsavel]
+                pm_tbr_cases = pm_tbr_cases[pm_tbr_cases['Done Final Author'].apply(_canonical_person_name).isin(selected_people)]
             if 'Done Final Author' in pm_align_cases.columns:
-                pm_align_cases = pm_align_cases[pm_align_cases['Done Final Author'] == responsavel]
+                pm_align_cases = pm_align_cases[pm_align_cases['Done Final Author'].apply(_canonical_person_name).isin(selected_people)]
 
         # Rebuild graph datasets from date-filtered bases to guarantee UI date filter adherence.
         if not pm_cases.empty and {'Issue Key', 'Done Final Author', 'Done Final Date'}.issubset(pm_cases.columns):
@@ -17723,8 +17775,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             bitbucket_logs, start_ts, bitbucket_end_ts, alias_index=_load_person_alias_index()
         )
         if responsavel and not bb_people.empty and 'Pessoa' in bb_people.columns:
-            target_person = _canonical_person_name(responsavel)
-            bb_people = bb_people[bb_people['Pessoa'] == target_person].copy()
+            selected_people = set(_normalize_responsavel_filter_values(responsavel, canonicalize=True))
+            bb_people = bb_people[bb_people['Pessoa'].isin(selected_people)].copy()
             bb_totals = {
                 'Commits': int(pd.to_numeric(bb_people.get('Commits', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
                 'PRs Abertos': int(pd.to_numeric(bb_people.get('PRs Abertos', pd.Series(dtype=float)), errors='coerce').fillna(0).sum()),
@@ -17741,8 +17793,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if keys_done:
                 tech_keys = _extract_work_item_keys_from_bitbucket_logs(bitbucket_logs, start_ts, bitbucket_end_ts)
                 if responsavel and 'Done Final Author' in pm_cases.columns:
+                    selected_people = set(_normalize_responsavel_filter_values(responsavel, canonicalize=True))
+                    done_authors = pm_cases['Done Final Author'].apply(_canonical_person_name)
                     keys_done = set(
-                        pm_cases[pm_cases['Done Final Author'].astype(str) == str(responsavel)]['Issue Key']
+                        pm_cases[done_authors.isin(selected_people)]['Issue Key']
                         .astype(str).str.strip().str.upper().tolist()
                     )
                 itens_com_evidencia = len(keys_done.intersection(tech_keys))
@@ -18080,7 +18134,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         report_label = os.path.basename(report_path) if report_path else 'n/d'
         period_label = f"{pd.Timestamp(start_ts).strftime('%d/%m/%Y')} a {pd.Timestamp(end_ts).strftime('%d/%m/%Y')}"
-        responsavel_label = responsavel if responsavel else 'Todos'
+        responsavel_label = _format_responsavel_filter_label(responsavel)
 
         def _pm_highlight_chip(label, value, note):
             return html.Div([
@@ -19218,6 +19272,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         end_ts_prod = pd.to_datetime(end_date)
 
         df_prod_base = df.copy()
+        df_prod_monthly_base = filter_df(
+            fato,
+            None,
+            None,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            apply_date=False,
+        )
 
         contributor_section = build_bitbucket_contributor_section(
             projeto,
@@ -19553,13 +19619,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         # ── IED Temporal — sparklines mensais por dev ─────────────────────────
         # Só computa se o período tiver ao menos 2 meses (caso contrário sem tendência).
         _n_meses_period = (end_ts_prod - start_ts_prod).days / 30.44
+
+        def _has_monthly_trend_points(monthly_data):
+            return any(len(points) >= 2 for points in monthly_data.values())
+
         _monthly_ied_data = {}
         if _n_meses_period >= 1.8:
             try:
                 _monthly_ied_data = _compute_monthly_ied_series(
-                    df_prod_base, start_ts_prod, end_ts_prod,
+                    df_prod_monthly_base, start_ts_prod, end_ts_prod,
                     alias_index=alias_index_prod,
                 )
+                # Mantém a régua stricter de 2 itens/mês como padrão, mas evita
+                # "falso vazio" quando o usuário foca em um dev/time de baixo volume.
+                if not _has_monthly_trend_points(_monthly_ied_data):
+                    _monthly_ied_data = _compute_monthly_ied_series(
+                        df_prod_monthly_base, start_ts_prod, end_ts_prod,
+                        alias_index=alias_index_prod,
+                        min_items_per_month=1,
+                    )
             except Exception:
                 _monthly_ied_data = {}
 
@@ -19581,9 +19659,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if _n_meses_period >= 0.8:
             try:
                 _monthly_ecr_data = _compute_monthly_ecr_series(
-                    df_prod_base, start_ts_prod, end_ts_prod,
+                    df_prod_monthly_base, start_ts_prod, end_ts_prod,
                     alias_index=alias_index_prod,
                 )
+                if _n_meses_period >= 1.8 and not _has_monthly_trend_points(_monthly_ecr_data):
+                    _monthly_ecr_data = _compute_monthly_ecr_series(
+                        df_prod_monthly_base, start_ts_prod, end_ts_prod,
+                        alias_index=alias_index_prod,
+                        min_items_per_month=1,
+                    )
             except Exception:
                 _monthly_ecr_data = {}
 
