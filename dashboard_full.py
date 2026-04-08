@@ -5396,6 +5396,222 @@ def _build_custo_por_atividade_section(worklog_df: 'pd.DataFrame') -> 'html.Div'
     ])
 
 
+def build_cost_per_phase_data(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> dict:
+    """
+    Joins PM event intervals with CAPEX worklogs to compute actual vs. estimated cost per
+    workflow phase (execution statuses only).
+
+    For each (Issue Key, To Status Norm, phase_start, phase_end) interval in events_df,
+    finds all worklogs of the same issue whose 'Data do Apontamento das Horas' falls within
+    [phase_start, phase_end) and sums their cost.
+
+    Returns dict with:
+      - 'phase_df': DataFrame keyed by 'Fase' with CustoEstimadoPM, HorasEstimadasPM,
+                    CustoRealApontado, HorasReaisApontadas, OcorrenciasPM, IssuesPM
+      - 'has_real_cost': bool — True when at least one worklog was matched
+      - 'coverage_pct': float — % of PM-estimated cost backed by real worklogs
+      - 'total_pm_cost', 'total_real_cost': float totals
+    """
+    _empty = {'phase_df': pd.DataFrame(), 'has_real_cost': False, 'coverage_pct': np.nan,
+              'total_pm_cost': 0.0, 'total_real_cost': 0.0}
+
+    if events_df is None or events_df.empty:
+        return _empty
+    required_ev = {'Issue Key', 'History Created', 'To Status Norm', 'TempoStatusDias'}
+    if not required_ev.issubset(events_df.columns):
+        return _empty
+
+    ev = events_df[list(required_ev | {'Horas PM Elegíveis', 'Custo PM Estimado'} & set(events_df.columns))].copy()
+    ev['History Created'] = pd.to_datetime(ev['History Created'], errors='coerce')
+    ev['TempoStatusDias'] = pd.to_numeric(ev['TempoStatusDias'], errors='coerce').fillna(0.0)
+    ev = ev[ev['History Created'].notna() & (ev['TempoStatusDias'] > 0)].copy()
+    if ev.empty:
+        return _empty
+
+    ev['_phase_start'] = ev['History Created']
+    ev['_phase_end'] = ev['History Created'] + pd.to_timedelta(ev['TempoStatusDias'], unit='D')
+    ev['Horas PM Elegíveis'] = pd.to_numeric(ev.get('Horas PM Elegíveis'), errors='coerce').fillna(0.0)
+    ev['Custo PM Estimado'] = pd.to_numeric(ev.get('Custo PM Estimado'), errors='coerce').fillna(0.0)
+    ev['_status_label'] = (
+        ev['To Status Norm'].fillna('').astype(str).str.strip().str.title().replace('', 'Desconhecido')
+    )
+
+    pm_agg = (
+        ev.groupby('_status_label', dropna=False)
+        .agg(
+            CustoEstimadoPM=('Custo PM Estimado', 'sum'),
+            HorasEstimadasPM=('Horas PM Elegíveis', 'sum'),
+            OcorrenciasPM=('Issue Key', 'size'),
+            IssuesPM=('Issue Key', 'nunique'),
+        )
+        .reset_index()
+        .rename(columns={'_status_label': 'Fase'})
+    )
+
+    phase_df = pm_agg.copy()
+    phase_df['CustoRealApontado'] = 0.0
+    phase_df['HorasReaisApontadas'] = 0.0
+    has_real_cost = False
+
+    if worklog_df is not None and not worklog_df.empty and 'Data do Apontamento das Horas' in worklog_df.columns:
+        wl = worklog_df[['Issue Key', 'Data do Apontamento das Horas', 'Horas', 'Custo Real Apontado (R$)']].copy()
+        wl['Data do Apontamento das Horas'] = pd.to_datetime(wl['Data do Apontamento das Horas'], errors='coerce')
+        wl['Custo Real Apontado (R$)'] = pd.to_numeric(wl['Custo Real Apontado (R$)'], errors='coerce').fillna(0.0)
+        wl['Horas'] = pd.to_numeric(wl['Horas'], errors='coerce').fillna(0.0)
+        wl = wl[wl['Data do Apontamento das Horas'].notna() & ((wl['Custo Real Apontado (R$)'] > 0) | (wl['Horas'] > 0))].copy()
+
+        if not wl.empty:
+            merged = ev[['Issue Key', '_status_label', '_phase_start', '_phase_end']].merge(
+                wl, on='Issue Key', how='inner'
+            )
+            wl_date = merged['Data do Apontamento das Horas']
+            matched = merged[(wl_date >= merged['_phase_start']) & (wl_date < merged['_phase_end'])].copy()
+
+            if not matched.empty:
+                has_real_cost = matched['Custo Real Apontado (R$)'].sum() > 0
+                real_agg = (
+                    matched.groupby('_status_label', dropna=False)
+                    .agg(
+                        CustoRealApontado=('Custo Real Apontado (R$)', 'sum'),
+                        HorasReaisApontadas=('Horas', 'sum'),
+                    )
+                    .reset_index()
+                    .rename(columns={'_status_label': 'Fase'})
+                )
+                phase_df = pm_agg.merge(real_agg, on='Fase', how='left')
+                phase_df['CustoRealApontado'] = pd.to_numeric(phase_df['CustoRealApontado'], errors='coerce').fillna(0.0)
+                phase_df['HorasReaisApontadas'] = pd.to_numeric(phase_df['HorasReaisApontadas'], errors='coerce').fillna(0.0)
+
+    total_pm = float(phase_df['CustoEstimadoPM'].sum())
+    total_real = float(phase_df['CustoRealApontado'].sum())
+    coverage_pct = (total_real / total_pm * 100.0) if total_pm > 0 else np.nan
+
+    phase_df = phase_df.sort_values('CustoEstimadoPM', ascending=False).reset_index(drop=True)
+    return {
+        'phase_df': phase_df,
+        'has_real_cost': has_real_cost,
+        'coverage_pct': coverage_pct,
+        'total_pm_cost': total_pm,
+        'total_real_cost': total_real,
+    }
+
+
+def _build_custo_por_fase_section(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> 'html.Div':
+    """
+    Renders 3 charts comparing PM-estimated vs. actual worklog cost per workflow phase.
+    Uses build_cost_per_phase_data() to compute the join.
+    """
+    data = build_cost_per_phase_data(events_df, worklog_df)
+    phase_df = data.get('phase_df', pd.DataFrame())
+    if phase_df is None or phase_df.empty:
+        return html.Div()
+
+    has_real_cost = data.get('has_real_cost', False)
+    coverage_pct = data.get('coverage_pct', np.nan)
+
+    notes = []
+    if not has_real_cost:
+        notes.append(html.P(
+            'Sem sobreposição entre worklogs e janelas de fase no período. '
+            'Exibindo estimativa PM (horas elegíveis × taxa). '
+            'Para habilitar custo real por fase, certifique-se de que taxas de custo estejam configuradas '
+            'e que os worklogs CAPEX estejam no mesmo período que os eventos PM.',
+            style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
+        ))
+    elif not np.isnan(coverage_pct):
+        notes.append(html.P(
+            f'Cobertura de worklog real nas fases de execução: {coverage_pct:.1f}% do custo PM estimado.',
+            style={'color': '#555', 'fontSize': '13px', 'marginBottom': '8px'}
+        ))
+
+    # ── Chart 1: Custo por fase — estimado vs. real ──────────────────────────
+    if has_real_cost:
+        bar_rows = []
+        for _, row in phase_df.iterrows():
+            bar_rows.append({'Fase': row['Fase'], 'Valor': row['CustoEstimadoPM'], 'Tipo': 'PM Estimado'})
+            bar_rows.append({'Fase': row['Fase'], 'Valor': row['CustoRealApontado'], 'Tipo': 'Real Apontado'})
+        fig_cost = px.bar(
+            pd.DataFrame(bar_rows),
+            x='Fase', y='Valor', color='Tipo', barmode='group',
+            title='Custo por fase: PM estimado vs. real apontado',
+            color_discrete_map={'PM Estimado': '#aec6e8', 'Real Apontado': '#1f77b4'},
+        )
+        fig_cost.update_layout(showlegend=True)
+    else:
+        fig_cost = px.bar(
+            phase_df, x='Fase', y='CustoEstimadoPM',
+            title='Custo estimado PM por fase (horas × taxa)',
+            color='Fase', text='CustoEstimadoPM',
+        )
+        fig_cost.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_cost.update_layout(showlegend=False)
+    fig_cost.update_layout(
+        height=380, yaxis_title='Custo (R$)', xaxis_title='',
+        margin=dict(t=50, b=80, l=60, r=20), xaxis_tickangle=-30,
+    )
+
+    # ── Chart 2: Horas por fase — PM elegíveis vs. real ─────────────────────
+    if has_real_cost:
+        hr_rows = []
+        for _, row in phase_df.iterrows():
+            hr_rows.append({'Fase': row['Fase'], 'Horas': row['HorasEstimadasPM'], 'Tipo': 'PM Elegíveis'})
+            hr_rows.append({'Fase': row['Fase'], 'Horas': row['HorasReaisApontadas'], 'Tipo': 'Real Apontado'})
+        fig_hours = px.bar(
+            pd.DataFrame(hr_rows),
+            x='Fase', y='Horas', color='Tipo', barmode='group',
+            title='Horas por fase: PM elegíveis vs. reais apontadas',
+            color_discrete_map={'PM Elegíveis': '#98df8a', 'Real Apontado': '#2ca02c'},
+        )
+        fig_hours.update_layout(showlegend=True)
+    else:
+        fig_hours = px.bar(
+            phase_df, x='Fase', y='HorasEstimadasPM',
+            title='Horas PM elegíveis por fase',
+            color='Fase', text='HorasEstimadasPM',
+        )
+        fig_hours.update_traces(texttemplate='%{text:,.1f}h', textposition='outside')
+        fig_hours.update_layout(showlegend=False)
+    fig_hours.update_layout(
+        height=380, yaxis_title='Horas', xaxis_title='',
+        margin=dict(t=50, b=80, l=60, r=20), xaxis_tickangle=-30,
+    )
+
+    # ── Chart 3: Desvio % real vs. estimado (só quando há custo real) ────────
+    desvio_graph = html.Div()
+    if has_real_cost:
+        dev_df = phase_df[phase_df['CustoEstimadoPM'] > 0].copy()
+        if not dev_df.empty:
+            dev_df['Desvio %'] = (
+                (dev_df['CustoRealApontado'] - dev_df['CustoEstimadoPM'])
+                / dev_df['CustoEstimadoPM'] * 100.0
+            )
+            fig_desvio = px.bar(
+                dev_df, x='Fase', y='Desvio %',
+                title='Desvio custo real vs. estimado por fase (%)',
+                color='Desvio %',
+                color_continuous_scale='RdYlGn',
+                color_continuous_midpoint=0,
+                text='Desvio %',
+            )
+            fig_desvio.update_traces(texttemplate='%{text:+.1f}%', textposition='outside')
+            fig_desvio.update_layout(
+                height=340, yaxis_title='Desvio %', xaxis_title='',
+                margin=dict(t=50, b=80, l=60, r=20), xaxis_tickangle=-30,
+                coloraxis_showscale=False,
+            )
+            desvio_graph = dcc.Graph(figure=fig_desvio)
+
+    return html.Div([
+        html.H4('Custo por Fase do Workflow', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.Div(notes),
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_cost)], style={'flex': '1', 'minWidth': '340px'}),
+            html.Div([dcc.Graph(figure=fig_hours)], style={'flex': '1', 'minWidth': '340px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
+        html.Div([desvio_graph], style={'marginTop': '12px'}),
+    ])
+
+
 def _build_capex_worklog_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     columns = [
         'Data do Apontamento',
@@ -14546,7 +14762,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             pm_portfolio_data.get('capex_cost_data', {}).get('df', pd.DataFrame())
             if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         )
+        events_all_df = pm_portfolio_data.get('events_all', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
+        custo_por_fase_section = _build_custo_por_fase_section(events_all_df, capex_worklog_df)
 
         pm_portfolio_section = html.Div([
             html.Div(pm_notes, style={'marginBottom': '12px'}),
@@ -14570,6 +14788,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'table-portfolio-costs-generated-rates'
             ) if not cost_rates_display.empty else html.Div(),
             custo_por_atividade_section,
+            custo_por_fase_section,
             html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
             html.Div(pm_product_cards, style={
                 'display': 'grid',
