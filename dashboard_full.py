@@ -19435,34 +19435,43 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         per_dev['Δ IED Trend'] = per_dev['Pessoa'].apply(_ied_trend_delta)
 
         # ── Aging Rescue Rate — % de itens resgatados do backlog antigo ───────
-        # Item "antigo" = DataCriacao→DataInProgress > 30 dias antes de ser puxado.
+        # Item "antigo" = data_criacao→DataInProgress > 30 dias antes de ser puxado.
+        # Usa resolve_creation_date_series() para suportar qualquer nome de coluna
+        # (DataCriacao, Created, CreatedDate, IssueCreated, etc.).
         # Referência: Jørgensen (IST 2023) — itens com high aging têm menor chance de entrega.
         _AGING_THRESHOLD_DAYS = 30
-        if ('DataCriacao' in df_prod_base.columns and
-                'DataInProgress' in df_prod_base.columns and
-                df_prod_base['DataCriacao'].notna().any()):
+        if 'DataInProgress' in df_prod_base.columns:
             _aging_df = df_prod_base.copy()
-            _aging_df['_Pessoa'] = _resolve_dev_person_series(_aging_df, alias_index=alias_index_prod)
-            _aging_df['DataCriacao'] = pd.to_datetime(_aging_df['DataCriacao'], errors='coerce')
-            _aging_df['DataInProgress'] = pd.to_datetime(_aging_df['DataInProgress'], errors='coerce')
-            _aging_df['_aging_days'] = (_aging_df['DataInProgress'] - _aging_df['DataCriacao']).dt.days
-            _aging_pulled = _aging_df[
-                (_aging_df['DataInProgress'] >= start_ts_prod) &
-                (_aging_df['DataInProgress'] < end_ts_prod) &
-                _aging_df['_Pessoa'].astype(str).str.strip().ne('') &
-                _aging_df['_aging_days'].notna()
-            ].copy()
-            if not _aging_pulled.empty:
-                _total_pulled_g = _aging_pulled.groupby('_Pessoa').size()
-                _rescued_g = _aging_pulled[
-                    _aging_pulled['_aging_days'] > _AGING_THRESHOLD_DAYS
-                ].groupby('_Pessoa').size()
-                _arr = (_rescued_g / _total_pulled_g.clip(lower=1) * 100).round(1).rename('Aging Rescue Rate (%)')
-                per_dev = per_dev.merge(
-                    _arr.reset_index().rename(columns={'_Pessoa': 'Pessoa'}),
-                    on='Pessoa', how='left',
-                )
-                per_dev['Aging Rescue Rate (%)'] = per_dev['Aging Rescue Rate (%)'].fillna(0.0)
+            # Resolve data de criação independente do nome da coluna
+            _criacao_series = resolve_creation_date_series(_aging_df)
+            if _criacao_series.notna().any():
+                _aging_df['_DataCriacao'] = _criacao_series
+                _aging_df['_Pessoa'] = _resolve_dev_person_series(_aging_df, alias_index=alias_index_prod)
+                _aging_df['DataInProgress'] = pd.to_datetime(_aging_df['DataInProgress'], errors='coerce')
+                _aging_df['_aging_days'] = (
+                    _aging_df['DataInProgress'] - _aging_df['_DataCriacao']
+                ).dt.days
+                _aging_pulled = _aging_df[
+                    (_aging_df['DataInProgress'] >= start_ts_prod) &
+                    (_aging_df['DataInProgress'] < end_ts_prod) &
+                    _aging_df['_Pessoa'].astype(str).str.strip().ne('') &
+                    _aging_df['_aging_days'].notna()
+                ].copy()
+                if not _aging_pulled.empty:
+                    _total_pulled_g = _aging_pulled.groupby('_Pessoa').size()
+                    _rescued_g = _aging_pulled[
+                        _aging_pulled['_aging_days'] > _AGING_THRESHOLD_DAYS
+                    ].groupby('_Pessoa').size()
+                    _arr = (
+                        _rescued_g / _total_pulled_g.clip(lower=1) * 100
+                    ).round(1).rename('Aging Rescue Rate (%)')
+                    per_dev = per_dev.merge(
+                        _arr.reset_index().rename(columns={'_Pessoa': 'Pessoa'}),
+                        on='Pessoa', how='left',
+                    )
+                    per_dev['Aging Rescue Rate (%)'] = per_dev['Aging Rescue Rate (%)'].fillna(0.0)
+                else:
+                    per_dev['Aging Rescue Rate (%)'] = np.nan
             else:
                 per_dev['Aging Rescue Rate (%)'] = np.nan
         else:
@@ -21357,12 +21366,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     html.Span(' (DataCriacao → DataInProgress). '),
                     html.Span('Devs com taxa alta demonstram iniciativa em reduzir aging do backlog. ',
                               style={'color': '#27ae60'}),
-                    html.Span('Requer campo DataCriacao no Jira.', style={'color': '#6c757d'}),
+                    html.Span('Requer data de criação no Jira (DataCriacao, Created ou CreatedDate).', style={'color': '#6c757d'}),
                 ],
                 [
                     dcc.Graph(figure=fig_aging_rescue, config={'displayModeBar': False})
                     if not _arr_df.empty else html.P(
-                        'DataCriacao não disponível ou sem itens puxados no período para calcular Aging Rescue Rate.',
+                        'Data de criação não disponível ou sem itens puxados no período para calcular Aging Rescue Rate.',
                         style={'color': '#aaa', 'fontStyle': 'italic'},
                     ),
                 ],
