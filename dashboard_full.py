@@ -5612,6 +5612,268 @@ def _build_custo_por_fase_section(events_df: 'pd.DataFrame', worklog_df: 'pd.Dat
     ])
 
 
+def build_custo_estimado_vs_real_data(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> dict:
+    """
+    Joins PM-estimated cost per issue (from events_all) with real worklog cost per issue
+    (from capex_worklog_df) by Issue Key.
+
+    Estimated cost = sum(Custo PM Estimado) across all execution-phase events for the issue.
+    Real cost      = sum(Custo Real Apontado) across all worklogs for the issue.
+
+    Returns dict with:
+      - 'issue_df': one row per Issue Key with CustoEstimado, CustoReal, HorasEstimadas,
+                    HorasReais, Produto, Desvio, DesvioP, Categoria
+      - 'has_cost':  bool — True when rates produce monetary values
+      - 'n_over':    int — issues over budget (DesvioP > 30%)
+      - 'n_under':   int — issues under budget (DesvioP < -20%)
+      - 'n_on':      int — issues on target
+      - 'median_desvio': float — median DesvioP across matched issues
+    """
+    _empty = {'issue_df': pd.DataFrame(), 'has_cost': False,
+              'n_over': 0, 'n_under': 0, 'n_on': 0, 'median_desvio': np.nan}
+
+    if events_df is None or events_df.empty:
+        return _empty
+    if 'Issue Key' not in events_df.columns:
+        return _empty
+
+    # ── Aggregate PM estimate per issue ──────────────────────────────────────
+    ev = events_df.copy()
+    ev['Horas PM Elegíveis'] = pd.to_numeric(ev.get('Horas PM Elegíveis'), errors='coerce').fillna(0.0)
+    ev['Custo PM Estimado'] = pd.to_numeric(ev.get('Custo PM Estimado'), errors='coerce').fillna(0.0)
+    ev['Produto'] = ev.get('Produto', pd.Series([''] * len(ev))).fillna('').astype(str)
+    ev_agg = (
+        ev.groupby('Issue Key', dropna=False)
+        .agg(
+            CustoEstimado=('Custo PM Estimado', 'sum'),
+            HorasEstimadas=('Horas PM Elegíveis', 'sum'),
+            Produto=('Produto', 'first'),
+        )
+        .reset_index()
+    )
+    ev_agg = ev_agg[ev_agg['Issue Key'].ne('') & (ev_agg['HorasEstimadas'] > 0)].copy()
+
+    if ev_agg.empty:
+        return _empty
+
+    # ── Aggregate real cost per issue ─────────────────────────────────────────
+    if worklog_df is None or worklog_df.empty or 'Issue Key' not in worklog_df.columns:
+        return _empty
+
+    wl = worklog_df.copy()
+    wl['Horas'] = pd.to_numeric(wl.get('Horas'), errors='coerce').fillna(0.0)
+    wl['Custo Real Apontado (R$)'] = pd.to_numeric(wl.get('Custo Real Apontado (R$)'), errors='coerce').fillna(0.0)
+    wl_agg = (
+        wl.groupby('Issue Key', dropna=False)
+        .agg(
+            CustoReal=('Custo Real Apontado (R$)', 'sum'),
+            HorasReais=('Horas', 'sum'),
+        )
+        .reset_index()
+    )
+
+    # ── Join on Issue Key (inner: only issues present in both) ────────────────
+    merged = ev_agg.merge(wl_agg, on='Issue Key', how='inner')
+    if merged.empty:
+        return _empty
+
+    has_cost = (merged['CustoEstimado'].sum() > 0) and (merged['CustoReal'].sum() > 0)
+    if not has_cost:
+        # Fall back to hours comparison
+        merged['CustoEstimado'] = merged['HorasEstimadas']
+        merged['CustoReal'] = merged['HorasReais']
+
+    # ── Deviation metrics ─────────────────────────────────────────────────────
+    estimado_nonzero = merged['CustoEstimado'].replace(0, np.nan)
+    merged['Desvio'] = merged['CustoReal'] - merged['CustoEstimado']
+    merged['DesvioP'] = merged['Desvio'] / estimado_nonzero * 100.0
+
+    def _categorize(d):
+        if pd.isna(d):
+            return 'Sem estimativa'
+        if d > 30.0:
+            return 'Acima do estimado'
+        if d < -20.0:
+            return 'Abaixo do estimado'
+        return 'Dentro do esperado'
+
+    merged['Categoria'] = merged['DesvioP'].apply(_categorize)
+    merged = merged.sort_values('CustoReal', ascending=False).reset_index(drop=True)
+
+    valid = merged['DesvioP'].dropna()
+    n_over = int((valid > 30.0).sum())
+    n_under = int((valid < -20.0).sum())
+    n_on = int(((valid >= -20.0) & (valid <= 30.0)).sum())
+    median_dev = float(valid.median()) if not valid.empty else np.nan
+
+    return {
+        'issue_df': merged,
+        'has_cost': has_cost,
+        'n_over': n_over,
+        'n_under': n_under,
+        'n_on': n_on,
+        'median_desvio': median_dev,
+    }
+
+
+def _build_custo_estimado_vs_real_section(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> 'html.Div':
+    """
+    Renders 3 charts comparing PM-estimated vs. actual cost per issue:
+      1. Scatter plot: X=Estimado, Y=Real (reference line Y=X, color=Categoria)
+      2. Histogram: distribution of DesvioP%
+      3. Bar chart: top 15 over-budget issues
+    """
+    data = build_custo_estimado_vs_real_data(events_df, worklog_df)
+    issue_df = data.get('issue_df', pd.DataFrame())
+    if issue_df is None or issue_df.empty:
+        return html.Div()
+
+    has_cost = data.get('has_cost', False)
+    n_over = data.get('n_over', 0)
+    n_under = data.get('n_under', 0)
+    n_on = data.get('n_on', 0)
+    median_dev = data.get('median_desvio', np.nan)
+
+    value_label = 'Custo (R$)' if has_cost else 'Horas'
+    est_col = 'CustoEstimado'
+    real_col = 'CustoReal'
+
+    notes = []
+    if not has_cost:
+        notes.append(html.P(
+            'Taxas de custo não configuradas — comparação exibida em horas. '
+            'Configure FLOW_PMO_PM_COST_PER_HOUR_MAP para ativar comparação monetária.',
+            style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
+        ))
+    med_str = f'{median_dev:+.1f}%' if not np.isnan(median_dev) else '—'
+    notes.append(html.P(
+        f'{len(issue_df)} issues com estimativa e worklog. '
+        f'Acima do estimado: {n_over} | Dentro do esperado: {n_on} | Abaixo: {n_under} | '
+        f'Desvio mediano: {med_str}',
+        style={'color': '#333', 'fontSize': '13px', 'marginBottom': '8px'}
+    ))
+
+    cat_colors = {
+        'Acima do estimado': '#d62728',
+        'Dentro do esperado': '#2ca02c',
+        'Abaixo do estimado': '#1f77b4',
+        'Sem estimativa': '#aaa',
+    }
+
+    # ── Chart 1: Scatter estimado vs real ────────────────────────────────────
+    scatter_df = issue_df.copy()
+    scatter_df['_hover_desvio'] = scatter_df['DesvioP'].apply(
+        lambda v: f'{v:+.1f}%' if not pd.isna(v) else '—'
+    )
+    max_val = max(scatter_df[est_col].max(), scatter_df[real_col].max()) * 1.05
+    max_val = max_val if max_val > 0 else 1.0
+
+    fig_scatter = px.scatter(
+        scatter_df,
+        x=est_col,
+        y=real_col,
+        color='Categoria',
+        hover_name='Issue Key',
+        hover_data={
+            'Produto': True,
+            '_hover_desvio': True,
+            'HorasEstimadas': ':.1f',
+            'HorasReais': ':.1f',
+            est_col: False,
+            real_col: False,
+            'Categoria': False,
+        },
+        labels={
+            est_col: f'{value_label} Estimado (PM)',
+            real_col: f'{value_label} Real (Worklog)',
+            '_hover_desvio': 'Desvio',
+            'HorasEstimadas': 'Horas Estimadas',
+            'HorasReais': 'Horas Reais',
+        },
+        color_discrete_map=cat_colors,
+        title='Custo estimado (PM) vs. real (worklog) por issue',
+    )
+    # Reference line Y = X
+    fig_scatter.add_shape(
+        type='line',
+        x0=0, y0=0, x1=max_val, y1=max_val,
+        line=dict(color='#888', width=1.5, dash='dash'),
+    )
+    fig_scatter.add_annotation(
+        x=max_val * 0.85, y=max_val * 0.9,
+        text='Estimado = Real',
+        showarrow=False,
+        font=dict(color='#888', size=11),
+    )
+    fig_scatter.update_layout(
+        height=420,
+        xaxis_title=f'{value_label} Estimado (PM)',
+        yaxis_title=f'{value_label} Real (Worklog)',
+        margin=dict(t=50, b=60, l=60, r=20),
+        legend=dict(title='', orientation='h', yanchor='bottom', y=-0.25),
+    )
+
+    # ── Chart 2: Histograma de desvio % ──────────────────────────────────────
+    dev_df = issue_df[issue_df['DesvioP'].notna()].copy()
+    fig_hist = px.histogram(
+        dev_df,
+        x='DesvioP',
+        nbins=30,
+        title='Distribuição do desvio % (real vs. estimado)',
+        color_discrete_sequence=['#1f77b4'],
+        labels={'DesvioP': 'Desvio %'},
+    )
+    fig_hist.add_vline(x=0, line_dash='dash', line_color='#888', annotation_text='0%')
+    if not np.isnan(median_dev):
+        fig_hist.add_vline(
+            x=median_dev, line_dash='dot', line_color='#d62728',
+            annotation_text=f'Mediana {median_dev:+.1f}%',
+            annotation_position='top right',
+        )
+    fig_hist.update_layout(
+        height=360,
+        xaxis_title='Desvio %',
+        yaxis_title='Nº de Issues',
+        margin=dict(t=50, b=60, l=60, r=20),
+    )
+
+    # ── Chart 3: Top 15 issues com maior desvio positivo (over-budget) ───────
+    over_graph = html.Div()
+    over_df = issue_df[issue_df['DesvioP'] > 0].nlargest(15, 'DesvioP').copy()
+    if not over_df.empty:
+        over_df['_label'] = over_df['Issue Key'] + ' (' + over_df['Produto'] + ')'
+        fig_over = px.bar(
+            over_df,
+            x='DesvioP',
+            y='_label',
+            orientation='h',
+            title='Top 15 issues acima do estimado',
+            color='DesvioP',
+            color_continuous_scale='Reds',
+            text='DesvioP',
+            labels={'DesvioP': 'Desvio %', '_label': ''},
+        )
+        fig_over.update_traces(texttemplate='%{text:+.1f}%', textposition='outside')
+        fig_over.update_layout(
+            height=max(300, len(over_df) * 28 + 80),
+            xaxis_title='Desvio %',
+            yaxis=dict(autorange='reversed'),
+            margin=dict(t=50, b=60, l=220, r=80),
+            coloraxis_showscale=False,
+        )
+        over_graph = dcc.Graph(figure=fig_over)
+
+    return html.Div([
+        html.H4('Custo Estimado vs. Real por Issue', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.Div(notes),
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_scatter)], style={'flex': '2', 'minWidth': '380px'}),
+            html.Div([dcc.Graph(figure=fig_hist)], style={'flex': '1', 'minWidth': '280px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
+        html.Div([over_graph], style={'marginTop': '12px'}),
+    ])
+
+
 def _build_capex_worklog_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     columns = [
         'Data do Apontamento',
@@ -14765,6 +15027,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         events_all_df = pm_portfolio_data.get('events_all', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
         custo_por_fase_section = _build_custo_por_fase_section(events_all_df, capex_worklog_df)
+        custo_estimado_vs_real_section = _build_custo_estimado_vs_real_section(events_all_df, capex_worklog_df)
 
         pm_portfolio_section = html.Div([
             html.Div(pm_notes, style={'marginBottom': '12px'}),
@@ -14789,6 +15052,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ) if not cost_rates_display.empty else html.Div(),
             custo_por_atividade_section,
             custo_por_fase_section,
+            custo_estimado_vs_real_section,
             html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
             html.Div(pm_product_cards, style={
                 'display': 'grid',
