@@ -472,6 +472,13 @@ Use this file after any user correction.
 - Action added to workflow: Ao ajustar taxonomias de fluxo (`upstream/downstream`, `execução/espera`, `planejamento/entrega`), revisar sempre prints/nomes reais de colunas e refletir esses labels explicitamente na função classificadora.
 
 - Date: 2026-04-09
+- Context: Refinamento da fronteira entre `Upstream` e `Downstream` no `Cost of Delay`.
+- User correction: Esclareceu que etapas como `Staging`, `Ready for Production`, `Ready to Staging`, `Ready for Testing/QA`, `Ready to Homolog` e `Ready for Homolog` ainda pertencem ao `Upstream` da empresa (equipe de produto), e que no nível estratégico de épicos o `Downstream` começa apenas a partir de `Ready to Delivery`.
+- Root cause: Eu ainda estava ancorando parte da taxonomia em uma visão genérica de pós-desenvolvimento, em vez da fronteira organizacional real entre upstream de produto e downstream estratégico.
+- Prevention rule: Em métricas de fluxo estratégicas, classificar `Upstream` e `Downstream` pela fronteira organizacional/gerencial definida pelo usuário, não por uma interpretação genérica de SDLC.
+- Action added to workflow: Quando o usuário explicitar a fronteira organizacional entre áreas do fluxo, refletir isso diretamente nos tokens e revisar os labels mais parecidos que possam cair no bucket errado.
+
+- Date: 2026-04-09
 - Context: Primeira publicação da aba `Cobertura GMUD` no dashboard usando os artefatos `gmud-coverage-*`.
 - User correction: Reportou que em produção os CSVs GMUD não eram encontrados, porque a aba exigia `FLOW_PMO_GMUD_*` dedicadas ou arquivos locais e não reaproveitava a mesma base pública já usada pelos outros artefatos latest.
 - Root cause: Eu validei o loader com envs explícitas e arquivos sintéticos, mas não fechei a última milha de deploy para o ambiente Vercel, onde a convenção operacional é derivar vários artefatos a partir de um mesmo blob/base pública.

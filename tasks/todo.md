@@ -9203,6 +9203,16 @@
 - Suggested commit message:
   - `fix(portfolio): align upstream delay taxonomy with actual board stages`
 
+## Review Addendum (Fronteira organizacional upstream vs downstream)
+- Correção complementar aplicada após novo alinhamento do usuário:
+  - `Staging`, `Ready for Production`, `Ready to Staging`, `Ready for Testing/QA`, `Ready to Homolog` e `Ready for Homolog` passaram a ser tratados como `Upstream`, porque ainda pertencem ao lado de produto/upstream da empresa
+  - no nível estratégico, o `Downstream` passou a ser ancorado explicitamente a partir de `Ready to Delivery`, com suporte adicional para `Post Release`
+- Impacto esperado:
+  - os gráficos e KPIs de `Cost of Delay` deixam de jogar essas filas de preparação em `Downstream`
+  - a leitura executiva fica alinhada à fronteira real entre upstream de produto e downstream estratégico
+- Suggested commit message:
+  - `fix(portfolio): anchor downstream from ready-to-delivery`
+
 ## Current Task (Descoberta automática dos artefatos GMUD no deploy)
 - [x] Revisar o fallback atual de `find_latest_gmud_csv(...)` no dashboard
 - [x] Permitir inferir URLs `gmud-coverage-*-latest.csv` a partir da mesma base pública dos demais artefatos

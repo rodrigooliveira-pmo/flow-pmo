@@ -6460,11 +6460,10 @@ def _pm_waiting_direction(status_norm: str) -> str:
     """
     Classifies a waiting/queue status as 'Upstream' or 'Downstream'.
 
-    Upstream  = delay before development starts (backlog, triagem, discovery,
-                ready for development, sprint planning, etc.)
-    Downstream = delay after a development phase completes (ready for code review,
-                 ready for QA/testing, ready for staging, ready for production,
-                 homologation, validation, etc.)
+    Upstream  = enterprise/product-side queue before delivery to downstream execution,
+                including discovery, design, triage, QA/homolog/staging preparation
+                and strategic pre-delivery stages.
+    Downstream = strategic downstream flow from ready-to-delivery onward.
     """
     if not status_norm:
         return 'Upstream'
@@ -6476,16 +6475,18 @@ def _pm_waiting_direction(status_norm: str) -> str:
         'to do', 'todo', 'ready for development', 'ready to development',
         'ready to design', 'prioritized', 'priorit', 'sprint backlog',
         'backlog do produto', 'quebra das hist',
+        'staging', 'ready for production', 'ready to staging',
+        'ready for testing', 'ready for testing/qa', 'ready for qa',
+        'ready for homolog', 'ready to homolog', 'ready for homologation',
+        'ready to homologation',
     )
     _downstream_tokens = (
-        'ready for code', 'ready for review', 'ready for test', 'ready for qa',
-        'ready for staging', 'ready to staging', 'ready for prod', 'ready for deploy',
-        'ready for production', 'ready for homolog', 'ready to homolog',
-        'ready for homologation', 'ready to homologation',
+        'ready to delivery', 'ready for delivery',
         'ready for release', 'ready for merge', 'ready for uat',
         'in validation', 'homolog', 'validaç', 'approval', 'approved',
         'waiting for qa', 'waiting for review', 'waiting for test',
-        'staging', 'production', 'deploy', 'release', 'uat',
+        'production', 'deploy', 'release', 'uat',
+        'post release', 'pós release', 'pos release',
         'aprovação', 'aprovacao', 'ready for acceptance', 'review',
         'qa approved', 'analytics',
     )
