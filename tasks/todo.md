@@ -9213,6 +9213,17 @@
 - Suggested commit message:
   - `fix(portfolio): anchor downstream from ready-to-delivery`
 
+## Review Addendum (Backlog e In Progress no downstream)
+- Correção complementar aplicada após novo alinhamento do usuário:
+  - `backlog` simples passou a ser tratado como `Downstream`
+  - `in progress` / `in progess` / `em progresso` passaram a ser tratados como `Downstream` na taxonomia geral
+  - `backlog do produto` foi preservado como `Upstream`, evitando confundir o backlog estratégico de produto com o backlog do board downstream
+- Impacto esperado:
+  - os gráficos de `Cost of Delay` deixam de somar `Backlog` do downstream no bucket de `Upstream`
+  - a taxonomia fica mais fiel à separação entre board downstream e pipeline estratégico de produto
+- Suggested commit message:
+  - `fix(portfolio): classify backlog and in-progress as downstream`
+
 ## Current Task (Descoberta automática dos artefatos GMUD no deploy)
 - [x] Revisar o fallback atual de `find_latest_gmud_csv(...)` no dashboard
 - [x] Permitir inferir URLs `gmud-coverage-*-latest.csv` a partir da mesma base pública dos demais artefatos
@@ -9249,3 +9260,86 @@
   - durante os imports do `dashboard_full.py` seguiram aparecendo `SettingWithCopyWarning` pré-existentes em um trecho antigo do dashboard; eles não bloquearam esta entrega
 - Suggested commit message:
   - `fix(dashboard): infer GMUD latest URLs from shared artifact base`
+
+## Current Task (Recuperar correlação GMUD que estava zerada)
+- [x] Inspecionar os artefatos `gmud-coverage-*` e confirmar por que a cobertura ficou em 0%
+- [x] Revisar como os tickets `CHG` referenciam as entregas reais no Jira
+- [x] Ajustar a heurística de correlação para além de links/chaves explícitas
+- [x] Regerar os artefatos latest e validar o novo índice
+
+## Specification (Recuperar correlação GMUD que estava zerada)
+- Objetivo: corrigir o pipeline de cobertura GMUD para não depender apenas de chaves explícitas (`CHG-*`, `W1NNR-*`, `S1NC-*`, etc.) quando as GMUDs são registradas em linguagem natural no Jira.
+- Escopo:
+  - `jira_gmud_coverage.py`
+  - `jira/client.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - diagnosticar o conteúdo real dos tickets `CHG` via API Jira
+  - manter a correlação explícita existente, mas acrescentar uma camada controlada de similaridade forte entre `summary/description` da GMUD e `Titulo` dos itens elegíveis
+  - preservar comentários para menções explícitas de chave, evitando usar comentário livre na heurística de similaridade
+  - regenerar os arquivos latest para refletir a nova correlação
+- Critério de aceite:
+  - o pipeline deixa de produzir cobertura totalmente zerada quando houver GMUDs descritas em linguagem natural
+  - a base continua priorizando vínculos explícitos e passa a marcar similaridade textual forte como evidência textual
+  - os arquivos latest são atualizados localmente com a nova régua
+
+## Review (Recuperar correlação GMUD que estava zerada)
+- O que foi ajustado:
+  - confirmei via API Jira que o projeto `CHG` retornava 23 tickets, mas quase nenhum deles citava IDs de entrega em `IssueLinkKeys`, `summary`, `description` ou comentários; na prática as GMUDs estavam descrevendo a mudança em linguagem natural
+  - adicionei em `jira_gmud_coverage.py` uma heurística de `similaridade forte de título`, baseada em tokens normalizados e filtros por termos fracos, para correlacionar o texto da GMUD (`summary + description`) com o `Titulo` dos itens elegíveis
+  - mantive comentários apenas para evidência explícita por menção de chave e não como base de similaridade, o que reduziu ruído
+  - adicionei em `jira/client.py` métodos públicos de diagnóstico (`get_myself`, `search_projects`) para endurecer futuras validações de acesso/autenticação no pipeline
+  - regenerei `gmud-coverage-index-latest.csv`, `gmud-coverage-weekly-latest.csv` e `gmud-coverage-items-latest.csv` em `Documentos\\Dados`
+- Evidências de validação:
+  - `C:\\ProgramData\\anaconda3\\python.exe -m py_compile jira_gmud_coverage.py jira\\client.py`
+  - consulta real ao Jira `project = CHG ORDER BY status ASC, created DESC` retornando `23` tickets `CHG`
+  - nova execução do pipeline retornando `73/4277` itens elegíveis com evidências de GMUD (`1.7%`)
+  - exemplos recuperados por similaridade textual:
+    - `CHG-40` com `S1NC-2087` e `S1NC-2086`
+    - `CHG-33` com `S1NC-1951`, `S1NC-2057` e `S1NC-2020`
+    - `CHG-28` com múltiplos itens de `Funil de Contatos`/`consultor`
+- Risco residual:
+  - a nova régua ainda é heurística e pode superestimar alguns agrupamentos amplos, especialmente em GMUDs que condensam muitos bugs parecidos num mesmo texto
+  - existem times com `0%` porque, na amostra atual, os 23 tickets `CHG` recuperados concentram-se sobretudo em `W1NNR` e `S1NC`
+  - vale uma rodada de calibração visual com o negócio para decidir se a similaridade textual forte deve contar integralmente no índice ou aparecer separada como evidência inferida
+- Suggested commit message:
+  - `feat(gmud): recover CHG coverage with strong title similarity matching`
+
+## Current Task (Capturar links das GMUDs em custom fields ricos)
+- [x] Verificar por que o exemplo do usuário de `CHG-33` não aparecia como menção explícita
+- [x] Incluir `href`/smart links do ADF e campos `customfield_*` ricos na extração de chaves
+- [x] Buscar detalhe completo de cada issue `CHG` para não perder campos fora do search básico
+- [x] Regerar os artefatos latest e validar o caso `CHG-33`
+
+## Specification (Capturar links das GMUDs em custom fields ricos)
+- Objetivo: recuperar evidências explícitas de GMUD armazenadas em campos ricos do Jira (`customfield_*`) e em links ADF, já que parte relevante da rastreabilidade não está no comentário padrão nem em `issuelinks`.
+- Escopo:
+  - `jira_gmud_coverage.py`
+  - `jira/client.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - enriquecer `adf_to_text(...)` para preservar `href` e `smart links`
+  - ler texto rico também de `customfield_*` no ticket `CHG`
+  - buscar o detalhe completo da issue `CHG` antes da correlação para garantir acesso a esses campos
+  - recalcular os artefatos e validar especificamente o `CHG-33`
+- Critério de aceite:
+  - o exemplo `CHG-33` passa a expor `S1NC-2020`, `S1NC-1951` e `S1NC-2057` como chaves relacionadas
+  - os artefatos latest refletem o novo parsing
+  - a cobertura total aumenta com mais evidências explícitas/textuais reais
+
+## Review (Capturar links das GMUDs em custom fields ricos)
+- O que foi ajustado:
+  - identifiquei que o conteúdo citado pelo usuário estava em `customfield_10798` do `CHG-33`, não no comentário padrão retornado pela API
+  - atualizei `adf_to_text(...)` em `jira_gmud_coverage.py` para preservar URLs de `marks.link` e nós `inlineCard/blockCard/embedCard`
+  - adicionei leitura agregada de `customfield_*` ricos e passei a incluí-los no corpus textual e na extração de issue keys
+  - em `jira/client.py`, criei `get_issue(...)` e o pipeline de GMUD agora consulta o detalhe completo de cada issue `CHG`, em vez de depender só dos campos retornados pelo `search`
+  - regenerei novamente `gmud-coverage-index-latest.csv`, `gmud-coverage-weekly-latest.csv` e `gmud-coverage-items-latest.csv`
+- Evidências de validação:
+  - `fetch_chg_issues(..., 'key = CHG-33', ...)` agora retorna `MentionedIssueKeys = S1NC-1951, S1NC-2020, S1NC-2057`
+  - nova execução completa do pipeline retornou `128/4277` itens elegíveis com evidência de GMUD (`3.0%`)
+  - no `gmud-coverage-items-latest.csv`, `S1NC-2057`, `S1NC-2020` e `S1NC-1951` aparecem ligados ao `CHG-33`, com evidência `Mencao em resumo/descricao da GMUD`
+- Risco residual:
+  - ainda existem alguns títulos de itens ruidosos nas bases downstream, inclusive linhas cujo `Titulo` virou uma URL; isso pode gerar alguns matches por similaridade que ainda merecem limpeza posterior
+  - como várias GMUDs agrupam múltiplas entregas num mesmo texto, o índice continua combinando evidência explícita por chave com evidência inferida por similaridade forte
+- Suggested commit message:
+  - `fix(gmud): extract linked issues from CHG custom rich-text fields`

@@ -38,6 +38,17 @@ DONE_STATUS_HINTS = {
 BUG_TYPE_HINTS = {"bug", "incident", "incidente", "problem", "problema", "bug incident", "bug/incident"}
 FEATURE_TYPE_HINTS = {"feature", "funcionalidade"}
 EPIC_TYPE_HINTS = {"epic", "epico", "epico de portfolio", "epico portfolio"}
+SIMILARITY_STOPWORDS = {
+    "de", "da", "do", "das", "dos", "e", "em", "para", "com", "sem", "na", "no", "nas", "nos",
+    "a", "o", "as", "os", "por", "que", "ao", "aos", "ou", "via", "uma", "um", "mais", "menos",
+    "web", "front", "back", "mobile", "feature", "implantacao", "implantacao", "correcao", "correcoes",
+    "ajuste", "ajustes", "script", "pagina", "tela", "novo", "nova", "novas", "novos",
+}
+SIMILARITY_WEAK_TOKENS = {
+    "erro", "erros", "dados", "layout", "cliente", "clientes", "admin", "perfil", "tela",
+    "ajuste", "ajustes", "correcao", "correcoes", "mudancas", "mudanca", "problema", "problemas",
+    "status", "front", "back", "mobile", "logs", "log", "query",
+}
 STORY_TYPE_HINTS = {"story", "user story", "historia", "historia de usuario"}
 TASK_TYPE_HINTS = {"task", "tarefa", "sub task", "subtarefa", "tech task", "task de produto", "ad hoc", "adhoc"}
 PRODUCTION_DATE_COLUMNS = [
@@ -105,10 +116,27 @@ def adf_to_text(value: Any) -> str:
 
     node_type = str(value.get("type") or "").strip()
     if node_type == "text":
-        return str(value.get("text") or "")
+        text = str(value.get("text") or "")
+        marks = value.get("marks") if isinstance(value.get("marks"), list) else []
+        link_targets: List[str] = []
+        for mark in marks:
+            if not isinstance(mark, dict):
+                continue
+            if str(mark.get("type") or "").strip() != "link":
+                continue
+            href = str(safe_get(mark, "attrs", "href") or "").strip()
+            if href and href not in link_targets and href not in text:
+                link_targets.append(href)
+        if link_targets:
+            extra = " ".join(link_targets)
+            return f"{text} {extra}".strip()
+        return text
     if node_type in {"mention", "emoji"}:
         attrs = value.get("attrs") or {}
         return str(attrs.get("text") or attrs.get("shortName") or attrs.get("id") or "").strip()
+    if node_type in {"inlineCard", "blockCard", "embedCard"}:
+        attrs = value.get("attrs") or {}
+        return str(attrs.get("url") or attrs.get("data") or "").strip()
     if node_type == "hardBreak":
         return "\n"
 
@@ -387,6 +415,63 @@ def comment_signal_count(text: str) -> int:
     return sum(1 for token in COMMENT_SIGNAL_HINTS if token in normalized)
 
 
+def extract_customfield_rich_text(fields_data: Dict[str, Any]) -> str:
+    texts: List[str] = []
+    for key, value in (fields_data or {}).items():
+        if not str(key or "").startswith("customfield_"):
+            continue
+        text = adf_to_text(value)
+        if text and text not in texts:
+            texts.append(text)
+    return "\n".join(texts).strip()
+
+
+def similarity_tokens(text: str) -> Set[str]:
+    normalized = normalize_text(text)
+    tokens = re.findall(r"[a-z0-9]{3,}", normalized)
+    return {
+        token for token in tokens
+        if token not in SIMILARITY_STOPWORDS
+    }
+
+
+def infer_text_team_hints(text: str) -> Set[str]:
+    normalized = normalize_text(text)
+    hints: Set[str] = set()
+    if "s1nc" in normalized or "sync" in normalized:
+        hints.add("S1NC")
+    if "w1nner" in normalized or "winner" in normalized:
+        hints.add("W1NNR")
+    if "befinance" in normalized or "be finance" in normalized:
+        hints.add("BF")
+    if "data analytics" in normalized or "data&analytics" in normalized or "dataanalytics" in normalized:
+        hints.add("DT")
+    return hints
+
+
+def is_strong_text_similarity(item_tokens: Set[str], chg_tokens: Set[str]) -> bool:
+    if not item_tokens or not chg_tokens:
+        return False
+    overlap = item_tokens & chg_tokens
+    if len(overlap) < 2:
+        return False
+    distinctive_overlap = {
+        token for token in overlap
+        if token not in SIMILARITY_WEAK_TOKENS and len(token) >= 5
+    }
+    min_size = max(1, min(len(item_tokens), len(chg_tokens)))
+    overlap_ratio = len(overlap) / float(min_size)
+    if len(distinctive_overlap) >= 4:
+        return True
+    if len(distinctive_overlap) >= 3 and len(overlap) >= 3:
+        return True
+    if len(distinctive_overlap) >= 2 and len(overlap) >= 3 and overlap_ratio >= 0.6:
+        return True
+    if len(distinctive_overlap) >= 2 and len(overlap) >= 2 and overlap_ratio >= 0.95:
+        return True
+    return False
+
+
 def fetch_chg_issues(
     client: JiraClient,
     base_url: str,
@@ -411,8 +496,16 @@ def fetch_chg_issues(
     issues = client.search_issues(jql=jql, fields=fields)
     rows: List[Dict[str, Any]] = []
     for issue in issues:
-        fields_data = issue.get("fields", {}) or {}
         issue_key = str(issue.get("key") or "").strip().upper()
+        fields_data = issue.get("fields", {}) or {}
+        if issue_key:
+            try:
+                detailed_issue = client.get_issue(issue_key)
+                detailed_fields = detailed_issue.get("fields", {}) if isinstance(detailed_issue, dict) else {}
+                if isinstance(detailed_fields, dict) and detailed_fields:
+                    fields_data = detailed_fields
+            except Exception:
+                pass
         comment_payload = fields_data.get("comment") or {}
         initial_comments = comment_payload.get("comments") if isinstance(comment_payload, dict) else []
         initial_comments = initial_comments if isinstance(initial_comments, list) else []
@@ -427,11 +520,29 @@ def fetch_chg_issues(
             )
 
         description_text = adf_to_text(fields_data.get("description"))
+        customfield_text = extract_customfield_rich_text(fields_data)
         comment_texts = [adf_to_text((comment or {}).get("body")) for comment in comments]
         full_comment_text = "\n".join([text for text in comment_texts if text.strip()]).strip()
+        text_corpus = " ".join(
+            segment for segment in [
+                str(fields_data.get("summary") or "").strip(),
+                description_text,
+                customfield_text,
+                full_comment_text,
+            ]
+            if str(segment or "").strip()
+        ).strip()
+        similarity_corpus = " ".join(
+            segment for segment in [
+                str(fields_data.get("summary") or "").strip(),
+                description_text,
+                customfield_text,
+            ]
+            if str(segment or "").strip()
+        ).strip()
         issue_links_summary = build_issue_links_summary(fields_data.get("issuelinks"))
         linked_keys = [token.strip().upper() for token in split_csv_tokens(issue_links_summary.get("IssueLinkKeys", ""))]
-        mentioned_keys = extract_issue_keys_from_text(fields_data.get("summary"), description_text, full_comment_text)
+        mentioned_keys = extract_issue_keys_from_text(fields_data.get("summary"), description_text, customfield_text, full_comment_text)
         comment_keys = extract_issue_keys_from_text(full_comment_text)
 
         rows.append(
@@ -450,6 +561,8 @@ def fetch_chg_issues(
                 "IssueLinkDetails": issue_links_summary.get("IssueLinkDetails", ""),
                 "MentionedIssueKeys": sorted_join(mentioned_keys),
                 "CommentMentionedIssueKeys": sorted_join(comment_keys),
+                "TextCorpus": text_corpus,
+                "SimilarityCorpus": similarity_corpus,
                 "CommentCount": len(comments),
                 "CommentSignalCount": comment_signal_count(full_comment_text),
             }
@@ -476,10 +589,14 @@ def pick_primary_evidence(row: pd.Series) -> str:
         return "Mencao em comentario da GMUD"
     if str(row.get("DirectTextCHGKeys") or "").strip():
         return "Mencao em resumo/descricao da GMUD"
+    if str(row.get("DirectTitleMatchCHGKeys") or "").strip():
+        return "Similaridade forte de titulo"
     if str(row.get("HierarchyCommentCHGKeys") or "").strip():
         return "Mencao em comentario via hierarquia"
     if str(row.get("HierarchyTextCHGKeys") or "").strip():
         return "Mencao em texto via hierarquia"
+    if str(row.get("HierarchyTitleMatchCHGKeys") or "").strip():
+        return "Similaridade forte via hierarquia"
     return "Sem GMUD"
 
 
@@ -488,7 +605,8 @@ def map_primary_bucket(evidence: str) -> str:
         return "Explicita"
     if "comentario" in normalize_text(evidence):
         return "Comentario"
-    if "texto" in normalize_text(evidence) or "resumo" in normalize_text(evidence):
+    normalized = normalize_text(evidence)
+    if "texto" in normalized or "resumo" in normalized or "titulo" in normalized or "similaridade" in normalized:
         return "Texto"
     return "Sem GMUD"
 
@@ -497,7 +615,20 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
     explicit_ref_map: Dict[str, Set[str]] = defaultdict(set)
     text_ref_map: Dict[str, Set[str]] = defaultdict(set)
     comment_ref_map: Dict[str, Set[str]] = defaultdict(set)
+    title_match_ref_map: Dict[str, Set[str]] = defaultdict(set)
     chg_signal_map: Dict[str, int] = {}
+
+    item_rows = items_df.to_dict(orient="records")
+    item_title_token_map: Dict[str, Set[str]] = {
+        str(row.get("ItemKey") or "").strip().upper(): similarity_tokens(row.get("Titulo"))
+        for row in item_rows
+        if str(row.get("ItemKey") or "").strip()
+    }
+    item_team_map: Dict[str, str] = {
+        str(row.get("ItemKey") or "").strip().upper(): normalize_service_team(row.get("ServiceTeam") or row.get("Projeto"))
+        for row in item_rows
+        if str(row.get("ItemKey") or "").strip()
+    }
 
     for row in chg_df.to_dict(orient="records"):
         chg_key = str(row.get("CHGKey") or "").strip().upper()
@@ -520,6 +651,17 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
         for ref in comment_refs:
             comment_ref_map[ref].add(chg_key)
 
+        chg_tokens = similarity_tokens(row.get("SimilarityCorpus") or row.get("Summary"))
+        team_hints = infer_text_team_hints(row.get("SimilarityCorpus") or row.get("Summary"))
+        if chg_tokens:
+            for item_key, item_tokens in item_title_token_map.items():
+                if team_hints:
+                    item_team = item_team_map.get(item_key, "")
+                    if item_team and item_team not in team_hints:
+                        continue
+                if is_strong_text_similarity(item_tokens, chg_tokens):
+                    title_match_ref_map[item_key].add(chg_key)
+
     enriched = items_df.copy()
     direct_explicit_values: List[str] = []
     hierarchy_explicit_values: List[str] = []
@@ -527,6 +669,8 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
     hierarchy_text_values: List[str] = []
     direct_comment_values: List[str] = []
     hierarchy_comment_values: List[str] = []
+    direct_title_values: List[str] = []
+    hierarchy_title_values: List[str] = []
     all_chg_values: List[str] = []
     matched_signal_counts: List[int] = []
 
@@ -540,14 +684,17 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
         hierarchy_explicit = set()
         hierarchy_text = set()
         hierarchy_comment = set()
+        hierarchy_title = set()
         for ref in ancestor_refs:
             hierarchy_explicit.update(explicit_ref_map.get(ref, set()))
             hierarchy_text.update(text_ref_map.get(ref, set()))
             hierarchy_comment.update(comment_ref_map.get(ref, set()))
+            hierarchy_title.update(title_match_ref_map.get(ref, set()))
 
         direct_text = set(text_ref_map.get(item_key, set()))
         direct_comment = set(comment_ref_map.get(item_key, set()))
-        all_chg = direct_explicit | hierarchy_explicit | direct_text | hierarchy_text | direct_comment | hierarchy_comment
+        direct_title = set(title_match_ref_map.get(item_key, set()))
+        all_chg = direct_explicit | hierarchy_explicit | direct_text | hierarchy_text | direct_comment | hierarchy_comment | direct_title | hierarchy_title
         signal_count = sum(chg_signal_map.get(chg_key, 0) for chg_key in all_chg)
 
         direct_explicit_values.append(sorted_join(direct_explicit))
@@ -556,6 +703,8 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
         hierarchy_text_values.append(sorted_join(hierarchy_text))
         direct_comment_values.append(sorted_join(direct_comment))
         hierarchy_comment_values.append(sorted_join(hierarchy_comment))
+        direct_title_values.append(sorted_join(direct_title))
+        hierarchy_title_values.append(sorted_join(hierarchy_title))
         all_chg_values.append(sorted_join(all_chg))
         matched_signal_counts.append(signal_count)
 
@@ -565,6 +714,8 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
     enriched["HierarchyTextCHGKeys"] = hierarchy_text_values
     enriched["DirectCommentCHGKeys"] = direct_comment_values
     enriched["HierarchyCommentCHGKeys"] = hierarchy_comment_values
+    enriched["DirectTitleMatchCHGKeys"] = direct_title_values
+    enriched["HierarchyTitleMatchCHGKeys"] = hierarchy_title_values
     enriched["MatchedCHGKeys"] = all_chg_values
     enriched["MatchedCommentSignalCount"] = matched_signal_counts
     enriched["HasGMUD"] = enriched["MatchedCHGKeys"].astype(str).str.strip().ne("")
@@ -687,6 +838,58 @@ def ensure_parent_dir(path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
+def infer_projects_from_jql(jql: str) -> List[str]:
+    text = str(jql or "").strip()
+    if not text:
+        return []
+    found: List[str] = []
+    for match in re.finditer(r"\bproject\s*=\s*([A-Za-z][A-Za-z0-9_-]*)", text, flags=re.IGNORECASE):
+        key = str(match.group(1) or "").strip().upper()
+        if key and key not in found:
+            found.append(key)
+    for match in re.finditer(r"\bproject\s+in\s*\(([^)]*)\)", text, flags=re.IGNORECASE):
+        raw_values = str(match.group(1) or "")
+        for token in raw_values.split(","):
+            key = str(token or "").strip().strip("'\"").upper()
+            if key and key not in found:
+                found.append(key)
+    return found
+
+
+def validate_chg_query_access(client: JiraClient, jql: str, chg_df: pd.DataFrame) -> None:
+    if not chg_df.empty:
+        return
+
+    try:
+        myself = client.get_myself()
+    except Exception as exc:
+        raise RuntimeError(
+            "Falha ao autenticar no Jira antes de consultar as GMUDs. "
+            "Revise JIRA_EMAIL/JIRA_API_TOKEN e confirme que a conta usada pelo pipeline consegue acessar a API."
+        ) from exc
+
+    project_keys = infer_projects_from_jql(jql)
+    invisible_projects: List[str] = []
+    for project_key in project_keys:
+        try:
+            visible_projects = client.search_projects(project_key)
+        except Exception:
+            visible_projects = []
+        visible = any(str(project.get("key") or "").strip().upper() == project_key for project in visible_projects)
+        if not visible:
+            invisible_projects.append(project_key)
+
+    if invisible_projects:
+        display_name = str(myself.get("displayName") or "").strip()
+        email = str(myself.get("emailAddress") or "").strip()
+        actor = display_name or email or "conta autenticada"
+        raise RuntimeError(
+            "Nenhum ticket retornado pela JQL de GMUD e a conta autenticada "
+            f"({actor}) nao enxerga o(s) projeto(s): {', '.join(invisible_projects)}. "
+            "Conceda acesso ao projeto CHG ou use uma credencial com permissao de Browse Projects."
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Calcula cobertura GMUD a partir de itens Jira e tickets CHG.")
     parser.add_argument(
@@ -734,12 +937,17 @@ def main() -> int:
         return 2
 
     client = JiraClient(base_url=base_url, email=email, api_token=token)
-    chg_df = fetch_chg_issues(
-        client=client,
-        base_url=base_url,
-        jql=str(args.chg_jql or "").strip(),
-        fetch_comments=not args.skip_comments,
-    )
+    try:
+        chg_df = fetch_chg_issues(
+            client=client,
+            base_url=base_url,
+            jql=str(args.chg_jql or "").strip(),
+            fetch_comments=not args.skip_comments,
+        )
+        validate_chg_query_access(client, str(args.chg_jql or "").strip(), chg_df)
+    except RuntimeError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 2
     covered_items_df = compute_gmud_coverage(items_df, chg_df)
     summary_df = build_summary_index(covered_items_df)
     weekly_df = build_weekly_history(covered_items_df)

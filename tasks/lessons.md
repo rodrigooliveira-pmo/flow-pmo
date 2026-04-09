@@ -479,6 +479,13 @@ Use this file after any user correction.
 - Action added to workflow: Quando o usuário explicitar a fronteira organizacional entre áreas do fluxo, refletir isso diretamente nos tokens e revisar os labels mais parecidos que possam cair no bucket errado.
 
 - Date: 2026-04-09
+- Context: Ajuste fino da taxonomia entre `backlog` e `backlog do produto` no `Cost of Delay`.
+- User correction: Esclareceu que `backlog` e `in progress` são etapas de `Downstream`, enquanto `backlog do produto` continua representando etapa de `Upstream`.
+- Root cause: Eu estava tratando o token genérico `backlog` como se sempre significasse backlog de produto, sem separar o backlog do board downstream do backlog estratégico de produto.
+- Prevention rule: Quando um status genérico aparece em mais de um contexto organizacional, não classificá-lo por substring ampla sem preservar explicitamente as exceções mais específicas do fluxo real.
+- Action added to workflow: Em taxonomias por tokens, revisar sempre conflitos entre rótulos genéricos (`backlog`, `design`, `review`) e rótulos específicos (`backlog do produto`, `ready to design`) antes de concluir a classificação.
+
+- Date: 2026-04-09
 - Context: Primeira publicação da aba `Cobertura GMUD` no dashboard usando os artefatos `gmud-coverage-*`.
 - User correction: Reportou que em produção os CSVs GMUD não eram encontrados, porque a aba exigia `FLOW_PMO_GMUD_*` dedicadas ou arquivos locais e não reaproveitava a mesma base pública já usada pelos outros artefatos latest.
 - Root cause: Eu validei o loader com envs explícitas e arquivos sintéticos, mas não fechei a última milha de deploy para o ambiente Vercel, onde a convenção operacional é derivar vários artefatos a partir de um mesmo blob/base pública.
@@ -491,3 +498,17 @@ Use this file after any user correction.
 - Root cause: Eu foquei na correção de código e na validação local, mas não evidenciei logo de saída que o projeto usa deploy manual na Vercel e que mensagens antigas em produção são um forte sinal de build ainda não publicado.
 - Prevention rule: Quando eu corrigir comportamento de runtime em um projeto com deploy manual, devo sempre comparar o texto/assinatura visível em produção com o código atual para distinguir rapidamente `bug de lógica` de `deploy desatualizado`.
 - Action added to workflow: Em incidentes de produção após mudanças de dashboard, verificar cedo `mensagem atual no código`, `modo de deploy` e `última publicação` antes de concluir que a lógica nova não funcionou.
+
+- Date: 2026-04-09
+- Context: Primeira versão da cobertura GMUD cruzou `CHG` apenas por links explícitos e por menções diretas a chaves Jira.
+- User correction: Mostrou no dashboard que nenhuma GMUD estava sendo relacionada às entregas, apesar de existirem tickets `CHG` válidos.
+- Root cause: Eu assumi que as GMUDs citariam `issue keys` diretamente (`W1NNR-123`, `S1NC-456`, etc.), mas na prática os tickets `CHG` desta operação descrevem a mudança majoritariamente em linguagem natural no `summary/description`.
+- Prevention rule: Em correlações entre change requests e itens de entrega, não presumir que a rastreabilidade virá sempre por chave explícita; validar cedo se a origem usa texto natural e preparar uma camada controlada de similaridade semântica/título.
+- Action added to workflow: Em novos cruzamentos Jira x change management, amostrar tickets reais do projeto de mudanças antes de fechar a régua de matching, checando `links`, `issue keys`, `texto livre` e `comentários`.
+
+- Date: 2026-04-09
+- Context: Após a primeira correção de matching por similaridade, o usuário trouxe o exemplo do `CHG-33`, onde as chaves reais estavam visíveis no Jira mas ainda não apareciam no pipeline.
+- User correction: Mostrou que o ticket continha links explícitos para `S1NC-2020`, `S1NC-1951` e `S1NC-2057` junto do plano de rollback.
+- Root cause: Eu concentrei a extração em `summary`, `description`, `issuelinks` e `comment`, mas não considerei que a operação estava registrando a rastreabilidade em `customfield_*` ricos e ADF com links fora do payload básico do search.
+- Prevention rule: Em tickets Jira com campos ricos operacionais (implantação, rollback, evidências), não assumir que o `search` com campos básicos é suficiente; validar o JSON completo de uma issue real antes de concluir que a informação não existe.
+- Action added to workflow: Em integrações Jira baseadas em ADF/rich text, sempre testar um caso real com `get_issue(..., fields=*all)` para mapear `customfield_*`, `marks.link`, `inlineCard` e demais nós onde links podem ficar escondidos.

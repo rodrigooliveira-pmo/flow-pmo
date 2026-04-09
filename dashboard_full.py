@@ -6462,14 +6462,15 @@ def _pm_waiting_direction(status_norm: str) -> str:
 
     Upstream  = enterprise/product-side queue before delivery to downstream execution,
                 including discovery, design, triage, QA/homolog/staging preparation
-                and strategic pre-delivery stages.
-    Downstream = strategic downstream flow from ready-to-delivery onward.
+                and strategic pre-delivery stages such as backlog do produto.
+    Downstream = strategic downstream flow, including backlog / in progress on the
+                 downstream board and stages from ready-to-delivery onward.
     """
     if not status_norm:
         return 'Upstream'
     s = str(status_norm).lower().strip()
     _upstream_tokens = (
-        'backlog', 'triage', 'triagem', 'product discov', 'in discovery', 'discovery',
+        'triage', 'triagem', 'product discov', 'in discovery', 'discovery',
         'planning', 'plan', 'definition', 'design', 'in design',
         'refinement', 'refinamento', 'grooming', 'replenishment',
         'to do', 'todo', 'ready for development', 'ready to development',
@@ -6481,6 +6482,7 @@ def _pm_waiting_direction(status_norm: str) -> str:
         'ready to homologation',
     )
     _downstream_tokens = (
+        'backlog', 'in progress', 'in progess', 'em progresso',
         'ready to delivery', 'ready for delivery',
         'ready for release', 'ready for merge', 'ready for uat',
         'in validation', 'homolog', 'validaç', 'approval', 'approved',

@@ -90,6 +90,33 @@ class JiraClient:
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", path=path, payload=payload)
 
+    def get_myself(self) -> Dict[str, Any]:
+        try:
+            return self._get("/rest/api/3/myself")
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in {400, 404, 405, 410}:
+                return self._get("/rest/api/2/myself")
+            raise
+
+    def search_projects(self, query: str, max_results: int = 50) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"query": str(query or "").strip(), "maxResults": max_results}
+        payload = self._get("/rest/api/3/project/search", params=params)
+        values = payload.get("values", []) if isinstance(payload, dict) else []
+        return values if isinstance(values, list) else []
+
+    def get_issue(self, issue_key: str, fields: Optional[List[str]] = None) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if fields:
+            params["fields"] = ",".join(fields)
+        try:
+            return self._get(f"/rest/api/3/issue/{issue_key}", params=params or None)
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in {400, 404, 405, 410}:
+                return self._get(f"/rest/api/2/issue/{issue_key}", params=params or None)
+            raise
+
     def search_issues(
         self,
         jql: str,
