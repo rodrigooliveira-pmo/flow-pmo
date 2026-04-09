@@ -11,7 +11,7 @@ Igor Rezende,Ready To Staging,16643.97,65,65
 Christopher Alves,In Progress,16233.64,107,107
 Lara Junqueira Alvarenga,Triagem,15210.82,49,47
 Danilo Monreal,QA Approved Staging,15148.42,502,502
-Christopher Alves,Staging,14651.51,157,157
+Christopher Alves,Staging,14746.39,159,159
 Christopher Alves,Ready to Homolog,13841.31,106,106
 Eder Afonso,To Do,13837.14,8,8
 Heitor Toledo,In Progress,13452.51,65,65
@@ -68,7 +68,7 @@ Lara Junqueira Alvarenga,In Staging,2317.25,27,27
 Peterson Bem,In Progress,2288.89,19,19
 Barbara Rossi,QA Approved Hml,2256.59,37,37
 Peterson Bem,Ready to Homolog,2245.5,22,22
-Wallison Oliveira,Staging,2209.96,34,34
+Wallison Oliveira,Staging,2230.99,35,35
 Lara Junqueira Alvarenga,To Do,2198.01,2,2
 Lorraine Caribe,Done,2184.83,3,3
 Gabriel Wiggert,In Development,2014.81,3,3
@@ -79,7 +79,7 @@ Igor Rezende,in analytics,1878.32,15,15
 Gabriel Wiggert,Ready for Staging,1875.62,5,4
 Luciano Ilha Carbonell,in analytics,1868.92,15,14
 Peterson Bem,Homolog,1805.96,35,35
-Igor Rezende,Staging,1788.49,52,52
+Igor Rezende,Staging,1805.14,53,53
 Luciano Ilha Carbonell,Ready to Homolog,1585.76,10,10
 Lorraine Caribe,Ready to Analytics,1552.52,6,6
 Lorraine Caribe,QA Approved,1503.14,10,10
@@ -97,7 +97,7 @@ Gabriel Wiggert,Ready To Staging,1181.45,15,15
 Igor Rezende,In Validation,1032.12,8,8
 Lara Junqueira Alvarenga,Ready to Homolog,1004.94,11,11
 Antigo utilizador,In Staging,966.27,8,8
-Christopher Alves,CODE REVIEW,962.36,25,21
+Christopher Alves,CODE REVIEW,962.36,26,22
 Lara Junqueira Alvarenga,In Validation,961.14,14,14
 Heitor Toledo,in analytics,899.83,15,15
 Lorraine Caribe,In Validation,885.3,2,2
@@ -107,7 +107,7 @@ Igor Rezende,In Development,859.37,15,15
 Peterson Bem,Staging,858.89,44,44
 Rubens Igesca,In Progress,845.76,11,11
 Matheus Carvalho,In Progress,831.43,10,10
-Luciano Ilha Carbonell,In Progess,775.75,6,4
+Luciano Ilha Carbonell,In Progess,823.8,7,4
 Lara Junqueira Alvarenga,In Progess,752.11,20,19
 Gabriel Wiggert,Homolog,678.34,21,21
 Heitor Toledo,In Validation,662.11,7,7
@@ -142,9 +142,9 @@ Matheus Carvalho,Ready To Staging,351.39,4,4
 Antigo utilizador,In Validation,321.38,4,4
 Gabriel de Oliveira Koehler,Homolog,315.37,11,11
 Wallison Oliveira,READY FOR TESTING/QA,315.19,8,8
+Eduardo Pezzi,Ready for code review,313.55,7,7
 Marielle Freire,READY FOR DEVELOPMENT,302.86,7,7
 Lara Junqueira Alvarenga,Production,289.87,3,3
-Eduardo Pezzi,Ready for code review,282.8,6,6
 Christopher Alves,In Development,274.18,8,8
 Lara Junqueira Alvarenga,QA Approved,273.06,2,2
 Christopher Alves,READY FOR DEVELOPMENT,270.98,12,12
@@ -162,6 +162,7 @@ Lara Junqueira Alvarenga,QA Approved Staging,214.27,12,12
 Gabriel Castelo,Ready for Production,213.06,4,4
 Eder Afonso,in analytics,211.92,15,15
 Gabriel Castelo,READY FOR TESTING/QA,208.82,7,6
+Eduardo Pezzi,CODE REVIEW,208.64,4,4
 Gabriel de Oliveira Koehler,in analytics,204.7,4,4
 Henrique Rocha Menezes Alves,Ready To Staging,201.38,12,12
 Christopher Alves,Ready for code review,194.51,24,19
@@ -177,7 +178,6 @@ Gabriel Castelo,In Progess,165.91,4,4
 Gabriel Azevedo,In Development,165.31,2,2
 Evanir de Oliveira Junior,READY FOR TESTING/QA,163.67,2,2
 Heitor Toledo,Testing / QA,162.79,6,6
-Eduardo Pezzi,CODE REVIEW,158.19,3,3
 Heitor Toledo,READY FOR TESTING/QA,157.82,6,6
 Gabriel de Oliveira Koehler,Ready for code review,155.0,6,6
 Gabriel de Oliveira Koehler,Ready for Production,149.45,24,24
@@ -208,6 +208,7 @@ Antigo utilizador,Ready To Staging,74.12,4,4
 Wallison Oliveira,In Validation,72.87,3,3
 Luciano Ilha Carbonell,CODE REVIEW,71.87,1,1
 Evanir de Oliveira Junior,CODE REVIEW,70.55,2,2
+Gabriel Castelo,Ready for code review,69.96,6,5
 Lara Junqueira Alvarenga,in analytics,67.24,21,21
 Gabriel de Oliveira Koehler,CODE REVIEW,66.45,4,4
 Lara Junqueira Alvarenga,ready for homolog,60.87,12,12
@@ -230,7 +231,6 @@ Lucas Pizol,Ready to Homolog,27.31,1,1
 Thaís Cabral,QA Approved Staging,26.9,1,1
 Wallison Oliveira,Ready for code review,26.4,11,11
 Matheus Carvalho,in analytics,25.56,1,1
-Gabriel Castelo,Ready for code review,24.45,5,4
 Peterson Bem,Ready for Production,24.32,4,4
 Gabriel Azevedo,Staging,24.28,1,1
 Gabriel Azevedo,Done,24.13,1,1

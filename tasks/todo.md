@@ -8767,3 +8767,75 @@
   - não validei no navegador de produção, então ainda vale um smoke test visual após o deploy
 - Suggested commit message:
   - `fix(produtividade-dev): stop delta-ecr hovertemplate from crashing tab render`
+
+## Current Task (Renomear filtro de projeto para Time no dashboard)
+- [x] Localizar o rótulo do filtro de projeto no `dashboard_full.py`
+- [x] Trocar o texto exibido de `Projeto:` para `Time:`
+- [x] Validar a alteração de forma estática e registrar review com commit sugerido
+
+## Specification (Renomear filtro de projeto para Time no dashboard)
+- Objetivo: atualizar o rótulo visível do filtro principal de projeto no dashboard para `Time:`, sem alterar o comportamento do dropdown nem a semântica interna dos filtros.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - localizar o `html.Label(...)` associado ao `dcc.Dropdown(id='filter-projeto')`
+  - alterar apenas o texto renderizado, preservando `id`, opções e valor atual
+  - fazer uma verificação estática simples do trecho alterado
+- Critério de aceite:
+  - o dashboard passa a exibir `Time:` no lugar de `Projeto:`
+  - o dropdown continua ligado ao filtro `filter-projeto`
+  - a mudança permanece localizada e sem impacto funcional adicional
+
+## Review (Renomear filtro de projeto para Time no dashboard)
+- O que foi ajustado:
+  - o rótulo visual do filtro associado a `filter-projeto` em `dashboard_full.py` foi alterado de `Projeto:` para `Time:`
+  - não houve mudança no `id`, nas opções, no valor padrão nem na lógica de filtragem
+- Evidências de validação:
+  - revisão estática do trecho do layout contendo `html.Label('Time:')` e `dcc.Dropdown(id='filter-projeto', ...)`
+- Risco residual:
+  - a validação desta rodada foi estática; ainda vale um smoke test visual rápido no navegador se quiser conferir a renderização final
+- Suggested commit message:
+  - `chore(dashboard): rename project filter label to team`
+
+## Current Task (Corrigir falha de latest-upload com arquivo bloqueado)
+- [x] Confirmar a causa raiz da falha no empacotamento `latest-upload`
+- [x] Tornar `copy_latest_upload.py` resiliente a `PermissionError` por arquivo em uso no Windows
+- [x] Validar o comportamento com testes direcionados e registrar review com commit sugerido
+
+## Specification (Corrigir falha de latest-upload com arquivo bloqueado)
+- Objetivo: impedir que o `run_all_projects.ps1` falhe no fim da execução quando algum arquivo do pacote `latest-upload` estiver temporariamente bloqueado por outro processo.
+- Escopo:
+  - `copy_latest_upload.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - confirmar que a falha ocorre no overwrite do destino durante `shutil.copy2(...)`
+  - adicionar retry com espera curta para locks transitórios no Windows
+  - se o lock persistir, degradar de forma controlada para aviso e continuação do pacote, sem derrubar o runner inteiro
+- Critério de aceite:
+  - `copy_latest_upload.py` deixa de abortar imediatamente em `WinError 32`
+  - o script reporta claramente quais arquivos foram copiados e quais ficaram bloqueados
+  - o runner pode concluir a atualização do pacote mesmo quando um arquivo do destino estiver em uso
+
+## Review (Corrigir falha de latest-upload com arquivo bloqueado)
+- Causa raiz confirmada:
+  - o pipeline concluía as exportações e falhava apenas no empacotamento final de `latest-upload`, dentro de `copy_latest_upload.py`
+  - a exceção vinha de `shutil.copy2(...)` ao tentar sobrescrever um arquivo aberto por outro processo, retornando `PermissionError` com `WinError 32`
+  - como o runner chama o script com `--clean-dest`, o risco de lock também existe na limpeza do destino e não só na cópia
+- O que foi ajustado:
+  - `copy_latest_upload.py` agora identifica locks transitórios de arquivo no Windows e faz retry configurável com espera curta
+  - a limpeza do diretório destino passou a tolerar arquivos bloqueados, mantendo-os no lugar e emitindo aviso em vez de abortar o pacote
+  - a cópia de cada artefato passou a degradar de forma controlada quando o lock persiste: mantém a versão atual do arquivo, registra o nome bloqueado e segue com os demais itens
+  - adicionei as flags `--copy-retries` e `--copy-retry-delay-ms` para ajuste fino sem precisar editar o script
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile copy_latest_upload.py`
+  - smoke test dirigido simulando `WinError 32` em `shutil.copy2(...)`, confirmando:
+    - `rc = 0`
+    - `3` tentativas com `--copy-retries 2`
+    - preservação do conteúdo antigo no destino quando o arquivo permanece bloqueado
+  - smoke test dirigido da limpeza do destino, confirmando que um arquivo bloqueado é mantido e os demais são removidos normalmente
+- Risco residual:
+  - se um arquivo crítico ficar bloqueado por tempo prolongado, o pacote `latest-upload` seguirá com a versão anterior desse item até a próxima execução
+  - em `--strict`, o script continua falhando se houver bloqueios persistentes ou obrigatórios ausentes, o que preserva um modo de validação rígido
+- Suggested commit message:
+  - `fix(latest-upload): tolerate locked files during package refresh`

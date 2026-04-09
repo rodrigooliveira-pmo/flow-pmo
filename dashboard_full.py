@@ -5874,6 +5874,299 @@ def _build_custo_estimado_vs_real_section(events_df: 'pd.DataFrame', worklog_df:
     ])
 
 
+def _pm_is_waiting_status(status_norm: str) -> bool:
+    """True for queue/waiting phases: non-execution AND non-done/cancelled.
+    Examples: Sprint Backlog, Ready for QA, Ready for Production, To Do."""
+    if not status_norm:
+        return False
+    s = str(status_norm).lower().strip()
+    _done_cancel = ('done', 'conclu', 'closed', 'cancel', 'itens conclu')
+    if any(t in s for t in _done_cancel):
+        return False
+    if _pm_is_execution_status(s):
+        return False
+    return bool(s)
+
+
+def build_custo_espera_data(
+    all_events_df: 'pd.DataFrame',
+    custo_hora: float,
+    horas_produtivas_dia: float = 8.0,
+) -> dict:
+    """
+    Computes Cost of Delay for queue/waiting phases (Sprint Backlog, Ready for QA, etc.).
+
+    CustoEspera = TempoStatusDias × horas_produtivas_dia × custo_hora
+
+    Uses all_events_df which contains ALL phases (execution + waiting),
+    available via pm_portfolio_data['all_events_df'].
+
+    Returns dict with:
+      - 'espera_df':    one row per waiting event with CustoEspera, DiasEspera, FaseEspera
+      - 'by_phase_df':  aggregate by waiting phase label
+      - 'by_product_df': aggregate by product (waiting vs execution days)
+      - 'by_issue_df':  top issues by total wait cost
+      - 'kpis':         scalar metrics
+      - 'has_cost':     bool
+    """
+    _empty = {
+        'espera_df': pd.DataFrame(), 'by_phase_df': pd.DataFrame(),
+        'by_product_df': pd.DataFrame(), 'by_issue_df': pd.DataFrame(),
+        'kpis': {}, 'has_cost': False,
+    }
+
+    if all_events_df is None or all_events_df.empty:
+        return _empty
+
+    df = all_events_df.copy()
+    df['TempoStatusDias'] = pd.to_numeric(df.get('TempoStatusDias'), errors='coerce').fillna(0.0)
+    df['Horas PM Elegíveis'] = pd.to_numeric(df.get('Horas PM Elegíveis'), errors='coerce').fillna(0.0)
+    df['History Created'] = pd.to_datetime(df.get('History Created'), errors='coerce')
+    df['Issue Key'] = df.get('Issue Key', pd.Series([''] * len(df))).fillna('').astype(str)
+    df['Produto'] = df.get('Produto', pd.Series([''] * len(df))).fillna('').astype(str)
+
+    status_col = 'To Status Norm' if 'To Status Norm' in df.columns else 'To Status'
+    df['_status_norm'] = df[status_col].fillna('').astype(str).str.strip()
+    df['Status PM Elegível'] = df.get('Status PM Elegível', pd.Series([False] * len(df)))
+    if df['Status PM Elegível'].dtype != bool:
+        df['Status PM Elegível'] = _coerce_bool_flag(df['Status PM Elegível'])
+
+    # Waiting = non-execution, non-done, non-cancelled, with time > 0
+    df['_is_waiting'] = df['_status_norm'].apply(_pm_is_waiting_status)
+    waiting_df = df[df['_is_waiting'] & (df['TempoStatusDias'] > 0)].copy()
+
+    if waiting_df.empty:
+        return _empty
+
+    taxa_dia = float(custo_hora or 0) * float(horas_produtivas_dia)
+    has_cost = taxa_dia > 0
+
+    waiting_df['DiasEspera'] = waiting_df['TempoStatusDias']
+    waiting_df['CustoEspera'] = waiting_df['DiasEspera'] * taxa_dia
+    waiting_df['FaseEspera'] = waiting_df['_status_norm'].str.title().replace('', 'Desconhecido')
+
+    # ── Execution totals (for efficiency ratio) ───────────────────────────────
+    exec_df = df[df['Status PM Elegível'] & (df['TempoStatusDias'] > 0)].copy()
+    total_exec_dias = float(exec_df['TempoStatusDias'].sum())
+    total_exec_custo = float(exec_df['Horas PM Elegíveis'].sum()) * float(custo_hora or 0)
+
+    total_espera_dias = float(waiting_df['DiasEspera'].sum())
+    total_espera_custo = float(waiting_df['CustoEspera'].sum())
+    total_issues_espera = int(waiting_df['Issue Key'].nunique())
+    total_dias = total_exec_dias + total_espera_dias
+    flow_efficiency = (total_exec_dias / total_dias * 100.0) if total_dias > 0 else np.nan
+    avg_espera_por_issue = (
+        waiting_df.groupby('Issue Key')['DiasEspera'].sum().mean()
+        if not waiting_df.empty else np.nan
+    )
+
+    # ── By waiting phase ──────────────────────────────────────────────────────
+    by_phase = (
+        waiting_df.groupby('FaseEspera', dropna=False)
+        .agg(
+            DiasEspera=('DiasEspera', 'sum'),
+            CustoEspera=('CustoEspera', 'sum'),
+            Ocorrencias=('Issue Key', 'size'),
+            Issues=('Issue Key', 'nunique'),
+        )
+        .reset_index()
+        .sort_values('CustoEspera' if has_cost else 'DiasEspera', ascending=False)
+    )
+
+    # ── By product: waiting vs execution days ─────────────────────────────────
+    wait_by_prod = (
+        waiting_df.groupby('Produto', dropna=False)
+        .agg(DiasEspera=('DiasEspera', 'sum'), CustoEspera=('CustoEspera', 'sum'))
+        .reset_index()
+    )
+    exec_by_prod = (
+        exec_df.groupby('Produto', dropna=False)
+        .agg(DiasExecucao=('TempoStatusDias', 'sum'))
+        .reset_index()
+    ) if not exec_df.empty else pd.DataFrame(columns=['Produto', 'DiasExecucao'])
+
+    by_product = wait_by_prod.merge(exec_by_prod, on='Produto', how='outer').fillna(0)
+    by_product['DiasExecucao'] = pd.to_numeric(by_product.get('DiasExecucao'), errors='coerce').fillna(0.0)
+    by_product['FlowEfficiency'] = np.where(
+        (by_product['DiasExecucao'] + by_product['DiasEspera']) > 0,
+        by_product['DiasExecucao'] / (by_product['DiasExecucao'] + by_product['DiasEspera']) * 100.0,
+        np.nan,
+    )
+
+    # ── By issue ──────────────────────────────────────────────────────────────
+    by_issue = (
+        waiting_df.groupby(['Issue Key', 'Produto'], dropna=False)
+        .agg(
+            DiasEspera=('DiasEspera', 'sum'),
+            CustoEspera=('CustoEspera', 'sum'),
+            FasesEspera=('FaseEspera', lambda x: ', '.join(sorted(set(x)))),
+            Ocorrencias=('Issue Key', 'size'),
+        )
+        .reset_index()
+        .sort_values('CustoEspera' if has_cost else 'DiasEspera', ascending=False)
+        .reset_index(drop=True)
+    )
+
+    return {
+        'espera_df': waiting_df,
+        'by_phase_df': by_phase,
+        'by_product_df': by_product,
+        'by_issue_df': by_issue,
+        'kpis': {
+            'total_espera_dias': total_espera_dias,
+            'total_espera_custo': total_espera_custo,
+            'total_exec_dias': total_exec_dias,
+            'total_exec_custo': total_exec_custo,
+            'flow_efficiency': flow_efficiency,
+            'avg_espera_por_issue': avg_espera_por_issue,
+            'issues_com_espera': total_issues_espera,
+            'taxa_dia': taxa_dia,
+        },
+        'has_cost': has_cost,
+    }
+
+
+def _build_custo_espera_section(
+    all_events_df: 'pd.DataFrame',
+    custo_hora: float,
+) -> 'html.Div':
+    """
+    Renders the Cost of Delay section:
+      - KPI cards: total dias espera, custo espera, flow efficiency, média por issue
+      - Chart 1: dias e custo por fase de espera (barras duplas)
+      - Chart 2: stacked bar por produto (espera vs execução)
+      - Chart 3: top 15 issues por custo de espera
+    """
+    data = build_custo_espera_data(all_events_df, custo_hora)
+    kpis = data.get('kpis', {})
+    by_phase_df = data.get('by_phase_df', pd.DataFrame())
+    by_product_df = data.get('by_product_df', pd.DataFrame())
+    by_issue_df = data.get('by_issue_df', pd.DataFrame())
+
+    if not kpis or kpis.get('issues_com_espera', 0) == 0:
+        return html.Div()
+
+    has_cost = data.get('has_cost', False)
+    fe = kpis.get('flow_efficiency', np.nan)
+    fe_str = f'{fe:.1f}%' if not pd.isna(fe) else '—'
+    avg_dias = kpis.get('avg_espera_por_issue', np.nan)
+    avg_str = f'{avg_dias:.1f}d' if not pd.isna(avg_dias) else '—'
+
+    def _fmt_r(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return '—'
+        return f"R$ {float(v):,.0f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    def _fmt_d(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return '—'
+        return f"{float(v):,.0f}d"
+
+    # ── KPI cards ─────────────────────────────────────────────────────────────
+    kpi_cards = html.Div([
+        _portfolio_metric_card('Dias em espera (total)', _fmt_d(kpis.get('total_espera_dias'))),
+        _portfolio_metric_card(
+            'Custo de espera estimado' if has_cost else 'Dias de espera',
+            _fmt_r(kpis.get('total_espera_custo')) if has_cost else _fmt_d(kpis.get('total_espera_dias')),
+        ),
+        _portfolio_metric_card('Flow Efficiency', fe_str),
+        _portfolio_metric_card('Média dias espera / issue', avg_str),
+    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
+
+    notes = []
+    if not has_cost:
+        notes.append(html.P(
+            'Taxas de custo não configuradas — valores em dias. '
+            'Configure FLOW_PMO_PM_COST_PER_HOUR_MAP para custo monetário.',
+            style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'},
+        ))
+    notes.append(html.P(
+        'Flow Efficiency = dias em execução / (dias em execução + dias em espera). '
+        'Benchmarks de referência: times de alto desempenho ≥ 40%; típico 15–25%.',
+        style={'color': '#555', 'fontSize': '13px', 'marginBottom': '8px'},
+    ))
+
+    value_col = 'CustoEspera' if has_cost else 'DiasEspera'
+    value_label = 'Custo de Espera (R$)' if has_cost else 'Dias de Espera'
+
+    # ── Chart 1: Por fase de espera ───────────────────────────────────────────
+    fig_phase = go.Figure()
+    if not by_phase_df.empty:
+        fig_phase = px.bar(
+            by_phase_df,
+            x='FaseEspera', y=value_col,
+            color='FaseEspera',
+            title='Custo de espera por fase de fila',
+            text=value_col,
+            hover_data={'Issues': True, 'Ocorrencias': True, 'DiasEspera': ':.1f'},
+            labels={value_col: value_label, 'FaseEspera': '', 'Issues': 'Issues únicas', 'Ocorrencias': 'Ocorrências'},
+        )
+        fig_phase.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_phase.update_layout(
+            height=380, showlegend=False,
+            yaxis_title=value_label, xaxis_title='',
+            margin=dict(t=50, b=80, l=60, r=20), xaxis_tickangle=-30,
+        )
+
+    # ── Chart 2: Por produto — espera vs execução (stacked) ───────────────────
+    fig_product = go.Figure()
+    if not by_product_df.empty:
+        prod_rows = []
+        for _, row in by_product_df.iterrows():
+            prod_rows.append({'Produto': row['Produto'], 'Dias': row.get('DiasExecucao', 0), 'Tipo': 'Execução'})
+            prod_rows.append({'Produto': row['Produto'], 'Dias': row.get('DiasEspera', 0), 'Tipo': 'Espera (fila)'})
+        fig_product = px.bar(
+            pd.DataFrame(prod_rows),
+            x='Produto', y='Dias', color='Tipo', barmode='stack',
+            title='Dias por produto: execução vs. espera',
+            color_discrete_map={'Execução': '#2ca02c', 'Espera (fila)': '#d62728'},
+        )
+        fig_product.update_layout(
+            height=380,
+            yaxis_title='Dias',
+            xaxis_title='',
+            margin=dict(t=50, b=60, l=60, r=20),
+            legend=dict(orientation='h', yanchor='bottom', y=-0.25),
+        )
+
+    # ── Chart 3: Top 15 issues por custo de espera ────────────────────────────
+    issues_graph = html.Div()
+    if not by_issue_df.empty:
+        top15 = by_issue_df.head(15).copy()
+        top15['_label'] = top15['Issue Key'] + ' (' + top15['Produto'] + ')'
+        fig_issues = px.bar(
+            top15,
+            x=value_col, y='_label',
+            orientation='h',
+            title='Top 15 issues por custo de espera',
+            color=value_col,
+            color_continuous_scale='Oranges',
+            text=value_col,
+            hover_data={'FasesEspera': True, 'DiasEspera': ':.1f', '_label': False},
+            labels={value_col: value_label, '_label': '', 'FasesEspera': 'Fases', 'DiasEspera': 'Dias'},
+        )
+        fig_issues.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_issues.update_layout(
+            height=max(300, len(top15) * 28 + 80),
+            xaxis_title=value_label,
+            yaxis=dict(autorange='reversed'),
+            margin=dict(t=50, b=60, l=220, r=80),
+            coloraxis_showscale=False,
+        )
+        issues_graph = dcc.Graph(figure=fig_issues)
+
+    return html.Div([
+        html.H4('Custo de Espera (Cost of Delay)', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.Div(notes),
+        kpi_cards,
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_phase)], style={'flex': '1', 'minWidth': '340px'}),
+            html.Div([dcc.Graph(figure=fig_product)], style={'flex': '1', 'minWidth': '340px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
+        html.Div([issues_graph], style={'marginTop': '12px'}),
+    ])
+
+
 def _coerce_bool_flag(series: 'pd.Series') -> 'pd.Series':
     """Normalise rework flag columns that may arrive as bool, int 0/1 or string 'True'/'False'."""
     if hasattr(series, 'dtype') and series.dtype == bool:
@@ -10727,6 +11020,7 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
 
     product_summary_rows = []
     event_frames = []
+    all_phase_frames = []
 
     for spec in specs:
         project_key = spec['project_key']
@@ -10762,6 +11056,14 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
                 pd.to_numeric(project_events['TempoStatusDias'], errors='coerce').fillna(0) * 24.0
             )
             project_events.loc[~project_events['Status PM Elegível'], 'Horas PM Elegíveis'] = 0.0
+
+            # Capture all phases (including waiting/queue) before the execution filter
+            _all = project_events.copy()
+            _all['Produto'] = product_label
+            _all['Projeto PM'] = project_key
+            _all['Taxa Hora PM'] = rate if rate is not None else np.nan
+            all_phase_frames.append(_all)
+
             project_events = project_events[project_events['Horas PM Elegíveis'] > 0].copy()
 
         if not project_events.empty:
@@ -10825,6 +11127,7 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
         'Produto', 'Projeto PM', 'Issue Key', 'Horas PM Elegíveis', 'AssetID', 'Descrição do Ativo',
         'Tipo do Ativo', 'Fonte Vínculo', 'Responsável PM', 'Custo PM Estimado',
     ])
+    all_events_df = pd.concat(all_phase_frames, ignore_index=True) if all_phase_frames else pd.DataFrame()
 
     top_assets = pd.DataFrame(columns=[
         'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
@@ -10883,6 +11186,7 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
             'actual_cost_configured': bool(capex_overall.get('rate_configured')),
         },
         'capex_cost_data': capex_cost_data,
+        'all_events_df': all_events_df,
     }
 
 
@@ -12339,7 +12643,7 @@ app.layout = html.Div([
                                                             month_format='MMMM YYYY',
                                                             show_outside_days=True)], style={'display':'inline-block', 'marginRight':'20px'}),
         html.Div([
-            html.Label('Projeto:'),
+            html.Label('Time:'),
             dcc.Dropdown(
                 id='filter-projeto',
                 options=[{'label': PROJECT_FILTER_ALL_LABEL, 'value': PROJECT_FILTER_ALL_VALUE}] + [{'label': p, 'value': p} for p in unique_sorted(fato['Projeto'])],
@@ -15339,10 +15643,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         )
         events_all_df = pm_portfolio_data.get('events_all', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
+        all_events_df_full = pm_portfolio_data.get('all_events_df', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
+        custo_hora_val = float((generated_financials.get('kpis', {}) or {}).get('Custo Hora Carregado', 0.0) or 0.0)
         custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
         custo_por_fase_section = _build_custo_por_fase_section(events_all_df, capex_worklog_df)
         custo_estimado_vs_real_section = _build_custo_estimado_vs_real_section(events_all_df, capex_worklog_df)
         custo_retrabalho_section = _build_custo_retrabalho_section(events_all_df, capex_worklog_df)
+        custo_espera_section = _build_custo_espera_section(all_events_df_full, custo_hora_val)
 
         pm_portfolio_section = html.Div([
             html.Div(pm_notes, style={'marginBottom': '12px'}),
@@ -15369,6 +15676,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             custo_por_fase_section,
             custo_estimado_vs_real_section,
             custo_retrabalho_section,
+            custo_espera_section,
             html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
             html.Div(pm_product_cards, style={
                 'display': 'grid',

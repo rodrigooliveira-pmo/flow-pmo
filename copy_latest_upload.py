@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,6 +51,9 @@ OPTIONAL_RULES = (
     ArtifactRule("capex-latest.xlsx", required=False),
 )
 
+DEFAULT_COPY_RETRIES = 6
+DEFAULT_COPY_RETRY_DELAY_MS = 1000
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -74,6 +78,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Falha se algum artefato obrigatorio estiver ausente.",
     )
+    parser.add_argument(
+        "--copy-retries",
+        type=int,
+        default=DEFAULT_COPY_RETRIES,
+        help=f"Tentativas extras ao encontrar arquivo em uso. Padrao: {DEFAULT_COPY_RETRIES}.",
+    )
+    parser.add_argument(
+        "--copy-retry-delay-ms",
+        type=int,
+        default=DEFAULT_COPY_RETRY_DELAY_MS,
+        help=(
+            "Espera entre tentativas ao encontrar arquivo em uso, em milissegundos. "
+            f"Padrao: {DEFAULT_COPY_RETRY_DELAY_MS}."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -87,17 +106,72 @@ def resolve_single_match(source_dir: Path, pattern: str) -> Path | None:
     return matches[0]
 
 
-def clean_destination(dest_dir: Path) -> None:
+def is_locked_file_error(exc: OSError) -> bool:
+    winerror = getattr(exc, "winerror", None)
+    if winerror == 32:
+        return True
+    message = str(exc).lower()
+    return isinstance(exc, PermissionError) and "used by another process" in message
+
+
+def run_with_lock_retries(
+    operation,
+    *,
+    description: str,
+    retries: int,
+    retry_delay_ms: int,
+) -> OSError | None:
+    for attempt in range(retries + 1):
+        try:
+            operation()
+            return None
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            if (not is_locked_file_error(exc)) or attempt >= retries:
+                return exc
+
+            remaining = retries - attempt
+            print(
+                f"Aviso: {description} em uso por outro processo. "
+                f"Nova tentativa em {retry_delay_ms} ms ({remaining} restante(s))."
+            )
+            time.sleep(retry_delay_ms / 1000)
+    return None
+
+
+def clean_destination(dest_dir: Path, *, retries: int, retry_delay_ms: int) -> list[Path]:
     if not dest_dir.exists():
-        return
+        return []
+
+    locked_paths: list[Path] = []
     for child in dest_dir.iterdir():
-        if child.is_dir():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
+        error = run_with_lock_retries(
+            (lambda path=child: shutil.rmtree(path))
+            if child.is_dir()
+            else (lambda path=child: path.unlink()),
+            description=f"limpeza de {child.name}",
+            retries=retries,
+            retry_delay_ms=retry_delay_ms,
+        )
+        if error is None:
+            continue
+        if is_locked_file_error(error):
+            locked_paths.append(child)
+            print(f"Aviso: mantendo {child.name} no destino porque o arquivo está bloqueado.")
+            continue
+        raise error
+    return locked_paths
 
 
-def copy_rule(source_dir: Path, dest_dir: Path, rule: ArtifactRule) -> tuple[str, Path | None]:
+def copy_rule(
+    source_dir: Path,
+    dest_dir: Path,
+    rule: ArtifactRule,
+    *,
+    retries: int,
+    retry_delay_ms: int,
+) -> tuple[str, Path | None]:
     match = resolve_single_match(source_dir, rule.pattern)
     if match is None:
         if rule.required:
@@ -105,8 +179,17 @@ def copy_rule(source_dir: Path, dest_dir: Path, rule: ArtifactRule) -> tuple[str
         return ("optional-missing", None)
 
     target = dest_dir / match.name
-    shutil.copy2(match, target)
-    return ("copied", target)
+    error = run_with_lock_retries(
+        lambda: shutil.copy2(match, target),
+        description=f"copia de {match.name}",
+        retries=retries,
+        retry_delay_ms=retry_delay_ms,
+    )
+    if error is None:
+        return ("copied", target)
+    if is_locked_file_error(error):
+        return ("locked", target)
+    raise error
 
 
 def main() -> int:
@@ -124,13 +207,24 @@ def main() -> int:
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     if args.clean_dest:
-        clean_destination(dest_dir)
+        clean_destination(
+            dest_dir,
+            retries=max(0, args.copy_retries),
+            retry_delay_ms=max(0, args.copy_retry_delay_ms),
+        )
 
     copied_count = 0
     required_missing: list[str] = []
     optional_missing: list[str] = []
+    locked_artifacts: list[str] = []
     for rule in (*REQUIRED_RULES, *OPTIONAL_RULES):
-        status, target = copy_rule(source_dir, dest_dir, rule)
+        status, target = copy_rule(
+            source_dir,
+            dest_dir,
+            rule,
+            retries=max(0, args.copy_retries),
+            retry_delay_ms=max(0, args.copy_retry_delay_ms),
+        )
         if status == "copied" and target is not None:
             copied_count += 1
             print(f"Copiado: {target.name}")
@@ -140,12 +234,20 @@ def main() -> int:
         elif status == "optional-missing":
             optional_missing.append(rule.pattern)
             print(f"Opcional ausente: {rule.pattern}")
+        elif status == "locked" and target is not None:
+            locked_artifacts.append(target.name)
+            print(f"Aviso: mantendo versao atual de {target.name} porque o destino esta em uso.")
 
     print(f"Pacote latest-upload atualizado em: {dest_dir}")
     print(f"Arquivos copiados: {copied_count}")
     if required_missing:
         joined = ", ".join(required_missing)
         print(f"Obrigatorios ausentes: {joined}", file=sys.stderr)
+        if args.strict:
+            return 1
+    if locked_artifacts:
+        joined = ", ".join(locked_artifacts)
+        print(f"Arquivos bloqueados no destino: {joined}", file=sys.stderr)
         if args.strict:
             return 1
     if optional_missing:

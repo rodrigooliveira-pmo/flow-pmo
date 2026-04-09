@@ -1,9 +1,9 @@
 ﻿Metrica,Valor
 pm4py_available,True
-pm4py_events,7794
+pm4py_events,7803
 pm4py_cases,1055
 pm4py_activities,38
-pm4py_dfg_edges,144
+pm4py_dfg_edges,145
 pm4py_start_activities,19
 pm4py_end_activities,11
 graphviz_dot_available,False

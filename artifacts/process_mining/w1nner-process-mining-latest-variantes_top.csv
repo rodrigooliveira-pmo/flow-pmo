@@ -19,8 +19,8 @@ in analytics > In Development > Staging > QA Approved > Ready for Production > D
 In Progress > Ready for Staging > Staging > In Staging > Ready for Production > Done,8,0.5833,0.0,0.7582938388625593
 in analytics > In Development > In Validation > QA Approved Staging > Ready for Production > Done,8,0.5,0.0,0.7582938388625593
 Backlog > In Progress > Ready To Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Done,7,0.5,2.0,0.6635071090047393
+Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA,7,0.0,0.0,0.6635071090047393
 In Progress > Ready for Staging > Staging > Ready for Production > Production > Done,7,0.5,0.0,0.6635071090047393
 In Progress > Ready To Staging > Done,6,0.6667,0.0,0.5687203791469194
 In Progress > Ready To Staging > Staging > QA Approved > Done,6,0.5,0.0,0.5687203791469194
 In Progress > Ready To Staging > Staging > Ready for Production > Done,6,0.6999999999999998,0.0,0.5687203791469194
-Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done,5,0.25,0.0,0.47393364928909953
