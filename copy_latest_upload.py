@@ -49,6 +49,8 @@ OPTIONAL_RULES = (
     ArtifactRule("capex-raw-latest.csv", required=False),
     ArtifactRule("capex-summary-latest.csv", required=False),
     ArtifactRule("capex-latest.xlsx", required=False),
+    ArtifactRule("dashboard_output_latest.xlsx", required=False),
+    ArtifactRule("bottlenecks_consolidado_latest.xlsx", required=False),
 )
 
 DEFAULT_COPY_RETRIES = 6

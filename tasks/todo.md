@@ -8920,3 +8920,67 @@
   - conferência direta das pastas `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest`, `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest\latest-upload` e `artifacts\process_mining`
 - Suggested commit message:
   - `docs(deploy): record latest-upload artifact set and Vercel minimum inputs`
+
+## Current Task (Incluir artefatos de métricas no latest-upload)
+- [x] Confirmar se os artefatos faltantes já são publicados em `latest`
+- [x] Ajustar o empacotador `copy_latest_upload.py` para copiar esses arquivos quando existirem
+- [ ] Validar o pacote gerado em um diretório temporário
+- [ ] Registrar review com evidências e commit sugerido
+
+## Specification (Incluir artefatos de métricas no latest-upload)
+- Objetivo: garantir que os artefatos já gerados e publicados em `latest` pelo pipeline de métricas também entrem no pacote `latest-upload`.
+- Escopo:
+  - `copy_latest_upload.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - manter os runners chamando o mesmo consolidator no final, sem duplicar regra em cada shell
+  - expandir a lista de artefatos opcionais do `copy_latest_upload.py` para incluir `dashboard_output_latest.xlsx` e `bottlenecks_consolidado_latest.xlsx`
+  - validar a cópia do pacote a partir da pasta real `Dados\latest`
+- Critério de aceite:
+  - quando os arquivos existirem em `latest`, eles passam a aparecer em `latest-upload`
+  - a execução continua tolerante quando esses artefatos não tiverem sido gerados naquele fluxo
+
+## Current Task (Separar Cost of Delay em upstream e downstream)
+- [x] Revisar a implementação atual de `Custo de Espera` e identificar onde injetar a visão upstream vs downstream
+- [x] Ajustar a classificação de filas para distinguir espera antes da execução versus espera após execução
+- [x] Expor KPI(s) e gráficos no dashboard para comparar upstream e downstream
+- [x] Validar sintaxe e smoke test do cálculo/section builder
+
+## Specification (Separar Cost of Delay em upstream e downstream)
+- Objetivo: permitir que a aba `Process Mining & CAPEX` mostre se a ineficiência de `Cost of Delay` está concentrada em filas `Upstream` ou `Downstream`, com KPI(s) e gráficos executivos no dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - criar uma classificação explícita de direção da espera (`_pm_waiting_direction`)
+  - enriquecer `build_custo_espera_data(...)` com agregações por direção e por produto
+  - atualizar `_build_custo_espera_section(...)` para mostrar KPIs de upstream/downstream e gráficos comparativos
+  - calibrar os tokens de classificação com os status reais observados nos `*-eventos_filtrados.csv`
+- Critério de aceite:
+  - o dashboard passa a mostrar KPI(s) específicos de `Upstream` e `Downstream`
+  - a seção de `Custo de Espera` passa a incluir gráficos comparando direção por fase e por produto
+  - a classificação não depende só de teoria; ela cobre os principais status reais da base atual
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Separar Cost of Delay em upstream e downstream)
+- O que foi ajustado:
+  - a seção `Custo de Espera (Cost of Delay)` em `dashboard_full.py` passou a ter uma segunda linha de KPIs com peso e participação de `Upstream` versus `Downstream`
+  - `build_custo_espera_data(...)` agora retorna `by_direction_df` e `by_direction_product_df`, além dos KPIs `upstream_*` e `downstream_*`
+  - `_build_custo_espera_section(...)` passou a renderizar:
+    - barras por fase coloridas por direção
+    - barras agrupadas `Upstream vs Downstream por produto`
+    - gráfico já existente de `execução vs espera total por produto`
+    - top issues por custo de espera
+  - refinei `_pm_waiting_direction(...)` para cobrir melhor os status reais encontrados nos artefatos atuais, incluindo casos como `ready for production`, `ready to homolog`, `approval`, `production`, `ready to analytics` e filas upstream como `triagem`, `to do`, `backlog` e `ready for development`
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('AST OK')"`
+  - smoke test sintético de `build_custo_espera_data(...)` confirmando separação de `10d / R$ 8.000` em `Upstream` e `10d / R$ 8.000` em `Downstream` no cenário de teste
+  - smoke test de `_build_custo_espera_section(...)` retornando `Div` renderizável com `6` blocos filhos
+  - conferência dos status reais em `artifacts/process_mining/*latest-eventos_filtrados.csv`, com classificação coerente para os principais buckets:
+    - `backlog`, `triagem`, `to do`, `ready for development` => `Upstream`
+    - `ready to staging`, `ready for production`, `ready to homolog`, `approval`, `production`, `ready to analytics` => `Downstream`
+- Risco residual:
+  - a fronteira entre execução e fila ainda depende da taxonomia de status do projeto; se surgirem novos nomes de status relevantes, vale ampliar os tokens de `_pm_waiting_direction(...)`
+  - os smoke tests desta rodada foram sintáticos e funcionais em Python; ainda vale um smoke test visual no navegador para conferir a leitura final dos gráficos na aba
+- Suggested commit message:
+  - `feat(portfolio): split cost of delay into upstream and downstream views`

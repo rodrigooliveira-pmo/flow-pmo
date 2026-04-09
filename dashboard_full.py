@@ -5888,6 +5888,44 @@ def _pm_is_waiting_status(status_norm: str) -> bool:
     return bool(s)
 
 
+def _pm_waiting_direction(status_norm: str) -> str:
+    """
+    Classifies a waiting/queue status as 'Upstream' or 'Downstream'.
+
+    Upstream  = delay before development starts (backlog, triagem, discovery,
+                ready for development, sprint planning, etc.)
+    Downstream = delay after a development phase completes (ready for code review,
+                 ready for QA/testing, ready for staging, ready for production,
+                 homologation, validation, etc.)
+    """
+    if not status_norm:
+        return 'Upstream'
+    s = str(status_norm).lower().strip()
+    _upstream_tokens = (
+        'backlog', 'triage', 'triagem', 'discovery', 'planning', 'plan',
+        'refinement', 'refinamento', 'grooming', 'to do', 'todo',
+        'ready for development', 'ready to development', 'ready to design',
+        'prioritized', 'priorit', 'sprint backlog', 'backlog do produto',
+    )
+    _downstream_tokens = (
+        'ready for code', 'ready for review', 'ready for test', 'ready for qa',
+        'ready for staging', 'ready to staging', 'ready for prod', 'ready for deploy',
+        'ready for production', 'ready for homolog', 'ready to homolog',
+        'ready for homologation', 'ready to homologation',
+        'ready for release', 'ready for merge', 'ready for uat',
+        'in validation', 'homolog', 'validaç', 'approval', 'approved',
+        'waiting for qa', 'waiting for review', 'waiting for test',
+        'staging', 'production', 'deploy', 'release', 'uat',
+        'aprovação', 'aprovacao', 'ready for acceptance', 'review',
+        'qa approved', 'analytics',
+    )
+    if any(t in s for t in _upstream_tokens):
+        return 'Upstream'
+    if any(t in s for t in _downstream_tokens):
+        return 'Downstream'
+    return 'Upstream'
+
+
 def build_custo_espera_data(
     all_events_df: 'pd.DataFrame',
     custo_hora: float,
@@ -5912,6 +5950,7 @@ def build_custo_espera_data(
     _empty = {
         'espera_df': pd.DataFrame(), 'by_phase_df': pd.DataFrame(),
         'by_product_df': pd.DataFrame(), 'by_issue_df': pd.DataFrame(),
+        'by_direction_df': pd.DataFrame(), 'by_direction_product_df': pd.DataFrame(),
         'kpis': {}, 'has_cost': False,
     }
 
@@ -5944,6 +5983,7 @@ def build_custo_espera_data(
     waiting_df['DiasEspera'] = waiting_df['TempoStatusDias']
     waiting_df['CustoEspera'] = waiting_df['DiasEspera'] * taxa_dia
     waiting_df['FaseEspera'] = waiting_df['_status_norm'].str.title().replace('', 'Desconhecido')
+    waiting_df['Direcao'] = waiting_df['_status_norm'].apply(_pm_waiting_direction)
 
     # ── Execution totals (for efficiency ratio) ───────────────────────────────
     exec_df = df[df['Status PM Elegível'] & (df['TempoStatusDias'] > 0)].copy()
@@ -6007,11 +6047,37 @@ def build_custo_espera_data(
         .reset_index(drop=True)
     )
 
+    # ── By direction (Upstream vs Downstream) ────────────────────────────────
+    by_direction = (
+        waiting_df.groupby('Direcao', dropna=False)
+        .agg(DiasEspera=('DiasEspera', 'sum'), CustoEspera=('CustoEspera', 'sum'),
+             Issues=('Issue Key', 'nunique'))
+        .reset_index()
+    )
+    by_direction_product = (
+        waiting_df.groupby(['Produto', 'Direcao'], dropna=False)
+        .agg(DiasEspera=('DiasEspera', 'sum'), CustoEspera=('CustoEspera', 'sum'))
+        .reset_index()
+    )
+
+    def _dir_kpi(direction, col):
+        row = by_direction[by_direction['Direcao'] == direction]
+        return float(row[col].iloc[0]) if not row.empty else 0.0
+
+    upstream_dias = _dir_kpi('Upstream', 'DiasEspera')
+    downstream_dias = _dir_kpi('Downstream', 'DiasEspera')
+    upstream_custo = _dir_kpi('Upstream', 'CustoEspera')
+    downstream_custo = _dir_kpi('Downstream', 'CustoEspera')
+    upstream_pct = upstream_dias / total_espera_dias * 100 if total_espera_dias > 0 else np.nan
+    downstream_pct = downstream_dias / total_espera_dias * 100 if total_espera_dias > 0 else np.nan
+
     return {
         'espera_df': waiting_df,
         'by_phase_df': by_phase,
         'by_product_df': by_product,
         'by_issue_df': by_issue,
+        'by_direction_df': by_direction,
+        'by_direction_product_df': by_direction_product,
         'kpis': {
             'total_espera_dias': total_espera_dias,
             'total_espera_custo': total_espera_custo,
@@ -6021,6 +6087,12 @@ def build_custo_espera_data(
             'avg_espera_por_issue': avg_espera_por_issue,
             'issues_com_espera': total_issues_espera,
             'taxa_dia': taxa_dia,
+            'upstream_dias': upstream_dias,
+            'downstream_dias': downstream_dias,
+            'upstream_custo': upstream_custo,
+            'downstream_custo': downstream_custo,
+            'upstream_pct': upstream_pct,
+            'downstream_pct': downstream_pct,
         },
         'has_cost': has_cost,
     }
@@ -6031,17 +6103,20 @@ def _build_custo_espera_section(
     custo_hora: float,
 ) -> 'html.Div':
     """
-    Renders the Cost of Delay section:
-      - KPI cards: total dias espera, custo espera, flow efficiency, média por issue
-      - Chart 1: dias e custo por fase de espera (barras duplas)
-      - Chart 2: stacked bar por produto (espera vs execução)
-      - Chart 3: top 15 issues por custo de espera
+    Renders the Cost of Delay section with Upstream vs Downstream analysis:
+      - KPI row 1: total dias, custo total, flow efficiency, média/issue
+      - KPI row 2: upstream dias/custo/%, downstream dias/custo/%
+      - Chart 1: fases de espera coloridas por direção (Upstream / Downstream)
+      - Chart 2: Upstream vs Downstream por produto (grouped bars)
+      - Chart 3: execução vs espera por produto (stacked)
+      - Chart 4: top 15 issues por custo de espera
     """
     data = build_custo_espera_data(all_events_df, custo_hora)
     kpis = data.get('kpis', {})
     by_phase_df = data.get('by_phase_df', pd.DataFrame())
     by_product_df = data.get('by_product_df', pd.DataFrame())
     by_issue_df = data.get('by_issue_df', pd.DataFrame())
+    by_direction_product_df = data.get('by_direction_product_df', pd.DataFrame())
 
     if not kpis or kpis.get('issues_com_espera', 0) == 0:
         return html.Div()
@@ -6051,6 +6126,9 @@ def _build_custo_espera_section(
     fe_str = f'{fe:.1f}%' if not pd.isna(fe) else '—'
     avg_dias = kpis.get('avg_espera_por_issue', np.nan)
     avg_str = f'{avg_dias:.1f}d' if not pd.isna(avg_dias) else '—'
+
+    upstream_pct = kpis.get('upstream_pct', np.nan)
+    downstream_pct = kpis.get('downstream_pct', np.nan)
 
     def _fmt_r(v):
         if v is None or (isinstance(v, float) and np.isnan(v)):
@@ -6062,8 +6140,13 @@ def _build_custo_espera_section(
             return '—'
         return f"{float(v):,.0f}d"
 
-    # ── KPI cards ─────────────────────────────────────────────────────────────
-    kpi_cards = html.Div([
+    def _fmt_pct(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return '—'
+        return f"{float(v):.1f}%"
+
+    # ── KPI row 1 — totais ─────────────────────────────────────────────────────
+    kpi_row1 = html.Div([
         _portfolio_metric_card('Dias em espera (total)', _fmt_d(kpis.get('total_espera_dias'))),
         _portfolio_metric_card(
             'Custo de espera estimado' if has_cost else 'Dias de espera',
@@ -6071,6 +6154,17 @@ def _build_custo_espera_section(
         ),
         _portfolio_metric_card('Flow Efficiency', fe_str),
         _portfolio_metric_card('Média dias espera / issue', avg_str),
+    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '8px'})
+
+    # ── KPI row 2 — upstream vs downstream ────────────────────────────────────
+    up_val = _fmt_r(kpis.get('upstream_custo')) if has_cost else _fmt_d(kpis.get('upstream_dias'))
+    dn_val = _fmt_r(kpis.get('downstream_custo')) if has_cost else _fmt_d(kpis.get('downstream_dias'))
+    up_label = f"↑ Upstream {'(custo)' if has_cost else '(dias)'} — {_fmt_pct(upstream_pct)}"
+    dn_label = f"↓ Downstream {'(custo)' if has_cost else '(dias)'} — {_fmt_pct(downstream_pct)}"
+
+    kpi_row2 = html.Div([
+        _portfolio_metric_card(up_label, up_val),
+        _portfolio_metric_card(dn_label, dn_val),
     ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
 
     notes = []
@@ -6082,33 +6176,62 @@ def _build_custo_espera_section(
         ))
     notes.append(html.P(
         'Flow Efficiency = dias em execução / (dias em execução + dias em espera). '
-        'Benchmarks de referência: times de alto desempenho ≥ 40%; típico 15–25%.',
+        'Benchmarks de referência: times de alto desempenho ≥ 40%; típico 15–25%. '
+        'Upstream = fases antes do desenvolvimento (backlog, triagem, discovery). '
+        'Downstream = fases após execução (revisão, QA, staging, produção).',
         style={'color': '#555', 'fontSize': '13px', 'marginBottom': '8px'},
     ))
 
     value_col = 'CustoEspera' if has_cost else 'DiasEspera'
     value_label = 'Custo de Espera (R$)' if has_cost else 'Dias de Espera'
 
-    # ── Chart 1: Por fase de espera ───────────────────────────────────────────
+    _dir_colors = {'Upstream': '#f59e0b', 'Downstream': '#ef4444'}
+
+    # ── Chart 1: Por fase — colorida por direção ──────────────────────────────
     fig_phase = go.Figure()
     if not by_phase_df.empty:
+        _phase_plot = by_phase_df.copy()
+        _phase_plot['Direcao'] = _phase_plot['FaseEspera'].apply(
+            lambda f: _pm_waiting_direction(str(f).lower())
+        )
         fig_phase = px.bar(
-            by_phase_df,
+            _phase_plot.sort_values(value_col, ascending=False),
             x='FaseEspera', y=value_col,
-            color='FaseEspera',
-            title='Custo de espera por fase de fila',
+            color='Direcao',
+            color_discrete_map=_dir_colors,
+            title='Custo de espera por fase — Upstream vs Downstream',
             text=value_col,
-            hover_data={'Issues': True, 'Ocorrencias': True, 'DiasEspera': ':.1f'},
-            labels={value_col: value_label, 'FaseEspera': '', 'Issues': 'Issues únicas', 'Ocorrencias': 'Ocorrências'},
+            hover_data={'Issues': True, 'Ocorrencias': True, 'DiasEspera': ':.1f', 'Direcao': True},
+            labels={value_col: value_label, 'FaseEspera': '', 'Direcao': 'Direção',
+                    'Issues': 'Issues únicas', 'Ocorrencias': 'Ocorrências'},
         )
         fig_phase.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         fig_phase.update_layout(
-            height=380, showlegend=False,
-            yaxis_title=value_label, xaxis_title='',
+            height=400, yaxis_title=value_label, xaxis_title='',
             margin=dict(t=50, b=80, l=60, r=20), xaxis_tickangle=-30,
+            legend=dict(orientation='h', yanchor='bottom', y=-0.35, title=''),
         )
 
-    # ── Chart 2: Por produto — espera vs execução (stacked) ───────────────────
+    # ── Chart 2: Upstream vs Downstream por produto (grouped) ────────────────
+    fig_dir_prod = go.Figure()
+    if not by_direction_product_df.empty:
+        fig_dir_prod = px.bar(
+            by_direction_product_df,
+            x='Produto', y=value_col, color='Direcao',
+            barmode='group',
+            color_discrete_map=_dir_colors,
+            title='Upstream vs Downstream por produto',
+            text=value_col,
+            labels={value_col: value_label, 'Produto': '', 'Direcao': 'Direção'},
+        )
+        fig_dir_prod.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_dir_prod.update_layout(
+            height=380, yaxis_title=value_label, xaxis_title='',
+            margin=dict(t=50, b=60, l=60, r=20),
+            legend=dict(orientation='h', yanchor='bottom', y=-0.25, title=''),
+        )
+
+    # ── Chart 3: Por produto — execução vs espera total (stacked) ────────────
     fig_product = go.Figure()
     if not by_product_df.empty:
         prod_rows = []
@@ -6118,18 +6241,16 @@ def _build_custo_espera_section(
         fig_product = px.bar(
             pd.DataFrame(prod_rows),
             x='Produto', y='Dias', color='Tipo', barmode='stack',
-            title='Dias por produto: execução vs. espera',
+            title='Dias por produto: execução vs. espera total',
             color_discrete_map={'Execução': '#2ca02c', 'Espera (fila)': '#d62728'},
         )
         fig_product.update_layout(
-            height=380,
-            yaxis_title='Dias',
-            xaxis_title='',
+            height=380, yaxis_title='Dias', xaxis_title='',
             margin=dict(t=50, b=60, l=60, r=20),
             legend=dict(orientation='h', yanchor='bottom', y=-0.25),
         )
 
-    # ── Chart 3: Top 15 issues por custo de espera ────────────────────────────
+    # ── Chart 4: Top 15 issues por custo de espera ───────────────────────────
     issues_graph = html.Div()
     if not by_issue_df.empty:
         top15 = by_issue_df.head(15).copy()
@@ -6158,12 +6279,16 @@ def _build_custo_espera_section(
     return html.Div([
         html.H4('Custo de Espera (Cost of Delay)', style={'textAlign': 'left', 'marginTop': '22px'}),
         html.Div(notes),
-        kpi_cards,
+        kpi_row1,
+        kpi_row2,
         html.Div([
             html.Div([dcc.Graph(figure=fig_phase)], style={'flex': '1', 'minWidth': '340px'}),
+            html.Div([dcc.Graph(figure=fig_dir_prod)], style={'flex': '1', 'minWidth': '340px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap', 'marginTop': '8px'}),
+        html.Div([
             html.Div([dcc.Graph(figure=fig_product)], style={'flex': '1', 'minWidth': '340px'}),
-        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
-        html.Div([issues_graph], style={'marginTop': '12px'}),
+            html.Div([issues_graph], style={'flex': '1', 'minWidth': '340px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap', 'marginTop': '12px'}),
     ])
 
 
