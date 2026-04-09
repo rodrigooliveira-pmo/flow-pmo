@@ -11043,6 +11043,70 @@ def _build_worklog_portfolio_cost_view_v2_unused(start_ts, end_ts, portfolio_sco
     }
 
 
+def _build_synthetic_capex_worklog_from_pm(events_all: 'pd.DataFrame') -> 'pd.DataFrame':
+    """
+    Converts PM execution events into a synthetic CAPEX worklog fact table.
+    Used as fallback when no real Jira worklogs exist (no manual time tracking).
+    Each execution event (status permanence × hours) becomes one synthetic worklog row.
+    Output schema matches build_capex_worklog_cost_fact()['df'].
+    """
+    _empty = pd.DataFrame(columns=[
+        'MesCompetencia', 'Projeto PM', 'Produto', 'Issue Key', 'AssetID', 'Descrição do Ativo',
+        'Tipo do Ativo', 'Colaborador', 'Colaborador Canonico', 'Data do Apontamento das Horas',
+        'Horas', 'Atividade Desenvolvida', 'Atividade Desenvolvida Normalizada', 'ConfidenceScore',
+        'Origem Horas', 'RateSource', 'Custo Hora Aplicado (R$)', 'Custo Real Apontado (R$)', 'AtivoMapeado',
+    ])
+    if events_all is None or events_all.empty:
+        return _empty
+
+    df = events_all.copy()
+    df = df[pd.to_numeric(df.get('Horas PM Elegíveis', 0), errors='coerce').fillna(0) > 0].copy()
+    if df.empty:
+        return _empty
+
+    df['Horas'] = pd.to_numeric(df['Horas PM Elegíveis'], errors='coerce').fillna(0.0)
+    df['Colaborador'] = df.get('Responsável PM', pd.Series('', index=df.index)).fillna('').astype(str)
+    df['Colaborador Canonico'] = df['Colaborador']
+    df['Data do Apontamento das Horas'] = pd.to_datetime(df.get('History Created'), errors='coerce')
+    df['MesCompetencia'] = df['Data do Apontamento das Horas'].dt.to_period('M').astype(str).where(
+        df['Data do Apontamento das Horas'].notna(), other=''
+    )
+
+    status_col = (
+        df['To Status Norm'] if 'To Status Norm' in df.columns
+        else df.get('To Status', pd.Series('', index=df.index))
+    )
+    df['Atividade Desenvolvida'] = status_col.fillna('').astype(str)
+    df['Atividade Desenvolvida Normalizada'] = df['Atividade Desenvolvida']
+
+    df['ConfidenceScore'] = 1.0
+    df['Origem Horas'] = 'PM - Permanência em Execução'
+    df['RateSource'] = 'PM'
+
+    custo_pm = pd.to_numeric(df.get('Custo PM Estimado', np.nan), errors='coerce')
+    horas_nz = df['Horas'].replace(0, np.nan)
+    df['Custo Hora Aplicado (R$)'] = (custo_pm / horas_nz).fillna(0.0)
+    df['Custo Real Apontado (R$)'] = custo_pm.fillna(0.0)
+
+    for col, default in [('AssetID', 'NAO_MAPEADO'), ('Descrição do Ativo', 'Não mapeado ao portfólio'), ('Tipo do Ativo', '')]:
+        if col not in df.columns:
+            df[col] = default
+        df[col] = df[col].fillna(default).astype(str)
+
+    df['AtivoMapeado'] = ~df['AssetID'].str.strip().isin(['', 'NAO_MAPEADO', 'nan', 'NaN'])
+
+    keep_cols = [
+        'MesCompetencia', 'Projeto PM', 'Produto', 'Issue Key', 'AssetID', 'Descrição do Ativo',
+        'Tipo do Ativo', 'Colaborador', 'Colaborador Canonico', 'Data do Apontamento das Horas',
+        'Horas', 'Atividade Desenvolvida', 'Atividade Desenvolvida Normalizada', 'ConfidenceScore',
+        'Origem Horas', 'RateSource', 'Custo Hora Aplicado (R$)', 'Custo Real Apontado (R$)', 'AtivoMapeado',
+    ]
+    for col in keep_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+    return df[keep_cols].copy()
+
+
 def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     specs = _pm_portfolio_selected_specs(project_value)
     rate_map = _pm_load_cost_rate_map()
@@ -11165,6 +11229,16 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
         'Tipo do Ativo', 'Fonte Vínculo', 'Responsável PM', 'Custo PM Estimado',
     ])
     all_events_df = pd.concat(all_phase_frames, ignore_index=True) if all_phase_frames else pd.DataFrame()
+
+    # Fallback: se não há worklogs reais, gera worklog sintético a partir de eventos PM de execução
+    _capex_df = capex_cost_data.get('df', pd.DataFrame()) if isinstance(capex_cost_data, dict) else pd.DataFrame()
+    if (_capex_df is None or _capex_df.empty) and not events_all.empty:
+        _synthetic_df = _build_synthetic_capex_worklog_from_pm(events_all)
+        if not _synthetic_df.empty:
+            capex_cost_data = dict(capex_cost_data) if isinstance(capex_cost_data, dict) else {}
+            capex_cost_data['df'] = _synthetic_df
+            capex_cost_data['available'] = True
+            capex_cost_data['error'] = None
 
     top_assets = pd.DataFrame(columns=[
         'Produto', 'AssetID', 'Descrição do Ativo', 'Tipo do Ativo', 'Fonte Vínculo',
