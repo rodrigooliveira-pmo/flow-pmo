@@ -9202,3 +9202,40 @@
   - esta rodada foi uma correção semântica da taxonomia; o próximo smoke test visual do dashboard ajuda a confirmar a leitura final nos gráficos
 - Suggested commit message:
   - `fix(portfolio): align upstream delay taxonomy with actual board stages`
+
+## Current Task (Descoberta automática dos artefatos GMUD no deploy)
+- [x] Revisar o fallback atual de `find_latest_gmud_csv(...)` no dashboard
+- [x] Permitir inferir URLs `gmud-coverage-*-latest.csv` a partir da mesma base pública dos demais artefatos
+- [x] Atualizar documentação/observações de deploy
+- [x] Validar sintaxe e smoke test da inferência de URL
+
+## Specification (Descoberta automática dos artefatos GMUD no deploy)
+- Objetivo: fazer a aba `Cobertura GMUD` encontrar os CSVs `gmud-coverage-*` em produção mesmo sem variáveis `FLOW_PMO_GMUD_*` dedicadas, reaproveitando a base pública já configurada para os demais artefatos latest.
+- Escopo:
+  - `dashboard_full.py`
+  - `DEPLOY_VERCEL.md`
+  - `tasks/todo.md`
+- Estratégia:
+  - introduzir helpers para derivar URLs companheiras `gmud-coverage-*-latest.csv` a partir de URLs já configuradas no ambiente
+  - tentar essas URLs inferidas antes de cair no erro final de arquivo ausente
+  - documentar que `FLOW_PMO_GMUD_*_URL` continua opcional, mas agora existe fallback automático quando os arquivos compartilham o mesmo blob/base
+- Critério de aceite:
+  - o dashboard consegue resolver os artefatos GMUD a partir da mesma base pública dos outros latest sem exigir env adicional
+  - `FLOW_PMO_GMUD_*_URL` explícitas continuam tendo precedência
+  - o arquivo permanece válido sintaticamente
+
+## Review (Descoberta automática dos artefatos GMUD no deploy)
+- O que foi ajustado:
+  - adicionei em `dashboard_full.py` a derivação automática de URLs companheiras `gmud-coverage-*-latest.csv` a partir de artefatos públicos já configurados no ambiente, como `FLOW_PMO_PORTFOLIO_CSV_URL`, `FLOW_PMO_MODEL_URL`, `FLOW_PMO_PROCESS_MINING_REPORT_URL`, `FLOW_PMO_DASHBOARD_OUTPUT_URL` e os mapas públicos de downstream/gargalos
+  - `find_latest_gmud_csv(...)` agora mantém a precedência de `FLOW_PMO_GMUD_*_FILE` e `FLOW_PMO_GMUD_*_URL`, preserva o fallback local, e passa a tentar a descoberta remota automática quando esses caminhos não existem
+  - melhorei a mensagem de erro da aba para deixar explícito que o dashboard já tenta descobrir os arquivos GMUD automaticamente quando eles compartilham a mesma base pública dos demais latest
+  - documentei em `DEPLOY_VERCEL.md` tanto os overrides opcionais `FLOW_PMO_GMUD_*` quanto o comportamento novo de inferência automática
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py`
+  - smoke test de `_iter_gmud_companion_urls(...)` retornando URLs como `https://example.public.blob.vercel-storage.com/gmud-coverage-index-latest.csv`, `...weekly...` e `...items...`
+  - smoke test de `find_latest_gmud_csv('index')` com `_iter_local_data_folders = lambda ...: []` e `_download_gmud_csv_from_url` mockado, confirmando uso do fallback remoto inferido
+- Risco residual:
+  - a descoberta automática depende de os arquivos GMUD terem sido publicados com os nomes fixos `gmud-coverage-index-latest.csv`, `gmud-coverage-weekly-latest.csv` e `gmud-coverage-items-latest.csv` na mesma pasta/blob pública
+  - durante os imports do `dashboard_full.py` seguiram aparecendo `SettingWithCopyWarning` pré-existentes em um trecho antigo do dashboard; eles não bloquearam esta entrega
+- Suggested commit message:
+  - `fix(dashboard): infer GMUD latest URLs from shared artifact base`

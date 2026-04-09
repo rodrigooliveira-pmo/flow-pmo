@@ -18,6 +18,7 @@ from pathlib import Path
 import socket
 import urllib.request
 import urllib.parse
+import posixpath
 import re
 try:
     from plotly.subplots import make_subplots
@@ -5130,6 +5131,48 @@ def _gmud_kind_spec(kind: str) -> dict:
     }
 
 
+def _replace_url_filename(url: str, new_filename: str) -> str:
+    parsed = urllib.parse.urlparse(str(url or '').strip())
+    if not parsed.scheme or not parsed.netloc or not new_filename:
+        return ''
+    current_path = parsed.path or ''
+    current_dir = posixpath.dirname(current_path)
+    if current_dir in {'', '.'}:
+        new_path = f'/{new_filename}' if current_path.startswith('/') else new_filename
+    else:
+        new_path = posixpath.join(current_dir, new_filename)
+    return urllib.parse.urlunparse(parsed._replace(path=new_path))
+
+
+def _iter_gmud_companion_urls(kind: str):
+    spec = _gmud_kind_spec(kind)
+    latest_name = next(iter(spec['preferred_latest_names']))
+    seed_urls = []
+    for env_name in (
+        'FLOW_PMO_PORTFOLIO_CSV_URL',
+        'FLOW_PMO_MODEL_URL',
+        'FLOW_PMO_PROCESS_MINING_REPORT_URL',
+        'FLOW_PMO_DASHBOARD_OUTPUT_URL',
+        'FLOW_PMO_BOTTLENECK_CSV_URL',
+    ):
+        value = os.getenv(env_name, '').strip()
+        if value:
+            seed_urls.append(value)
+    seed_urls.extend(_load_downstream_url_map().values())
+    seed_urls.extend(_load_bottleneck_url_map().values())
+
+    seen = set()
+    for seed_url in seed_urls:
+        companion_url = _replace_url_filename(seed_url, latest_name)
+        if not companion_url:
+            continue
+        cache_key = companion_url.strip().lower()
+        if cache_key in seen:
+            continue
+        seen.add(cache_key)
+        yield companion_url
+
+
 def find_latest_gmud_csv(kind: str):
     spec = _gmud_kind_spec(kind)
     explicit_file = _sanitize_os_path(os.getenv(spec['env_file'], ''))
@@ -5155,12 +5198,18 @@ def find_latest_gmud_csv(kind: str):
             if low in preferred or (low.startswith(spec['prefix']) and low.endswith('.csv')):
                 candidates.append(os.path.join(folder, name))
     candidates = [path for path in candidates if os.path.isfile(path)]
-    if not candidates:
-        return None
-    preferred_matches = [path for path in candidates if os.path.basename(path).lower() in preferred]
-    if preferred_matches:
-        return max(preferred_matches, key=os.path.getctime)
-    return max(candidates, key=os.path.getctime)
+    if candidates:
+        preferred_matches = [path for path in candidates if os.path.basename(path).lower() in preferred]
+        if preferred_matches:
+            return max(preferred_matches, key=os.path.getctime)
+        return max(candidates, key=os.path.getctime)
+
+    for inferred_url in _iter_gmud_companion_urls(spec['kind']):
+        try:
+            return _download_gmud_csv_from_url(inferred_url, spec['kind'])
+        except Exception:
+            continue
+    return None
 
 
 def _gmud_bool_series(series):
@@ -5255,7 +5304,9 @@ def get_gmud_snapshot(kind: str = 'items'):
         if not csv_file:
             raise RuntimeError(
                 f"CSV GMUD ({spec['kind']}) não encontrado. Configure {spec['env_file']} ou {spec['env_url']}, "
-                f"ou publique um alias latest nas pastas: {', '.join(DATA_FOLDERS or [DATA_FOLDER])}."
+                f"ou publique um alias latest nas pastas: {', '.join(DATA_FOLDERS or [DATA_FOLDER])}. "
+                "Se os arquivos GMUD estiverem no mesmo blob/base pública dos demais artefatos latest, "
+                "o dashboard tenta descobrir automaticamente os nomes gmud-coverage-*-latest.csv."
             )
         df = pd.read_csv(csv_file)
         missing = [col for col in spec['required_cols'] if col not in df.columns]

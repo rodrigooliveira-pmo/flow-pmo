@@ -470,3 +470,17 @@ Use this file after any user correction.
 - Root cause: Eu modelei `Upstream` com uma heurística genérica de fila pré-desenvolvimento sem fechar a taxonomia contra os nomes exatos usados hoje nos quadros e colunas operacionais do time.
 - Prevention rule: Em classificações de etapas de fluxo para métricas executivas, não assumir buckets genéricos; validar e codificar explicitamente os status reais mostrados no board atual do usuário antes de concluir.
 - Action added to workflow: Ao ajustar taxonomias de fluxo (`upstream/downstream`, `execução/espera`, `planejamento/entrega`), revisar sempre prints/nomes reais de colunas e refletir esses labels explicitamente na função classificadora.
+
+- Date: 2026-04-09
+- Context: Primeira publicação da aba `Cobertura GMUD` no dashboard usando os artefatos `gmud-coverage-*`.
+- User correction: Reportou que em produção os CSVs GMUD não eram encontrados, porque a aba exigia `FLOW_PMO_GMUD_*` dedicadas ou arquivos locais e não reaproveitava a mesma base pública já usada pelos outros artefatos latest.
+- Root cause: Eu validei o loader com envs explícitas e arquivos sintéticos, mas não fechei a última milha de deploy para o ambiente Vercel, onde a convenção operacional é derivar vários artefatos a partir de um mesmo blob/base pública.
+- Prevention rule: Quando eu adicionar um novo artefato latest consumido pelo dashboard, preciso validar também a estratégia de descoberta remota em produção e não apenas o caminho local ou por env explícita.
+- Action added to workflow: Em novas integrações de CSV/XLSX remotos, sempre revisar se o loader herda a convenção de URL/base pública já adotada pelo dashboard antes de concluir a entrega.
+
+- Date: 2026-04-09
+- Context: Após o ajuste do fallback automático de GMUD, a produção continuou exibindo a mensagem antiga de erro.
+- User correction: Indicou que, mesmo com os arquivos carregados, a instância em produção seguia mostrando o texto anterior sem o trecho novo de descoberta automática.
+- Root cause: Eu foquei na correção de código e na validação local, mas não evidenciei logo de saída que o projeto usa deploy manual na Vercel e que mensagens antigas em produção são um forte sinal de build ainda não publicado.
+- Prevention rule: Quando eu corrigir comportamento de runtime em um projeto com deploy manual, devo sempre comparar o texto/assinatura visível em produção com o código atual para distinguir rapidamente `bug de lógica` de `deploy desatualizado`.
+- Action added to workflow: Em incidentes de produção após mudanças de dashboard, verificar cedo `mensagem atual no código`, `modo de deploy` e `última publicação` antes de concluir que a lógica nova não funcionou.

@@ -37,6 +37,9 @@
   - `FLOW_PMO_DASHBOARD_OUTPUT_URL`: URL pública para baixar o `dashboard_output_*.xlsx` em runtime.
   - `FLOW_PMO_PORTFOLIO_CSV_FILE`: caminho do `portfolio-bt-ns-YYYYMMDD-data.csv`.
   - `FLOW_PMO_PORTFOLIO_CSV_URL`: URL pública para baixar o CSV de portfólio em runtime.
+  - `FLOW_PMO_GMUD_INDEX_FILE` / `FLOW_PMO_GMUD_INDEX_URL`: override opcional para `gmud-coverage-index-latest.csv`.
+  - `FLOW_PMO_GMUD_WEEKLY_FILE` / `FLOW_PMO_GMUD_WEEKLY_URL`: override opcional para `gmud-coverage-weekly-latest.csv`.
+  - `FLOW_PMO_GMUD_ITEMS_FILE` / `FLOW_PMO_GMUD_ITEMS_URL`: override opcional para `gmud-coverage-items-latest.csv`.
   - `FLOW_PMO_DATA_DIR`: pasta principal para buscar arquivos de dados.
   - `FLOW_PMO_DATA_DIRS`: lista de pastas separadas por `:` (Linux/macOS) para busca de CSVs auxiliares.
   - `DATA_FOLDER`: compatibilidade com configuração legada.
@@ -79,6 +82,12 @@ Observações:
   - `FLOW_PMO_PROCESS_MINING_REPORT_URL=https://<SEU_BLOB_PUBLICO>/w1nner-process-mining-latest.xlsx`
 - Portfólio:
   - `FLOW_PMO_PORTFOLIO_CSV_URL=https://<SEU_BLOB_PUBLICO>/portfolio-bt-ns-latest-data.csv`
+- GMUD:
+  - Opcional: se os arquivos `gmud-coverage-*-latest.csv` estiverem na mesma pasta/blob pública dos outros artefatos latest, o dashboard tenta inferi-los automaticamente sem nova env.
+  - Se quiser apontar outro local, configure:
+    - `FLOW_PMO_GMUD_INDEX_URL=https://<SEU_BLOB_PUBLICO>/gmud-coverage-index-latest.csv`
+    - `FLOW_PMO_GMUD_WEEKLY_URL=https://<SEU_BLOB_PUBLICO>/gmud-coverage-weekly-latest.csv`
+    - `FLOW_PMO_GMUD_ITEMS_URL=https://<SEU_BLOB_PUBLICO>/gmud-coverage-items-latest.csv`
 - Se quiser subir a versão `dashboard_app.py`:
   - `FLOW_PMO_DASH_MODULE=dashboard_app`
   - `FLOW_PMO_DASHBOARD_OUTPUT_URL=https://<SEU_BLOB_PUBLICO>/dashboard_output_latest.xlsx`
@@ -90,6 +99,9 @@ Observações:
    - `PowerBI_Model_latest.xlsx`
    - `portfolio-bt-ns-latest-data.csv`
    - `dashboard_output_latest.xlsx`
+   - `gmud-coverage-index-latest.csv`
+   - `gmud-coverage-weekly-latest.csv`
+   - `gmud-coverage-items-latest.csv`
 3. Faça upload desses arquivos fixos para o Vercel Blob público, sobrescrevendo o mesmo nome.
 4. Mantenha as mesmas variáveis de ambiente na Vercel (sem editar URLs a cada geração).
 
