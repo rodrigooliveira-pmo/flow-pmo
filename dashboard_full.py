@@ -7013,44 +7013,156 @@ def _build_custo_espera_section(
             return '—'
         return f"{float(v):.1f}%"
 
-    # ── KPI row 1 — totais ─────────────────────────────────────────────────────
-    kpi_row1 = html.Div([
-        _portfolio_metric_card('Dias em espera (total)', _fmt_d(kpis.get('total_espera_dias'))),
-        _portfolio_metric_card(
+    def _section_heading(title, subtitle='', accent='#0f172a'):
+        children = [
+            html.H5(title, style={'margin': '0', 'color': accent, 'fontWeight': '700', 'fontSize': '17px'}),
+        ]
+        if subtitle:
+            children.append(html.P(
+                subtitle,
+                style={'margin': '4px 0 0 0', 'color': '#475569', 'fontSize': '13px', 'lineHeight': '1.4'},
+            ))
+        return html.Div(children, style={'marginBottom': '10px'})
+
+    def _metric_chip(label, value, accent):
+        return html.Div([
+            html.Div(label, style={'fontSize': '12px', 'fontWeight': '600', 'color': '#475569', 'marginBottom': '6px'}),
+            html.Div(value, style={'fontSize': '24px', 'fontWeight': '800', 'color': '#0f172a', 'lineHeight': '1.15'}),
+        ], style={
+            'backgroundColor': 'white',
+            'border': '1px solid #e2e8f0',
+            'borderTop': f'4px solid {accent}',
+            'borderRadius': '12px',
+            'padding': '14px 16px',
+            'minHeight': '106px',
+            'display': 'flex',
+            'flexDirection': 'column',
+            'justifyContent': 'space-between',
+            'boxShadow': '0 1px 2px rgba(15, 23, 42, 0.05)',
+        })
+
+    def _direction_panel(title, subtitle, accent, bg, metrics):
+        metric_blocks = [
+            html.Div([
+                html.Div(m_label, style={'fontSize': '12px', 'fontWeight': '600', 'color': '#475569', 'marginBottom': '6px'}),
+                html.Div(m_value, style={'fontSize': '22px', 'fontWeight': '800', 'color': '#0f172a', 'lineHeight': '1.15'}),
+            ], style={
+                'backgroundColor': 'rgba(255,255,255,0.82)',
+                'border': '1px solid rgba(148,163,184,0.25)',
+                'borderRadius': '10px',
+                'padding': '12px 14px',
+                'minHeight': '92px',
+            })
+            for m_label, m_value in metrics
+        ]
+        return html.Div([
+            html.Div([
+                html.Div(title, style={'fontSize': '18px', 'fontWeight': '800', 'color': accent, 'marginBottom': '4px'}),
+                html.Div(subtitle, style={'fontSize': '13px', 'color': '#475569', 'lineHeight': '1.45'}),
+            ], style={'marginBottom': '12px'}),
+            html.Div(metric_blocks, style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fit, minmax(150px, 1fr))',
+                'gap': '10px',
+            }),
+        ], style={
+            'background': bg,
+            'border': f'1px solid {accent}',
+            'borderLeft': f'8px solid {accent}',
+            'borderRadius': '16px',
+            'padding': '16px',
+            'boxShadow': '0 6px 18px rgba(15, 23, 42, 0.06)',
+        })
+
+    overview_cards = html.Div([
+        _metric_chip('Dias em espera (total)', _fmt_d(kpis.get('total_espera_dias')), '#1d4ed8'),
+        _metric_chip(
             'Custo de espera estimado' if has_cost else 'Dias de espera',
             _fmt_r(kpis.get('total_espera_custo')) if has_cost else _fmt_d(kpis.get('total_espera_dias')),
+            '#0f766e',
         ),
-        _portfolio_metric_card('Flow Efficiency', fe_str),
-        _portfolio_metric_card('Média dias espera / issue', avg_str),
-    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '8px'})
+        _metric_chip('Flow Efficiency', fe_str, '#7c3aed'),
+        _metric_chip('Média dias espera / issue', avg_str, '#ea580c'),
+    ], style={
+        'display': 'grid',
+        'gridTemplateColumns': 'repeat(auto-fit, minmax(200px, 1fr))',
+        'gap': '12px',
+        'marginBottom': '18px',
+    })
 
-    # ── KPI row 2 — upstream vs downstream ────────────────────────────────────
-    up_val = _fmt_r(kpis.get('upstream_custo')) if has_cost else _fmt_d(kpis.get('upstream_dias'))
-    dn_val = _fmt_r(kpis.get('downstream_custo')) if has_cost else _fmt_d(kpis.get('downstream_dias'))
-    up_label = f"↑ Upstream {'(custo)' if has_cost else '(dias)'} — {_fmt_pct(upstream_pct)}"
-    dn_label = f"↓ Downstream {'(custo)' if has_cost else '(dias)'} — {_fmt_pct(downstream_pct)}"
+    direction_section = html.Div([
+        _section_heading(
+            'Onde está o atraso',
+            'Laranja representa etapas de Upstream. Vermelho representa etapas de Downstream.',
+        ),
+        html.Div([
+            _direction_panel(
+                'Upstream',
+                'Descoberta, design, definição e preparação antes da entrega para o downstream.',
+                '#f59e0b',
+                'linear-gradient(180deg, rgba(245,158,11,0.14) 0%, rgba(255,255,255,0.98) 100%)',
+                [
+                    ('Participação no atraso', _fmt_pct(upstream_pct)),
+                    ('Dias em espera', _fmt_d(kpis.get('upstream_dias'))),
+                    ('Custo estimado' if has_cost else 'Espera acumulada', _fmt_r(kpis.get('upstream_custo')) if has_cost else _fmt_d(kpis.get('upstream_dias'))),
+                ],
+            ),
+            _direction_panel(
+                'Downstream',
+                'Backlog downstream, avanço percentual, ready to delivery e etapas posteriores da execução.',
+                '#ef4444',
+                'linear-gradient(180deg, rgba(239,68,68,0.12) 0%, rgba(255,255,255,0.98) 100%)',
+                [
+                    ('Participação no atraso', _fmt_pct(downstream_pct)),
+                    ('Dias em espera', _fmt_d(kpis.get('downstream_dias'))),
+                    ('Custo estimado' if has_cost else 'Espera acumulada', _fmt_r(kpis.get('downstream_custo')) if has_cost else _fmt_d(kpis.get('downstream_dias'))),
+                ],
+            ),
+        ], style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(320px, 1fr))',
+            'gap': '14px',
+            'marginBottom': '18px',
+        }),
+    ])
 
-    kpi_row2 = html.Div([
-        _portfolio_metric_card(up_label, up_val),
-        _portfolio_metric_card(dn_label, dn_val),
-    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
-
-    kpi_row3 = html.Div()
+    strategic_section = html.Div()
     if strategic_itens > 0:
-        kpi_row3 = html.Div([
-            _portfolio_metric_card('BT estratégico ↑ itens', str(int(kpis.get('strategic_upstream_itens', 0) or 0))),
-            _portfolio_metric_card('BT estratégico ↑ dias', _fmt_d(kpis.get('strategic_upstream_dias', 0.0))),
-            _portfolio_metric_card(
-                'BT estratégico ↑ custo' if has_cost else 'BT estratégico ↑ espera',
-                _fmt_r(kpis.get('strategic_upstream_custo', 0.0)) if has_cost else _fmt_d(kpis.get('strategic_upstream_dias', 0.0)),
+        strategic_section = html.Div([
+            _section_heading(
+                'BT Estratégico',
+                'Separação da camada estratégica de épicos, features e histórias entre Upstream e Downstream.',
             ),
-            _portfolio_metric_card('BT estratégico ↓ itens', str(int(kpis.get('strategic_downstream_itens', 0) or 0))),
-            _portfolio_metric_card('BT estratégico ↓ dias', _fmt_d(kpis.get('strategic_downstream_dias', 0.0))),
-            _portfolio_metric_card(
-                'BT estratégico ↓ custo' if has_cost else 'BT estratégico ↓ espera',
-                _fmt_r(kpis.get('strategic_downstream_custo', 0.0)) if has_cost else _fmt_d(kpis.get('strategic_downstream_dias', 0.0)),
-            ),
-        ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
+            html.Div([
+                _direction_panel(
+                    'BT Estratégico · Upstream',
+                    'Itens estratégicos ainda em descoberta, design ou preparação antes do downstream.',
+                    '#f59e0b',
+                    'linear-gradient(180deg, rgba(245,158,11,0.12) 0%, rgba(255,255,255,0.98) 100%)',
+                    [
+                        ('Itens em espera', str(int(kpis.get('strategic_upstream_itens', 0) or 0))),
+                        ('Dias em espera', _fmt_d(kpis.get('strategic_upstream_dias', 0.0))),
+                        ('Custo estimado' if has_cost else 'Espera acumulada', _fmt_r(kpis.get('strategic_upstream_custo', 0.0)) if has_cost else _fmt_d(kpis.get('strategic_upstream_dias', 0.0))),
+                    ],
+                ),
+                _direction_panel(
+                    'BT Estratégico · Downstream',
+                    'Itens estratégicos já no downstream, incluindo ready to delivery e colunas percentuais de avanço.',
+                    '#ef4444',
+                    'linear-gradient(180deg, rgba(239,68,68,0.1) 0%, rgba(255,255,255,0.98) 100%)',
+                    [
+                        ('Itens em espera', str(int(kpis.get('strategic_downstream_itens', 0) or 0))),
+                        ('Dias em espera', _fmt_d(kpis.get('strategic_downstream_dias', 0.0))),
+                        ('Custo estimado' if has_cost else 'Espera acumulada', _fmt_r(kpis.get('strategic_downstream_custo', 0.0)) if has_cost else _fmt_d(kpis.get('strategic_downstream_dias', 0.0))),
+                    ],
+                ),
+            ], style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fit, minmax(320px, 1fr))',
+                'gap': '14px',
+                'marginBottom': '18px',
+            }),
+        ])
 
     notes = []
     if not has_cost:
@@ -7163,11 +7275,37 @@ def _build_custo_espera_section(
         issues_graph = dcc.Graph(figure=fig_issues)
 
     return html.Div([
-        html.H4('Custo de Espera (Cost of Delay)', style={'textAlign': 'left', 'marginTop': '22px'}),
-        html.Div(notes),
-        kpi_row1,
-        kpi_row2,
-        kpi_row3,
+        html.H4('Custo de Espera (Cost of Delay)', style={'textAlign': 'left', 'marginTop': '22px', 'marginBottom': '10px'}),
+        html.Div([
+            html.Span('Upstream', style={
+                'display': 'inline-block', 'padding': '6px 10px', 'borderRadius': '999px',
+                'backgroundColor': '#fef3c7', 'color': '#92400e', 'fontWeight': '700',
+                'fontSize': '12px', 'marginRight': '8px',
+            }),
+            html.Span(
+                'Discovery, design, definição e preparação antes da entrega downstream.',
+                style={'fontSize': '13px', 'color': '#475569', 'marginRight': '18px'},
+            ),
+            html.Span('Downstream', style={
+                'display': 'inline-block', 'padding': '6px 10px', 'borderRadius': '999px',
+                'backgroundColor': '#fee2e2', 'color': '#991b1b', 'fontWeight': '700',
+                'fontSize': '12px', 'marginRight': '8px',
+            }),
+            html.Span(
+                'Ready to delivery, backlog downstream, percentuais de avanço e etapas posteriores.',
+                style={'fontSize': '13px', 'color': '#475569'},
+            ),
+        ], style={
+            'display': 'flex',
+            'gap': '6px',
+            'flexWrap': 'wrap',
+            'alignItems': 'center',
+            'marginBottom': '10px',
+        }),
+        html.Div(notes, style={'marginBottom': '10px'}),
+        overview_cards,
+        direction_section,
+        strategic_section,
         html.Div([
             html.Div([dcc.Graph(figure=fig_phase)], style={'flex': '1', 'minWidth': '340px'}),
             html.Div([dcc.Graph(figure=fig_dir_prod)], style={'flex': '1', 'minWidth': '340px'}),

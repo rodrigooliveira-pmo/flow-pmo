@@ -9616,3 +9616,41 @@
   - durante os imports seguem aparecendo `SettingWithCopyWarning` e um `FutureWarning` pré-existentes em outro trecho do dashboard; eles não bloquearam esta entrega
 - Suggested commit message:
   - `feat(portfolio): split strategic delay KPIs by upstream and downstream`
+
+## Current Task (Refatorar tela de Cost of Delay para leitura clara de Upstream/Downstream)
+- [x] Registrar a necessidade de melhorar a legibilidade executiva da seção
+- [x] Reorganizar o topo da seção em blocos visuais claros para visão geral, Upstream/Downstream e BT Estratégico
+- [x] Validar sintaxe e smoke test da seção refatorada
+
+## Specification (Refatorar tela de Cost of Delay para leitura clara de Upstream/Downstream)
+- Objetivo: tornar a tela de `Custo de Espera (Cost of Delay)` autoexplicativa, deixando evidente o que é `Upstream`, o que é `Downstream` e como cada parte contribui para o atraso.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - manter os gráficos existentes
+  - substituir as fileiras soltas de KPIs por blocos visuais agrupados: visão geral, `Onde está o atraso` e `BT Estratégico`
+  - adicionar legenda textual no topo com definição curta de `Upstream` e `Downstream`
+- Critério de aceite:
+  - a seção passa a destacar visualmente `Upstream` e `Downstream` com blocos separados e descrições curtas
+  - os KPIs totais continuam visíveis
+  - o recorte `BT Estratégico` continua visível, mas agrupado por direção
+  - `dashboard_full.py` permanece válido sintaticamente
+
+## Review (Refatorar tela de Cost of Delay para leitura clara de Upstream/Downstream)
+- O que foi ajustado:
+  - reorganizei o topo da seção em três níveis: cards de visão geral, bloco `Onde está o atraso` com painéis lado a lado de `Upstream` e `Downstream`, e bloco `BT Estratégico` com o mesmo padrão visual
+  - adicionei uma legenda textual no topo explicando, em linguagem direta, o que entra em `Upstream` e em `Downstream`
+  - mantive os gráficos existentes, mas deixei a leitura executiva do topo muito mais guiada antes dos gráficos
+- Evidências de validação:
+  - `ast.parse(...)` em `dashboard_full.py` retornando `AST OK`
+  - smoke test de `_build_custo_espera_section(...)` retornando `Div` renderizável com `8` blocos após a refatoração
+  - conferência dos novos blocos no código:
+    - `Onde está o atraso`
+    - `BT Estratégico · Upstream`
+    - legenda com `Ready to delivery, backlog downstream, percentuais de avanço e etapas posteriores`
+- Risco residual:
+  - `python -m py_compile dashboard_full.py` falhou por lock/acesso no `__pycache__`; a validação sintática foi fechada com `ast.parse(...)`
+  - os warnings antigos de `SettingWithCopyWarning` e `FutureWarning` continuam em trechos não relacionados do dashboard
+- Suggested commit message:
+  - `refactor(portfolio): clarify upstream vs downstream in cost-of-delay view`
