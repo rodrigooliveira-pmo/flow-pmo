@@ -9396,6 +9396,51 @@
 - Suggested commit message:
   - `fix(gmud): extract linked issues from CHG custom rich-text fields`
 
+## Current Task (Pesquisar também em links, key details e itens de configuração)
+- [x] Mapear os campos Jira usados por `Linked work items`, `Key details` e `Itens de Configuração (GMUD)`
+- [x] Tratar esses campos como fonte estruturada de referências de cartões
+- [x] Regerar os artefatos latest e validar exemplos reais (`CHG-33`, `CHG-42`, `CHG-43`)
+
+## Specification (Pesquisar também em links, key details e itens de configuração)
+- Objetivo: incorporar explicitamente ao matching GMUD as referências registradas em `issuelinks`, `Plano de Rollback (GMUD)`, `Itens de Configuração (GMUD)` e `Cartões Relacionados (GMUD)`.
+- Escopo:
+  - `jira_gmud_coverage.py`
+  - `jira/client.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - continuar usando `issuelinks` como fonte explícita
+  - extrair `issue keys` e URLs também de:
+    - `customfield_10798` (`Plano de Rollback (GMUD)`)
+    - `customfield_10802` (`Itens de Configuração (GMUD)`)
+    - `customfield_11366` (`Cartões Relacionados (GMUD)`)
+  - classificar essas referências como `campo estruturado da GMUD`, separando-as de texto livre
+- Critério de aceite:
+  - `CHG-33` passa a classificar `S1NC-2020`, `S1NC-1951` e `S1NC-2057` como referência estruturada
+  - `CHG-42/43` carregam `EA-2, EA-3` como `StructuredIssueKeys`
+  - os artefatos latest são atualizados com a nova lógica
+
+## Review (Pesquisar também em links, key details e itens de configuração)
+- O que foi ajustado:
+  - confirmei via metadata do Jira que os blocos da tela correspondem a:
+    - `customfield_10798` = `Plano de Rollback (GMUD)`
+    - `customfield_10802` = `Itens de Configuração (GMUD)`
+    - `customfield_11366` = `Cartões Relacionados (GMUD)`
+  - criei em `jira_gmud_coverage.py` a extração explícita desses campos para `StructuredIssueKeys`, mantendo `issuelinks` como fonte paralela
+  - o pipeline agora diferencia `Campo estruturado da GMUD` e `Campo estruturado via hierarquia`, ambos contabilizados como evidência explícita
+  - regenerei os arquivos latest com essa cobertura ampliada
+- Evidências de validação:
+  - `fetch_chg_issues(..., 'key in (CHG-33, CHG-42, CHG-43)', ...)` agora retorna:
+    - `CHG-33 -> StructuredIssueKeys = S1NC-1951, S1NC-2020, S1NC-2057`
+    - `CHG-42 -> StructuredIssueKeys = EA-2, EA-3`
+    - `CHG-43 -> IssueLinkKeys = EA-2, EA-3` e `StructuredIssueKeys = EA-2, EA-3`
+  - no `gmud-coverage-items-latest.csv`, `S1NC-2057`, `S1NC-2020` e `S1NC-1951` passaram a aparecer com `PrimaryEvidence = Campo estruturado da GMUD`
+  - nova execução completa do pipeline retornou `128/4278` itens elegíveis com evidência de GMUD (`3.0%`) e `25` tickets `CHG` analisados
+- Risco residual:
+  - hoje a base de entregas não carrega referências `EA-*`, então `CHG-42/43` já preservam essas chaves, mas elas só gerarão cobertura quando a hierarquia/fonte de entregas também trouxer esse nível
+  - alguns matches ainda seguem vindo por similaridade forte de título; a parte estruturada agora reduz dependência de heurística, mas não substitui toda a necessidade de calibração
+- Suggested commit message:
+  - `feat(gmud): search structured GMUD link and configuration fields`
+
 ## Current Task (Investigar ausência de `Ready to Delivery` no snapshot BT)
 - [x] Inspecionar `jira_portfolio_to_csv.py` para confirmar como a JQL e o campo `Status` do CSV são montados
 - [x] Verificar no `run_all_projects.ps1` como o pipeline chama o exportador de portfólio

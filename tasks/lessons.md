@@ -540,3 +540,10 @@ Use this file after any user correction.
 - Root cause: Eu concentrei a extração em `summary`, `description`, `issuelinks` e `comment`, mas não considerei que a operação estava registrando a rastreabilidade em `customfield_*` ricos e ADF com links fora do payload básico do search.
 - Prevention rule: Em tickets Jira com campos ricos operacionais (implantação, rollback, evidências), não assumir que o `search` com campos básicos é suficiente; validar o JSON completo de uma issue real antes de concluir que a informação não existe.
 - Action added to workflow: Em integrações Jira baseadas em ADF/rich text, sempre testar um caso real com `get_issue(..., fields=*all)` para mapear `customfield_*`, `marks.link`, `inlineCard` e demais nós onde links podem ficar escondidos.
+
+- Date: 2026-04-09
+- Context: Expansão da cobertura GMUD para os blocos visuais `Linked work items`, `Key details` e `Itens de Configuração`.
+- User correction: Pediu explicitamente para pesquisar também nesses campos estruturados da GMUD, não só em comentário e texto geral.
+- Root cause: Mesmo após enriquecer a extração de texto, eu ainda tratava parte desses dados como texto genérico, sem elevá-los a uma fonte estruturada explícita no modelo de correlação.
+- Prevention rule: Quando a UI do Jira evidencia blocos estruturados de rastreabilidade, modelá-los explicitamente no pipeline com nomes e semântica próprios, em vez de depender apenas de um corpus textual agregado.
+- Action added to workflow: Em integrações futuras com Jira Service Management/Change, sempre mapear a tela para a API em três camadas: `links nativos`, `custom fields estruturados` e `texto livre`.

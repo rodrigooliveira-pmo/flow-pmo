@@ -76,6 +76,9 @@ COMMENT_SIGNAL_HINTS = [
     "mudanca",
     "change",
 ]
+GMUD_ROLLBACK_FIELD = "customfield_10798"
+GMUD_CONFIG_ITEMS_FIELD = "customfield_10802"
+GMUD_RELATED_CARDS_FIELD = "customfield_11366"
 
 
 def safe_get(mapping: Any, *keys: str) -> Any:
@@ -426,6 +429,14 @@ def extract_customfield_rich_text(fields_data: Dict[str, Any]) -> str:
     return "\n".join(texts).strip()
 
 
+def gmud_structured_field_texts(fields_data: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "RollbackFieldText": adf_to_text((fields_data or {}).get(GMUD_ROLLBACK_FIELD)),
+        "ConfigItemsFieldText": adf_to_text((fields_data or {}).get(GMUD_CONFIG_ITEMS_FIELD)),
+        "RelatedCardsFieldText": str((fields_data or {}).get(GMUD_RELATED_CARDS_FIELD) or "").strip(),
+    }
+
+
 def similarity_tokens(text: str) -> Set[str]:
     normalized = normalize_text(text)
     tokens = re.findall(r"[a-z0-9]{3,}", normalized)
@@ -521,6 +532,7 @@ def fetch_chg_issues(
 
         description_text = adf_to_text(fields_data.get("description"))
         customfield_text = extract_customfield_rich_text(fields_data)
+        structured_field_texts = gmud_structured_field_texts(fields_data)
         comment_texts = [adf_to_text((comment or {}).get("body")) for comment in comments]
         full_comment_text = "\n".join([text for text in comment_texts if text.strip()]).strip()
         text_corpus = " ".join(
@@ -542,6 +554,11 @@ def fetch_chg_issues(
         ).strip()
         issue_links_summary = build_issue_links_summary(fields_data.get("issuelinks"))
         linked_keys = [token.strip().upper() for token in split_csv_tokens(issue_links_summary.get("IssueLinkKeys", ""))]
+        structured_keys = extract_issue_keys_from_text(
+            structured_field_texts.get("RollbackFieldText"),
+            structured_field_texts.get("ConfigItemsFieldText"),
+            structured_field_texts.get("RelatedCardsFieldText"),
+        )
         mentioned_keys = extract_issue_keys_from_text(fields_data.get("summary"), description_text, customfield_text, full_comment_text)
         comment_keys = extract_issue_keys_from_text(full_comment_text)
 
@@ -559,6 +576,10 @@ def fetch_chg_issues(
                 "IssueLinkKeys": sorted_join(linked_keys),
                 "IssueLinkTypes": issue_links_summary.get("IssueLinkTypes", ""),
                 "IssueLinkDetails": issue_links_summary.get("IssueLinkDetails", ""),
+                "StructuredIssueKeys": sorted_join(structured_keys),
+                "RollbackFieldText": structured_field_texts.get("RollbackFieldText", ""),
+                "ConfigItemsFieldText": structured_field_texts.get("ConfigItemsFieldText", ""),
+                "RelatedCardsFieldText": structured_field_texts.get("RelatedCardsFieldText", ""),
                 "MentionedIssueKeys": sorted_join(mentioned_keys),
                 "CommentMentionedIssueKeys": sorted_join(comment_keys),
                 "TextCorpus": text_corpus,
@@ -583,8 +604,12 @@ def pick_primary_evidence(row: pd.Series) -> str:
         return "Link explicito no item"
     if str(row.get("DirectExplicitCHGKeys") or "").strip():
         return "Link explicito na GMUD"
+    if str(row.get("DirectStructuredCHGKeys") or "").strip():
+        return "Campo estruturado da GMUD"
     if str(row.get("HierarchyExplicitCHGKeys") or "").strip():
         return "Link explicito via hierarquia"
+    if str(row.get("HierarchyStructuredCHGKeys") or "").strip():
+        return "Campo estruturado via hierarquia"
     if str(row.get("DirectCommentCHGKeys") or "").strip():
         return "Mencao em comentario da GMUD"
     if str(row.get("DirectTextCHGKeys") or "").strip():
@@ -601,7 +626,7 @@ def pick_primary_evidence(row: pd.Series) -> str:
 
 
 def map_primary_bucket(evidence: str) -> str:
-    if evidence.startswith("Link explicito"):
+    if evidence.startswith("Link explicito") or evidence.startswith("Campo estruturado"):
         return "Explicita"
     if "comentario" in normalize_text(evidence):
         return "Comentario"
@@ -613,6 +638,7 @@ def map_primary_bucket(evidence: str) -> str:
 
 def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.DataFrame:
     explicit_ref_map: Dict[str, Set[str]] = defaultdict(set)
+    structured_ref_map: Dict[str, Set[str]] = defaultdict(set)
     text_ref_map: Dict[str, Set[str]] = defaultdict(set)
     comment_ref_map: Dict[str, Set[str]] = defaultdict(set)
     title_match_ref_map: Dict[str, Set[str]] = defaultdict(set)
@@ -641,6 +667,11 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
         for ref in explicit_refs:
             explicit_ref_map[ref].add(chg_key)
 
+        structured_refs = {token.strip().upper() for token in split_csv_tokens(row.get("StructuredIssueKeys")) if token.strip()}
+        structured_refs.discard(chg_key)
+        for ref in structured_refs:
+            structured_ref_map[ref].add(chg_key)
+
         text_refs = {token.strip().upper() for token in split_csv_tokens(row.get("MentionedIssueKeys")) if token.strip()}
         text_refs.discard(chg_key)
         for ref in text_refs:
@@ -665,6 +696,8 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
     enriched = items_df.copy()
     direct_explicit_values: List[str] = []
     hierarchy_explicit_values: List[str] = []
+    direct_structured_values: List[str] = []
+    hierarchy_structured_values: List[str] = []
     direct_text_values: List[str] = []
     hierarchy_text_values: List[str] = []
     direct_comment_values: List[str] = []
@@ -681,12 +714,15 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
 
         direct_linked = {token.strip().upper() for token in split_csv_tokens(row.get("DirectLinkedCHGKeys")) if token.strip()}
         direct_explicit = set(direct_linked) | explicit_ref_map.get(item_key, set())
+        direct_structured = set(structured_ref_map.get(item_key, set()))
         hierarchy_explicit = set()
+        hierarchy_structured = set()
         hierarchy_text = set()
         hierarchy_comment = set()
         hierarchy_title = set()
         for ref in ancestor_refs:
             hierarchy_explicit.update(explicit_ref_map.get(ref, set()))
+            hierarchy_structured.update(structured_ref_map.get(ref, set()))
             hierarchy_text.update(text_ref_map.get(ref, set()))
             hierarchy_comment.update(comment_ref_map.get(ref, set()))
             hierarchy_title.update(title_match_ref_map.get(ref, set()))
@@ -694,11 +730,13 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
         direct_text = set(text_ref_map.get(item_key, set()))
         direct_comment = set(comment_ref_map.get(item_key, set()))
         direct_title = set(title_match_ref_map.get(item_key, set()))
-        all_chg = direct_explicit | hierarchy_explicit | direct_text | hierarchy_text | direct_comment | hierarchy_comment | direct_title | hierarchy_title
+        all_chg = direct_explicit | hierarchy_explicit | direct_structured | hierarchy_structured | direct_text | hierarchy_text | direct_comment | hierarchy_comment | direct_title | hierarchy_title
         signal_count = sum(chg_signal_map.get(chg_key, 0) for chg_key in all_chg)
 
         direct_explicit_values.append(sorted_join(direct_explicit))
         hierarchy_explicit_values.append(sorted_join(hierarchy_explicit))
+        direct_structured_values.append(sorted_join(direct_structured))
+        hierarchy_structured_values.append(sorted_join(hierarchy_structured))
         direct_text_values.append(sorted_join(direct_text))
         hierarchy_text_values.append(sorted_join(hierarchy_text))
         direct_comment_values.append(sorted_join(direct_comment))
@@ -710,6 +748,8 @@ def compute_gmud_coverage(items_df: pd.DataFrame, chg_df: pd.DataFrame) -> pd.Da
 
     enriched["DirectExplicitCHGKeys"] = direct_explicit_values
     enriched["HierarchyExplicitCHGKeys"] = hierarchy_explicit_values
+    enriched["DirectStructuredCHGKeys"] = direct_structured_values
+    enriched["HierarchyStructuredCHGKeys"] = hierarchy_structured_values
     enriched["DirectTextCHGKeys"] = direct_text_values
     enriched["HierarchyTextCHGKeys"] = hierarchy_text_values
     enriched["DirectCommentCHGKeys"] = direct_comment_values
