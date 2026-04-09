@@ -6602,6 +6602,10 @@ def _pm_waiting_direction(status_norm: str) -> str:
     s = str(status_norm).lower().strip()
     if s in {'ready to delivery', 'ready for delivery'}:
         return 'Downstream'
+    if '%' in s:
+        pct = s.replace('%', '').strip()
+        if pct.replace('.', '', 1).isdigit():
+            return 'Downstream'
     _upstream_tokens = (
         'triage', 'triagem', 'product discov', 'in discovery', 'discovery',
         'planning', 'plan', 'definition', 'design', 'in design',

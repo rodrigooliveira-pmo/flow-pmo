@@ -9546,3 +9546,38 @@
   - a classificação continua híbrida entre regras explícitas e tokens; se surgirem mais colunas estratégicas críticas, vale promovê-las também para branches explícitos
 - Suggested commit message:
   - `fix(portfolio): make ready-to-delivery explicitly downstream`
+
+## Current Task (Classificar colunas percentuais estratégicas como Downstream)
+- [x] Registrar a nova regra dos status percentuais do fluxo estratégico
+- [x] Ajustar `dashboard_full.py` para tratar `0%/20%/40%/60%/80%/100%` como `Downstream`
+- [x] Validar sintaxe e smoke test da nova classificação
+
+## Specification (Classificar colunas percentuais estratégicas como Downstream)
+- Objetivo: fazer com que as colunas percentuais de avanço do fluxo de épicos estratégico sejam lidas como `Downstream` no `Cost of Delay`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - adicionar uma regra explícita em `_pm_waiting_direction(...)` para status percentuais
+  - preservar a taxonomia existente dos demais status
+- Critério de aceite:
+  - `_pm_waiting_direction('0%') == 'Downstream'`
+  - `_pm_waiting_direction('20%') == 'Downstream'`
+  - `_pm_waiting_direction('40%') == 'Downstream'`
+  - `_pm_waiting_direction('60%') == 'Downstream'`
+  - `_pm_waiting_direction('80%') == 'Downstream'`
+  - `_pm_waiting_direction('100%') == 'Downstream'`
+
+## Review (Classificar colunas percentuais estratégicas como Downstream)
+- O que foi ajustado:
+  - adicionei em `_pm_waiting_direction(...)` uma regra explícita para qualquer status percentual simples (`N%`) retornar `Downstream`
+  - isso cobre as colunas estratégicas de avanço como `0%`, `20%`, `40%`, `60%`, `80%` e `100%`
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - smoke test da função confirmando `Downstream` para `0%/20%/40%/60%/80%/100%`
+  - conferência do snapshot latest mostrando ocorrências reais de `0%`, `60%` e `80%` em épicos BT
+- Risco residual:
+  - a regra atual assume que status percentuais do dashboard estratégico representam avanço downstream; se algum outro fluxo usar `%` com outra semântica, vale diferenciar por camada/hierarquia no futuro
+- Suggested commit message:
+  - `fix(portfolio): classify strategic percent stages as downstream`

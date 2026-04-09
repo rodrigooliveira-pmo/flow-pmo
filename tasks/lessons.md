@@ -514,6 +514,13 @@ Use this file after any user correction.
 - Action added to workflow: Em taxonomias executivas com forte semântica de negócio, promover os estágios críticos para branches explícitos e validar o resultado com smoke test direcionado.
 
 - Date: 2026-04-09
+- Context: Classificação das colunas percentuais (`0%`, `20%`, `40%`, `60%`, `80%`, `100%`) do fluxo de épicos estratégico no `Cost of Delay`.
+- User correction: Esclareceu que essas colunas de `% de avanço` pertencem ao `Downstream`, embora estivessem aparecendo em `Upstream` no gráfico.
+- Root cause: O classificador tratava esses rótulos percentuais como casos desconhecidos e caía no bucket default `Upstream`.
+- Prevention rule: Quando um board estratégico usar etapas percentuais como fases explícitas do fluxo, classificá-las por regra dedicada em vez de deixá-las cair no default.
+- Action added to workflow: Em taxonomias de fluxo BT, revisar sempre status percentuais e outros rótulos curtos/sintéticos que não casam com tokens textuais tradicionais.
+
+- Date: 2026-04-09
 - Context: Primeira publicação da aba `Cobertura GMUD` no dashboard usando os artefatos `gmud-coverage-*`.
 - User correction: Reportou que em produção os CSVs GMUD não eram encontrados, porque a aba exigia `FLOW_PMO_GMUD_*` dedicadas ou arquivos locais e não reaproveitava a mesma base pública já usada pelos outros artefatos latest.
 - Root cause: Eu validei o loader com envs explícitas e arquivos sintéticos, mas não fechei a última milha de deploy para o ambiente Vercel, onde a convenção operacional é derivar vários artefatos a partir de um mesmo blob/base pública.
