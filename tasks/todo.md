@@ -8924,8 +8924,8 @@
 ## Current Task (Incluir artefatos de métricas no latest-upload)
 - [x] Confirmar se os artefatos faltantes já são publicados em `latest`
 - [x] Ajustar o empacotador `copy_latest_upload.py` para copiar esses arquivos quando existirem
-- [ ] Validar o pacote gerado em um diretório temporário
-- [ ] Registrar review com evidências e commit sugerido
+- [x] Validar o pacote gerado em um diretório temporário
+- [x] Registrar review com evidências e commit sugerido
 
 ## Specification (Incluir artefatos de métricas no latest-upload)
 - Objetivo: garantir que os artefatos já gerados e publicados em `latest` pelo pipeline de métricas também entrem no pacote `latest-upload`.
@@ -8939,6 +8939,26 @@
 - Critério de aceite:
   - quando os arquivos existirem em `latest`, eles passam a aparecer em `latest-upload`
   - a execução continua tolerante quando esses artefatos não tiverem sido gerados naquele fluxo
+
+## Review (Incluir artefatos de métricas no latest-upload)
+- O que foi ajustado:
+  - [`copy_latest_upload.py`](/c:/Users/W1%20TI/OneDrive%20-%20W1/Documentos/Python/copy_latest_upload.py) agora inclui `dashboard_output_latest.xlsx` e `bottlenecks_consolidado_latest.xlsx` na lista de artefatos opcionais do pacote `latest-upload`
+  - mantive esses dois itens como opcionais porque eles existem em execuções com métricas consolidadas, mas não em todo fluxo parcial de process mining
+- Evidências de validação:
+  - compilação estática com `C:\ProgramData\anaconda3\python.exe -m py_compile copy_latest_upload.py`
+  - teste dirigido em pasta temporária com `copy_latest_upload.py --source-dir ...Dados\latest --dest-dir ...\tmp\latest-upload-check --clean-dest`, retornando `Arquivos copiados: 28`
+  - nesse teste, os dois novos artefatos foram copiados:
+    - `dashboard_output_latest.xlsx`
+    - `bottlenecks_consolidado_latest.xlsx`
+  - refresh executado na pasta real `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest\latest-upload` com sucesso após liberação de escrita fora da workspace
+  - conferência final da pasta real confirmando presença de `dashboard_output_latest.xlsx` e `bottlenecks_consolidado_latest.xlsx`
+- Impacto prático:
+  - os runners que já chamam `copy_latest_upload.py` no final passam automaticamente a empacotar esses dois arquivos quando eles existirem em `latest`
+  - não foi necessário duplicar regra em `run_all_projects.ps1`, `run_all_projects_macos.sh`, `run_process_mining_projects.ps1` ou `run_process_mining_projects_macos.sh`
+- Risco residual:
+  - em execuções sem geração prévia desses artefatos, eles continuarão ausentes do pacote, mas agora isso é tratado de forma explícita e não bloqueante
+- Suggested commit message:
+  - `feat(latest-upload): include dashboard output and bottleneck workbook`
 
 ## Current Task (Separar Cost of Delay em upstream e downstream)
 - [x] Revisar a implementação atual de `Custo de Espera` e identificar onde injetar a visão upstream vs downstream
