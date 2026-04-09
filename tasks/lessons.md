@@ -463,3 +463,10 @@ Use this file after any user correction.
 - Root cause: Tratei a mudança como puramente visual no `html.Label(...)` e não percorri os textos dependentes do mesmo componente, especialmente o label global reutilizado nas opções.
 - Prevention rule: Quando renomear um filtro na UI, revisar conjuntamente `label do campo`, `opção padrão/all`, `placeholders` e quaisquer labels auxiliares do mesmo componente antes de concluir.
 - Action added to workflow: Em ajustes textuais de filtros/dropdowns, executar sempre uma busca pelos labels relacionados e validar a consistência completa do componente, não só do título visível.
+
+- Date: 2026-04-09
+- Context: Classificação de `Cost of Delay` entre `Upstream` e `Downstream` na aba `Process Mining & CAPEX`.
+- User correction: Esclareceu que as etapas upstream reais incluem o fluxo de épicos/features e colunas de triagem dos fluxos de serviço, com status como `Em Product Discovery`, `Backlog do Produto`, `Priorized/Prioritized`, `In Discovery`, `Ready to Design`, `In Design`, `Definition`, `Planning`, `Design`, `Replenishment`, `Quebra das Histórias`, `Backlog` e `Triagem`.
+- Root cause: Eu modelei `Upstream` com uma heurística genérica de fila pré-desenvolvimento sem fechar a taxonomia contra os nomes exatos usados hoje nos quadros e colunas operacionais do time.
+- Prevention rule: Em classificações de etapas de fluxo para métricas executivas, não assumir buckets genéricos; validar e codificar explicitamente os status reais mostrados no board atual do usuário antes de concluir.
+- Action added to workflow: Ao ajustar taxonomias de fluxo (`upstream/downstream`, `execução/espera`, `planejamento/entrega`), revisar sempre prints/nomes reais de colunas e refletir esses labels explicitamente na função classificadora.

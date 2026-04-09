@@ -9108,3 +9108,97 @@
   - durante o smoke test do dashboard apareceram `SettingWithCopyWarning` em um trecho antigo de `dashboard_full.py`, mas eles não impediram a renderização da nova aba
 - Suggested commit message:
   - `feat(dashboard): add GMUD coverage service tab`
+
+## Current Task (Trocar PM vs real sintético por painel de Custo PM Calibrado)
+- [x] Confirmar onde o dashboard mistura worklog real com fallback sintético PM
+- [x] Garantir que `Custo Estimado vs. Real por Issue` use apenas worklog real de verdade
+- [x] Criar um painel alternativo de `Custo PM Calibrado` quando não houver worklog real
+- [x] Validar sintaxe e smoke tests do branch real vs. PM calibrado
+
+## Specification (Trocar PM vs real sintético por painel de Custo PM Calibrado)
+- Objetivo: impedir que o dashboard apresente comparação `estimado vs real` quando o “real” vier do fallback sintético de Process Mining, substituindo esse caso por um painel explícito de `Custo PM Calibrado`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - filtrar explicitamente os worklogs sintéticos PM a partir de `Origem Horas`
+  - manter `_build_custo_estimado_vs_real_section(...)` apenas para worklogs CAPEX/Jira reais
+  - criar `build_custo_pm_calibrado_data(...)` e `_build_custo_pm_calibrado_section(...)` usando `Horas PM Elegíveis` e `Custo PM Estimado` como fonte principal
+  - trocar o slot da UI na aba `Process Mining & CAPEX` para alternar automaticamente entre os dois painéis
+- Critério de aceite:
+  - `Estimado vs. Real` não aparece quando o dataframe de worklog estiver composto apenas pelo fallback `PM - Permanência em Execução`
+  - sem worklog real, o usuário passa a ver um painel de `Custo PM Calibrado por Issue`
+  - com worklog real, o comportamento antigo do `Estimado vs. Real` é preservado
+  - o arquivo continua válido sintaticamente
+
+## Review (Trocar PM vs real sintético por painel de Custo PM Calibrado)
+- O que foi ajustado:
+  - criei `_pm_filter_real_worklog_df(...)` e `_pm_has_real_worklog_data(...)` em `dashboard_full.py` para separar worklog CAPEX/Jira real do fallback sintético PM com base em `Origem Horas`
+  - `build_custo_estimado_vs_real_data(...)` agora agrega apenas worklogs reais, evitando a comparação circular `PM vs PM`
+  - adicionei `build_custo_pm_calibrado_data(...)` e `_build_custo_pm_calibrado_section(...)` para mostrar custo observado via Process Mining quando não há apontamento real
+  - no callback da aba `Process Mining & CAPEX`, o slot antes ocupado sempre por `custo_estimado_vs_real_section` agora faz branch:
+    - com worklog real: mostra `Custo Estimado vs. Real por Issue`
+    - sem worklog real: mostra `Custo PM Calibrado por Issue`
+- O novo painel de `Custo PM Calibrado` entrega:
+  - KPIs de issues com custo PM, valor total, horas PM calibradas e mediana por issue
+  - dispersão `Horas PM Calibradas x Custo PM Calibrado` por produto
+  - histograma de distribuição por issue
+  - barras por produto e top 15 issues por custo PM calibrado
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('AST OK')"`
+  - smoke test do filtro real/sintético:
+    - `real_rows 1`
+    - `has_real True`
+  - smoke test do branch sem real:
+    - `synthetic_join_empty True`
+    - `_build_custo_pm_calibrado_section(...) => Div com 5 blocos filhos`
+  - smoke test do branch com real:
+    - `_build_custo_estimado_vs_real_section(...) => Div com 4 blocos filhos`
+  - smoke test dos KPIs do PM calibrado:
+    - `{'issues': 2, 'valor_total': 8400.0, 'valor_mediano_issue': 4200.0, 'horas_total': 48.0, 'dias_total': 6.0}`
+- Risco residual:
+  - a calibração PM continua baseada nas `Horas PM Elegíveis` já calculadas no projeto; se a régua de touch time for refinada futuramente, este painel refletirá automaticamente essa nova base
+  - os smoke tests desta rodada foram sintáticos e funcionais em Python; ainda vale um smoke test visual na aba para conferir os títulos e a leitura final no navegador
+  - os `SettingWithCopyWarning` vistos nos smoke tests são pré-existentes e não impediram a renderização desta entrega
+- Suggested commit message:
+  - `feat(portfolio): replace synthetic actuals with calibrated PM cost panel`
+
+## Current Task (Ajustar taxonomia upstream com os status reais do board)
+- [x] Revisar a classificação atual de `_pm_waiting_direction(...)`
+- [x] Incorporar os status upstream reais informados pelo usuário
+- [x] Registrar a correção na memória do projeto e validar a classificação
+
+## Specification (Ajustar taxonomia upstream com os status reais do board)
+- Objetivo: alinhar a classificação de `Upstream` no `Cost of Delay` aos status e colunas reais usados hoje nos fluxos de épicos/features e nas colunas de triagem dos fluxos de serviço.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/lessons.md`
+  - `tasks/todo.md`
+- Estratégia:
+  - complementar `_pm_waiting_direction(...)` com os labels upstream confirmados pelo usuário
+  - manter a regra simples por tokens, mas agora ancorada no vocabulário real do board
+  - registrar explicitamente a correção como lição para evitar regressão futura
+- Critério de aceite:
+  - status como `Product Discovery`, `Backlog do Produto`, `Prioritized`, `In Discovery`, `Ready to Design`, `In Design`, `Definition`, `Planning`, `Design`, `Replenishment`, `Quebra das Histórias`, `Backlog` e `Triagem` passam a cair em `Upstream`
+  - a função continua válida sintaticamente
+
+## Review (Ajustar taxonomia upstream com os status reais do board)
+- O que foi ajustado:
+  - expandi os tokens de `_pm_waiting_direction(...)` em `dashboard_full.py` para reconhecer explicitamente:
+    - `product discovery`
+    - `in discovery`
+    - `definition`
+    - `design`
+    - `in design`
+    - `replenishment`
+    - `quebra das hist*`
+    - além dos buckets já tratados como `backlog`, `triagem`, `planning`, `ready to design`, `prioritized` e `backlog do produto`
+  - registrei a correção em `tasks/lessons.md` para manter essa taxonomia explícita na memória do projeto
+- Evidências de validação:
+  - revisão estática de `_pm_waiting_direction(...)` em `dashboard_full.py`
+  - confirmação visual dos labels upstream a partir dos prints do board compartilhados pelo usuário
+- Risco residual:
+  - se surgirem novas colunas upstream com nomes muito específicos, ainda vale expandir a lista de tokens
+  - esta rodada foi uma correção semântica da taxonomia; o próximo smoke test visual do dashboard ajuda a confirmar a leitura final nos gráficos
+- Suggested commit message:
+  - `fix(portfolio): align upstream delay taxonomy with actual board stages`

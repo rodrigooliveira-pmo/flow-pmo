@@ -5850,6 +5850,37 @@ def _build_custo_por_fase_section(events_df: 'pd.DataFrame', worklog_df: 'pd.Dat
     ])
 
 
+def _pm_filter_real_worklog_df(worklog_df: 'pd.DataFrame') -> 'pd.DataFrame':
+    """Keeps only real Jira/CAPEX worklogs, excluding PM synthetic fallback rows."""
+    if worklog_df is None or worklog_df.empty:
+        return pd.DataFrame()
+
+    wl = worklog_df.copy()
+    if 'Origem Horas' not in wl.columns:
+        return wl
+
+    origem = wl['Origem Horas'].fillna('').astype(str).str.strip().str.lower()
+    synthetic_tokens = {
+        'pm - permanência em execução',
+        'pm - permanencia em execução',
+        'pm - permanência em execucao',
+        'pm - permanencia em execucao',
+    }
+    real_df = wl[~origem.isin(synthetic_tokens)].copy()
+    if real_df.empty and origem.eq('').all():
+        return wl
+    return real_df
+
+
+def _pm_has_real_worklog_data(worklog_df: 'pd.DataFrame') -> bool:
+    real_df = _pm_filter_real_worklog_df(worklog_df)
+    if real_df.empty:
+        return False
+    horas = pd.to_numeric(real_df.get('Horas', pd.Series(0.0, index=real_df.index)), errors='coerce').fillna(0.0)
+    custo = pd.to_numeric(real_df.get('Custo Real Apontado (R$)', pd.Series(0.0, index=real_df.index)), errors='coerce').fillna(0.0)
+    return bool(horas.gt(0).any() or custo.gt(0).any())
+
+
 def build_custo_estimado_vs_real_data(events_df: 'pd.DataFrame', worklog_df: 'pd.DataFrame') -> dict:
     """
     Joins PM-estimated cost per issue (from events_all) with real worklog cost per issue
@@ -5895,10 +5926,11 @@ def build_custo_estimado_vs_real_data(events_df: 'pd.DataFrame', worklog_df: 'pd
         return _empty
 
     # ── Aggregate real cost per issue ─────────────────────────────────────────
-    if worklog_df is None or worklog_df.empty or 'Issue Key' not in worklog_df.columns:
+    real_worklog_df = _pm_filter_real_worklog_df(worklog_df)
+    if real_worklog_df is None or real_worklog_df.empty or 'Issue Key' not in real_worklog_df.columns:
         return _empty
 
-    wl = worklog_df.copy()
+    wl = real_worklog_df.copy()
     wl['Horas'] = pd.to_numeric(wl.get('Horas'), errors='coerce').fillna(0.0)
     wl['Custo Real Apontado (R$)'] = pd.to_numeric(wl.get('Custo Real Apontado (R$)'), errors='coerce').fillna(0.0)
     wl_agg = (
@@ -6112,6 +6144,253 @@ def _build_custo_estimado_vs_real_section(events_df: 'pd.DataFrame', worklog_df:
     ])
 
 
+def build_custo_pm_calibrado_data(events_df: 'pd.DataFrame') -> dict:
+    """
+    Summarises PM-calibrated execution cost by issue/product using process mining as the
+    primary source (eligible execution hours x PM cost rate).
+    """
+    _empty = {
+        'issue_df': pd.DataFrame(),
+        'product_df': pd.DataFrame(),
+        'kpis': {},
+        'has_cost': False,
+    }
+
+    if events_df is None or events_df.empty or 'Issue Key' not in events_df.columns:
+        return _empty
+
+    ev = events_df.copy()
+    ev['Horas PM Elegíveis'] = pd.to_numeric(ev.get('Horas PM Elegíveis'), errors='coerce').fillna(0.0)
+    ev['Custo PM Estimado'] = pd.to_numeric(ev.get('Custo PM Estimado'), errors='coerce').fillna(0.0)
+    ev['TempoStatusDias'] = pd.to_numeric(ev.get('TempoStatusDias'), errors='coerce').fillna(0.0)
+    ev['Produto'] = ev.get('Produto', pd.Series('', index=ev.index)).fillna('').astype(str)
+    ev['_status_label'] = ev.get('To Status Norm', ev.get('To Status', pd.Series('', index=ev.index))).fillna('').astype(str).str.strip()
+    ev['Responsável PM'] = ev.get('Responsável PM', pd.Series('', index=ev.index)).fillna('').astype(str).str.strip()
+    ev = ev[ev['Issue Key'].fillna('').astype(str).str.strip().ne('') & (ev['Horas PM Elegíveis'] > 0)].copy()
+    if ev.empty:
+        return _empty
+
+    issue_df = (
+        ev.groupby('Issue Key', dropna=False)
+        .agg(
+            Produto=('Produto', 'first'),
+            CustoPMCalibrado=('Custo PM Estimado', 'sum'),
+            HorasPMCalibradas=('Horas PM Elegíveis', 'sum'),
+            DiasExecucao=('TempoStatusDias', 'sum'),
+            FasesExecucao=('_status_label', lambda x: len({str(v).strip() for v in x if str(v).strip()})),
+            ResponsaveisPM=('Responsável PM', lambda x: len({str(v).strip() for v in x if str(v).strip()})),
+        )
+        .reset_index()
+    )
+    if issue_df.empty:
+        return _empty
+
+    has_cost = issue_df['CustoPMCalibrado'].sum() > 0
+    value_col = 'CustoPMCalibrado' if has_cost else 'HorasPMCalibradas'
+    issue_df = issue_df.sort_values(value_col, ascending=False).reset_index(drop=True)
+
+    product_df = (
+        issue_df.groupby('Produto', dropna=False)
+        .agg(
+            ValorPM=(value_col, 'sum'),
+            HorasPMCalibradas=('HorasPMCalibradas', 'sum'),
+            DiasExecucao=('DiasExecucao', 'sum'),
+            Issues=('Issue Key', 'nunique'),
+        )
+        .reset_index()
+        .sort_values('ValorPM', ascending=False)
+    )
+
+    valor_total = float(issue_df[value_col].sum())
+    valor_mediano = float(issue_df[value_col].median()) if not issue_df.empty else np.nan
+    horas_total = float(issue_df['HorasPMCalibradas'].sum())
+    dias_total = float(issue_df['DiasExecucao'].sum())
+
+    return {
+        'issue_df': issue_df,
+        'product_df': product_df,
+        'has_cost': has_cost,
+        'kpis': {
+            'issues': int(issue_df['Issue Key'].nunique()),
+            'valor_total': valor_total,
+            'valor_mediano_issue': valor_mediano,
+            'horas_total': horas_total,
+            'dias_total': dias_total,
+        },
+    }
+
+
+def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
+    """
+    Renders PM-calibrated issue cost when no independent Jira worklog exists.
+    This avoids presenting a circular PM-vs-PM comparison as if it were actuals.
+    """
+    data = build_custo_pm_calibrado_data(events_df)
+    issue_df = data.get('issue_df', pd.DataFrame())
+    product_df = data.get('product_df', pd.DataFrame())
+    kpis = data.get('kpis', {})
+    if issue_df is None or issue_df.empty:
+        return html.Div()
+
+    has_cost = data.get('has_cost', False)
+    value_col = 'CustoPMCalibrado' if has_cost else 'HorasPMCalibradas'
+    value_label = 'Custo PM Calibrado (R$)' if has_cost else 'Horas PM Calibradas'
+
+    def _fmt_r(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return '—'
+        return f"R$ {float(v):,.0f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    def _fmt_h(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return '—'
+        return f"{float(v):,.1f}h"
+
+    notes = [
+        html.P(
+            'Sem worklog Jira real no período atual. Esta seção usa o Process Mining como fonte principal: '
+            'horas de execução elegíveis observadas no fluxo x taxa hora PM configurada.',
+            style={'color': '#333', 'fontSize': '13px', 'marginBottom': '8px'}
+        ),
+        html.P(
+            'Leia estes valores como custo PM calibrado/observado do processo, útil para gestão operacional e '
+            'comparação entre produtos/issues, e não como apontamento contábil formal de horas.',
+            style={'color': '#555', 'fontSize': '13px', 'marginBottom': '8px'}
+        ),
+    ]
+    if not has_cost:
+        notes.append(html.P(
+            'Taxas de custo não configuradas — a visão está exibida em horas PM calibradas.',
+            style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
+        ))
+
+    kpi_cards = html.Div([
+        _portfolio_metric_card('Issues com custo PM', str(kpis.get('issues', 0))),
+        _portfolio_metric_card(
+            'Custo PM calibrado total' if has_cost else 'Horas PM calibradas',
+            _fmt_r(kpis.get('valor_total')) if has_cost else _fmt_h(kpis.get('horas_total')),
+        ),
+        _portfolio_metric_card('Horas PM calibradas', _fmt_h(kpis.get('horas_total'))),
+        _portfolio_metric_card('Mediana por issue', _fmt_r(kpis.get('valor_mediano_issue')) if has_cost else _fmt_h(kpis.get('valor_mediano_issue'))),
+    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
+
+    scatter_df = issue_df.copy()
+    scatter_df['_hover_valor'] = scatter_df[value_col].apply(lambda v: _fmt_r(v) if has_cost else _fmt_h(v))
+    fig_scatter = px.scatter(
+        scatter_df,
+        x='HorasPMCalibradas',
+        y=value_col,
+        color='Produto',
+        hover_name='Issue Key',
+        hover_data={
+            'DiasExecucao': ':.1f',
+            'FasesExecucao': True,
+            'ResponsaveisPM': True,
+            '_hover_valor': True,
+            'HorasPMCalibradas': ':.1f',
+            value_col: False,
+        },
+        labels={
+            'HorasPMCalibradas': 'Horas PM Calibradas',
+            value_col: value_label,
+            '_hover_valor': value_label,
+            'DiasExecucao': 'Dias em execução',
+            'FasesExecucao': 'Fases exec.',
+            'ResponsaveisPM': 'Pessoas PM',
+        },
+        title='Custo PM calibrado por issue (Process Mining como fonte principal)',
+    )
+    fig_scatter.update_layout(
+        height=420,
+        xaxis_title='Horas PM Calibradas',
+        yaxis_title=value_label,
+        margin=dict(t=50, b=60, l=60, r=20),
+        legend=dict(title='', orientation='h', yanchor='bottom', y=-0.25),
+    )
+
+    fig_hist = px.histogram(
+        issue_df,
+        x=value_col,
+        nbins=30,
+        title='Distribuição do custo PM calibrado por issue',
+        color_discrete_sequence=['#1f77b4'],
+        labels={value_col: value_label},
+    )
+    if not np.isnan(kpis.get('valor_mediano_issue', np.nan)):
+        fig_hist.add_vline(
+            x=kpis.get('valor_mediano_issue'),
+            line_dash='dot',
+            line_color='#d62728',
+            annotation_text='Mediana',
+            annotation_position='top right',
+        )
+    fig_hist.update_layout(
+        height=360,
+        xaxis_title=value_label,
+        yaxis_title='Nº de Issues',
+        margin=dict(t=50, b=60, l=60, r=20),
+    )
+
+    fig_product = go.Figure()
+    if product_df is not None and not product_df.empty:
+        fig_product = px.bar(
+            product_df,
+            x='Produto',
+            y='ValorPM',
+            color='Produto',
+            title='Custo PM calibrado total por produto',
+            text='ValorPM',
+            labels={'ValorPM': value_label, 'Produto': ''},
+        )
+        fig_product.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_product.update_layout(
+            height=360,
+            showlegend=False,
+            yaxis_title=value_label,
+            xaxis_title='',
+            margin=dict(t=50, b=60, l=60, r=20),
+        )
+
+    top_graph = html.Div()
+    top_df = issue_df.head(15).copy()
+    if not top_df.empty:
+        top_df['_label'] = top_df['Issue Key'] + ' (' + top_df['Produto'] + ')'
+        fig_top = px.bar(
+            top_df,
+            x=value_col,
+            y='_label',
+            orientation='h',
+            title='Top 15 issues por custo PM calibrado',
+            color=value_col,
+            color_continuous_scale='Blues',
+            text=value_col,
+            labels={value_col: value_label, '_label': ''},
+        )
+        fig_top.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_top.update_layout(
+            height=max(300, len(top_df) * 28 + 80),
+            xaxis_title=value_label,
+            yaxis=dict(autorange='reversed'),
+            margin=dict(t=50, b=60, l=220, r=80),
+            coloraxis_showscale=False,
+        )
+        top_graph = dcc.Graph(figure=fig_top)
+
+    return html.Div([
+        html.H4('Custo PM Calibrado por Issue', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.Div(notes),
+        kpi_cards,
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_scatter)], style={'flex': '2', 'minWidth': '380px'}),
+            html.Div([dcc.Graph(figure=fig_hist)], style={'flex': '1', 'minWidth': '280px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap'}),
+        html.Div([
+            html.Div([dcc.Graph(figure=fig_product)], style={'flex': '1', 'minWidth': '340px'}),
+            html.Div([top_graph], style={'flex': '1', 'minWidth': '340px'}),
+        ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap', 'marginTop': '12px'}),
+    ])
+
+
 def _pm_is_waiting_status(status_norm: str) -> bool:
     """True for queue/waiting phases: non-execution AND non-done/cancelled.
     Examples: Sprint Backlog, Ready for QA, Ready for Production, To Do."""
@@ -6140,10 +6419,12 @@ def _pm_waiting_direction(status_norm: str) -> str:
         return 'Upstream'
     s = str(status_norm).lower().strip()
     _upstream_tokens = (
-        'backlog', 'triage', 'triagem', 'discovery', 'planning', 'plan',
-        'refinement', 'refinamento', 'grooming', 'to do', 'todo',
-        'ready for development', 'ready to development', 'ready to design',
-        'prioritized', 'priorit', 'sprint backlog', 'backlog do produto',
+        'backlog', 'triage', 'triagem', 'product discov', 'in discovery', 'discovery',
+        'planning', 'plan', 'definition', 'design', 'in design',
+        'refinement', 'refinamento', 'grooming', 'replenishment',
+        'to do', 'todo', 'ready for development', 'ready to development',
+        'ready to design', 'prioritized', 'priorit', 'sprint backlog',
+        'backlog do produto', 'quebra das hist',
     )
     _downstream_tokens = (
         'ready for code', 'ready for review', 'ready for test', 'ready for qa',
@@ -16482,12 +16763,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             pm_portfolio_data.get('capex_cost_data', {}).get('df', pd.DataFrame())
             if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         )
+        real_capex_worklog_df = _pm_filter_real_worklog_df(capex_worklog_df)
+        has_real_capex_worklog = _pm_has_real_worklog_data(capex_worklog_df)
         events_all_df = pm_portfolio_data.get('events_all', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         all_events_df_full = pm_portfolio_data.get('all_events_df', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         custo_hora_val = float((generated_financials.get('kpis', {}) or {}).get('Custo Hora Carregado', 0.0) or 0.0)
         custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
         custo_por_fase_section = _build_custo_por_fase_section(events_all_df, capex_worklog_df)
-        custo_estimado_vs_real_section = _build_custo_estimado_vs_real_section(events_all_df, capex_worklog_df)
+        custo_issue_value_section = (
+            _build_custo_estimado_vs_real_section(events_all_df, real_capex_worklog_df)
+            if has_real_capex_worklog else
+            _build_custo_pm_calibrado_section(events_all_df)
+        )
         custo_retrabalho_section = _build_custo_retrabalho_section(events_all_df, capex_worklog_df)
         custo_espera_section = _build_custo_espera_section(all_events_df_full, custo_hora_val)
 
@@ -16514,7 +16801,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ) if not cost_rates_display.empty else html.Div(),
             custo_por_atividade_section,
             custo_por_fase_section,
-            custo_estimado_vs_real_section,
+            custo_issue_value_section,
             custo_retrabalho_section,
             custo_espera_section,
             html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
