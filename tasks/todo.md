@@ -9224,6 +9224,58 @@
 - Suggested commit message:
   - `fix(portfolio): classify backlog and in-progress as downstream`
 
+## Current Task (Combinar Cost of Delay operacional PM com estratégico BT)
+- [x] Confirmar quais campos do snapshot BT permitem monetizar espera estratégica por status atual
+- [x] Integrar épicos/features/histórias do BT à seção de `Cost of Delay`
+- [x] Garantir que `Ready to Delivery` possa aparecer no gráfico quando presente no snapshot estratégico
+- [x] Validar com smoke tests e documentar a diferença entre camada operacional e estratégica
+
+## Specification (Combinar Cost of Delay operacional PM com estratégico BT)
+- Objetivo: fazer a seção `Custo de Espera (Cost of Delay)` combinar o fluxo PM operacional dos produtos com o fluxo estratégico BT de épicos/features/histórias, para que fases como `Ready to Delivery` passem a entrar de verdade no gráfico quando existirem no snapshot BT.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/lessons.md`
+  - `tasks/todo.md`
+- Estratégia:
+  - construir uma camada estratégica a partir de `items_base_scope`, usando `Status`, `AgingDiasSemAlteracao`, `Tipo`, `ID` e `TeamDisplay`
+  - mapear `TeamDisplay` estratégico para os produtos PM (`BeFinance`, `Data&Analytics`, `Sync`, `W1nner`) quando houver alias conhecido; caso contrário, usar `BT Estratégico`
+  - combinar essa espera estratégica com o dataset operacional do PM dentro de `build_custo_espera_data(...)`
+  - manter a monetização pela taxa hora já existente e deixar explícito em nota que a camada BT usa aging do status atual, não histórico completo de transições
+- Critério de aceite:
+  - a seção de `Cost of Delay` passa a aceitar itens estratégicos BT
+  - `Ready to Delivery` aparece na agregação por fase quando vier no snapshot BT
+  - a UI continua renderizando mesmo quando só houver camada estratégica ou só camada operacional
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Combinar Cost of Delay operacional PM com estratégico BT)
+- O que foi ajustado:
+  - criei `_portfolio_team_to_pm_project_key(...)` e `_build_strategic_portfolio_wait_frame(...)` em `dashboard_full.py` para transformar `items_base_scope` do snapshot BT em uma camada de espera estratégica monetizável
+  - `build_custo_espera_data(...)` agora aceita `strategic_items_df` e combina:
+    - espera operacional do event log PM
+    - espera estratégica BT por aging do status atual
+  - a seção `_build_custo_espera_section(...)` passou a:
+    - receber `strategic_items_df`
+    - mostrar uma terceira linha de KPIs quando houver camada BT
+    - explicitar em nota que `Flow Efficiency` continua baseada na camada operacional, enquanto o BT entra como aging estratégico
+    - incluir `Camadas` no hover do gráfico por fase
+  - o callback da aba `Process Mining & CAPEX` agora passa `items_base_scope` para a seção de `Custo de Espera`
+- Evidências de validação:
+  - `C:\ProgramData\anaconda3\python.exe -c "import ast, pathlib; ast.parse(pathlib.Path('dashboard_full.py').read_text(encoding='utf-8')); print('AST OK')"`
+  - smoke test sintético da camada estratégica:
+    - `Ready To Delivery | 76.0 | Estratégico BT`
+    - `Backlog | 20.0 | Estratégico BT`
+    - `Downstream dias = 96.0`
+  - smoke test da seção completa com operacional + estratégico:
+    - `_build_custo_espera_section(...) => Div com 7 blocos filhos`
+  - smoke test da base local BT:
+    - `_build_strategic_portfolio_wait_frame(items_base)` retornou `194` linhas estratégicas monetizáveis a partir do snapshot local
+- Risco residual:
+  - o snapshot BT local disponível no workspace ainda não contém `Ready to Delivery`, apesar da informação atual do board reportada pelo usuário; então a nova coluna aparecerá assim que o artefato BT mais recente for atualizado/publicado
+  - a camada BT usa aging do status atual (`AgingDiasSemAlteracao`) e não histórico completo de transições; isso é intencional nesta versão para capturar o estoque estratégico parado
+  - os `SettingWithCopyWarning` vistos durante os testes são pré-existentes e não bloquearam a renderização
+- Suggested commit message:
+  - `feat(portfolio): combine operational and strategic delay layers`
+
 ## Current Task (Descoberta automática dos artefatos GMUD no deploy)
 - [x] Revisar o fallback atual de `find_latest_gmud_csv(...)` no dashboard
 - [x] Permitir inferir URLs `gmud-coverage-*-latest.csv` a partir da mesma base pública dos demais artefatos
@@ -9343,3 +9395,78 @@
   - como várias GMUDs agrupam múltiplas entregas num mesmo texto, o índice continua combinando evidência explícita por chave com evidência inferida por similaridade forte
 - Suggested commit message:
   - `fix(gmud): extract linked issues from CHG custom rich-text fields`
+
+## Current Task (Investigar ausência de `Ready to Delivery` no snapshot BT)
+- [x] Inspecionar `jira_portfolio_to_csv.py` para confirmar como a JQL e o campo `Status` do CSV são montados
+- [x] Verificar no `run_all_projects.ps1` como o pipeline chama o exportador de portfólio
+- [x] Conferir o `portfolio-bt-ns-latest-data.csv` para comparar tipos/status exportados com o board BT
+- [x] Consolidar a causa raiz da divergência entre board e snapshot
+
+## Specification (Investigar ausência de `Ready to Delivery` no snapshot BT)
+- Objetivo: explicar por que o snapshot `portfolio-bt-ns-latest-data.csv` não traz `Ready to Delivery` apesar de o board BT estratégico mostrar épicos nessa coluna.
+- Escopo:
+  - `jira_portfolio_to_csv.py`
+  - `jira/client.py`
+  - `run_all_projects.ps1`
+  - `c:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest\latest-upload\portfolio-bt-ns-latest-data.csv`
+- Estratégia:
+  - verificar se o exportador usa a query e a semântica do board ou apenas uma busca JQL genérica por projeto
+  - confirmar se o CSV salva `status.name` da issue ou algum campo derivado de coluna do board
+  - comparar a distribuição de status dos épicos exportados com a contagem relatada no board
+- Critério de aceite:
+  - identificar com evidência de código a fonte do campo `Status` do snapshot
+  - identificar com evidência do pipeline a JQL realmente usada na exportação
+  - explicar por que `Ready to Delivery` não aparece hoje no CSV
+
+## Review (Investigar ausência de `Ready to Delivery` no snapshot BT)
+- O que foi verificado:
+  - `jira_portfolio_to_csv.py` monta a JQL base como `project in (BT, NS)` e só acrescenta filtro extra se `--jql-extra` for informado; o pipeline atual chama o script apenas com `--projects BT NS`
+  - o campo `Status` exportado no CSV vem diretamente de `fields.status.name`, sem qualquer consulta às colunas/configuração do board
+  - `jira/client.py` hoje usa apenas endpoints genéricos de search/issues (`/rest/api/3/search*` e `/rest/api/3/issue/*`); não há integração com `rest/agile` para ler board/coluna
+  - no snapshot mais recente há `176` itens do tipo `Épico`, e a distribuição por status mostra `Triagem = 76`, `Cancelled = 60`, `Em Product Discovery = 10`, `Planning = 5` etc., com `0` ocorrências de `Ready to Delivery`
+- Conclusão:
+  - a divergência não vem de parse errado do CSV; vem da semântica da exportação
+  - o exportador não captura a coluna do board BT, apenas o `status.name` cru da issue
+  - o indício mais forte é a coincidência entre a contagem informada no board (`76` em `Ready to Delivery`) e a contagem de épicos no snapshot com `Status = Triagem` (`76`), sugerindo que a coluna do board está agrupando/status-mapeando issues cujo status real salvo na issue continua sendo `Triagem`
+  - portanto, enquanto o snapshot continuar vindo só de `status.name`, `Ready to Delivery` não aparecerá no CSV a menos que esse seja o próprio status Jira da issue
+- Próximo passo recomendado:
+  - se quisermos refletir a coluna do board no snapshot, precisamos estender a exportação para consultar a API Agile do Jira (`board/column configuration` e/ou `board issues`) e persistir um campo separado, por exemplo `BoardColumn`
+- Suggested commit message:
+  - `docs(investigation): record BT board-column vs issue-status export gap`
+
+## Current Task (Normalizar status BT para coluna de board no Cost of Delay)
+- [x] Registrar a nova regra de negócio `Triagem -> Ready to Delivery` para a camada estratégica BT
+- [x] Ajustar o `dashboard_full.py` para usar a fase normalizada do board BT na camada estratégica
+- [x] Validar sintaxe e smoke test da nova fase estratégica no `Cost of Delay`
+
+## Specification (Normalizar status BT para coluna de board no Cost of Delay)
+- Objetivo: fazer a camada estratégica do `Cost of Delay` refletir a semântica do board BT, onde o status cru `Triagem` corresponde à coluna de negócio `Ready to Delivery`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - introduzir uma normalização específica da camada estratégica BT antes de calcular `FaseEspera` e `Direcao`
+  - preservar o `Status` cru do snapshot para outras leituras, mas usar a fase normalizada no gráfico/KPIs
+  - manter o fluxo operacional PM inalterado
+- Critério de aceite:
+  - itens estratégicos BT com `Status = Triagem` passam a aparecer como `Ready To Delivery` na seção `Custo de Espera`
+  - a direção desses itens passa a ser `Downstream`
+  - `dashboard_full.py` permanece válido sintaticamente
+
+## Review (Normalizar status BT para coluna de board no Cost of Delay)
+- O que foi ajustado:
+  - adicionei em `dashboard_full.py` a helper `_bt_strategic_board_phase(...)` para traduzir o status cru do snapshot BT para a fase de board esperada pela visão executiva
+  - a regra confirmada nesta rodada foi aplicada para a camada estratégica: `Triagem -> ready to delivery` para `Épico` e `Feature`
+  - `_build_strategic_portfolio_wait_frame(...)` agora passa a preencher `_status_norm` com a fase normalizada do board, em vez de usar o `Status` cru diretamente
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - smoke test com `_build_strategic_portfolio_wait_frame(...)` confirmando:
+    - `Épico + Triagem => ready to delivery`
+    - `Feature + Triagem => ready to delivery`
+    - `User Story + Triagem => Triagem` preservado
+  - conferência do snapshot latest mostrando exemplos reais de épicos BT ainda salvos com `Status = Triagem`
+- Risco residual:
+  - a normalização atual cobre a regra confirmada nesta conversa; se houver outros mapeamentos de coluna BT além de `Triagem -> Ready to Delivery`, vale codificá-los explicitamente depois para evitar leituras híbridas entre status cru e coluna de board
+- Suggested commit message:
+  - `fix(portfolio): map BT triagem to ready-to-delivery in strategic delay view`

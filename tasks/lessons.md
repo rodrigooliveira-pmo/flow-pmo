@@ -486,6 +486,27 @@ Use this file after any user correction.
 - Action added to workflow: Em taxonomias por tokens, revisar sempre conflitos entre rótulos genéricos (`backlog`, `design`, `review`) e rótulos específicos (`backlog do produto`, `ready to design`) antes de concluir a classificação.
 
 - Date: 2026-04-09
+- Context: Integração do `Cost of Delay` com a camada estratégica BT (épicos/features/histórias).
+- User correction: Indicou que há 76 épicos em `Ready to Delivery` no board estratégico BT, apesar de o snapshot local `portfolio-bt-ns-latest-data.csv` do workspace não refletir esse status no momento.
+- Root cause: Eu poderia assumir que ausência no artefato local significava ausência no fluxo real, mas o board e o snapshot publicado nem sempre estão no mesmo frescor temporal.
+- Prevention rule: Quando o usuário afirmar contagens/status atuais do board que divergem do CSV local, tratar isso como potencial defasagem de artefato e implementar a leitura para a próxima carga, em vez de concluir que o status “não existe”.
+- Action added to workflow: Em integrações entre board Jira e snapshots latest, sempre validar separadamente `semântica implementada` e `frescor do artefato local/publicado`.
+
+- Date: 2026-04-09
+- Context: Investigação do snapshot BT sem `Ready to Delivery`, apesar do board estratégico mostrar essa coluna com épicos.
+- User correction: Esclareceu que a referência correta para esse estágio estratégico é a coluna do board BT (`project = BT AND issuetype = Epic`), não necessariamente o `status.name` cru retornado pela search API.
+- Root cause: Eu poderia tratar `Status` exportado no CSV como equivalente à coluna visível do board, mas o exportador atual salva apenas `fields.status.name` e não consulta a configuração/agregação da board Agile.
+- Prevention rule: Quando o usuário fizer referência a uma coluna específica de board Jira, não assumir equivalência com `issue.status`; validar cedo se a fonte atual lê `status` puro ou metadados da board.
+- Action added to workflow: Em investigações envolvendo divergência entre board e snapshot Jira, sempre comparar explicitamente `JQL do exportador`, `campo exportado` e `semântica da board/coluna` antes de concluir.
+
+- Date: 2026-04-09
+- Context: Ajuste da camada estratégica BT no `Cost of Delay` após confirmar o mapeamento real do board.
+- User correction: Confirmou que, no board estratégico BT, a coluna `Ready to Delivery` mapeia o status cru `Triagem`.
+- Root cause: Eu ainda estava usando o `Status` cru do snapshot estratégico diretamente no dashboard, sem aplicar a tradução de coluna de board já conhecida para o fluxo BT.
+- Prevention rule: Quando um board Jira usa colunas de negócio que agrupam statuses crus, aplicar a tradução na camada analítica antes de exibir fase/direção executiva.
+- Action added to workflow: Em visões analíticas estratégicas BT, revisar sempre se a fase exibida deve vir de `status.name` ou de um mapeamento de coluna de board acordado com o usuário.
+
+- Date: 2026-04-09
 - Context: Primeira publicação da aba `Cobertura GMUD` no dashboard usando os artefatos `gmud-coverage-*`.
 - User correction: Reportou que em produção os CSVs GMUD não eram encontrados, porque a aba exigia `FLOW_PMO_GMUD_*` dedicadas ou arquivos locais e não reaproveitava a mesma base pública já usada pelos outros artefatos latest.
 - Root cause: Eu validei o loader com envs explícitas e arquivos sintéticos, mas não fechei a última milha de deploy para o ambiente Vercel, onde a convenção operacional é derivar vários artefatos a partir de um mesmo blob/base pública.

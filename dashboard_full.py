@@ -6499,9 +6499,118 @@ def _pm_waiting_direction(status_norm: str) -> str:
     return 'Upstream'
 
 
+def _portfolio_team_to_pm_project_key(team_value) -> str:
+    team_text = str(team_value or '').strip()
+    if not team_text:
+        return ''
+    alias_map = {
+        'TECH DATA': 'DT',
+        'DATA ANALYTICS': 'DT',
+        'DATA&ANALYTICS': 'DT',
+        'TECH BEFINANCE': 'BF',
+        'BEFINANCE': 'BF',
+        'BF': 'BF',
+        'TECH S1NC': 'S1NC',
+        'S1NC': 'S1NC',
+        'SQUAD | S1NC': 'S1NC',
+        'TECH W1NNER': 'W1NNER',
+        'W1NNER': 'W1NNER',
+        'W1NNR': 'W1NNER',
+        'SQUAD | W1NNER': 'W1NNER',
+    }
+    norm = normalize_text(team_text).upper()
+    candidate = alias_map.get(norm, norm)
+    return _canonical_pm_product_key(candidate)
+
+
+def _bt_strategic_board_phase(status_value, tipo_norm: str = '') -> str:
+    """
+    Normalizes raw Jira status values from the BT strategic snapshot to the
+    board/business phase expected by executive delay views.
+
+    Today the confirmed board rule is:
+      - status 'Triagem' => board column 'Ready to Delivery'
+    """
+    status_text = str(status_value or '').strip()
+    status_norm = normalize_text(status_text)
+    tipo_norm = normalize_text(tipo_norm)
+
+    if tipo_norm in {'epic', 'epico', 'feature', 'funcionalidade'}:
+        if status_norm == 'triagem':
+            return 'ready to delivery'
+
+    return status_text
+
+
+def _build_strategic_portfolio_wait_frame(portfolio_items_df: 'pd.DataFrame') -> 'pd.DataFrame':
+    """
+    Builds a strategic waiting-layer frame from the BT portfolio snapshot using
+    current status aging (days since status change / last movement).
+    """
+    _empty = pd.DataFrame(columns=[
+        'Issue Key', 'Produto', '_status_norm', 'TempoStatusDias', 'Status PM Elegível',
+        'CamadaFluxo', 'NivelHierarquia',
+    ])
+    if portfolio_items_df is None or portfolio_items_df.empty:
+        return _empty
+
+    x = portfolio_items_df.copy()
+    if 'Status' not in x.columns:
+        return _empty
+
+    for col in ['ID', 'Tipo', 'Status', 'TeamDisplay', 'Projeto']:
+        if col not in x.columns:
+            x[col] = ''
+    if 'IsOpen' not in x.columns:
+        status_norm = x['Status'].fillna('').astype(str).map(normalize_text)
+        done_terms = ('done', 'conclu', 'closed', 'resolved', 'cancel')
+        x['IsOpen'] = ~status_norm.apply(lambda s: any(t in str(s) for t in done_terms))
+
+    x['AgingDiasSemAlteracao'] = pd.to_numeric(
+        x.get('AgingDiasSemAlteracao', x.get('DiasSemMovimentacao')),
+        errors='coerce'
+    ).fillna(0.0)
+    x['TipoNorm'] = x['Tipo'].fillna('').astype(str).map(normalize_text)
+    allowed_types = {
+        'epic', 'epico', 'feature', 'funcionalidade',
+        'historia', 'historia de usuario', 'story', 'user story', 'us',
+        'task', 'tarefa', 'spike',
+    }
+    x = x[
+        x['ID'].fillna('').astype(str).str.strip().ne('')
+        & x['IsOpen'].fillna(False).astype(bool)
+        & x['TipoNorm'].isin(allowed_types)
+        & (x['AgingDiasSemAlteracao'] > 0)
+    ].copy()
+    if x.empty:
+        return _empty
+
+    def _nivel(tipo_norm: str) -> str:
+        if tipo_norm in {'epic', 'epico'}:
+            return 'Épico'
+        if tipo_norm in {'feature', 'funcionalidade'}:
+            return 'Feature'
+        return 'História'
+
+    x['Projeto PM'] = x.get('TeamDisplay', '').apply(_portfolio_team_to_pm_project_key)
+    x['Produto'] = x['Projeto PM'].apply(_pm_product_label)
+    x.loc[x['Produto'].fillna('').astype(str).str.strip().eq(''), 'Produto'] = 'BT Estratégico'
+    x['_status_norm'] = x.apply(
+        lambda row: _bt_strategic_board_phase(row.get('Status', ''), row.get('TipoNorm', '')),
+        axis=1,
+    )
+    x['Issue Key'] = x['ID'].fillna('').astype(str).str.strip()
+    x['TempoStatusDias'] = x['AgingDiasSemAlteracao']
+    x['Status PM Elegível'] = False
+    x['CamadaFluxo'] = 'Estratégico BT'
+    x['NivelHierarquia'] = x['TipoNorm'].apply(_nivel)
+    return x[['Issue Key', 'Produto', '_status_norm', 'TempoStatusDias', 'Status PM Elegível', 'CamadaFluxo', 'NivelHierarquia']].copy()
+
+
 def build_custo_espera_data(
     all_events_df: 'pd.DataFrame',
     custo_hora: float,
+    strategic_items_df: 'pd.DataFrame' = None,
     horas_produtivas_dia: float = 8.0,
 ) -> dict:
     """
@@ -6527,25 +6636,31 @@ def build_custo_espera_data(
         'kpis': {}, 'has_cost': False,
     }
 
-    if all_events_df is None or all_events_df.empty:
+    if (all_events_df is None or all_events_df.empty) and (strategic_items_df is None or strategic_items_df.empty):
         return _empty
 
-    df = all_events_df.copy()
-    df['TempoStatusDias'] = pd.to_numeric(df.get('TempoStatusDias'), errors='coerce').fillna(0.0)
-    df['Horas PM Elegíveis'] = pd.to_numeric(df.get('Horas PM Elegíveis'), errors='coerce').fillna(0.0)
-    df['History Created'] = pd.to_datetime(df.get('History Created'), errors='coerce')
-    df['Issue Key'] = df.get('Issue Key', pd.Series([''] * len(df))).fillna('').astype(str)
-    df['Produto'] = df.get('Produto', pd.Series([''] * len(df))).fillna('').astype(str)
+    df = all_events_df.copy() if all_events_df is not None else pd.DataFrame()
+    _empty_float = pd.Series(index=df.index, dtype='float64')
+    _empty_obj = pd.Series(index=df.index, dtype='object')
+    df['TempoStatusDias'] = pd.to_numeric(df.get('TempoStatusDias', _empty_float), errors='coerce').fillna(0.0)
+    df['Horas PM Elegíveis'] = pd.to_numeric(df.get('Horas PM Elegíveis', _empty_float), errors='coerce').fillna(0.0)
+    df['History Created'] = pd.to_datetime(df.get('History Created', _empty_obj), errors='coerce')
+    df['Issue Key'] = df.get('Issue Key', pd.Series([''] * len(df), index=df.index)).fillna('').astype(str)
+    df['Produto'] = df.get('Produto', pd.Series([''] * len(df), index=df.index)).fillna('').astype(str)
+    df['CamadaFluxo'] = 'Operacional PM'
+    df['NivelHierarquia'] = 'Issue'
 
     status_col = 'To Status Norm' if 'To Status Norm' in df.columns else 'To Status'
-    df['_status_norm'] = df[status_col].fillna('').astype(str).str.strip()
-    df['Status PM Elegível'] = df.get('Status PM Elegível', pd.Series([False] * len(df)))
+    df['_status_norm'] = df[status_col].fillna('').astype(str).str.strip() if status_col in df.columns else pd.Series([''] * len(df), index=df.index)
+    df['Status PM Elegível'] = df.get('Status PM Elegível', pd.Series([False] * len(df), index=df.index))
     if df['Status PM Elegível'].dtype != bool:
         df['Status PM Elegível'] = _coerce_bool_flag(df['Status PM Elegível'])
 
     # Waiting = non-execution, non-done, non-cancelled, with time > 0
     df['_is_waiting'] = df['_status_norm'].apply(_pm_is_waiting_status)
-    waiting_df = df[df['_is_waiting'] & (df['TempoStatusDias'] > 0)].copy()
+    operational_wait_df = df[df['_is_waiting'] & (df['TempoStatusDias'] > 0)].copy()
+    strategic_wait_df = _build_strategic_portfolio_wait_frame(strategic_items_df)
+    waiting_df = pd.concat([operational_wait_df, strategic_wait_df], ignore_index=True, sort=False)
 
     if waiting_df.empty:
         return _empty
@@ -6565,9 +6680,13 @@ def build_custo_espera_data(
 
     total_espera_dias = float(waiting_df['DiasEspera'].sum())
     total_espera_custo = float(waiting_df['CustoEspera'].sum())
+    strategic_espera_dias = float(pd.to_numeric(strategic_wait_df.get('TempoStatusDias'), errors='coerce').fillna(0.0).sum()) if not strategic_wait_df.empty else 0.0
+    strategic_espera_custo = strategic_espera_dias * taxa_dia
+    strategic_itens = int(strategic_wait_df['Issue Key'].nunique()) if not strategic_wait_df.empty else 0
     total_issues_espera = int(waiting_df['Issue Key'].nunique())
-    total_dias = total_exec_dias + total_espera_dias
-    flow_efficiency = (total_exec_dias / total_dias * 100.0) if total_dias > 0 else np.nan
+    operational_wait_dias = float(pd.to_numeric(operational_wait_df.get('TempoStatusDias'), errors='coerce').fillna(0.0).sum()) if not operational_wait_df.empty else 0.0
+    total_dias_operacionais = total_exec_dias + operational_wait_dias
+    flow_efficiency = (total_exec_dias / total_dias_operacionais * 100.0) if total_dias_operacionais > 0 else np.nan
     avg_espera_por_issue = (
         waiting_df.groupby('Issue Key')['DiasEspera'].sum().mean()
         if not waiting_df.empty else np.nan
@@ -6581,6 +6700,7 @@ def build_custo_espera_data(
             CustoEspera=('CustoEspera', 'sum'),
             Ocorrencias=('Issue Key', 'size'),
             Issues=('Issue Key', 'nunique'),
+            Camadas=('CamadaFluxo', lambda x: ', '.join(sorted({str(v).strip() for v in x if str(v).strip()}))),
         )
         .reset_index()
         .sort_values('CustoEspera' if has_cost else 'DiasEspera', ascending=False)
@@ -6614,6 +6734,7 @@ def build_custo_espera_data(
             CustoEspera=('CustoEspera', 'sum'),
             FasesEspera=('FaseEspera', lambda x: ', '.join(sorted(set(x)))),
             Ocorrencias=('Issue Key', 'size'),
+            Camadas=('CamadaFluxo', lambda x: ', '.join(sorted({str(v).strip() for v in x if str(v).strip()}))),
         )
         .reset_index()
         .sort_values('CustoEspera' if has_cost else 'DiasEspera', ascending=False)
@@ -6659,6 +6780,9 @@ def build_custo_espera_data(
             'flow_efficiency': flow_efficiency,
             'avg_espera_por_issue': avg_espera_por_issue,
             'issues_com_espera': total_issues_espera,
+            'strategic_espera_dias': strategic_espera_dias,
+            'strategic_espera_custo': strategic_espera_custo,
+            'strategic_itens': strategic_itens,
             'taxa_dia': taxa_dia,
             'upstream_dias': upstream_dias,
             'downstream_dias': downstream_dias,
@@ -6674,6 +6798,7 @@ def build_custo_espera_data(
 def _build_custo_espera_section(
     all_events_df: 'pd.DataFrame',
     custo_hora: float,
+    strategic_items_df: 'pd.DataFrame' = None,
 ) -> 'html.Div':
     """
     Renders the Cost of Delay section with Upstream vs Downstream analysis:
@@ -6684,7 +6809,7 @@ def _build_custo_espera_section(
       - Chart 3: execução vs espera por produto (stacked)
       - Chart 4: top 15 issues por custo de espera
     """
-    data = build_custo_espera_data(all_events_df, custo_hora)
+    data = build_custo_espera_data(all_events_df, custo_hora, strategic_items_df=strategic_items_df)
     kpis = data.get('kpis', {})
     by_phase_df = data.get('by_phase_df', pd.DataFrame())
     by_product_df = data.get('by_product_df', pd.DataFrame())
@@ -6702,6 +6827,8 @@ def _build_custo_espera_section(
 
     upstream_pct = kpis.get('upstream_pct', np.nan)
     downstream_pct = kpis.get('downstream_pct', np.nan)
+    strategic_dias = kpis.get('strategic_espera_dias', 0.0)
+    strategic_itens = int(kpis.get('strategic_itens', 0) or 0)
 
     def _fmt_r(v):
         if v is None or (isinstance(v, float) and np.isnan(v)):
@@ -6740,6 +6867,15 @@ def _build_custo_espera_section(
         _portfolio_metric_card(dn_label, dn_val),
     ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
 
+    kpi_row3 = html.Div()
+    if strategic_itens > 0:
+        strategic_val = _fmt_r(kpis.get('strategic_espera_custo')) if has_cost else _fmt_d(strategic_dias)
+        kpi_row3 = html.Div([
+            _portfolio_metric_card('BT estratégico em espera', str(strategic_itens)),
+            _portfolio_metric_card('Dias BT estratégico', _fmt_d(strategic_dias)),
+            _portfolio_metric_card('Custo BT estratégico' if has_cost else 'Espera BT estratégica', strategic_val),
+        ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
+
     notes = []
     if not has_cost:
         notes.append(html.P(
@@ -6750,8 +6886,9 @@ def _build_custo_espera_section(
     notes.append(html.P(
         'Flow Efficiency = dias em execução / (dias em execução + dias em espera). '
         'Benchmarks de referência: times de alto desempenho ≥ 40%; típico 15–25%. '
-        'Upstream = fases antes do desenvolvimento (backlog, triagem, discovery). '
-        'Downstream = fases após execução (revisão, QA, staging, produção).',
+        'A camada operacional usa histórico PM; a camada estratégica BT usa aging do status atual '
+        '(dias desde a última mudança de status) para épicos/features/histórias. '
+        'Flow Efficiency continua baseada apenas na camada operacional.',
         style={'color': '#555', 'fontSize': '13px', 'marginBottom': '8px'},
     ))
 
@@ -6774,9 +6911,9 @@ def _build_custo_espera_section(
             color_discrete_map=_dir_colors,
             title='Custo de espera por fase — Upstream vs Downstream',
             text=value_col,
-            hover_data={'Issues': True, 'Ocorrencias': True, 'DiasEspera': ':.1f', 'Direcao': True},
+            hover_data={'Issues': True, 'Ocorrencias': True, 'DiasEspera': ':.1f', 'Direcao': True, 'Camadas': True},
             labels={value_col: value_label, 'FaseEspera': '', 'Direcao': 'Direção',
-                    'Issues': 'Issues únicas', 'Ocorrencias': 'Ocorrências'},
+                    'Issues': 'Issues únicas', 'Ocorrencias': 'Ocorrências', 'Camadas': 'Camada'},
         )
         fig_phase.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         fig_phase.update_layout(
@@ -6854,6 +6991,7 @@ def _build_custo_espera_section(
         html.Div(notes),
         kpi_row1,
         kpi_row2,
+        kpi_row3,
         html.Div([
             html.Div([dcc.Graph(figure=fig_phase)], style={'flex': '1', 'minWidth': '340px'}),
             html.Div([dcc.Graph(figure=fig_dir_prod)], style={'flex': '1', 'minWidth': '340px'}),
@@ -16830,7 +16968,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             _build_custo_pm_calibrado_section(events_all_df)
         )
         custo_retrabalho_section = _build_custo_retrabalho_section(events_all_df, capex_worklog_df)
-        custo_espera_section = _build_custo_espera_section(all_events_df_full, custo_hora_val)
+        custo_espera_section = _build_custo_espera_section(
+            all_events_df_full,
+            custo_hora_val,
+            strategic_items_df=items_base_scope,
+        )
 
         pm_portfolio_section = html.Div([
             html.Div(pm_notes, style={'marginBottom': '12px'}),
