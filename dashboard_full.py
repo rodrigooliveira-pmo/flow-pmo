@@ -11068,9 +11068,7 @@ def _build_synthetic_capex_worklog_from_pm(events_all: 'pd.DataFrame') -> 'pd.Da
     df['Colaborador'] = df.get('Responsável PM', pd.Series('', index=df.index)).fillna('').astype(str)
     df['Colaborador Canonico'] = df['Colaborador']
     df['Data do Apontamento das Horas'] = pd.to_datetime(df.get('History Created'), errors='coerce')
-    df['MesCompetencia'] = df['Data do Apontamento das Horas'].dt.to_period('M').astype(str).where(
-        df['Data do Apontamento das Horas'].notna(), other=''
-    )
+    df['MesCompetencia'] = df['Data do Apontamento das Horas'].dt.strftime('%Y-%m').fillna('')
 
     status_col = (
         df['To Status Norm'] if 'To Status Norm' in df.columns

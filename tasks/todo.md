@@ -8849,3 +8849,74 @@
   - em `--strict`, o script continua falhando se houver bloqueios persistentes ou obrigatórios ausentes, o que preserva um modo de validação rígido
 - Suggested commit message:
   - `fix(latest-upload): tolerate locked files during package refresh`
+
+## Current Task (Avaliar artefatos do run_process_mining para latest-upload/Vercel)
+- [x] Revisar `run_process_mining_projects.ps1`, `copy_latest_upload.py` e `DEPLOY_VERCEL.md`
+- [x] Mapear os artefatos que o runner publica em `latest`
+- [x] Distinguir pacote completo `latest-upload` versus mínimo necessário para o dashboard no Vercel
+- [x] Comparar `Dados\latest` com `Dados\latest\latest-upload` no ambiente atual
+
+## Specification (Avaliar artefatos do run_process_mining para latest-upload/Vercel)
+- Objetivo: identificar, a partir do código e do estado atual do ambiente, quais artefatos precisam estar em `latest-upload` para atualização do dashboard publicado em `flow-pmo.vercel.app`.
+- Escopo:
+  - `run_process_mining_projects.ps1`
+  - `copy_latest_upload.py`
+  - `run_all_projects.ps1`
+  - `DEPLOY_VERCEL.md`
+  - `api/index.py`
+  - `dashboard_full.py`
+- Estratégia:
+  - localizar no runner quais arquivos são gerados/publicados em `latest`
+  - confirmar no consolidator `copy_latest_upload.py` quais arquivos entram no pacote `latest-upload`
+  - verificar no entrypoint/documentação quais URLs/arquivos o Vercel consome por padrão
+  - comparar com os arquivos efetivamente presentes em `Dados\latest` e `Dados\latest\latest-upload`
+- Critério de aceite:
+  - ficar explícita a lista do pacote completo `latest-upload`
+  - ficar explícita a lista mínima para o dashboard padrão no Vercel
+  - ficar registrado se há diferença prática entre `latest` e `latest-upload` no ambiente atual
+
+## Review (Avaliar artefatos do run_process_mining para latest-upload/Vercel)
+- O `run_process_mining_projects.ps1` publica em `latest`:
+  - downstream latest por projeto, changelog detalhado latest, relatórios `*-process-mining-latest.*` e CSVs Bitbucket por projeto
+  - opcionalmente, com `-RunDashboardModel`, também atualiza `PowerBI_Model_latest.xlsx`
+  - ao final, chama `copy_latest_upload.py` para montar `latest\latest-upload`
+- O pacote montado por `copy_latest_upload.py` trata como obrigatórios:
+  - `PowerBI_Model_latest.xlsx`
+  - `portfolio-bt-ns-latest-data.csv`
+  - `w1nner-process-mining-latest.xlsx`
+  - `s1nc-process-mining-latest.xlsx`
+  - `befinance-process-mining-latest.xlsx`
+  - `dataanalytics-process-mining-latest.xlsx`
+  - `w1nner-downstream-latest-data.csv`
+  - `s1nc-downstream-latest-data.csv`
+  - `befinance-downstream-latest-data.csv`
+  - `dataanalytics-downstream-latest-data.csv`
+  - `w1nner-downstream-latest-data_bottlenecks.csv`
+  - `s1nc-downstream-latest-data_bottlenecks.csv`
+  - `befinance-downstream-latest-data_bottlenecks.csv`
+  - `dataanalytics-downstream-latest-data_bottlenecks.csv`
+  - `w1nner_commits.csv`, `w1nner_pullrequests.csv`, `w1nner_pipelines.csv`
+  - `befinance_commits.csv`, `befinance_pullrequests.csv`, `befinance_pipelines.csv`
+  - `dataanalytics_commits.csv`, `dataanalytics_pullrequests.csv`, `dataanalytics_pipelines.csv`
+- O pacote trata como opcionais:
+  - `s1nc_commits.csv`, `s1nc_pullrequests.csv`, `s1nc_pipelines.csv`
+  - `capex-raw-latest.csv`, `capex-summary-latest.csv`, `capex-latest.xlsx`
+- Para o site Vercel no modo padrão (`FLOW_PMO_DASH_MODULE=dashboard_full`), o mínimo explicitamente documentado/consumido é:
+  - `PowerBI_Model_latest.xlsx` via `FLOW_PMO_MODEL_URL`
+  - `portfolio-bt-ns-latest-data.csv` via `FLOW_PMO_PORTFOLIO_CSV_URL`
+  - `w1nner-process-mining-latest.xlsx` via `FLOW_PMO_PROCESS_MINING_REPORT_URL`
+  - CSVs de gargalo por projeto se o ambiente estiver usando `FLOW_PMO_BOTTLENECK_CSV_URL_MAP`
+  - relatórios/CSVs extras de process mining e Bitbucket só entram no Vercel se houver URLs específicas configuradas ou outro mecanismo externo de disponibilização
+- Conclusão operacional:
+  - para atualizar o dashboard principal no Vercel, não basta olhar apenas o pacote completo do `latest-upload`; o conjunto mínimo é `PowerBI_Model_latest.xlsx` + `portfolio-bt-ns-latest-data.csv` + `w1nner-process-mining-latest.xlsx`, e também os `*-data_bottlenecks.csv` se o ambiente estiver apontando para eles
+  - se a intenção for manter um pacote operacional completo e pronto para upload/manual mirror, então `latest-upload` deve conter todos os obrigatórios definidos em `copy_latest_upload.py`
+- Estado atual do ambiente:
+  - `Dados\latest\latest-upload` existe
+  - comparando `Dados\latest` com `Dados\latest\latest-upload`, os itens ainda faltando no pacote são `dashboard_output_latest.xlsx` e `bottlenecks_consolidado_latest.xlsx`
+  - esses dois arquivos não são copiados por `copy_latest_upload.py`, portanto a ausência é esperada pelo script atual
+  - `w1nner-process-mining-latest.xlsx` está atualizado em `artifacts\process_mining`, mas o alias publicado em `Dados\latest` continua antigo; logo, antes de pensar em `latest-upload`, ainda há um desalinhamento no próprio `latest`
+- Evidências principais:
+  - leitura estática de `run_process_mining_projects.ps1`, `copy_latest_upload.py`, `run_all_projects.ps1`, `DEPLOY_VERCEL.md`, `api/index.py` e `dashboard_full.py`
+  - conferência direta das pastas `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest`, `C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest\latest-upload` e `artifacts\process_mining`
+- Suggested commit message:
+  - `docs(deploy): record latest-upload artifact set and Vercel minimum inputs`
