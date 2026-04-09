@@ -6820,6 +6820,7 @@ def build_custo_espera_data(
     strategic_espera_dias = float(pd.to_numeric(strategic_wait_df.get('TempoStatusDias'), errors='coerce').fillna(0.0).sum()) if not strategic_wait_df.empty else 0.0
     strategic_espera_custo = strategic_espera_dias * taxa_dia
     strategic_itens = int(strategic_wait_df['Issue Key'].nunique()) if not strategic_wait_df.empty else 0
+    strategic_wait_enriched = waiting_df[waiting_df.get('CamadaFluxo', '').fillna('').astype(str).eq('Estratégico BT')].copy()
     total_issues_espera = int(waiting_df['Issue Key'].nunique())
     operational_wait_dias = float(pd.to_numeric(operational_wait_df.get('TempoStatusDias'), errors='coerce').fillna(0.0).sum()) if not operational_wait_df.empty else 0.0
     total_dias_operacionais = total_exec_dias + operational_wait_dias
@@ -6902,6 +6903,31 @@ def build_custo_espera_data(
     upstream_pct = upstream_dias / total_espera_dias * 100 if total_espera_dias > 0 else np.nan
     downstream_pct = downstream_dias / total_espera_dias * 100 if total_espera_dias > 0 else np.nan
 
+    strategic_by_direction = (
+        strategic_wait_enriched.groupby('Direcao', dropna=False)
+        .agg(
+            DiasEspera=('DiasEspera', 'sum'),
+            CustoEspera=('CustoEspera', 'sum'),
+            Itens=('Issue Key', 'nunique'),
+        )
+        .reset_index()
+    ) if not strategic_wait_enriched.empty else pd.DataFrame(columns=['Direcao', 'DiasEspera', 'CustoEspera', 'Itens'])
+
+    def _strategic_dir_kpi(direction, col):
+        row = strategic_by_direction[strategic_by_direction['Direcao'] == direction]
+        if row.empty:
+            return 0.0 if col != 'Itens' else 0
+        if col == 'Itens':
+            return int(row[col].iloc[0])
+        return float(row[col].iloc[0])
+
+    strategic_upstream_itens = _strategic_dir_kpi('Upstream', 'Itens')
+    strategic_downstream_itens = _strategic_dir_kpi('Downstream', 'Itens')
+    strategic_upstream_dias = _strategic_dir_kpi('Upstream', 'DiasEspera')
+    strategic_downstream_dias = _strategic_dir_kpi('Downstream', 'DiasEspera')
+    strategic_upstream_custo = _strategic_dir_kpi('Upstream', 'CustoEspera')
+    strategic_downstream_custo = _strategic_dir_kpi('Downstream', 'CustoEspera')
+
     return {
         'espera_df': waiting_df,
         'by_phase_df': by_phase,
@@ -6920,6 +6946,12 @@ def build_custo_espera_data(
             'strategic_espera_dias': strategic_espera_dias,
             'strategic_espera_custo': strategic_espera_custo,
             'strategic_itens': strategic_itens,
+            'strategic_upstream_itens': strategic_upstream_itens,
+            'strategic_downstream_itens': strategic_downstream_itens,
+            'strategic_upstream_dias': strategic_upstream_dias,
+            'strategic_downstream_dias': strategic_downstream_dias,
+            'strategic_upstream_custo': strategic_upstream_custo,
+            'strategic_downstream_custo': strategic_downstream_custo,
             'taxa_dia': taxa_dia,
             'upstream_dias': upstream_dias,
             'downstream_dias': downstream_dias,
@@ -6964,7 +6996,6 @@ def _build_custo_espera_section(
 
     upstream_pct = kpis.get('upstream_pct', np.nan)
     downstream_pct = kpis.get('downstream_pct', np.nan)
-    strategic_dias = kpis.get('strategic_espera_dias', 0.0)
     strategic_itens = int(kpis.get('strategic_itens', 0) or 0)
 
     def _fmt_r(v):
@@ -7006,11 +7037,19 @@ def _build_custo_espera_section(
 
     kpi_row3 = html.Div()
     if strategic_itens > 0:
-        strategic_val = _fmt_r(kpis.get('strategic_espera_custo')) if has_cost else _fmt_d(strategic_dias)
         kpi_row3 = html.Div([
-            _portfolio_metric_card('BT estratégico em espera', str(strategic_itens)),
-            _portfolio_metric_card('Dias BT estratégico', _fmt_d(strategic_dias)),
-            _portfolio_metric_card('Custo BT estratégico' if has_cost else 'Espera BT estratégica', strategic_val),
+            _portfolio_metric_card('BT estratégico ↑ itens', str(int(kpis.get('strategic_upstream_itens', 0) or 0))),
+            _portfolio_metric_card('BT estratégico ↑ dias', _fmt_d(kpis.get('strategic_upstream_dias', 0.0))),
+            _portfolio_metric_card(
+                'BT estratégico ↑ custo' if has_cost else 'BT estratégico ↑ espera',
+                _fmt_r(kpis.get('strategic_upstream_custo', 0.0)) if has_cost else _fmt_d(kpis.get('strategic_upstream_dias', 0.0)),
+            ),
+            _portfolio_metric_card('BT estratégico ↓ itens', str(int(kpis.get('strategic_downstream_itens', 0) or 0))),
+            _portfolio_metric_card('BT estratégico ↓ dias', _fmt_d(kpis.get('strategic_downstream_dias', 0.0))),
+            _portfolio_metric_card(
+                'BT estratégico ↓ custo' if has_cost else 'BT estratégico ↓ espera',
+                _fmt_r(kpis.get('strategic_downstream_custo', 0.0)) if has_cost else _fmt_d(kpis.get('strategic_downstream_dias', 0.0)),
+            ),
         ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
 
     notes = []

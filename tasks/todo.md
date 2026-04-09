@@ -9581,3 +9581,38 @@
   - a regra atual assume que status percentuais do dashboard estratégico representam avanço downstream; se algum outro fluxo usar `%` com outra semântica, vale diferenciar por camada/hierarquia no futuro
 - Suggested commit message:
   - `fix(portfolio): classify strategic percent stages as downstream`
+
+## Current Task (Separar KPIs estratégicos por Upstream e Downstream)
+- [x] Registrar o ajuste dos KPIs BT estratégicos na seção `Custo de Espera`
+- [x] Ajustar `dashboard_full.py` para exibir itens, dias e custo separados por direção
+- [x] Validar sintaxe e smoke test dos novos KPIs estratégicos
+
+## Specification (Separar KPIs estratégicos por Upstream e Downstream)
+- Objetivo: substituir os cards agregados de BT estratégico por uma visão separada entre `Upstream` e `Downstream`, exibindo quantidade de itens, dias em espera e custo por direção.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - calcular KPIs direcionais específicos da camada `Estratégico BT`
+  - manter os KPIs totais e operacionais existentes
+  - trocar os três cards agregados por seis cards executivos (`itens`, `dias`, `custo` para `Upstream` e `Downstream`)
+- Critério de aceite:
+  - a seção estratégica deixa de mostrar apenas total BT agregado
+  - os cards passam a mostrar `BT estratégico ↑ itens/dias/custo` e `BT estratégico ↓ itens/dias/custo`
+  - `dashboard_full.py` permanece válido sintaticamente
+
+## Review (Separar KPIs estratégicos por Upstream e Downstream)
+- O que foi ajustado:
+  - ampliei `build_custo_espera_data(...)` para calcular KPIs direcionais específicos da camada `Estratégico BT`, incluindo `itens`, `dias` e `custo` para `Upstream` e `Downstream`
+  - substituí os três cards estratégicos agregados por seis cards executivos na seção `_build_custo_espera_section(...)`
+  - mantive inalterados os KPIs totais e os gráficos já existentes da seção
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - smoke test de `build_custo_espera_data(...)` com cenário sintético retornando:
+    - `strategic_upstream_itens = 1`, `strategic_upstream_dias = 10.0`, `strategic_upstream_custo = 8000.0`
+    - `strategic_downstream_itens = 2`, `strategic_downstream_dias = 25.0`, `strategic_downstream_custo = 20000.0`
+  - smoke test de `_build_custo_espera_section(...)` retornando `Div` renderizável com `7` blocos
+- Risco residual:
+  - durante os imports seguem aparecendo `SettingWithCopyWarning` e um `FutureWarning` pré-existentes em outro trecho do dashboard; eles não bloquearam esta entrega
+- Suggested commit message:
+  - `feat(portfolio): split strategic delay KPIs by upstream and downstream`
