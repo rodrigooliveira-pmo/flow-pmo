@@ -130,6 +130,9 @@ METADATA_COLUMNS = [
     "EpicLinkID",
     "EpicLinkTipo",
     "EpicLinkName",
+    "IssueLinkKeys",
+    "IssueLinkTypes",
+    "IssueLinkDetails",
     "DevExecutor",
 ]
 
@@ -327,6 +330,58 @@ def issue_type_is_storytask(value: str) -> bool:
 def issue_key_or_blank(value: str) -> str:
     txt = str(value or "").strip()
     return txt if ISSUE_KEY_PATTERN.match(txt) else ""
+
+
+def build_issue_links_summary(issue_links: Any) -> Dict[str, str]:
+    if not isinstance(issue_links, list):
+        return {
+            "IssueLinkKeys": "",
+            "IssueLinkTypes": "",
+            "IssueLinkDetails": "",
+        }
+
+    keys: List[str] = []
+    types: List[str] = []
+    details: List[str] = []
+    for link in issue_links:
+        if not isinstance(link, dict):
+            continue
+        link_type = link.get("type") or {}
+        outward_issue = link.get("outwardIssue") or {}
+        inward_issue = link.get("inwardIssue") or {}
+        direction = ""
+        issue_ref = {}
+        relation_name = ""
+        if outward_issue:
+            direction = "outward"
+            issue_ref = outward_issue
+            relation_name = str(link_type.get("outward") or link_type.get("name") or "").strip()
+        elif inward_issue:
+            direction = "inward"
+            issue_ref = inward_issue
+            relation_name = str(link_type.get("inward") or link_type.get("name") or "").strip()
+        else:
+            continue
+
+        linked_key = str(issue_ref.get("key") or "").strip()
+        linked_summary = str(safe_get(issue_ref, "fields", "summary") or "").strip()
+        linked_type = str(safe_get(issue_ref, "fields", "issuetype", "name") or "").strip()
+        link_type_name = str(link_type.get("name") or "").strip()
+        if linked_key:
+            keys.append(linked_key)
+        if relation_name:
+            types.append(relation_name)
+        elif link_type_name:
+            types.append(link_type_name)
+        detail_parts = [part for part in [direction, relation_name or link_type_name, linked_key, linked_type, linked_summary] if part]
+        if detail_parts:
+            details.append(" | ".join(detail_parts))
+
+    return {
+        "IssueLinkKeys": format_list(keys),
+        "IssueLinkTypes": format_list(types),
+        "IssueLinkDetails": " || ".join(details),
+    }
 
 
 def compute_storytask_orphan_indicator(rows: List[Dict[str, str]]) -> Dict[str, float | int]:
@@ -974,6 +1029,8 @@ def build_issue_row(
     if epic_link_name and ("epic_name_text" not in link_sources):
         link_sources.append("epic_name_text")
 
+    issue_links_summary = build_issue_links_summary(fields.get("issuelinks"))
+
     row = {
         "ID": key,
         "Link": f"{base_url}/browse/{key}" if key else "",
@@ -1010,6 +1067,9 @@ def build_issue_row(
         "EpicLinkID": epic_link_id,
         "EpicLinkTipo": epic_link_tipo,
         "EpicLinkName": epic_link_name,
+        "IssueLinkKeys": issue_links_summary.get("IssueLinkKeys", ""),
+        "IssueLinkTypes": issue_links_summary.get("IssueLinkTypes", ""),
+        "IssueLinkDetails": issue_links_summary.get("IssueLinkDetails", ""),
         "DevExecutor": (pr_author_index or {}).get(key, "") or changelog_inprogress_actor,
     }
 
@@ -1423,6 +1483,7 @@ def main() -> int:
         "created",
         "startdate",
         "resolutiondate",
+        "issuelinks",
         "customfield_10016",
         "customfield_10026",
         "customfield_10028",

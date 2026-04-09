@@ -9004,3 +9004,107 @@
   - os smoke tests desta rodada foram sintáticos e funcionais em Python; ainda vale um smoke test visual no navegador para conferir a leitura final dos gráficos na aba
 - Suggested commit message:
   - `feat(portfolio): split cost of delay into upstream and downstream views`
+## Current Task (Cobertura GMUD x vazão Jira)
+- [x] Mapear os campos e artefatos necessários para cruzar itens operacionais/portfólio com tickets CHG
+- [x] Estender o export downstream para carregar vínculos de issues que ajudem a detectar GMUDs explícitas
+- [x] Criar um gerador de índice de cobertura GMUD com base detalhada por item e histórico semanal
+- [x] Integrar a geração do artefato ao runner principal para atualização recorrente
+- [x] Validar sintaxe/smoke tests e registrar review com commit sugerido
+
+## Specification (Cobertura GMUD x vazão Jira)
+- Objetivo: medir se melhorias, manutenções e bugs entregues no fluxo Jira estão sendo acompanhados por solicitações de mudança no projeto `CHG`, produzindo um índice de cobertura e um acompanhamento histórico semanal.
+- Escopo:
+  - `jira_to_pipeline_csv.py`
+  - `jira/client.py`
+  - `run_all_projects.ps1`
+  - `tasks/todo.md`
+  - novo script analítico para cobertura GMUD
+- Estratégia:
+  - enriquecer o downstream operacional com `issuelinks`, reaproveitando a mesma lógica já usada no export de portfólio
+  - buscar os tickets `CHG` diretamente no Jira com resumo, descrição, links e comentários
+  - calcular cobertura GMUD por item usando camadas de evidência:
+    - vínculo explícito entre issue operacional/portfólio e ticket `CHG`
+    - vínculo por hierarquia (`story/task/bug` coberto por GMUD ligada à `feature` ou `epic`)
+    - menção textual do item ou de seus pais em resumo/descrição/comentários da GMUD
+  - gerar pelo menos três saídas:
+    - base detalhada por item com status de cobertura e evidências
+    - índice executivo consolidado
+    - série histórica semanal
+  - usar comentários das GMUDs como evidência complementar e não como fonte primária, para reduzir falso positivo
+- Critério de aceite:
+  - o repositório passa a gerar uma base que responda quais itens têm ou não evidência de GMUD
+  - existe um índice consolidado de cobertura GMUD e uma série semanal histórica
+  - a solução distingue tipos de evidência (`link explícito`, `hierarquia`, `menção em comentário/texto`)
+  - os arquivos alterados continuam válidos sintaticamente
+
+## Review (Cobertura GMUD x vazão Jira)
+- O que foi implementado:
+  - criei `jira_gmud_coverage.py`, que consolida itens do downstream + portfólio, consulta as GMUDs do projeto `CHG` no Jira e gera três saídas: índice consolidado, histórico semanal e base detalhada por item
+  - a detecção de cobertura usa uma régua em camadas: `link explícito no item`, `link explícito na GMUD`, `link via hierarquia`, `menção em resumo/descrição` e `menção em comentários`
+  - os comentários das GMUDs entram como evidência complementar e também ajudam a recuperar cobertura por `feature`/`epic` quando o vínculo não veio estruturado no card operacional
+- Ajustes de pipeline:
+  - `jira_to_pipeline_csv.py` passou a exportar `IssueLinkKeys`, `IssueLinkTypes` e `IssueLinkDetails` no downstream operacional
+  - `jira/client.py` ganhou paginação de comentários por issue (`get_issue_comments(...)`) para permitir leitura completa das GMUDs
+  - `run_all_projects.ps1` agora pode gerar automaticamente `gmud-coverage-index`, `gmud-coverage-weekly` e `gmud-coverage-items` em versão datada e `latest`
+  - `copy_latest_upload.py` passou a tratar esses artefatos GMUD como opcionais do pacote `latest-upload`
+- Evidências de validação:
+  - parser PowerShell de `run_all_projects.ps1` retornando `OK`
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile jira_gmud_coverage.py jira_to_pipeline_csv.py jira\client.py copy_latest_upload.py`
+  - smoke test sintético de `compute_gmud_coverage(...)`, `build_summary_index(...)` e `build_weekly_history(...)` com três cenários:
+    - `link explicito no item`
+    - `mencao em comentario da GMUD`
+    - `mencao em comentario via hierarquia`
+  - `C:\ProgramData\anaconda3\python.exe jira_gmud_coverage.py --help`
+- Risco residual:
+  - ainda não executei uma rodada real contra o Jira `CHG` neste ambiente, então a aderência final da régua dependerá de como os times registram links e citam chaves nos comentários reais
+  - epicos/features do portfólio entram no histórico com base em `StatusChangedAt` quando estão em status terminal; se futuramente vocês quiserem maior precisão histórica nesse nível, vale adicionar changelog ao export de portfólio
+- Suggested commit message:
+  - `feat(gmud): track change-request coverage against jira delivery flow`
+## Current Task (Nova aba GMUD no dashboard de serviços)
+- [x] Mapear o ponto de integração da nova aba no `dashboard_full.py` e os artefatos `gmud-coverage-*`
+- [x] Ajustar a base GMUD para expor recorte consistente por time/value stream
+- [x] Implementar loaders/caches dos artefatos GMUD no dashboard
+- [x] Criar uma nova aba de serviços com cards, gráficos e tabelas de cobertura GMUD
+- [x] Validar sintaxe/smoke tests e registrar review com commit sugerido
+
+## Specification (Nova aba GMUD no dashboard de serviços)
+- Objetivo: exibir no `dashboard_full.py` uma nova aba do módulo de serviços que mostre a cobertura GMUD por time/value stream, com índice consolidado, histórico semanal e detalhamento dos itens com e sem evidência de mudança para produção.
+- Escopo:
+  - `dashboard_full.py`
+  - `jira_gmud_coverage.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - adicionar na base GMUD um campo de time/value stream consumível pela UI
+  - criar helpers de descoberta/carga para `gmud-coverage-index-latest.csv`, `gmud-coverage-weekly-latest.csv` e `gmud-coverage-items-latest.csv`, com suporte local/remoto no mesmo padrão dos demais artefatos
+  - inserir uma nova aba de serviços dedicada a GMUD
+  - usar o filtro principal de `Time` e o período selecionado como recorte padrão da nova aba
+  - mostrar pelo menos:
+    - cards executivos de cobertura total, cobertura explícita, cobertura por comentário/texto e itens sem GMUD
+    - gráfico de evolução semanal
+    - leitura por categoria de entrega (`Melhoria`, `Manutencao`, `Bug`)
+    - breakdown por tipo de evidência
+    - tabela com os itens sem evidência de GMUD e tabela resumo por GMUD vinculada
+- Critério de aceite:
+  - a nova aba aparece no módulo de serviços
+  - a aba lê os artefatos `gmud-coverage-*` e respeita o filtro principal de time/período
+  - os gráficos/tabelas permitem identificar gaps de cobertura e histórico semanal
+  - o arquivo continua válido sintaticamente
+
+## Review (Nova aba GMUD no dashboard de serviços)
+- O que foi implementado:
+  - adicionei a aba `Cobertura GMUD` ao conjunto de abas do módulo de serviços em `dashboard_full.py`
+  - o dashboard agora descobre e carrega `gmud-coverage-index-latest.csv`, `gmud-coverage-weekly-latest.csv` e `gmud-coverage-items-latest.csv` com suporte a arquivo local, URL remota e cache em memória
+  - a nova aba mostra cards executivos, histórico semanal, cobertura por categoria de entrega, distribuição por tipo de evidência, resumo por time, lista de itens sem GMUD e resumo das GMUDs relacionadas
+- Ajustes de base:
+  - `jira_gmud_coverage.py` passou a gerar o campo `ServiceTeam` e a incluir a dimensão `Time` também no histórico semanal e no índice consolidado
+  - isso permite que a aba responda ao filtro principal de `Time` do módulo de serviços sem depender apenas de `Projeto`
+- Validação:
+  - `C:\ProgramData\anaconda3\python.exe -m py_compile dashboard_full.py jira_gmud_coverage.py jira_to_pipeline_csv.py jira\client.py copy_latest_upload.py`
+  - smoke test do branch `tab-gmud` em `dashboard_full.py` com CSVs GMUD sintéticos via envs `FLOW_PMO_GMUD_*_FILE`, retornando `Div` com `9` blocos filhos
+  - a renderização passou mesmo sem depender de carga real do `CHG`, o que valida o wiring da aba, dos loaders e do recorte por período/time
+- Risco residual:
+  - a aba usa diretamente `período` e `Time`; os filtros globais de `Responsável`, `Classe Serviço` e `Tipo` ainda não restringem a base GMUD nesta versão
+  - o smoke test desta rodada usou artefatos sintéticos; ainda vale uma conferência visual com a carga real para calibrar títulos, vazios e distribuição das categorias por time
+  - durante o smoke test do dashboard apareceram `SettingWithCopyWarning` em um trecho antigo de `dashboard_full.py`, mas eles não impediram a renderização da nova aba
+- Suggested commit message:
+  - `feat(dashboard): add GMUD coverage service tab`

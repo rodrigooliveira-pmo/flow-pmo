@@ -51,6 +51,9 @@ OPTIONAL_RULES = (
     ArtifactRule("capex-latest.xlsx", required=False),
     ArtifactRule("dashboard_output_latest.xlsx", required=False),
     ArtifactRule("bottlenecks_consolidado_latest.xlsx", required=False),
+    ArtifactRule("gmud-coverage-index-latest.csv", required=False),
+    ArtifactRule("gmud-coverage-weekly-latest.csv", required=False),
+    ArtifactRule("gmud-coverage-items-latest.csv", required=False),
 )
 
 DEFAULT_COPY_RETRIES = 6

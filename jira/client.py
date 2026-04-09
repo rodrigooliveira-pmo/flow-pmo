@@ -346,6 +346,35 @@ class JiraClient:
 
         return worklogs
 
+    def get_issue_comments(
+        self,
+        issue_key: str,
+        page_size: int = 100,
+        start_at: int = 0,
+        initial_comments: Optional[List[Dict[str, Any]]] = None,
+        total_hint: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retorna os comentários completos de uma issue, paginando automaticamente."""
+        comments: List[Dict[str, Any]] = list(initial_comments or [])
+        cursor = max(0, int(start_at))
+        total = int(total_hint) if total_hint is not None else 0
+
+        while True:
+            payload = self._get(
+                f"/rest/api/3/issue/{issue_key}/comment",
+                params={"startAt": cursor, "maxResults": page_size},
+            )
+            page_comments = payload.get("comments", [])
+            comments.extend(page_comments)
+
+            if not total:
+                total = int(payload.get("total", 0))
+            cursor += len(page_comments)
+            if not page_comments or (total > 0 and cursor >= total):
+                break
+
+        return comments
+
     def get_updated_worklog_ids(self, since_ms: int) -> List[Dict[str, Any]]:
         """Lista IDs de worklogs atualizados desde um timestamp em ms."""
         values: List[Dict[str, Any]] = []

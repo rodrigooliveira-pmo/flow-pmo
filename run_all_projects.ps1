@@ -5,6 +5,7 @@ param(
     [int]$Workers = 8,
     [bool]$RunDetailedChangelogExport = $false,
     [bool]$RunPortfolioExport = $true,
+    [bool]$RunGmudCoverage = $true,
     [bool]$RunCapexExport = $true,
     [bool]$RunMetrics = $true,
     [bool]$OpenDashboard = $true
@@ -46,6 +47,7 @@ if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKE
 
 $scriptPath = Join-Path $PSScriptRoot 'jira_to_pipeline_csv.py'
 $portfolioScript = Join-Path $PSScriptRoot 'jira_portfolio_to_csv.py'
+$gmudCoverageScript = Join-Path $PSScriptRoot 'jira_gmud_coverage.py'
 $capexScript = Join-Path $PSScriptRoot 'jira_capex_monthly.py'
 if (-not (Test-Path $scriptPath)) {
     throw "Arquivo não encontrado: $scriptPath"
@@ -55,6 +57,7 @@ $dashboardScript = Join-Path $PSScriptRoot 'dashboard_full.py'
 $copyLatestUploadScript = Join-Path $PSScriptRoot 'copy_latest_upload.py'
 $latestDirDefault = "C:\Users\W1 TI\OneDrive - W1\Documentos\Dados\latest"
 $latestDir = if ($env:FLOW_PMO_LATEST_DIR) { $env:FLOW_PMO_LATEST_DIR } else { $latestDirDefault }
+$gmudChgJql = if ($env:FLOW_PMO_GMUD_CHG_JQL) { $env:FLOW_PMO_GMUD_CHG_JQL } else { 'project = CHG ORDER BY status ASC, created DESC' }
 $jiraBitbucketCommitDepth = if ($env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH) { $env:FLOW_PMO_JIRA_BB_COMMIT_DEPTH } else { '250' }
 $jiraBitbucketMinIntervalMs = if ($env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS) { $env:FLOW_PMO_JIRA_BB_MIN_REQUEST_INTERVAL_MS } else { '750' }
 $dtBoardJql = 'project in (10290) AND issuetype in (10254, 10255,10258, 10257,Bug,Ad-hoc) ORDER BY Rank ASC'
@@ -249,6 +252,57 @@ if ($RunPortfolioExport) {
     Copy-Item -Path $portfolioOut -Destination $portfolioLatest -Force
     Write-Host "Arquivo latest atualizado: $portfolioLatest" -ForegroundColor Green
     Publish-LatestArtifact -SourcePath $portfolioLatest -LatestDir $latestDir
+}
+
+if ($RunGmudCoverage) {
+    if (-not (Test-Path $gmudCoverageScript)) {
+        throw "Arquivo não encontrado: $gmudCoverageScript"
+    }
+
+    $gmudSummaryOut = Join-Path $OutDir ("gmud-coverage-index-{0}.csv" -f $DateTag)
+    $gmudWeeklyOut = Join-Path $OutDir ("gmud-coverage-weekly-{0}.csv" -f $DateTag)
+    $gmudItemsOut = Join-Path $OutDir ("gmud-coverage-items-{0}.csv" -f $DateTag)
+    $gmudSummaryLatest = Join-Path $OutDir "gmud-coverage-index-latest.csv"
+    $gmudWeeklyLatest = Join-Path $OutDir "gmud-coverage-weekly-latest.csv"
+    $gmudItemsLatest = Join-Path $OutDir "gmud-coverage-items-latest.csv"
+    $downstreamLatestFiles = @(
+        (Join-Path $OutDir 'w1nner-downstream-latest-data.csv'),
+        (Join-Path $OutDir 's1nc-downstream-latest-data.csv'),
+        (Join-Path $OutDir 'befinance-downstream-latest-data.csv'),
+        (Join-Path $OutDir 'dataanalytics-downstream-latest-data.csv')
+    ) | Where-Object { Test-Path $_ }
+    $portfolioLatest = Join-Path $OutDir "portfolio-bt-ns-latest-data.csv"
+
+    if ((-not $downstreamLatestFiles) -or (-not (Test-Path $portfolioLatest))) {
+        Write-Warning "Pulando cobertura GMUD porque os artefatos latest de downstream/portfolio ainda não estão disponíveis."
+    } else {
+        Write-Host "`nCalculando cobertura GMUD x vazão Jira..." -ForegroundColor Cyan
+        Write-Host "JQL CHG: $gmudChgJql"
+
+        $gmudArgs = @(
+            $gmudCoverageScript,
+            '--portfolio-csv', $portfolioLatest,
+            '--summary-out', $gmudSummaryOut,
+            '--weekly-out', $gmudWeeklyOut,
+            '--items-out', $gmudItemsOut,
+            '--chg-jql', $gmudChgJql,
+            '--env-file', $EnvFile,
+            '--downstream-csv'
+        ) + $downstreamLatestFiles
+
+        & python @gmudArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Falha no calculo de cobertura GMUD. O restante do pipeline seguirá sem bloquear."
+        } else {
+            Copy-Item -Path $gmudSummaryOut -Destination $gmudSummaryLatest -Force
+            Copy-Item -Path $gmudWeeklyOut -Destination $gmudWeeklyLatest -Force
+            Copy-Item -Path $gmudItemsOut -Destination $gmudItemsLatest -Force
+            Write-Host "Arquivos latest atualizados: $gmudSummaryLatest | $gmudWeeklyLatest | $gmudItemsLatest" -ForegroundColor Green
+            Publish-LatestArtifact -SourcePath $gmudSummaryLatest -LatestDir $latestDir
+            Publish-LatestArtifact -SourcePath $gmudWeeklyLatest -LatestDir $latestDir
+            Publish-LatestArtifact -SourcePath $gmudItemsLatest -LatestDir $latestDir
+        }
+    }
 }
 
 if ($RunCapexExport) {

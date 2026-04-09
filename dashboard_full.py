@@ -109,6 +109,16 @@ def _download_capex_csv_from_url(url, key):
     return out_file
 
 
+def _download_gmud_csv_from_url(url, kind):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_key = ''.join(ch for ch in str(kind or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'gmud'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'gmud-{safe_key}-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
 def _remote_cache_ttl_seconds():
     raw = os.getenv('FLOW_PMO_REMOTE_CACHE_TTL_SECONDS', '').strip()
     if not raw:
@@ -624,6 +634,12 @@ CAPEX_CACHE = {
     'summary_file': None,
     'summary_mtime': None,
 }
+GMUD_CACHE_TTL = timedelta(minutes=10)
+GMUD_CACHE = {
+    'index': {'fetched_at': None, 'df': None, 'error': None, 'source_file': None, 'source_mtime': None},
+    'weekly': {'fetched_at': None, 'df': None, 'error': None, 'source_file': None, 'source_mtime': None},
+    'items': {'fetched_at': None, 'df': None, 'error': None, 'source_file': None, 'source_mtime': None},
+}
 PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_TAB_VALUE = 'tab-portfolio'
 PORTFOLIO_EXTRA_ONEPAGE_TAG = 'extra onepage'
@@ -631,6 +647,7 @@ PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
 PROJECT_FILTER_ALL_LABEL = 'Todos os times'
 SERVICE_TABS = [
     ('Serviço e SLA', 'tab-performance'),
+    ('Cobertura GMUD', 'tab-gmud'),
     ('Process Mining Jira', 'tab-process-mining-jira'),
     ('Painel Fluxo', 'tab-painel-3x3'),
     ('Lead Time', 'tab-lead-time'),
@@ -5056,6 +5073,227 @@ def get_portfolio_snapshot():
         PORTFOLIO_CACHE['source_file'] = None
         PORTFOLIO_CACHE['source_mtime'] = None
         return None, None, str(exc)
+
+
+def _canonical_gmud_service_team(value):
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    aliases = {
+        'W1NNR': 'W1NNR',
+        'W1NNER': 'W1NNR',
+        'S1NC': 'S1NC',
+        'SYNC': 'S1NC',
+        'BF': 'BF',
+        'BEFINANCE': 'BF',
+        'DT': 'DT',
+        'DATA&ANALYTICS': 'DT',
+        'DATA ANALYTICS': 'DT',
+        'TECH W1NNER': 'W1NNR',
+        'SQUAD | W1NNER': 'W1NNR',
+        'TECH S1NC': 'S1NC',
+        'SQUAD | S1NC': 'S1NC',
+        'TECH BEFINANCE': 'BF',
+        'TECH DATA': 'DT',
+    }
+    norm = normalize_text(text).upper()
+    return aliases.get(norm, text.upper())
+
+
+def _gmud_kind_spec(kind: str) -> dict:
+    kind_norm = str(kind or '').strip().lower()
+    if kind_norm == 'index':
+        return {
+            'kind': 'index',
+            'env_file': 'FLOW_PMO_GMUD_INDEX_FILE',
+            'env_url': 'FLOW_PMO_GMUD_INDEX_URL',
+            'preferred_latest_names': {'gmud-coverage-index-latest.csv'},
+            'prefix': 'gmud-coverage-index-',
+            'required_cols': {'Escopo', 'Valor', 'ItensElegiveis', 'ItensComGMUD', 'IndiceCoberturaGMUDPct'},
+        }
+    if kind_norm == 'weekly':
+        return {
+            'kind': 'weekly',
+            'env_file': 'FLOW_PMO_GMUD_WEEKLY_FILE',
+            'env_url': 'FLOW_PMO_GMUD_WEEKLY_URL',
+            'preferred_latest_names': {'gmud-coverage-weekly-latest.csv'},
+            'prefix': 'gmud-coverage-weekly-',
+            'required_cols': {'Semana', 'ItensElegiveis', 'ItensComGMUD', 'IndiceCoberturaGMUDPct'},
+        }
+    return {
+        'kind': 'items',
+        'env_file': 'FLOW_PMO_GMUD_ITEMS_FILE',
+        'env_url': 'FLOW_PMO_GMUD_ITEMS_URL',
+        'preferred_latest_names': {'gmud-coverage-items-latest.csv'},
+        'prefix': 'gmud-coverage-items-',
+        'required_cols': {'ItemKey', 'Projeto', 'DeliveryBucket', 'HasGMUD', 'EligibleForGMUD'},
+    }
+
+
+def find_latest_gmud_csv(kind: str):
+    spec = _gmud_kind_spec(kind)
+    explicit_file = _sanitize_os_path(os.getenv(spec['env_file'], ''))
+    if explicit_file:
+        candidate = explicit_file if os.path.isabs(explicit_file) else os.path.join(os.path.dirname(__file__), explicit_file)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise RuntimeError(f"{spec['env_file']} aponta para arquivo inexistente: {candidate}")
+
+    csv_url = os.getenv(spec['env_url'], '').strip()
+    if csv_url:
+        return _download_gmud_csv_from_url(csv_url, spec['kind'])
+
+    candidates = []
+    preferred = {name.lower() for name in spec['preferred_latest_names']}
+    for folder in _iter_local_data_folders():
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = str(name or '').strip().lower()
+            if low in preferred or (low.startswith(spec['prefix']) and low.endswith('.csv')):
+                candidates.append(os.path.join(folder, name))
+    candidates = [path for path in candidates if os.path.isfile(path)]
+    if not candidates:
+        return None
+    preferred_matches = [path for path in candidates if os.path.basename(path).lower() in preferred]
+    if preferred_matches:
+        return max(preferred_matches, key=os.path.getctime)
+    return max(candidates, key=os.path.getctime)
+
+
+def _gmud_bool_series(series):
+    if series is None:
+        return pd.Series(dtype=bool)
+    if pd.api.types.is_bool_dtype(series):
+        return series.fillna(False)
+    normalized = series.fillna('').astype(str).str.strip().str.lower()
+    return normalized.isin({'1', 'true', 'yes', 'sim', 'on'})
+
+
+def _prepare_gmud_snapshot_df(df: pd.DataFrame, kind: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    kind_norm = str(kind or '').strip().lower()
+    if kind_norm == 'index':
+        numeric_cols = [
+            'ItensElegiveis', 'ItensComGMUD', 'ItensSemGMUD',
+            'IndiceCoberturaGMUDPct', 'ItensComEvidenciaExplicita',
+            'ItensComEvidenciaTextoOuComentario', 'ItensComEvidenciaComentario',
+            'CoberturaExplicitaPct', 'CoberturaTextoOuComentarioPct', 'CoberturaComentarioPct',
+        ]
+        for col in numeric_cols:
+            if col in out.columns:
+                out[col] = pd.to_numeric(out[col], errors='coerce')
+        for col in ['Escopo', 'Valor']:
+            if col not in out.columns:
+                out[col] = ''
+            out[col] = out[col].fillna('').astype(str)
+        return out
+
+    if kind_norm == 'weekly':
+        if 'Semana' in out.columns:
+            out['Semana'] = pd.to_datetime(out['Semana'], errors='coerce')
+        for col in ['Escopo', 'Valor']:
+            if col not in out.columns:
+                out[col] = ''
+            out[col] = out[col].fillna('').astype(str)
+        numeric_cols = [col for col in out.columns if col not in {'Semana', 'Escopo', 'Valor'}]
+        for col in numeric_cols:
+            out[col] = pd.to_numeric(out[col], errors='coerce')
+        return out
+
+    for dcol in ['ReferenceDate', 'DoneDate', 'ReadyForProductionDate', 'StatusChangedAt']:
+        if dcol in out.columns:
+            out[dcol] = pd.to_datetime(out[dcol], errors='coerce')
+        else:
+            out[dcol] = pd.NaT
+    for col in ['ServiceTeam', 'Projeto', 'ItemKey', 'Titulo', 'DeliveryBucket', 'PrimaryEvidence', 'PrimaryEvidenceBucket', 'MatchedCHGKeys', 'Source']:
+        if col not in out.columns:
+            out[col] = ''
+        out[col] = out[col].fillna('').astype(str)
+    if 'ServiceTeam' in out.columns:
+        out['ServiceTeam'] = out['ServiceTeam'].apply(_canonical_gmud_service_team)
+    if out['ServiceTeam'].astype(str).str.strip().eq('').any():
+        fallback_project = out.get('Projeto', pd.Series('', index=out.index)).fillna('').astype(str)
+        out.loc[out['ServiceTeam'].astype(str).str.strip().eq(''), 'ServiceTeam'] = fallback_project.apply(_canonical_gmud_service_team)
+    for col in ['EligibleForGMUD', 'HasGMUD', 'UsedCommentEvidence']:
+        if col not in out.columns:
+            out[col] = False
+        out[col] = _gmud_bool_series(out[col])
+    if 'MatchedCommentSignalCount' in out.columns:
+        out['MatchedCommentSignalCount'] = pd.to_numeric(out['MatchedCommentSignalCount'], errors='coerce').fillna(0)
+    return out
+
+
+def get_gmud_snapshot(kind: str = 'items'):
+    spec = _gmud_kind_spec(kind)
+    cache_entry = GMUD_CACHE.get(spec['kind'], {})
+    now = datetime.now()
+    cached_at = cache_entry.get('fetched_at')
+
+    if cached_at and (now - cached_at) <= GMUD_CACHE_TTL and cache_entry.get('df') is not None:
+        try:
+            latest_csv = find_latest_gmud_csv(spec['kind'])
+            if latest_csv:
+                latest_abs = os.path.abspath(latest_csv)
+                cached_abs = os.path.abspath(str(cache_entry.get('source_file') or ''))
+                latest_mtime = os.path.getmtime(latest_csv)
+                cached_mtime = cache_entry.get('source_mtime')
+                if latest_abs == cached_abs and cached_mtime is not None and float(latest_mtime) == float(cached_mtime):
+                    return cache_entry.get('df'), cache_entry.get('error')
+            else:
+                return cache_entry.get('df'), cache_entry.get('error')
+        except Exception:
+            return cache_entry.get('df'), cache_entry.get('error')
+
+    try:
+        csv_file = find_latest_gmud_csv(spec['kind'])
+        if not csv_file:
+            raise RuntimeError(
+                f"CSV GMUD ({spec['kind']}) não encontrado. Configure {spec['env_file']} ou {spec['env_url']}, "
+                f"ou publique um alias latest nas pastas: {', '.join(DATA_FOLDERS or [DATA_FOLDER])}."
+            )
+        df = pd.read_csv(csv_file)
+        missing = [col for col in spec['required_cols'] if col not in df.columns]
+        if missing:
+            raise RuntimeError(
+                f"CSV GMUD inválido ({os.path.basename(csv_file)}). Colunas ausentes: {', '.join(missing)}"
+            )
+        df = _prepare_gmud_snapshot_df(df, spec['kind'])
+        GMUD_CACHE[spec['kind']] = {
+            'fetched_at': now,
+            'df': df,
+            'error': None,
+            'source_file': csv_file,
+            'source_mtime': os.path.getmtime(csv_file),
+        }
+        return df, None
+    except Exception as exc:
+        GMUD_CACHE[spec['kind']] = {
+            'fetched_at': now,
+            'df': pd.DataFrame(),
+            'error': str(exc),
+            'source_file': None,
+            'source_mtime': None,
+        }
+        return pd.DataFrame(), str(exc)
+
+
+def _gmud_scope_mask(df_source: pd.DataFrame, projeto=None) -> pd.Series:
+    if df_source is None or df_source.empty:
+        return pd.Series(dtype=bool)
+    mask = pd.Series(True, index=df_source.index, dtype=bool)
+    projeto = normalize_project_filter_value(projeto)
+    if not projeto or projeto == PROJECT_FILTER_ALL_VALUE:
+        return mask
+    target = _canonical_gmud_service_team(projeto)
+    service_series = df_source.get('ServiceTeam', df_source.get('Projeto', pd.Series('', index=df_source.index))).fillna('').astype(str)
+    mask &= service_series.apply(_canonical_gmud_service_team) == target
+    return mask
 
 
 def _capex_local_file_matches(name: str, kind: str) -> bool:
@@ -13664,6 +13902,410 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 style_table={'overflowX': 'auto'},
             ),
             html.Div(id='performance-metric-chart'),
+        ])
+
+    if tab == 'tab-gmud':
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+        gmud_index_df, gmud_index_error = get_gmud_snapshot('index')
+        gmud_weekly_df, gmud_weekly_error = get_gmud_snapshot('weekly')
+        gmud_items_df, gmud_items_error = get_gmud_snapshot('items')
+
+        if gmud_items_df.empty and gmud_weekly_df.empty:
+            error_lines = [msg for msg in [gmud_items_error, gmud_weekly_error, gmud_index_error] if msg]
+            return html.Div([
+                html.H4('Cobertura GMUD indisponível', style={'textAlign': 'center', 'color': '#b45309'}),
+                html.P(
+                    'Os artefatos `gmud-coverage-*` ainda não estão disponíveis para o dashboard.',
+                    style={'textAlign': 'center', 'color': '#475569'}
+                ),
+                html.Ul([html.Li(line) for line in error_lines], style={'maxWidth': '860px', 'margin': '12px auto', 'color': '#64748b'}) if error_lines else html.Div(),
+            ], style={'padding': '18px', 'border': '1px dashed #cbd5e1', 'borderRadius': '12px', 'backgroundColor': '#fff'})
+
+        canonical_project = _canonical_gmud_service_team(projeto) if projeto else ''
+        items_scope = gmud_items_df.copy()
+        if not items_scope.empty:
+            items_scope = items_scope[_gmud_scope_mask(items_scope, projeto)].copy()
+            items_scope = items_scope[items_scope['EligibleForGMUD'] == True].copy()
+            if 'ReferenceDate' in items_scope.columns:
+                items_scope = items_scope[
+                    items_scope['ReferenceDate'].notna() &
+                    (items_scope['ReferenceDate'] >= start_ts) &
+                    (items_scope['ReferenceDate'] <= end_ts)
+                ].copy()
+
+        weekly_scope = gmud_weekly_df.copy()
+        if not weekly_scope.empty:
+            if 'Semana' in weekly_scope.columns:
+                weekly_scope = weekly_scope[
+                    weekly_scope['Semana'].notna() &
+                    (weekly_scope['Semana'] >= start_ts) &
+                    (weekly_scope['Semana'] <= end_ts + pd.Timedelta(days=7))
+                ].copy()
+            if canonical_project:
+                if {'Escopo', 'Valor'}.issubset(weekly_scope.columns):
+                    weekly_scope = weekly_scope[
+                        (weekly_scope['Escopo'].astype(str) == 'Time') &
+                        (weekly_scope['Valor'].astype(str).apply(_canonical_gmud_service_team) == canonical_project)
+                    ].copy()
+            elif {'Escopo', 'Valor'}.issubset(weekly_scope.columns):
+                weekly_scope = weekly_scope[
+                    (weekly_scope['Escopo'].astype(str) == 'Geral') &
+                    (weekly_scope['Valor'].astype(str) == 'Total')
+                ].copy()
+
+        if weekly_scope.empty and not items_scope.empty:
+            derived_weekly_rows = []
+            weekly_items = items_scope.copy()
+            weekly_items['Semana'] = weekly_bucket_start(weekly_items['ReferenceDate'])
+            for week, group in weekly_items.groupby('Semana', dropna=False):
+                eligible_total = int(len(group))
+                covered_total = int(group['HasGMUD'].sum())
+                explicit_total = int((group['PrimaryEvidenceBucket'].astype(str) == 'Explicita').sum())
+                comment_total = int(group['UsedCommentEvidence'].sum())
+                row = {
+                    'Semana': week,
+                    'Escopo': 'Time' if canonical_project else 'Geral',
+                    'Valor': canonical_project if canonical_project else 'Total',
+                    'ItensElegiveis': eligible_total,
+                    'ItensComGMUD': covered_total,
+                    'ItensSemGMUD': max(eligible_total - covered_total, 0),
+                    'IndiceCoberturaGMUDPct': round((covered_total / eligible_total) * 100.0, 1) if eligible_total else 0.0,
+                    'ItensComEvidenciaExplicita': explicit_total,
+                    'ItensComEvidenciaComentario': comment_total,
+                }
+                for bucket_name in ['Melhoria', 'Manutencao', 'Bug']:
+                    bucket_df = group[group['DeliveryBucket'].astype(str) == bucket_name]
+                    bucket_total = int(len(bucket_df))
+                    bucket_covered = int(bucket_df['HasGMUD'].sum()) if bucket_total else 0
+                    row[f'Itens{bucket_name}'] = bucket_total
+                    row[f'{bucket_name}ComGMUD'] = bucket_covered
+                    row[f'Pct{bucket_name}'] = round((bucket_covered / bucket_total) * 100.0, 1) if bucket_total else 0.0
+                derived_weekly_rows.append(row)
+            weekly_scope = pd.DataFrame(derived_weekly_rows)
+
+        baseline_scope = gmud_index_df.copy()
+        if not baseline_scope.empty:
+            if canonical_project and {'Escopo', 'Valor'}.issubset(baseline_scope.columns):
+                baseline_scope = baseline_scope[
+                    (baseline_scope['Escopo'].astype(str) == 'Time') &
+                    (baseline_scope['Valor'].astype(str).apply(_canonical_gmud_service_team) == canonical_project)
+                ].copy()
+            elif {'Escopo', 'Valor'}.issubset(baseline_scope.columns):
+                baseline_scope = baseline_scope[
+                    (baseline_scope['Escopo'].astype(str) == 'Geral') &
+                    (baseline_scope['Valor'].astype(str) == 'Total')
+                ].copy()
+
+        def gmud_metric_card(label, value, subtitle='', accent='#0f766e'):
+            return html.Div([
+                html.Div(label, style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569'}),
+                html.Div(value, style={'fontSize': '30px', 'fontWeight': '800', 'lineHeight': '1.1', 'color': '#10202f', 'marginTop': '6px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#64748b', 'marginTop': '6px'}),
+            ], style={
+                'background': 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+                'border': f'1px solid {accent}33',
+                'borderTop': f'4px solid {accent}',
+                'borderRadius': '12px',
+                'padding': '14px',
+                'minHeight': '118px',
+                'boxShadow': '0 8px 18px rgba(15, 23, 42, 0.05)',
+            })
+
+        eligible_total = int(len(items_scope))
+        covered_total = int(items_scope['HasGMUD'].sum()) if eligible_total else 0
+        uncovered_total = max(eligible_total - covered_total, 0)
+        coverage_pct = round((covered_total / eligible_total) * 100.0, 1) if eligible_total else 0.0
+        explicit_total = int((items_scope['PrimaryEvidenceBucket'].astype(str) == 'Explicita').sum()) if eligible_total else 0
+        explicit_pct = round((explicit_total / eligible_total) * 100.0, 1) if eligible_total else 0.0
+        text_or_comment_total = int(items_scope['PrimaryEvidenceBucket'].astype(str).isin(['Texto', 'Comentario']).sum()) if eligible_total else 0
+        text_or_comment_pct = round((text_or_comment_total / eligible_total) * 100.0, 1) if eligible_total else 0.0
+        unique_chgs = 0
+        if not items_scope.empty and 'MatchedCHGKeys' in items_scope.columns:
+            unique_chgs = len({
+                token.strip() for value in items_scope['MatchedCHGKeys'].fillna('').astype(str)
+                for token in value.split(',')
+                if token.strip()
+            })
+
+        baseline_label = 'Sem baseline latest disponível'
+        if not baseline_scope.empty and 'IndiceCoberturaGMUDPct' in baseline_scope.columns:
+            baseline_value = pd.to_numeric(baseline_scope['IndiceCoberturaGMUDPct'], errors='coerce').dropna()
+            if not baseline_value.empty:
+                baseline_label = f"baseline latest: {baseline_value.iloc[0]:.1f}%"
+
+        subtitle_scope = canonical_project if canonical_project else 'Todos os times'
+        summary_cards = html.Div([
+            gmud_metric_card('Cobertura GMUD', f'{coverage_pct:.1f}%', f'{covered_total}/{eligible_total} itens com evidência | {baseline_label}', '#0f766e'),
+            gmud_metric_card('Cobertura explícita', f'{explicit_pct:.1f}%', f'{explicit_total} itens por vínculo estruturado', '#176ea4'),
+            gmud_metric_card('Texto / comentário', f'{text_or_comment_pct:.1f}%', f'{text_or_comment_total} itens cobertos por menção textual', '#c77d12'),
+            gmud_metric_card('Itens sem GMUD', str(uncovered_total), f'gaps do recorte {subtitle_scope}', '#c62828'),
+            gmud_metric_card('Itens elegíveis', str(eligible_total), 'itens com data de referência para produção/finalização', '#455a64'),
+            gmud_metric_card('GMUDs únicas', str(unique_chgs), 'tickets CHG distintos relacionados ao recorte', '#6d4c41'),
+        ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(200px, 1fr))', 'gap': '12px', 'marginTop': '14px', 'marginBottom': '16px'})
+
+        findings = []
+        if eligible_total:
+            findings.append(f'O recorte atual cobre {eligible_total} itens elegíveis e {coverage_pct:.1f}% deles têm alguma evidência de GMUD.')
+            findings.append(f'A cobertura explícita está em {explicit_pct:.1f}%, enquanto {text_or_comment_pct:.1f}% depende de texto/comentário.')
+            findings.append(f'Existem {uncovered_total} itens sem evidência de GMUD no período filtrado.')
+        else:
+            findings.append('Não há itens elegíveis no recorte atual para medir cobertura GMUD.')
+        if unique_chgs:
+            findings.append(f'O recorte se relaciona a {unique_chgs} tickets CHG distintos.')
+        if canonical_project:
+            findings.append(f'A leitura está filtrada para o time/value stream {canonical_project}.')
+        else:
+            findings.append('A visão está consolidada para todos os times/value streams.')
+
+        highlight_panel = html.Div([
+            html.Strong('Leitura executiva da cobertura GMUD'),
+            html.Ul([html.Li(text) for text in findings], style={'marginTop': '8px', 'marginBottom': '0', 'paddingLeft': '20px'})
+        ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '12px', 'padding': '12px', 'marginBottom': '16px'})
+
+        fig_weekly = go.Figure()
+        if not weekly_scope.empty and {'Semana', 'IndiceCoberturaGMUDPct', 'ItensSemGMUD', 'ItensComGMUD'}.issubset(weekly_scope.columns):
+            weekly_plot = weekly_scope.sort_values('Semana').copy()
+            fig_weekly = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_weekly.add_trace(
+                go.Bar(
+                    x=weekly_plot['Semana'],
+                    y=weekly_plot['ItensComGMUD'],
+                    name='Itens com GMUD',
+                    marker_color='#2e7d32',
+                    hovertemplate='Semana: %{x|%Y-%m-%d}<br>Itens com GMUD: %{y}<extra></extra>'
+                ),
+                secondary_y=False,
+            )
+            fig_weekly.add_trace(
+                go.Bar(
+                    x=weekly_plot['Semana'],
+                    y=weekly_plot['ItensSemGMUD'],
+                    name='Itens sem GMUD',
+                    marker_color='#c62828',
+                    hovertemplate='Semana: %{x|%Y-%m-%d}<br>Itens sem GMUD: %{y}<extra></extra>'
+                ),
+                secondary_y=False,
+            )
+            fig_weekly.add_trace(
+                go.Scatter(
+                    x=weekly_plot['Semana'],
+                    y=weekly_plot['IndiceCoberturaGMUDPct'],
+                    name='Cobertura (%)',
+                    mode='lines+markers',
+                    line={'color': '#176ea4', 'width': 3},
+                    hovertemplate='Semana: %{x|%Y-%m-%d}<br>Cobertura: %{y:.1f}%<extra></extra>'
+                ),
+                secondary_y=True,
+            )
+            fig_weekly.update_layout(
+                title='Histórico semanal de cobertura GMUD',
+                height=430,
+                barmode='stack',
+                legend={'orientation': 'h', 'y': 1.12},
+                margin=dict(t=70, b=60),
+            )
+            fig_weekly.update_yaxes(title_text='Itens', secondary_y=False)
+            fig_weekly.update_yaxes(title_text='Cobertura (%)', range=[0, 100], secondary_y=True)
+
+        category_summary = pd.DataFrame(columns=['Categoria', 'Itens Elegíveis', 'Itens com GMUD', 'Itens sem GMUD', 'Cobertura (%)'])
+        if not items_scope.empty:
+            category_rows = []
+            for bucket_name in ['Melhoria', 'Manutencao', 'Bug']:
+                bucket_df = items_scope[items_scope['DeliveryBucket'].astype(str) == bucket_name].copy()
+                total_bucket = int(len(bucket_df))
+                covered_bucket = int(bucket_df['HasGMUD'].sum()) if total_bucket else 0
+                category_rows.append({
+                    'Categoria': bucket_name,
+                    'Itens Elegíveis': total_bucket,
+                    'Itens com GMUD': covered_bucket,
+                    'Itens sem GMUD': max(total_bucket - covered_bucket, 0),
+                    'Cobertura (%)': round((covered_bucket / total_bucket) * 100.0, 1) if total_bucket else 0.0,
+                })
+            category_summary = pd.DataFrame(category_rows)
+
+        fig_category = go.Figure()
+        if not category_summary.empty and category_summary['Itens Elegíveis'].sum() > 0:
+            fig_category = px.bar(
+                category_summary,
+                x='Categoria',
+                y=['Itens com GMUD', 'Itens sem GMUD'],
+                title='Cobertura por categoria de entrega',
+                barmode='stack',
+                color_discrete_map={'Itens com GMUD': '#2e7d32', 'Itens sem GMUD': '#c62828'},
+            )
+            fig_category.update_layout(height=360, legend_title_text='')
+
+        evidence_summary = pd.DataFrame(columns=['Tipo de evidência', 'Itens'])
+        if not items_scope.empty:
+            evidence_summary = (
+                items_scope[items_scope['HasGMUD'] == True]
+                .assign(**{'Tipo de evidência': items_scope.loc[items_scope['HasGMUD'] == True, 'PrimaryEvidenceBucket'].replace({'Explicita': 'Explícita', 'Comentario': 'Comentário', 'Texto': 'Texto'})})
+                .groupby('Tipo de evidência', dropna=False)
+                .size()
+                .reset_index(name='Itens')
+                .sort_values('Itens', ascending=False, ignore_index=True)
+            )
+
+        fig_evidence = go.Figure()
+        if not evidence_summary.empty:
+            fig_evidence = px.pie(
+                evidence_summary,
+                names='Tipo de evidência',
+                values='Itens',
+                title='Distribuição da evidência de cobertura',
+                color='Tipo de evidência',
+                color_discrete_map={'Explícita': '#176ea4', 'Comentário': '#c77d12', 'Texto': '#7b61ff'},
+                hole=0.45,
+            )
+            fig_evidence.update_layout(height=360)
+
+        team_summary = pd.DataFrame(columns=['Time', 'Itens Elegíveis', 'Itens com GMUD', 'Itens sem GMUD', 'Cobertura (%)'])
+        if not items_scope.empty and not canonical_project:
+            team_summary = (
+                items_scope.groupby('ServiceTeam', dropna=False)
+                .agg(
+                    **{
+                        'Itens Elegíveis': ('ItemKey', 'count'),
+                        'Itens com GMUD': ('HasGMUD', 'sum'),
+                    }
+                )
+                .reset_index()
+                .rename(columns={'ServiceTeam': 'Time'})
+            )
+            team_summary['Itens sem GMUD'] = team_summary['Itens Elegíveis'] - team_summary['Itens com GMUD']
+            team_summary['Cobertura (%)'] = np.where(
+                team_summary['Itens Elegíveis'] > 0,
+                team_summary['Itens com GMUD'] / team_summary['Itens Elegíveis'] * 100.0,
+                0.0,
+            ).round(1)
+            team_summary = team_summary.sort_values(['Cobertura (%)', 'Itens Elegíveis'], ascending=[False, False], ignore_index=True)
+
+        fig_team = go.Figure()
+        if not team_summary.empty:
+            fig_team = px.bar(
+                team_summary,
+                x='Time',
+                y='Cobertura (%)',
+                color='Itens sem GMUD',
+                title='Cobertura GMUD por time no recorte',
+                color_continuous_scale='RdYlGn_r',
+                hover_data=['Itens Elegíveis', 'Itens com GMUD', 'Itens sem GMUD'],
+            )
+            fig_team.update_layout(height=360, coloraxis_colorbar_title='Gaps')
+
+        gaps_df = pd.DataFrame(columns=['ItemKey', 'ServiceTeam', 'DeliveryBucket', 'ReferenceDate', 'Titulo', 'Source', 'ReferenceKeys'])
+        if not items_scope.empty:
+            gaps_df = items_scope[items_scope['HasGMUD'] == False].copy()
+            if not gaps_df.empty:
+                gaps_df = gaps_df[['ItemKey', 'ServiceTeam', 'DeliveryBucket', 'ReferenceDate', 'Titulo', 'Source', 'ReferenceKeys']].copy()
+                gaps_df['ReferenceDate'] = pd.to_datetime(gaps_df['ReferenceDate'], errors='coerce').dt.strftime('%Y-%m-%d')
+                gaps_df['ReferenceKeys'] = gaps_df['ReferenceKeys'].fillna('').astype(str)
+                gaps_df = gaps_df.sort_values(['ReferenceDate', 'ServiceTeam', 'ItemKey'], ascending=[False, True, True], ignore_index=True)
+
+        chg_summary_df = pd.DataFrame(columns=['CHG', 'Itens Cobertos', 'Times', 'Categorias'])
+        if not items_scope.empty and 'MatchedCHGKeys' in items_scope.columns:
+            chg_rows = []
+            covered_items = items_scope[items_scope['HasGMUD'] == True].copy()
+            for _, row in covered_items.iterrows():
+                for token in str(row.get('MatchedCHGKeys') or '').split(','):
+                    chg_key = token.strip()
+                    if not chg_key:
+                        continue
+                    chg_rows.append({
+                        'CHG': chg_key,
+                        'ItemKey': str(row.get('ItemKey') or '').strip(),
+                        'Time': str(row.get('ServiceTeam') or '').strip(),
+                        'Categoria': str(row.get('DeliveryBucket') or '').strip(),
+                    })
+            if chg_rows:
+                chg_expanded = pd.DataFrame(chg_rows)
+                chg_summary_df = (
+                    chg_expanded.groupby('CHG', dropna=False)
+                    .agg(
+                        **{
+                            'Itens Cobertos': ('ItemKey', 'nunique'),
+                            'Times': ('Time', lambda s: ', '.join(sorted({str(v).strip() for v in s if str(v).strip()}))),
+                            'Categorias': ('Categoria', lambda s: ', '.join(sorted({str(v).strip() for v in s if str(v).strip()}))),
+                        }
+                    )
+                    .reset_index()
+                    .sort_values(['Itens Cobertos', 'CHG'], ascending=[False, True], ignore_index=True)
+                )
+
+        title_suffix = f' - {canonical_project}' if canonical_project else ''
+        filter_note = 'A aba usa principalmente período e Time. Os filtros de Responsável, Classe e Tipo ainda não restringem diretamente a base GMUD nesta versão.'
+
+        def gmud_table_card(title, description, df_table, table_id, page_size=10):
+            body = html.P('Sem dados no recorte atual.', style={'color': '#64748b', 'margin': 0})
+            if df_table is not None and not df_table.empty:
+                body = dash_table.DataTable(
+                    id=table_id,
+                    columns=[{'name': c, 'id': c} for c in df_table.columns],
+                    data=df_table.to_dict('records'),
+                    page_size=page_size,
+                    style_cell={'textAlign': 'left', 'padding': '8px', 'fontSize': '12px', 'whiteSpace': 'normal', 'height': 'auto'},
+                    style_header={'backgroundColor': '#e2e8f0', 'fontWeight': 'bold'},
+                    style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
+                    style_table={'overflowX': 'auto'},
+                    filter_action='native' if len(df_table) > 10 else 'none',
+                    sort_action='native',
+                )
+            return html.Div([
+                html.H4(title, style={'marginTop': '0', 'marginBottom': '6px', 'color': '#10202f'}),
+                html.P(description, style={'marginTop': '0', 'marginBottom': '10px', 'color': '#64748b', 'fontSize': '13px'}),
+                body,
+            ], style={'backgroundColor': '#ffffff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '14px'})
+
+        return html.Div([
+            html.H3(f'Cobertura GMUD{title_suffix}', style={'textAlign': 'center', 'marginBottom': '8px', 'color': '#10202f'}),
+            html.Div(
+                'Painel para acompanhar se as entregas do fluxo estão sendo acompanhadas por solicitações de mudança para produção (GMUD/CHG).',
+                style={'textAlign': 'center', 'color': '#475569', 'fontSize': '13px', 'marginBottom': '8px'}
+            ),
+            html.Div(filter_note, style={'textAlign': 'center', 'color': '#8a6d3b', 'fontSize': '12px', 'marginBottom': '10px'}),
+            summary_cards,
+            highlight_panel,
+            html.Div([
+                html.Div([dcc.Graph(figure=fig_weekly)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '360px', 'flex': '2 1 560px'}),
+                html.Div([dcc.Graph(figure=fig_evidence)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '320px', 'flex': '1 1 320px'}),
+            ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '14px'}),
+            html.Div([
+                html.Div([dcc.Graph(figure=fig_category)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '360px', 'flex': '1 1 420px'}),
+                html.Div([dcc.Graph(figure=fig_team)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '360px', 'flex': '1 1 420px'}) if not team_summary.empty else html.Div(),
+            ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '14px'}),
+            html.Div([
+                gmud_table_card(
+                    'Resumo por categoria',
+                    'Cobertura no recorte por categoria de entrega.',
+                    category_summary,
+                    'gmud-category-summary',
+                    page_size=6,
+                ),
+                gmud_table_card(
+                    'GMUDs relacionadas',
+                    'Tickets CHG mais reutilizados no recorte atual.',
+                    chg_summary_df.head(30),
+                    'gmud-chg-summary',
+                    page_size=10,
+                ),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
+            html.Div([
+                gmud_table_card(
+                    'Itens sem evidência de GMUD',
+                    'Gaps prioritários do recorte: entregas sem vínculo explícito nem menção textual/comentário em GMUD.',
+                    gaps_df.head(200),
+                    'gmud-gap-items',
+                    page_size=12,
+                ),
+                gmud_table_card(
+                    'Resumo por time',
+                    'Comparativo de cobertura por time/value stream no recorte atual.',
+                    team_summary.head(20) if not team_summary.empty else pd.DataFrame(),
+                    'gmud-team-summary',
+                    page_size=10,
+                ),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px'}),
         ])
 
     if tab == 'tab-lead-time':
