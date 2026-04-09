@@ -8798,6 +8798,16 @@
 - Suggested commit message:
   - `chore(dashboard): rename project filter label to team`
 
+## Review Addendum (Renomear filtro de projeto para Time no dashboard)
+- Correção complementar aplicada após validação visual do usuário:
+  - a opção global exibida dentro do `dcc.Dropdown(id='filter-projeto')` passou de `Todos os projetos` para `Todos os times`
+  - um uso direto do mesmo texto em agrupamento auxiliar também foi alinhado para reutilizar `PROJECT_FILTER_ALL_LABEL`, evitando nova divergência entre rótulo do campo e opção padrão
+- Evidências de validação:
+  - revisão estática de `PROJECT_FILTER_ALL_LABEL = 'Todos os times'`
+  - revisão estática do trecho do dropdown com `options=[{'label': PROJECT_FILTER_ALL_LABEL, ...}]`
+- Suggested commit message:
+  - `fix(dashboard): align team filter default label`
+
 ## Current Task (Corrigir falha de latest-upload com arquivo bloqueado)
 - [x] Confirmar a causa raiz da falha no empacotamento `latest-upload`
 - [x] Tornar `copy_latest_upload.py` resiliente a `PermissionError` por arquivo em uso no Windows

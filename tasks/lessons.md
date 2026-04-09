@@ -456,3 +456,10 @@ Use this file after any user correction.
 - Root cause: A função PowerShell que encapsulava os scripts Python retornava o `exit code`, mas também deixava o stdout do comando seguir pelo success stream; ao atribuir o resultado da função, o caller recebia um array com logs + `0` e interpretava isso como falha.
 - Prevention rule: Em wrappers PowerShell que retornam `exit code`, nunca deixar stdout/stderr da chamada nativa compor o valor retornado quando o caller faz atribuição; enviar logs para `Host` e retornar apenas o inteiro final.
 - Action added to workflow: Ao criar helpers `Invoke-*` para comandos nativos no PowerShell, validar explicitamente dois cenários: `resultado atribuído a variável` e `resultado não atribuído`, confirmando que o retorno lógico continua sendo apenas o `exit code`.
+
+- Date: 2026-04-09
+- Context: Renomeação do filtro principal de `Projeto` para `Time` no `dashboard_full.py`.
+- User correction: Apontou que eu alterei apenas o rótulo externo do campo e deixei a opção padrão do dropdown ainda como `Todos os projetos`.
+- Root cause: Tratei a mudança como puramente visual no `html.Label(...)` e não percorri os textos dependentes do mesmo componente, especialmente o label global reutilizado nas opções.
+- Prevention rule: Quando renomear um filtro na UI, revisar conjuntamente `label do campo`, `opção padrão/all`, `placeholders` e quaisquer labels auxiliares do mesmo componente antes de concluir.
+- Action added to workflow: Em ajustes textuais de filtros/dropdowns, executar sempre uma busca pelos labels relacionados e validar a consistência completa do componente, não só do título visível.

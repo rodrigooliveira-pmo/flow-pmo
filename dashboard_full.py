@@ -628,7 +628,7 @@ PORTFOLIO_CSV_PREFIX = 'portfolio-bt-ns-'
 PORTFOLIO_TAB_VALUE = 'tab-portfolio'
 PORTFOLIO_EXTRA_ONEPAGE_TAG = 'extra onepage'
 PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
-PROJECT_FILTER_ALL_LABEL = 'Todos os projetos'
+PROJECT_FILTER_ALL_LABEL = 'Todos os times'
 SERVICE_TABS = [
     ('Serviço e SLA', 'tab-performance'),
     ('Process Mining Jira', 'tab-process-mining-jira'),
@@ -3017,7 +3017,7 @@ def detect_systemic_patterns(df_source, start_ts, end_ts, rules):
             if not group.empty
         ]
     else:
-        project_groups = [('Todos os projetos', df_source.copy())]
+        project_groups = [(PROJECT_FILTER_ALL_LABEL, df_source.copy())]
 
     for project_name, project_df in project_groups:
         for i in range(len(weeks) - 1):
@@ -7808,6 +7808,43 @@ def create_kpi_card(title, value, class_name='six columns', card_style=None, tit
         html.H4(title, style=base_title_style),
         html.H2(value, style=base_value_style)
     ], className=class_name, style=base_card_style)
+
+def _portfolio_metric_card(title, value):
+    return create_kpi_card(
+        title,
+        value,
+        class_name='',
+        card_style={
+            'padding': '14px 16px',
+            'borderRadius': '10px',
+            'backgroundColor': '#f8fafc',
+            'border': '1px solid #e2e8f0',
+            'minHeight': '136px',
+            'display': 'flex',
+            'flexDirection': 'column',
+            'justifyContent': 'space-between',
+        },
+        title_style={
+            'textAlign': 'left',
+            'fontSize': '15px',
+            'lineHeight': '1.25',
+            'margin': '0',
+            'fontWeight': '600',
+            'color': '#334155',
+        },
+        value_style={
+            'textAlign': 'left',
+            'fontSize': '26px',
+            'lineHeight': '1.15',
+            'margin': '8px 0 0 0',
+            'fontWeight': '700',
+            'color': '#0f172a',
+            'whiteSpace': 'nowrap',
+            'overflow': 'hidden',
+            'textOverflow': 'ellipsis',
+        },
+    )
+
 
 def unique_sorted(col):
     return sorted([x for x in col.dropna().unique()])
@@ -15440,42 +15477,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             except Exception:
                 return '—'
             return f"R$ {_fmt_number_br(number, 2)}/h"
-
-        def _portfolio_metric_card(title, value):
-            return create_kpi_card(
-                title,
-                value,
-                class_name='',
-                card_style={
-                    'padding': '14px 16px',
-                    'borderRadius': '10px',
-                    'backgroundColor': '#f8fafc',
-                    'border': '1px solid #e2e8f0',
-                    'minHeight': '136px',
-                    'display': 'flex',
-                    'flexDirection': 'column',
-                    'justifyContent': 'space-between',
-                },
-                title_style={
-                    'textAlign': 'left',
-                    'fontSize': '15px',
-                    'lineHeight': '1.25',
-                    'margin': '0',
-                    'fontWeight': '600',
-                    'color': '#334155',
-                },
-                value_style={
-                    'textAlign': 'left',
-                    'fontSize': '26px',
-                    'lineHeight': '1.15',
-                    'margin': '8px 0 0 0',
-                    'fontWeight': '700',
-                    'color': '#0f172a',
-                    'whiteSpace': 'nowrap',
-                    'overflow': 'hidden',
-                    'textOverflow': 'ellipsis',
-                },
-            )
 
         portfolio_metric_grid_style = {
             'display': 'grid',
