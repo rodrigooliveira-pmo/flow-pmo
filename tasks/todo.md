@@ -9470,3 +9470,34 @@
   - a normalização atual cobre a regra confirmada nesta conversa; se houver outros mapeamentos de coluna BT além de `Triagem -> Ready to Delivery`, vale codificá-los explicitamente depois para evitar leituras híbridas entre status cru e coluna de board
 - Suggested commit message:
   - `fix(portfolio): map BT triagem to ready-to-delivery in strategic delay view`
+
+## Current Task (Fixar `Ready to Delivery` como Downstream no Cost of Delay)
+- [x] Revisar a classificação atual de `ready to delivery` em `dashboard_full.py`
+- [x] Tornar a regra explícita na função `_pm_waiting_direction(...)`
+- [x] Validar sintaxe e smoke test da direção resultante
+
+## Specification (Fixar `Ready to Delivery` como Downstream no Cost of Delay)
+- Objetivo: deixar explícito no modelo de custo de atraso que `Ready to Delivery` pertence ao `Downstream`, evitando depender apenas do bloco genérico de tokens.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Estratégia:
+  - inserir um branch explícito para `ready to delivery` / `ready for delivery` antes das heurísticas por tokens
+  - preservar o restante da taxonomia existente
+- Critério de aceite:
+  - `_pm_waiting_direction('ready to delivery') == 'Downstream'`
+  - `_pm_waiting_direction('ready for delivery') == 'Downstream'`
+  - `dashboard_full.py` segue válido sintaticamente
+
+## Review (Fixar `Ready to Delivery` como Downstream no Cost of Delay)
+- O que foi ajustado:
+  - explicitei em `_pm_waiting_direction(...)` o retorno `Downstream` para `ready to delivery` e `ready for delivery`
+  - mantive o restante da taxonomia por tokens intacto, só removendo a ambiguidade para esse estágio estratégico
+- Evidências de validação:
+  - `python -m py_compile dashboard_full.py`
+  - smoke test de `_pm_waiting_direction(...)` confirmando `ready to delivery => Downstream` e `ready for delivery => Downstream`
+- Risco residual:
+  - a classificação continua híbrida entre regras explícitas e tokens; se surgirem mais colunas estratégicas críticas, vale promovê-las também para branches explícitos
+- Suggested commit message:
+  - `fix(portfolio): make ready-to-delivery explicitly downstream`

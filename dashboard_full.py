@@ -6195,16 +6195,20 @@ def _build_custo_estimado_vs_real_section(events_df: 'pd.DataFrame', worklog_df:
     ])
 
 
-def build_custo_pm_calibrado_data(events_df: 'pd.DataFrame') -> dict:
-    """
-    Summarises PM-calibrated execution cost by issue/product using process mining as the
-    primary source (eligible execution hours x PM cost rate).
+def build_custo_pm_calibrado_data(events_df: 'pd.DataFrame', touch_time_df: 'pd.DataFrame | None' = None) -> dict:
+    """Summarises PM-calibrated execution cost by issue/product.
+
+    Uses process mining as the primary source (eligible execution hours × PM cost rate).
+    When touch_time_df is provided (from build_touch_time_triangulation), enriches each
+    issue with the 3-model triangulation columns: HorasM1, HorasM2, HorasM3,
+    HorasEstimadas, ConfiancaEstimativa, ConvergenciaModelos, BandaIncerteza_pct.
     """
     _empty = {
         'issue_df': pd.DataFrame(),
         'product_df': pd.DataFrame(),
         'kpis': {},
         'has_cost': False,
+        'triangulation_available': False,
     }
 
     if events_df is None or events_df.empty or 'Issue Key' not in events_df.columns:
@@ -6240,6 +6244,17 @@ def build_custo_pm_calibrado_data(events_df: 'pd.DataFrame') -> dict:
     value_col = 'CustoPMCalibrado' if has_cost else 'HorasPMCalibradas'
     issue_df = issue_df.sort_values(value_col, ascending=False).reset_index(drop=True)
 
+    # ── Enriquecer com triangulação se disponível ──────────────────────────────
+    triangulation_available = False
+    if touch_time_df is not None and not touch_time_df.empty and 'Issue Key' in touch_time_df.columns:
+        tri_cols = [c for c in [
+            'Issue Key', 'HorasM1', 'HorasM2', 'HorasM3',
+            'HorasEstimadas', 'ConfiancaEstimativa', 'ConvergenciaModelos', 'BandaIncerteza_pct',
+        ] if c in touch_time_df.columns]
+        if len(tri_cols) > 1:
+            issue_df = issue_df.merge(touch_time_df[tri_cols], on='Issue Key', how='left')
+            triangulation_available = True
+
     product_df = (
         issue_df.groupby('Produto', dropna=False)
         .agg(
@@ -6257,26 +6272,36 @@ def build_custo_pm_calibrado_data(events_df: 'pd.DataFrame') -> dict:
     horas_total = float(issue_df['HorasPMCalibradas'].sum())
     dias_total = float(issue_df['DiasExecucao'].sum())
 
+    # KPI: % itens com modelos convergentes
+    pct_convergentes = np.nan
+    if triangulation_available and 'ConvergenciaModelos' in issue_df.columns:
+        conv_col = issue_df['ConvergenciaModelos'].dropna()
+        if not conv_col.empty:
+            pct_convergentes = float(conv_col.sum()) / len(conv_col) * 100.0
+
     return {
         'issue_df': issue_df,
         'product_df': product_df,
         'has_cost': has_cost,
+        'triangulation_available': triangulation_available,
         'kpis': {
             'issues': int(issue_df['Issue Key'].nunique()),
             'valor_total': valor_total,
             'valor_mediano_issue': valor_mediano,
             'horas_total': horas_total,
             'dias_total': dias_total,
+            'pct_convergentes': pct_convergentes,
         },
     }
 
 
-def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
+def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 'pd.DataFrame | None' = None) -> 'html.Div':
+    """Renders PM-calibrated issue cost when no independent Jira worklog exists.
+
+    When touch_time_df is provided (from build_touch_time_triangulation), enriches the
+    display with 3-model triangulation columns and convergence KPI — audit-ready for CAPEX.
     """
-    Renders PM-calibrated issue cost when no independent Jira worklog exists.
-    This avoids presenting a circular PM-vs-PM comparison as if it were actuals.
-    """
-    data = build_custo_pm_calibrado_data(events_df)
+    data = build_custo_pm_calibrado_data(events_df, touch_time_df=touch_time_df)
     issue_df = data.get('issue_df', pd.DataFrame())
     product_df = data.get('product_df', pd.DataFrame())
     kpis = data.get('kpis', {})
@@ -6297,6 +6322,8 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
             return '—'
         return f"{float(v):,.1f}h"
 
+    triangulation_available = data.get('triangulation_available', False)
+
     notes = [
         html.P(
             'Sem worklog Jira real no período atual. Esta seção usa o Process Mining como fonte principal: '
@@ -6314,8 +6341,31 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
             'Taxas de custo não configuradas — a visão está exibida em horas PM calibradas.',
             style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
         ))
+    if triangulation_available:
+        notes.append(html.Details([
+            html.Summary('Metodologia de triangulação (3 modelos — clique para expandir)',
+                         style={'cursor': 'pointer', 'color': '#1a5276', 'fontWeight': '600', 'fontSize': '13px'}),
+            html.Div([
+                html.P('M1 — PM Puro: Σ dias em status de execução ativa × 24h (event log Jira). '
+                       'Confiança Alta quando o item está mapeado ao portfólio.',
+                       style={'marginBottom': '4px', 'fontSize': '12px'}),
+                html.P('M2 — Alocação por Capacidade: (CycleTime_item / Σ CycleTimes_produto) × Capacidade_Mensal_Produto_h. '
+                       'Distribui a capacidade declarada do time proporcionalmente ao tempo de ciclo de cada item.',
+                       style={'marginBottom': '4px', 'fontSize': '12px'}),
+                html.P('M3 — Complexidade × Taxa Calibrada: peso_complexidade × horas_por_SP_Sync. '
+                       'O Sync (92,87% de horas mapeadas) serve como âncora de calibração da taxa horas/SP.',
+                       style={'marginBottom': '4px', 'fontSize': '12px'}),
+                html.P('Convergência: quando |(max − min) / média| ≤ 15% entre os modelos disponíveis, '
+                       'o número é defensável para CAPEX sem apontamento manual.',
+                       style={'marginBottom': '4px', 'fontSize': '12px', 'fontStyle': 'italic'}),
+            ], style={'padding': '8px 12px', 'backgroundColor': '#f4f6f7', 'borderRadius': '4px',
+                      'marginTop': '6px', 'border': '1px solid #d5d8dc'}),
+        ], style={'marginBottom': '8px'}))
 
-    kpi_cards = html.Div([
+    pct_conv = kpis.get('pct_convergentes')
+    _fmt_pct = (f"{pct_conv:.0f}%" if pct_conv is not None and not (isinstance(pct_conv, float) and np.isnan(pct_conv)) else '—')
+
+    kpi_cards_items = [
         _portfolio_metric_card('Issues com custo PM', str(kpis.get('issues', 0))),
         _portfolio_metric_card(
             'Custo PM calibrado total' if has_cost else 'Horas PM calibradas',
@@ -6323,7 +6373,12 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
         ),
         _portfolio_metric_card('Horas PM calibradas', _fmt_h(kpis.get('horas_total'))),
         _portfolio_metric_card('Mediana por issue', _fmt_r(kpis.get('valor_mediano_issue')) if has_cost else _fmt_h(kpis.get('valor_mediano_issue'))),
-    ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
+    ]
+    if triangulation_available:
+        kpi_cards_items.append(
+            _portfolio_metric_card('Itens convergentes (±15%)', _fmt_pct)
+        )
+    kpi_cards = html.Div(kpi_cards_items, style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
 
     scatter_df = issue_df.copy()
     scatter_df['_hover_valor'] = scatter_df[value_col].apply(lambda v: _fmt_r(v) if has_cost else _fmt_h(v))
@@ -6427,6 +6482,81 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
         )
         top_graph = dcc.Graph(figure=fig_top)
 
+    # ── Tabela de triangulação por issue ──────────────────────────────────────
+    triangulation_table = html.Div()
+    if triangulation_available:
+        _tri_cols_display = ['Issue Key', 'Produto', 'HorasM1', 'HorasM2', 'HorasM3',
+                             'HorasEstimadas', 'ConfiancaEstimativa', 'BandaIncerteza_pct', 'ConvergenciaModelos']
+        tri_display = issue_df[[c for c in _tri_cols_display if c in issue_df.columns]].head(30).copy()
+
+        def _confidence_badge(val):
+            color_map = {'Alta': '#1e8449', 'Média': '#b7950b', 'Baixa': '#922b21'}
+            return html.Span(
+                str(val),
+                style={
+                    'backgroundColor': color_map.get(str(val), '#7f8c8d'),
+                    'color': 'white',
+                    'padding': '2px 8px',
+                    'borderRadius': '10px',
+                    'fontSize': '11px',
+                    'fontWeight': '600',
+                },
+            )
+
+        def _convergence_badge(val):
+            if val is True or val is np.bool_(True):
+                return html.Span('Sim', style={'color': '#1e8449', 'fontWeight': '600', 'fontSize': '11px'})
+            if val is False or val is np.bool_(False):
+                return html.Span('Não', style={'color': '#922b21', 'fontSize': '11px'})
+            return html.Span('—', style={'color': '#7f8c8d', 'fontSize': '11px'})
+
+        def _fmt_h_short(v):
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return '—'
+            return f"{float(v):.1f}h"
+
+        def _fmt_pct_band(v):
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return '—'
+            return f"±{float(v):.0f}%"
+
+        header = html.Tr([
+            html.Th(c, style={'padding': '6px 8px', 'backgroundColor': '#1a5276', 'color': 'white',
+                               'fontSize': '11px', 'fontWeight': '600', 'whiteSpace': 'nowrap'})
+            for c in ['Issue', 'Produto', 'M1 (h)', 'M2 (h)', 'M3 (h)', 'Estimado (h)', 'Confiança', 'Banda', 'Converge?']
+            if True  # alinha com _tri_cols_display
+        ])
+        rows = []
+        for _, row in tri_display.iterrows():
+            cells = [
+                html.Td(str(row.get('Issue Key', '—')), style={'padding': '4px 8px', 'fontSize': '12px'}),
+                html.Td(str(row.get('Produto', '—')), style={'padding': '4px 8px', 'fontSize': '12px'}),
+                html.Td(_fmt_h_short(row.get('HorasM1')), style={'padding': '4px 8px', 'fontSize': '12px', 'textAlign': 'right'}),
+                html.Td(_fmt_h_short(row.get('HorasM2')), style={'padding': '4px 8px', 'fontSize': '12px', 'textAlign': 'right'}),
+                html.Td(_fmt_h_short(row.get('HorasM3')), style={'padding': '4px 8px', 'fontSize': '12px', 'textAlign': 'right'}),
+                html.Td(_fmt_h_short(row.get('HorasEstimadas')), style={'padding': '4px 8px', 'fontSize': '12px', 'fontWeight': '600', 'textAlign': 'right'}),
+                html.Td(_confidence_badge(row.get('ConfiancaEstimativa', '—')), style={'padding': '4px 8px', 'textAlign': 'center'}),
+                html.Td(_fmt_pct_band(row.get('BandaIncerteza_pct')), style={'padding': '4px 8px', 'fontSize': '12px', 'textAlign': 'right'}),
+                html.Td(_convergence_badge(row.get('ConvergenciaModelos')), style={'padding': '4px 8px', 'textAlign': 'center'}),
+            ]
+            bg = '#f9f9f9' if len(rows) % 2 == 0 else 'white'
+            rows.append(html.Tr(cells, style={'backgroundColor': bg}))
+
+        triangulation_table = html.Div([
+            html.H5('Triangulação de Touch Time por Issue (Top 30)',
+                    style={'textAlign': 'left', 'marginTop': '20px', 'marginBottom': '6px', 'color': '#1a5276'}),
+            html.P('M1=PM Puro | M2=Alocação por Capacidade | M3=Complexidade×Taxa Sync. '
+                   'Confiança Alta = item mapeado com eventos PM diretos.',
+                   style={'fontSize': '11px', 'color': '#555', 'marginBottom': '8px'}),
+            html.Div(
+                html.Table(
+                    [html.Thead(header), html.Tbody(rows)],
+                    style={'borderCollapse': 'collapse', 'width': '100%', 'fontSize': '12px'},
+                ),
+                style={'overflowX': 'auto', 'border': '1px solid #d5d8dc', 'borderRadius': '4px'},
+            ),
+        ])
+
     return html.Div([
         html.H4('Custo PM Calibrado por Issue', style={'textAlign': 'left', 'marginTop': '22px'}),
         html.Div(notes),
@@ -6439,6 +6569,7 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame') -> 'html.Div':
             html.Div([dcc.Graph(figure=fig_product)], style={'flex': '1', 'minWidth': '340px'}),
             html.Div([top_graph], style={'flex': '1', 'minWidth': '340px'}),
         ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap', 'marginTop': '12px'}),
+        triangulation_table,
     ])
 
 
@@ -6469,6 +6600,8 @@ def _pm_waiting_direction(status_norm: str) -> str:
     if not status_norm:
         return 'Upstream'
     s = str(status_norm).lower().strip()
+    if s in {'ready to delivery', 'ready for delivery'}:
+        return 'Downstream'
     _upstream_tokens = (
         'triage', 'triagem', 'product discov', 'in discovery', 'discovery',
         'planning', 'plan', 'definition', 'design', 'in design',
@@ -11015,6 +11148,286 @@ def _pm_load_cost_rate_map() -> dict:
     return out
 
 
+# ── Touch Time — Triangulação de Estimativas (3 Modelos) ─────────────────────
+
+def _pm_status_phase_category(status_norm: str) -> str:
+    """Classifica o status normalizado em 4 categorias de fase.
+
+    Retorna:
+      'ativo'              → status de execução ativa (Development, Code Review, etc.)
+      'espera_upstream'    → fila antes da execução (Backlog, To Do, Discovery…)
+      'espera_downstream'  → fila após execução ou Done (Ready for*, Done, Closed…)
+      'nao_contabilizado'  → demais (transições administrativas, cancelamentos)
+    """
+    norm = normalize_text(status_norm) if status_norm else ''
+    if not norm:
+        return 'nao_contabilizado'
+    # Ativo → tokens de execução (reutiliza lógica existente)
+    if _pm_is_execution_status(norm):
+        return 'ativo'
+    # Espera upstream → antes da execução
+    _upstream_tokens = ('backlog', 'triagem', 'triage', 'discovery', 'planning',
+                        'refinement', 'refinamento', 'grooming', 'to do', 'todo', 'open')
+    if any(t in norm for t in _upstream_tokens):
+        return 'espera_upstream'
+    # Espera downstream → ready* ou finalizado
+    if norm.startswith('ready ') or norm == 'ready':
+        return 'espera_downstream'
+    _downstream_tokens = ('done', 'conclu', 'closed', 'cancel', 'deployed', 'released',
+                          'entregue', 'publicado')
+    if any(t in norm for t in _downstream_tokens):
+        return 'espera_downstream'
+    return 'nao_contabilizado'
+
+
+def _pm_load_capacity_map() -> dict:
+    """Retorna {project_key: capacidade_mensal_horas} para cada produto do portfólio.
+
+    Reutiliza build_portfolio_cost_model_snapshot que já é chamado em _pm_load_cost_rate_map.
+    """
+    out = {}
+    try:
+        snapshot = build_portfolio_cost_model_snapshot(
+            pd.DataFrame(),
+            pd.Timestamp(datetime.now().date()),
+            pd.Timestamp(datetime.now().date()),
+        )
+        rates_df = snapshot.get('product_rates_df', pd.DataFrame()) if isinstance(snapshot, dict) else pd.DataFrame()
+        if rates_df is not None and not rates_df.empty:
+            for row in rates_df.to_dict(orient='records'):
+                key = _canonical_pm_product_key(row.get('Projeto PM'))
+                if not key:
+                    continue
+                try:
+                    cap = float(row.get('Capacidade Mensal Produto (h)', 0) or 0)
+                    if cap > 0:
+                        out[key] = cap
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return out
+
+
+def _pm_derive_sync_calibration(events_all_df: 'pd.DataFrame', sp_lookup: dict) -> dict:
+    """Deriva a taxa horas/SP calibrada usando o Sync (S1NC) como âncora.
+
+    O Sync tem 92,87% de horas mapeadas — é o único produto com dados suficientes
+    para calibrar a taxa de conversão complexidade → horas sem apontamento manual.
+
+    Args:
+        events_all_df: DataFrame com todos os eventos PM (incluindo 'Projeto PM', 'Issue Key',
+                       'Horas PM Elegíveis').
+        sp_lookup: dict {issue_key: sp_float} derivado do portfolio_scope_df.
+
+    Returns:
+        dict com:
+          'horas_por_sp': float  — taxa calibrada (horas por SP no Sync)
+          'n_itens': int         — número de itens usados
+          'valida': bool         — True se n_itens ≥ 5
+    """
+    _SYNC_KEY = 'S1NC'
+    _MIN_ITENS = 5
+    _DEFAULT_RATE = 8.0  # fallback conservador (1 dia útil por SP)
+
+    if events_all_df is None or events_all_df.empty or not sp_lookup:
+        return {'horas_por_sp': _DEFAULT_RATE, 'n_itens': 0, 'valida': False}
+
+    sync_ev = events_all_df[
+        events_all_df.get('Projeto PM', pd.Series(dtype=str)).astype(str) == _SYNC_KEY
+    ].copy() if 'Projeto PM' in events_all_df.columns else pd.DataFrame()
+
+    if sync_ev.empty:
+        return {'horas_por_sp': _DEFAULT_RATE, 'n_itens': 0, 'valida': False}
+
+    # Agrupa horas elegíveis por issue
+    sync_hours = (
+        sync_ev.groupby('Issue Key')['Horas PM Elegíveis']
+        .sum()
+        .reset_index()
+        .rename(columns={'Horas PM Elegíveis': '_horas'})
+    )
+    # Adiciona SP do lookup
+    sync_hours['_sp'] = sync_hours['Issue Key'].map(sp_lookup).fillna(0.0)
+    sync_hours = sync_hours[(sync_hours['_horas'] > 0) & (sync_hours['_sp'] > 0)]
+
+    n = len(sync_hours)
+    if n < _MIN_ITENS:
+        return {'horas_por_sp': _DEFAULT_RATE, 'n_itens': n, 'valida': False}
+
+    # Taxa = horas totais / SP totais (razão agregada, não mediana de razões)
+    total_horas = float(sync_hours['_horas'].sum())
+    total_sp = float(sync_hours['_sp'].sum())
+    rate = total_horas / total_sp if total_sp > 0 else _DEFAULT_RATE
+    return {'horas_por_sp': rate, 'n_itens': n, 'valida': True}
+
+
+def build_touch_time_triangulation(
+    all_phases_df: 'pd.DataFrame',
+    portfolio_scope_df: 'pd.DataFrame',
+    period_months: float = 1.0,
+) -> 'pd.DataFrame':
+    """Triangula estimativas de horas trabalhadas (touch time) por issue usando 3 modelos.
+
+    Modelo 1 — PM Puro:
+        Σ dias em status de execução ativa × 24h (já calculado em Horas PM Elegíveis)
+
+    Modelo 2 — Alocação por Capacidade:
+        (CycleTime_item / Σ CycleTimes_produto_no_período) × Capacidade_Mensal_Produto_h × period_months
+        Âncora: capacidade declarada do time (horas produtivas/mês por produto)
+
+    Modelo 3 — Complexidade × Taxa Calibrada:
+        peso_complexidade × horas_por_SP_calibradas_no_Sync
+        O Sync (92,87% mapeado) fornece a taxa âncora via _pm_derive_sync_calibration.
+
+    Confiança por item:
+        Alta  → M1 > 0 e item mapeado ao portfólio (Fonte Vínculo ≠ NaoMapeado)
+        Média → M1 > 0 mas não mapeado, ou apenas M2 disponível
+        Baixa → apenas M3 (inferência por complexidade)
+
+    Convergência: |(max − min) / mean| ≤ 0.15 entre os modelos disponíveis.
+
+    Args:
+        all_phases_df: todos os eventos PM do período (incluindo fases não-execução).
+                       Deve conter: Issue Key, Produto, Projeto PM, Horas PM Elegíveis,
+                       TempoStatusDias, Fonte Vínculo (opcional).
+        portfolio_scope_df: dados do portfólio com StoryPoints e TShirtSize por issue.
+        period_months: duração do período em meses (padrão 1.0).
+
+    Returns:
+        DataFrame indexado por Issue Key com colunas de triangulação.
+    """
+    _CONVERGENCE_THRESHOLD = 0.15
+    _empty_cols = [
+        'Issue Key', 'Produto', 'Projeto PM',
+        'HorasM1', 'HorasM2', 'HorasM3',
+        'HorasEstimadas', 'ConfiancaEstimativa',
+        'ConvergenciaModelos', 'BandaIncerteza_pct',
+    ]
+
+    if all_phases_df is None or all_phases_df.empty:
+        return pd.DataFrame(columns=_empty_cols)
+
+    ev = all_phases_df.copy()
+    for col in ['Issue Key', 'Produto', 'Projeto PM']:
+        if col not in ev.columns:
+            ev[col] = ''
+    if 'Horas PM Elegíveis' not in ev.columns:
+        ev['Horas PM Elegíveis'] = 0.0
+    if 'TempoStatusDias' not in ev.columns:
+        ev['TempoStatusDias'] = 0.0
+    if 'Fonte Vínculo' not in ev.columns:
+        ev['Fonte Vínculo'] = 'NaoMapeado'
+
+    ev['Issue Key'] = ev['Issue Key'].astype(str).str.strip()
+    ev = ev[ev['Issue Key'].ne('')].copy()
+    ev['Horas PM Elegíveis'] = pd.to_numeric(ev['Horas PM Elegíveis'], errors='coerce').fillna(0.0)
+    ev['TempoStatusDias'] = pd.to_numeric(ev['TempoStatusDias'], errors='coerce').fillna(0.0)
+
+    # ── Modelo 1: PM puro ──────────────────────────────────────────────────────
+    m1 = (
+        ev.groupby('Issue Key', dropna=False)
+        .agg(
+            Produto=('Produto', 'first'),
+            _projeto=('Projeto PM', 'first'),
+            HorasM1=('Horas PM Elegíveis', 'sum'),
+            _mapped=('Fonte Vínculo', lambda x: any(str(v) != 'NaoMapeado' for v in x)),
+        )
+        .reset_index()
+    )
+
+    # ── Modelo 2: Alocação por capacidade ────────────────────────────────────
+    capacity_map = _pm_load_capacity_map()
+    # CycleTime por issue = soma de TODOS os dias em qualquer fase
+    cycle_per_issue = (
+        ev.groupby(['Issue Key', 'Projeto PM'], dropna=False)['TempoStatusDias']
+        .sum()
+        .reset_index()
+        .rename(columns={'TempoStatusDias': '_cycle_dias'})
+    )
+    # Total de cycle time por produto no período
+    cycle_per_product = (
+        cycle_per_issue.groupby('Projeto PM')['_cycle_dias']
+        .sum()
+        .reset_index()
+        .rename(columns={'_cycle_dias': '_total_cycle_produto'})
+    )
+    cycle_per_issue = cycle_per_issue.merge(cycle_per_product, on='Projeto PM', how='left')
+    cycle_per_issue['_cap_produto'] = cycle_per_issue['Projeto PM'].map(capacity_map).fillna(0.0)
+    cycle_per_issue['HorasM2'] = np.where(
+        (cycle_per_issue['_total_cycle_produto'] > 0) & (cycle_per_issue['_cap_produto'] > 0),
+        (cycle_per_issue['_cycle_dias'] / cycle_per_issue['_total_cycle_produto'])
+        * cycle_per_issue['_cap_produto'] * period_months,
+        np.nan,
+    )
+
+    # ── Modelo 3: Complexidade × taxa calibrada ───────────────────────────────
+    # Monta sp_lookup a partir do portfolio_scope_df
+    sp_lookup: dict = {}
+    tshirt_lookup: dict = {}
+    if portfolio_scope_df is not None and not portfolio_scope_df.empty:
+        scope = portfolio_scope_df.copy()
+        key_col = next((c for c in ['Issue Key', 'IssueKey', 'Key'] if c in scope.columns), None)
+        sp_col = next((c for c in ['StoryPoints', 'story_points', 'SP'] if c in scope.columns), None)
+        tshirt_col = next((c for c in ['TShirtSize', 'tshirt', 'T-shirt', 'TShirt'] if c in scope.columns), None)
+        if key_col and sp_col:
+            sp_lookup = dict(zip(
+                scope[key_col].astype(str).str.strip(),
+                pd.to_numeric(scope[sp_col], errors='coerce').fillna(0.0),
+            ))
+        if key_col and tshirt_col:
+            tshirt_lookup = dict(zip(
+                scope[key_col].astype(str).str.strip(),
+                scope[tshirt_col].astype(str),
+            ))
+
+    calibration = _pm_derive_sync_calibration(ev, sp_lookup)
+    horas_por_sp = calibration['horas_por_sp']
+
+    def _m3_horas(issue_key: str) -> float:
+        sp = sp_lookup.get(issue_key, 0.0)
+        tshirt = tshirt_lookup.get(issue_key)
+        w = _unified_complexity_weight(sp, tshirt)
+        return w * horas_por_sp
+
+    # ── Combina os 3 modelos ─────────────────────────────────────────────────
+    result = m1[['Issue Key', 'Produto', '_projeto', 'HorasM1', '_mapped']].copy().rename(columns={'_projeto': 'Projeto PM'})
+    result = result.merge(
+        cycle_per_issue[['Issue Key', 'HorasM2']].drop_duplicates('Issue Key'),
+        on='Issue Key', how='left',
+    )
+    result['HorasM3'] = result['Issue Key'].apply(_m3_horas)
+
+    # Confiança
+    def _confidence(row) -> str:
+        if row['HorasM1'] > 0 and row.get('_mapped', False):
+            return 'Alta'
+        if row['HorasM1'] > 0 or (not pd.isna(row.get('HorasM2')) and row.get('HorasM2', 0) > 0):
+            return 'Média'
+        return 'Baixa'
+
+    result['ConfiancaEstimativa'] = result.apply(_confidence, axis=1)
+
+    # Média e convergência
+    def _triangulate(row) -> tuple:
+        vals = [v for v in [row['HorasM1'], row.get('HorasM2'), row['HorasM3']]
+                if v is not None and not (isinstance(v, float) and np.isnan(v)) and v >= 0]
+        if not vals:
+            return np.nan, False, np.nan
+        mean_v = float(np.mean(vals))
+        if mean_v == 0:
+            return 0.0, True, 0.0
+        spread = (max(vals) - min(vals)) / mean_v
+        return mean_v, spread <= _CONVERGENCE_THRESHOLD, round(spread * 100, 1)
+
+    tris = result.apply(_triangulate, axis=1, result_type='expand')
+    result['HorasEstimadas'] = tris[0]
+    result['ConvergenciaModelos'] = tris[1]
+    result['BandaIncerteza_pct'] = tris[2]
+
+    return result[_empty_cols].copy()
+
+
 def build_capex_worklog_cost_fact(start_ts, end_ts, portfolio_scope_df, project_value=None, responsavel=None) -> dict:
     empty_df = pd.DataFrame(columns=[
         'MesCompetencia', 'Projeto PM', 'Produto', 'Issue Key', 'AssetID', 'Descrição do Ativo',
@@ -12110,6 +12523,15 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
     overall_mapped = float(pd.to_numeric(product_summary.get('Horas PM Mapeadas'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
     overall_cost = float(pd.to_numeric(product_summary.get('Custo PM Estimado'), errors='coerce').fillna(0).sum()) if not product_summary.empty else 0.0
 
+    # ── Triangulação de touch time (3 modelos) ────────────────────────────────
+    _period_days = max(1, int((period_end_exclusive - pd.to_datetime(start_ts)).days))
+    _period_months = max(1.0 / 30.0, _period_days / 30.4375)
+    touch_time_triangulation = build_touch_time_triangulation(
+        all_events_df,
+        portfolio_scope_df,
+        period_months=_period_months,
+    )
+
     return {
         'product_summary': product_summary,
         'events_all': events_all,
@@ -12132,6 +12554,7 @@ def build_pm_portfolio_capex_view(start_ts, end_ts, portfolio_scope_df, project_
         },
         'capex_cost_data': capex_cost_data,
         'all_events_df': all_events_df,
+        'touch_time_triangulation': touch_time_triangulation,
     }
 
 
@@ -16962,10 +17385,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         custo_hora_val = float((generated_financials.get('kpis', {}) or {}).get('Custo Hora Carregado', 0.0) or 0.0)
         custo_por_atividade_section = _build_custo_por_atividade_section(capex_worklog_df)
         custo_por_fase_section = _build_custo_por_fase_section(events_all_df, capex_worklog_df)
+        _touch_time_df = pm_portfolio_data.get('touch_time_triangulation', pd.DataFrame()) if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
         custo_issue_value_section = (
             _build_custo_estimado_vs_real_section(events_all_df, real_capex_worklog_df)
             if has_real_capex_worklog else
-            _build_custo_pm_calibrado_section(events_all_df)
+            _build_custo_pm_calibrado_section(events_all_df, touch_time_df=_touch_time_df)
         )
         custo_retrabalho_section = _build_custo_retrabalho_section(events_all_df, capex_worklog_df)
         custo_espera_section = _build_custo_espera_section(

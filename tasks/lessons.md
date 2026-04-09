@@ -507,6 +507,13 @@ Use this file after any user correction.
 - Action added to workflow: Em visões analíticas estratégicas BT, revisar sempre se a fase exibida deve vir de `status.name` ou de um mapeamento de coluna de board acordado com o usuário.
 
 - Date: 2026-04-09
+- Context: Refino da taxonomia do `Cost of Delay` para o estágio estratégico `Ready to Delivery`.
+- User correction: Reforçou que `Ready to Delivery` deve ser tratado como `Downstream` no modelo de custo de atraso.
+- Root cause: Embora a heurística já cobrisse esse token, a regra ainda estava implícita dentro de uma lista ampla e podia ficar opaca em futuras revisões da taxonomia.
+- Prevention rule: Quando uma etapa estratégica for central para a leitura executiva, preferir uma regra explícita no classificador em vez de depender apenas de matching genérico por tokens.
+- Action added to workflow: Em taxonomias executivas com forte semântica de negócio, promover os estágios críticos para branches explícitos e validar o resultado com smoke test direcionado.
+
+- Date: 2026-04-09
 - Context: Primeira publicação da aba `Cobertura GMUD` no dashboard usando os artefatos `gmud-coverage-*`.
 - User correction: Reportou que em produção os CSVs GMUD não eram encontrados, porque a aba exigia `FLOW_PMO_GMUD_*` dedicadas ou arquivos locais e não reaproveitava a mesma base pública já usada pelos outros artefatos latest.
 - Root cause: Eu validei o loader com envs explícitas e arquivos sintéticos, mas não fechei a última milha de deploy para o ambiente Vercel, onde a convenção operacional é derivar vários artefatos a partir de um mesmo blob/base pública.
