@@ -11209,56 +11209,64 @@ def _pm_load_capacity_map() -> dict:
     return out
 
 
-def _pm_derive_sync_calibration(events_all_df: 'pd.DataFrame', sp_lookup: dict) -> dict:
-    """Deriva a taxa horas/SP calibrada usando o Sync (S1NC) como âncora.
+def _pm_derive_sync_calibration(
+    events_exec_df: 'pd.DataFrame',
+    sp_lookup: dict,
+    horas_prod_por_dia_cal: float = 4.336,
+) -> dict:
+    """Deriva a taxa horas_produtivas/SP calibrada usando o Sync (S1NC) como âncora.
 
     O Sync tem 92,87% de horas mapeadas — é o único produto com dados suficientes
     para calibrar a taxa de conversão complexidade → horas sem apontamento manual.
 
+    Usa horas produtivas (não horas de calendário) para que M3 fique na mesma
+    unidade que M1 e M2 — imprescindível para triangulação sem viés de escala.
+
     Args:
-        events_all_df: DataFrame com todos os eventos PM (incluindo 'Projeto PM', 'Issue Key',
-                       'Horas PM Elegíveis').
-        sp_lookup: dict {issue_key: sp_float} derivado do portfolio_scope_df.
+        events_exec_df: DataFrame de eventos de execução (Horas PM Elegíveis > 0).
+                        Deve conter: 'Projeto PM', 'Issue Key', 'TempoStatusDias'.
+        sp_lookup: dict {issue_key: sp_float} com SP real > 0 por issue.
+        horas_prod_por_dia_cal: conversão horas produtivas / dia calendário (default ≈ 4.34).
 
     Returns:
         dict com:
-          'horas_por_sp': float  — taxa calibrada (horas por SP no Sync)
+          'horas_por_sp': float  — taxa calibrada (horas produtivas por SP no Sync)
           'n_itens': int         — número de itens usados
           'valida': bool         — True se n_itens ≥ 5
     """
     _SYNC_KEY = 'S1NC'
     _MIN_ITENS = 5
-    _DEFAULT_RATE = 8.0  # fallback conservador (1 dia útil por SP)
 
-    if events_all_df is None or events_all_df.empty or not sp_lookup:
-        return {'horas_por_sp': _DEFAULT_RATE, 'n_itens': 0, 'valida': False}
+    if events_exec_df is None or events_exec_df.empty or not sp_lookup:
+        return {'horas_por_sp': None, 'n_itens': 0, 'valida': False}
 
-    sync_ev = events_all_df[
-        events_all_df.get('Projeto PM', pd.Series(dtype=str)).astype(str) == _SYNC_KEY
-    ].copy() if 'Projeto PM' in events_all_df.columns else pd.DataFrame()
+    sync_ev = events_exec_df[
+        events_exec_df.get('Projeto PM', pd.Series(dtype=str)).astype(str) == _SYNC_KEY
+    ].copy() if 'Projeto PM' in events_exec_df.columns else pd.DataFrame()
 
     if sync_ev.empty:
-        return {'horas_por_sp': _DEFAULT_RATE, 'n_itens': 0, 'valida': False}
+        return {'horas_por_sp': None, 'n_itens': 0, 'valida': False}
 
-    # Agrupa horas elegíveis por issue
+    # Horas produtivas por issue: TempoStatusDias × fator produtivo
     sync_hours = (
-        sync_ev.groupby('Issue Key')['Horas PM Elegíveis']
+        sync_ev.groupby('Issue Key')['TempoStatusDias']
         .sum()
         .reset_index()
-        .rename(columns={'Horas PM Elegíveis': '_horas'})
+        .rename(columns={'TempoStatusDias': '_dias_exec'})
     )
-    # Adiciona SP do lookup
-    sync_hours['_sp'] = sync_hours['Issue Key'].map(sp_lookup).fillna(0.0)
-    sync_hours = sync_hours[(sync_hours['_horas'] > 0) & (sync_hours['_sp'] > 0)]
+    sync_hours['_horas_prod'] = sync_hours['_dias_exec'] * horas_prod_por_dia_cal
+    sync_hours['_sp'] = sync_hours['Issue Key'].map(sp_lookup)
+    sync_hours = sync_hours[sync_hours['_horas_prod'] > 0].dropna(subset=['_sp'])
+    sync_hours = sync_hours[sync_hours['_sp'] > 0]
 
     n = len(sync_hours)
     if n < _MIN_ITENS:
-        return {'horas_por_sp': _DEFAULT_RATE, 'n_itens': n, 'valida': False}
+        return {'horas_por_sp': None, 'n_itens': n, 'valida': False}
 
-    # Taxa = horas totais / SP totais (razão agregada, não mediana de razões)
-    total_horas = float(sync_hours['_horas'].sum())
+    # Taxa = horas produtivas totais / SP totais (razão agregada)
+    total_horas = float(sync_hours['_horas_prod'].sum())
     total_sp = float(sync_hours['_sp'].sum())
-    rate = total_horas / total_sp if total_sp > 0 else _DEFAULT_RATE
+    rate = total_horas / total_sp if total_sp > 0 else None
     return {'horas_por_sp': rate, 'n_itens': n, 'valida': True}
 
 
@@ -11267,37 +11275,46 @@ def build_touch_time_triangulation(
     portfolio_scope_df: 'pd.DataFrame',
     period_months: float = 1.0,
 ) -> 'pd.DataFrame':
-    """Triangula estimativas de horas trabalhadas (touch time) por issue usando 3 modelos.
+    """Triangula estimativas de horas trabalhadas (touch time) por issue usando até 3 modelos.
 
-    Modelo 1 — PM Puro:
-        Σ dias em status de execução ativa × 24h (já calculado em Horas PM Elegíveis)
+    Modelo 1 — PM Puro (horas produtivas):
+        Σ dias_em_status_ativo × horas_produtivas_por_dia_calendário
+        horas_produtivas_por_dia = (horas_produtivas_mensais / dias_calendário_mes)
+                                 = (22 × 8 × 0.75) / 30.44 ≈ 4.34 h/dia
+        Converte TempoStatusDias de dias de calendário para horas efetivamente trabalhadas,
+        usando os mesmos parâmetros do modelo de custo (evita incompatibilidade de unidades
+        com M2 que usa horas produtivas como denominador).
 
     Modelo 2 — Alocação por Capacidade:
         (CycleTime_item / Σ CycleTimes_produto_no_período) × Capacidade_Mensal_Produto_h × period_months
-        Âncora: capacidade declarada do time (horas produtivas/mês por produto)
+        Âncora: capacidade declarada do time (horas produtivas/mês por produto).
 
-    Modelo 3 — Complexidade × Taxa Calibrada:
+    Modelo 3 — Complexidade × Taxa Calibrada (somente quando SP disponível):
         peso_complexidade × horas_por_SP_calibradas_no_Sync
+        Retorna NaN quando SP/T-shirt não encontrado para o item — não produz default.
         O Sync (92,87% mapeado) fornece a taxa âncora via _pm_derive_sync_calibration.
 
     Confiança por item:
         Alta  → M1 > 0 e item mapeado ao portfólio (Fonte Vínculo ≠ NaoMapeado)
         Média → M1 > 0 mas não mapeado, ou apenas M2 disponível
-        Baixa → apenas M3 (inferência por complexidade)
+        Baixa → apenas M3 ou nenhum modelo disponível
 
-    Convergência: |(max − min) / mean| ≤ 0.15 entre os modelos disponíveis.
+    Convergência entre os modelos disponíveis (≥ 2 com valor > 0):
+        |(max − min) / média| ≤ 0.30 (30%) — limiar defensável para estimativas sem apontamento.
 
     Args:
         all_phases_df: todos os eventos PM do período (incluindo fases não-execução).
                        Deve conter: Issue Key, Produto, Projeto PM, Horas PM Elegíveis,
                        TempoStatusDias, Fonte Vínculo (opcional).
         portfolio_scope_df: dados do portfólio com StoryPoints e TShirtSize por issue.
+                            Usado apenas para M3 — quando ausente, M3 é NaN.
         period_months: duração do período em meses (padrão 1.0).
 
     Returns:
-        DataFrame indexado por Issue Key com colunas de triangulação.
+        DataFrame por Issue Key com colunas de triangulação.
     """
-    _CONVERGENCE_THRESHOLD = 0.15
+    _CONVERGENCE_THRESHOLD = 0.30  # 30% — defensável sem apontamento manual
+    _DIAS_CALENDARIO_MES = 30.4375
     _empty_cols = [
         'Issue Key', 'Produto', 'Projeto PM',
         'HorasM1', 'HorasM2', 'HorasM3',
@@ -11324,17 +11341,35 @@ def build_touch_time_triangulation(
     ev['Horas PM Elegíveis'] = pd.to_numeric(ev['Horas PM Elegíveis'], errors='coerce').fillna(0.0)
     ev['TempoStatusDias'] = pd.to_numeric(ev['TempoStatusDias'], errors='coerce').fillna(0.0)
 
-    # ── Modelo 1: PM puro ──────────────────────────────────────────────────────
+    # ── Fator de conversão: dias calendário → horas produtivas ───────────────
+    # Usa os mesmos parâmetros do modelo de custo para consistência com M2.
+    # horas_prod_dia = horas_prod_mensais / dias_calendario_mes
+    try:
+        _model_params = _load_portfolio_cost_model()
+        _dias_uteis = max(1.0, float(_model_params.get('dias_uteis_mes', 22) or 22))
+        _horas_dia = max(1.0, float(_model_params.get('horas_dia', 8) or 8))
+        _fator_prod = max(0.01, float(_model_params.get('fator_produtividade', 0.75) or 0.75))
+    except Exception:
+        _dias_uteis, _horas_dia, _fator_prod = 22.0, 8.0, 0.75
+    _horas_prod_mensais = _dias_uteis * _horas_dia * _fator_prod  # ex: 132h
+    _horas_prod_por_dia_cal = _horas_prod_mensais / _DIAS_CALENDARIO_MES  # ex: 4.34 h/dia
+
+    # ── Modelo 1: PM puro em horas produtivas ─────────────────────────────────
+    # Soma apenas as fases ativas (Horas PM Elegíveis > 0) e converte de horas de
+    # calendário (TempoStatusDias × 24) para horas produtivas (× horas_prod_por_dia_cal).
+    # HorasM1 = Σ TempoStatusDias_ativo × horas_prod_por_dia_cal
+    ev_exec = ev[ev['Horas PM Elegíveis'] > 0].copy()
     m1 = (
-        ev.groupby('Issue Key', dropna=False)
+        ev_exec.groupby('Issue Key', dropna=False)
         .agg(
             Produto=('Produto', 'first'),
             _projeto=('Projeto PM', 'first'),
-            HorasM1=('Horas PM Elegíveis', 'sum'),
+            _dias_exec=('TempoStatusDias', 'sum'),
             _mapped=('Fonte Vínculo', lambda x: any(str(v) != 'NaoMapeado' for v in x)),
         )
         .reset_index()
     )
+    m1['HorasM1'] = m1['_dias_exec'] * _horas_prod_por_dia_cal
 
     # ── Modelo 2: Alocação por capacidade ────────────────────────────────────
     capacity_map = _pm_load_capacity_map()
@@ -11345,7 +11380,6 @@ def build_touch_time_triangulation(
         .reset_index()
         .rename(columns={'TempoStatusDias': '_cycle_dias'})
     )
-    # Total de cycle time por produto no período
     cycle_per_product = (
         cycle_per_issue.groupby('Projeto PM')['_cycle_dias']
         .sum()
@@ -11361,8 +11395,8 @@ def build_touch_time_triangulation(
         np.nan,
     )
 
-    # ── Modelo 3: Complexidade × taxa calibrada ───────────────────────────────
-    # Monta sp_lookup a partir do portfolio_scope_df
+    # ── Modelo 3: Complexidade × taxa calibrada (somente com SP real) ─────────
+    # NaN quando SP não disponível — nunca usa peso default para não poluir a triangulação.
     sp_lookup: dict = {}
     tshirt_lookup: dict = {}
     if portfolio_scope_df is not None and not portfolio_scope_df.empty:
@@ -11371,23 +11405,35 @@ def build_touch_time_triangulation(
         sp_col = next((c for c in ['StoryPoints', 'story_points', 'SP'] if c in scope.columns), None)
         tshirt_col = next((c for c in ['TShirtSize', 'tshirt', 'T-shirt', 'TShirt'] if c in scope.columns), None)
         if key_col and sp_col:
-            sp_lookup = dict(zip(
-                scope[key_col].astype(str).str.strip(),
-                pd.to_numeric(scope[sp_col], errors='coerce').fillna(0.0),
-            ))
+            sp_lookup = {
+                str(k).strip(): float(v)
+                for k, v in zip(scope[key_col], pd.to_numeric(scope[sp_col], errors='coerce'))
+                if not (isinstance(v, float) and np.isnan(v)) and float(v) > 0
+            }
         if key_col and tshirt_col:
             tshirt_lookup = dict(zip(
                 scope[key_col].astype(str).str.strip(),
                 scope[tshirt_col].astype(str),
             ))
 
-    calibration = _pm_derive_sync_calibration(ev, sp_lookup)
-    horas_por_sp = calibration['horas_por_sp']
+    # Calibração a partir de dados reais (Sync como âncora): usa horas produtivas (M1)
+    calibration = _pm_derive_sync_calibration(ev_exec, sp_lookup, horas_prod_por_dia_cal=_horas_prod_por_dia_cal)
+    horas_por_sp = calibration['horas_por_sp'] if calibration['valida'] else None
 
-    def _m3_horas(issue_key: str) -> float:
-        sp = sp_lookup.get(issue_key, 0.0)
+    def _m3_horas(issue_key: str):
+        if horas_por_sp is None:
+            return np.nan
+        sp = sp_lookup.get(issue_key)
         tshirt = tshirt_lookup.get(issue_key)
-        w = _unified_complexity_weight(sp, tshirt)
+        # Só computa M3 quando há SP ou T-shirt real — nunca usa weight default 0.5
+        if sp and sp > 0:
+            w = _sp_weight(sp)
+        elif tshirt and tshirt not in ('', 'None', 'nan'):
+            w = _tshirt_to_weight(tshirt)
+            if w is None:
+                return np.nan
+        else:
+            return np.nan  # sem estimativa → M3 não disponível para este item
         return w * horas_por_sp
 
     # ── Combina os 3 modelos ─────────────────────────────────────────────────
@@ -11398,7 +11444,7 @@ def build_touch_time_triangulation(
     )
     result['HorasM3'] = result['Issue Key'].apply(_m3_horas)
 
-    # Confiança
+    # Confiança — baseada em evidência PM direta, não na presença de M3
     def _confidence(row) -> str:
         if row['HorasM1'] > 0 and row.get('_mapped', False):
             return 'Alta'
@@ -11408,12 +11454,16 @@ def build_touch_time_triangulation(
 
     result['ConfiancaEstimativa'] = result.apply(_confidence, axis=1)
 
-    # Média e convergência
+    # Média e convergência — considera apenas modelos com valor real (não NaN)
     def _triangulate(row) -> tuple:
-        vals = [v for v in [row['HorasM1'], row.get('HorasM2'), row['HorasM3']]
-                if v is not None and not (isinstance(v, float) and np.isnan(v)) and v >= 0]
-        if not vals:
-            return np.nan, False, np.nan
+        m3_val = row.get('HorasM3')
+        vals = [
+            v for v in [row['HorasM1'], row.get('HorasM2'), m3_val]
+            if v is not None and not (isinstance(v, float) and np.isnan(v)) and v >= 0
+        ]
+        if len(vals) < 2:
+            # Com um único modelo, não há triangulação
+            return (float(vals[0]) if vals else np.nan), False, np.nan
         mean_v = float(np.mean(vals))
         if mean_v == 0:
             return 0.0, True, 0.0
