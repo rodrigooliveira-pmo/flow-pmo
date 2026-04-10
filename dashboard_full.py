@@ -725,6 +725,27 @@ TYPE_SUPPORT = 'Suporte'
 TYPE_ISSUES = 'Issues/Defeitos/Problemas'
 TYPE_DEV = 'Desenvolvimento'
 TYPE_OTHER = 'Outro'
+THROUGHPUT_BREAKDOWN_PRODUCT_ORDER = ['S1NC', 'W1NNER', 'BF', 'DT']
+THROUGHPUT_BREAKDOWN_PRODUCT_LABELS = {
+    'S1NC': 'S1NC',
+    'W1NNER': 'W1NNER',
+    'BF': 'BEFINANCE',
+    'DT': 'DATA&ANALYTICS',
+}
+THROUGHPUT_BREAKDOWN_MONTH_ABBR = {
+    1: 'jan.',
+    2: 'fev.',
+    3: 'mar.',
+    4: 'abr.',
+    5: 'mai.',
+    6: 'jun.',
+    7: 'jul.',
+    8: 'ago.',
+    9: 'set.',
+    10: 'out.',
+    11: 'nov.',
+    12: 'dez.',
+}
 
 
 def canonicalize_demand_type(tipo, subtype=None):
@@ -10306,6 +10327,207 @@ def build_throughput_breakdown(df, dimension_col, dimension_label):
     breakdown['Barra'] = dimension_label
     return breakdown
 
+
+def _format_pct_br(value):
+    if pd.isna(value):
+        return ''
+    return f'{float(value) * 100:.2f}%'.replace('.', ',')
+
+
+def _format_month_label_pt_br(ts):
+    ts = pd.Timestamp(ts)
+    return f"{THROUGHPUT_BREAKDOWN_MONTH_ABBR.get(ts.month, ts.strftime('%b').lower())}-{ts.strftime('%y')}"
+
+
+def _throughput_breakdown_product_key(row):
+    for candidate in ('Projeto', 'Projeto Jira', 'Projeto PM'):
+        project_key = _canonical_pm_product_key(row.get(candidate))
+        if project_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+            return project_key
+    for candidate in ('ItemID', 'ID'):
+        item_key = str(row.get(candidate) or '').strip().upper()
+        if not item_key:
+            continue
+        prefix = item_key.split('-', 1)[0]
+        project_key = _canonical_pm_product_key(prefix)
+        if project_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+            return project_key
+    return ''
+
+
+def build_monthly_product_throughput_breakdown(tp_done, reference_year):
+    """Build monthly matrix for throughput breakdown by product."""
+    columns = ['TIPO']
+    for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+        product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+        columns.extend([f'{product_label} % Evolução', f'{product_label} % Sustentação'])
+
+    if tp_done is None or getattr(tp_done, 'empty', True) or 'DataDone' not in tp_done.columns:
+        rows = []
+        for month_start in pd.date_range(start=pd.Timestamp(year=reference_year, month=1, day=1), periods=12, freq='MS'):
+            row = {'TIPO': _format_month_label_pt_br(month_start)}
+            for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+                product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+                row[f'{product_label} % Evolução'] = ''
+                row[f'{product_label} % Sustentação'] = '100,00%'
+            rows.append(row)
+        return pd.DataFrame(rows, columns=columns)
+
+    base = tp_done.copy()
+    base['DataDone'] = pd.to_datetime(base['DataDone'], errors='coerce')
+    base = base.dropna(subset=['DataDone']).copy()
+    base = base[base['DataDone'].dt.year.eq(int(reference_year))].copy()
+    base['ProdutoKey'] = base.apply(_throughput_breakdown_product_key, axis=1)
+    base['TipoDemanda'] = base.get('TipoDemanda', pd.Series(TYPE_OTHER, index=base.index)).apply(canonicalize_demand_type)
+
+    rows = []
+    for month_start in pd.date_range(start=pd.Timestamp(year=reference_year, month=1, day=1), periods=12, freq='MS'):
+        month_end = month_start + pd.offsets.MonthBegin(1)
+        month_df = base[(base['DataDone'] >= month_start) & (base['DataDone'] < month_end)].copy()
+        row = {'TIPO': _format_month_label_pt_br(month_start)}
+        for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+            product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+            product_df = month_df[month_df['ProdutoKey'] == product_key].copy()
+            total = len(product_df)
+            if total <= 0:
+                evolution_pct = np.nan
+                sustain_pct = 1.0
+            else:
+                evolution_count = int(product_df['TipoDemanda'].eq(TYPE_DEV).sum())
+                sustain_count = total - evolution_count
+                evolution_pct = (evolution_count / total) if evolution_count > 0 else np.nan
+                sustain_pct = (sustain_count / total) if total > 0 else 1.0
+            row[f'{product_label} % Evolução'] = _format_pct_br(evolution_pct)
+            row[f'{product_label} % Sustentação'] = _format_pct_br(sustain_pct)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=columns)
+
+
+def build_evolution_sustainability_breakdown(tp_done):
+    """Aggregate delivered items into Evolução x Sustentação using the same rule as the monthly table."""
+    if tp_done is None or getattr(tp_done, 'empty', True):
+        return pd.DataFrame(columns=['CategoriaEntrega', 'Throughput', 'Percentual', 'Barra'])
+
+    base = tp_done.copy()
+    base['CategoriaEntrega'] = base.get('TipoDemanda', pd.Series(TYPE_OTHER, index=base.index)).apply(canonicalize_demand_type)
+    base['CategoriaEntrega'] = np.where(base['CategoriaEntrega'].eq(TYPE_DEV), 'Evolução', 'Sustentação')
+    breakdown = build_throughput_breakdown(base, 'CategoriaEntrega', 'Throughput por Categoria de Entrega')
+    if not breakdown.empty:
+        desired_order = ['Evolução', 'Sustentação']
+        breakdown['_ord'] = breakdown['CategoriaEntrega'].apply(
+            lambda value: desired_order.index(value) if value in desired_order else len(desired_order)
+        )
+        breakdown = breakdown.sort_values(['_ord', 'Throughput'], ascending=[True, False]).drop(columns=['_ord'])
+    return breakdown
+
+
+def filter_done_to_month(tp_done, reference_ts):
+    """Restrict delivered items to the month of the provided reference timestamp."""
+    if tp_done is None or getattr(tp_done, 'empty', True) or 'DataDone' not in tp_done.columns:
+        return pd.DataFrame(columns=getattr(tp_done, 'columns', []))
+    ref_ts = pd.Timestamp(reference_ts)
+    month_start = ref_ts.to_period('M').start_time
+    month_end = month_start + pd.offsets.MonthBegin(1)
+    base = tp_done.copy()
+    base['DataDone'] = pd.to_datetime(base['DataDone'], errors='coerce')
+    base = base.dropna(subset=['DataDone']).copy()
+    return base[(base['DataDone'] >= month_start) & (base['DataDone'] < month_end)].copy()
+
+
+def build_period_evolution_sustainability_breakdown(tp_done, start_ts, end_ts):
+    """Build monthly stacked breakdown with one bar per period."""
+    columns = ['Periodo', 'CategoriaEntrega', 'Throughput', 'Percentual', 'Barra']
+    if tp_done is None or getattr(tp_done, 'empty', True) or 'DataDone' not in tp_done.columns:
+        return pd.DataFrame(columns=columns)
+
+    base = tp_done.copy()
+    base['DataDone'] = pd.to_datetime(base['DataDone'], errors='coerce')
+    base = base.dropna(subset=['DataDone']).copy()
+    if base.empty:
+        return pd.DataFrame(columns=columns)
+
+    base['CategoriaEntrega'] = base.get('TipoDemanda', pd.Series(TYPE_OTHER, index=base.index)).apply(canonicalize_demand_type)
+    base['CategoriaEntrega'] = np.where(base['CategoriaEntrega'].eq(TYPE_DEV), 'Evolução', 'Sustentação')
+
+    period_starts = pd.date_range(
+        start=pd.Timestamp(start_ts).to_period('M').start_time,
+        end=pd.Timestamp(end_ts).to_period('M').start_time,
+        freq='MS',
+    )
+    rows = []
+    desired_order = ['Evolução', 'Sustentação']
+
+    for month_start in period_starts:
+        month_end = month_start + pd.offsets.MonthBegin(1)
+        month_df = base[(base['DataDone'] >= month_start) & (base['DataDone'] < month_end)].copy()
+        total = len(month_df)
+        period_label = _format_month_label_pt_br(month_start)
+        for category in desired_order:
+            throughput = int(month_df['CategoriaEntrega'].eq(category).sum()) if total > 0 else 0
+            percentual = ((throughput / total) * 100.0) if total > 0 else 0.0
+            rows.append({
+                'Periodo': period_label,
+                'CategoriaEntrega': category,
+                'Throughput': throughput,
+                'Percentual': percentual,
+                'Barra': period_label,
+            })
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def build_monthly_product_original_type_breakdown(tp_done, reference_year):
+    """Build monthly matrix by product and original Jira item type."""
+    type_candidates = ['Tipo de Problema', 'WorkItemSubType', 'Tipo']
+    type_col = next((col for col in type_candidates if tp_done is not None and col in tp_done.columns), None)
+    if not type_col:
+        return pd.DataFrame(columns=['TIPO']), []
+
+    base = tp_done.copy()
+    base['DataDone'] = pd.to_datetime(base['DataDone'], errors='coerce')
+    base = base.dropna(subset=['DataDone']).copy()
+    base = base[base['DataDone'].dt.year.eq(int(reference_year))].copy()
+    base['ProdutoKey'] = base.apply(_throughput_breakdown_product_key, axis=1)
+    base['TipoOriginalJira'] = base[type_col].fillna('').astype(str).str.strip()
+    base.loc[base['TipoOriginalJira'].eq(''), 'TipoOriginalJira'] = 'Não classificado'
+
+    if base.empty:
+        return pd.DataFrame(columns=['TIPO']), []
+
+    original_type_order = (
+        base.groupby('TipoOriginalJira')
+        .size()
+        .reset_index(name='Throughput')
+        .sort_values(['Throughput', 'TipoOriginalJira'], ascending=[False, True])['TipoOriginalJira']
+        .tolist()
+    )
+
+    columns = ['TIPO']
+    for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+        product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+        for jira_type in original_type_order:
+            columns.append(f'{product_label} | {jira_type}')
+
+    rows = []
+    for month_start in pd.date_range(start=pd.Timestamp(year=reference_year, month=1, day=1), periods=12, freq='MS'):
+        month_end = month_start + pd.offsets.MonthBegin(1)
+        month_df = base[(base['DataDone'] >= month_start) & (base['DataDone'] < month_end)].copy()
+        row = {'TIPO': _format_month_label_pt_br(month_start)}
+        for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+            product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+            product_df = month_df[month_df['ProdutoKey'] == product_key].copy()
+            total = len(product_df)
+            for jira_type in original_type_order:
+                col_name = f'{product_label} | {jira_type}'
+                if total <= 0:
+                    row[col_name] = ''
+                    continue
+                type_count = int(product_df['TipoOriginalJira'].eq(jira_type).sum())
+                pct = (type_count / total) if type_count > 0 else np.nan
+                row[col_name] = _format_pct_br(pct)
+        rows.append(row)
+    return pd.DataFrame(rows, columns=columns), original_type_order
+
 def calculate_mm1_metrics(arrival_rate, service_rate):
     """Calcula indicadores de fila M/M/1 para taxa de chegada e vazão."""
     if service_rate <= 0 or arrival_rate < 0:
@@ -19883,39 +20105,41 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 ),
             ])
 
-        type_breakdown = build_throughput_breakdown(tp_done, 'TipoDemanda', 'Throughput por Tipo de Demanda')
-        desired_type_order = [TYPE_ISSUES, TYPE_SUPPORT, TYPE_DEV, TYPE_OTHER]
-        if not type_breakdown.empty:
-            type_breakdown['_ord'] = type_breakdown['TipoDemanda'].apply(
-                lambda t: desired_type_order.index(t) if t in desired_type_order else len(desired_type_order)
-            )
-            type_breakdown = type_breakdown.sort_values(['_ord', 'Throughput'], ascending=[True, False]).drop(columns=['_ord'])
-        type_order = type_breakdown['TipoDemanda'].tolist()
+        delivery_breakdown = build_period_evolution_sustainability_breakdown(tp_done, start_date_ts, end_date_ts)
+        period_order = [_format_month_label_pt_br(ts) for ts in pd.date_range(
+            start=pd.Timestamp(start_date_ts).to_period('M').start_time,
+            end=pd.Timestamp(end_date_ts).to_period('M').start_time,
+            freq='MS',
+        )]
+        delivery_color_map = {
+            'Evolução': '#2E7D32',
+            'Sustentação': '#F9A825',
+        }
         fig_type_breakdown = px.bar(
-            type_breakdown,
+            delivery_breakdown,
             x='Percentual',
             y='Barra',
-            color='TipoDemanda',
+            color='CategoriaEntrega',
             orientation='h',
-            text=type_breakdown['Percentual'].map(lambda v: f'{v:.1f}%'),
-            title='Throughput Breakdown por Tipo de Demanda (%)',
+            text=delivery_breakdown['Percentual'].map(lambda v: f'{v:.1f}%'),
+            title='Throughput Breakdown por Evolução x Sustentação por Período (%)',
             labels={'Percentual': '% do Throughput', 'Barra': ''},
-            color_discrete_map=color_map,
-            category_orders={'TipoDemanda': type_order},
+            color_discrete_map=delivery_color_map,
+            category_orders={'CategoriaEntrega': ['Evolução', 'Sustentação'], 'Barra': period_order[::-1]},
             template='plotly_white',
-            height=320,
+            height=max(320, 90 + 55 * max(1, len(period_order))),
         )
         fig_type_breakdown.update_layout(
             barmode='stack',
             xaxis=dict(range=[0, 100], ticksuffix='%'),
-            yaxis=dict(showticklabels=False),
-            legend_title_text='Tipo de Demanda',
+            yaxis=dict(showticklabels=True, title=''),
+            legend_title_text='Categoria de Entrega',
             margin=dict(l=60, r=40, t=70, b=50),
         )
         fig_type_breakdown.update_traces(
             textposition='inside',
             insidetextanchor='middle',
-            hovertemplate='Tipo: %{fullData.name}<br>% Throughput: %{x:.1f}%<extra></extra>',
+            hovertemplate='Categoria: %{fullData.name}<br>% Throughput: %{x:.1f}%<extra></extra>',
         )
 
         tp_done['ClassificacaoUrgencia'] = tp_done.apply(classify_urgency_label, axis=1)
@@ -19963,6 +20187,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
 
         fig_tp_by_person_type = None
+        desired_type_order = [TYPE_ISSUES, TYPE_SUPPORT, TYPE_DEV, TYPE_OTHER]
         if 'Responsavel' in tp_done.columns:
             tp_person = tp_done.copy()
             tp_person['Responsavel'] = tp_person['Responsavel'].fillna('Não atribuído').astype(str).str.strip()
@@ -20012,10 +20237,30 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     hovertemplate='Responsável: %{y}<br>Tipo: %{fullData.name}<br>Throughput: %{x}<extra></extra>',
                 )
 
-        type_table = type_breakdown.copy().rename(columns={'TipoDemanda': 'Tipo'})
+        type_table = delivery_breakdown.copy().rename(columns={'CategoriaEntrega': 'Categoria', 'Periodo': 'Período'})
         type_table['Percentual'] = type_table['Percentual'].map(lambda v: f'{v:.1f}%')
         urgency_table = urgency_breakdown.copy()
         urgency_table['Percentual'] = urgency_table['Percentual'].map(lambda v: f'{v:.1f}%')
+        throughput_breakdown_monthly = build_monthly_product_throughput_breakdown(tp_done, end_date_ts.year)
+        throughput_breakdown_monthly_columns = [
+            {'name': ['PRODUTO', 'TIPO'], 'id': 'TIPO'}
+        ]
+        for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+            product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+            throughput_breakdown_monthly_columns.extend([
+                {'name': [product_label, '% Evolução'], 'id': f'{product_label} % Evolução'},
+                {'name': [product_label, '%Sustentação'], 'id': f'{product_label} % Sustentação'},
+            ])
+        throughput_breakdown_original_type_monthly, jira_original_type_order = build_monthly_product_original_type_breakdown(tp_done, end_date_ts.year)
+        throughput_breakdown_original_type_columns = [
+            {'name': ['PRODUTO', 'TIPO'], 'id': 'TIPO'}
+        ]
+        for product_key in THROUGHPUT_BREAKDOWN_PRODUCT_ORDER:
+            product_label = THROUGHPUT_BREAKDOWN_PRODUCT_LABELS[product_key]
+            for jira_type in jira_original_type_order:
+                throughput_breakdown_original_type_columns.append(
+                    {'name': [product_label, jira_type], 'id': f'{product_label} | {jira_type}'}
+                )
 
         throughput_avg = tp_weekly['Throughput'].mean() if not tp_weekly.empty else 0.0
         tp_cancelled = pd.DataFrame(columns=df.columns)
@@ -20047,12 +20292,39 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 create_kpi_card('Semanas c/ Cancel.', f"{cancelled_weeks}", class_name='two columns'),
             ], className='row'),
             dcc.Graph(figure=fig_tp_weekly),
+            html.H4(
+                f"Consolidado Mensal por Produto ({int(end_date_ts.year)})",
+                style={'textAlign': 'center', 'marginTop': '18px'}
+            ),
+            dash_table.DataTable(
+                columns=throughput_breakdown_monthly_columns,
+                data=throughput_breakdown_monthly.to_dict('records'),
+                merge_duplicate_headers=True,
+                style_cell={'textAlign': 'center', 'padding': '6px', 'minWidth': '110px', 'width': '110px', 'maxWidth': '110px'},
+                style_cell_conditional=[{'if': {'column_id': 'TIPO'}, 'minWidth': '90px', 'width': '90px', 'maxWidth': '90px', 'fontWeight': '600'}],
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            ),
+            html.H4(
+                f"Consolidado Mensal por Produto e Tipo Original Jira ({int(end_date_ts.year)})",
+                style={'textAlign': 'center', 'marginTop': '18px'}
+            ),
+            dash_table.DataTable(
+                columns=throughput_breakdown_original_type_columns,
+                data=throughput_breakdown_original_type_monthly.to_dict('records'),
+                merge_duplicate_headers=True,
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'center', 'padding': '6px', 'minWidth': '120px', 'width': '120px', 'maxWidth': '120px'},
+                style_cell_conditional=[{'if': {'column_id': 'TIPO'}, 'minWidth': '90px', 'width': '90px', 'maxWidth': '90px', 'fontWeight': '600'}],
+                style_header={'backgroundColor': 'rgb(230, 230, 230)', 'fontWeight': 'bold'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}],
+            ),
             html.H4("Custo Médio da Demanda", style={'textAlign': 'center', 'marginTop': '16px'}),
             throughput_cost_summary,
             (dcc.Graph(figure=fig_tp_cost_avg) if throughput_cost_data.get('available') else html.Div()),
             html.H4("Vazão por Pessoa", style={'textAlign': 'center', 'marginTop': '10px'}),
             (dcc.Graph(figure=fig_tp_by_person_type) if fig_tp_by_person_type is not None else html.Div('Dados de responsável não disponíveis para o gráfico de vazão por pessoa.', style={'textAlign': 'center', 'color': '#666', 'marginBottom': '12px'})),
-            html.H4("Breakdown por Tipo de Demanda", style={'textAlign': 'center', 'marginTop': '10px'}),
+            html.H4("Breakdown por Evolução x Sustentação por Período", style={'textAlign': 'center', 'marginTop': '10px'}),
             dcc.Graph(figure=fig_type_breakdown),
             dash_table.DataTable(
                 columns=[{"name": i, "id": i} for i in type_table.columns],

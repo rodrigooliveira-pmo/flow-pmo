@@ -9654,3 +9654,44 @@
   - os warnings antigos de `SettingWithCopyWarning` e `FutureWarning` continuam em trechos não relacionados do dashboard
 - Suggested commit message:
   - `refactor(portfolio): clarify upstream vs downstream in cost-of-delay view`
+## Current Task (Implementar consolidado por produto na aba Throughput Breakdown)
+- [x] Mapear a renderização atual da aba `Throughput Breakdown` em `dashboard_full.py`
+- [x] Implementar no dashboard a tabela mensal por produto com `% Evolução` e `% Sustentação`
+- [x] Validar sintaxe e revisar o diff final com commit sugerido
+
+## Specification (Implementar consolidado por produto na aba Throughput Breakdown)
+- Objetivo: adicionar na aba `Throughput Breakdown` do dashboard um consolidado mensal de entregas por produto, no formato matricial da referência enviada.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+  - `tasks/lessons.md`
+- Regras de negócio:
+  - `Evolução = Desenvolvimento`
+  - `Sustentação = restante dos outros tipos de itens`
+  - produtos fixos na ordem: `S1NC`, `W1NNER`, `BEFINANCE`, `DATA&ANALYTICS`
+  - linhas mensais exibidas como `jan.-26` até `dez.-26`
+  - quando não houver evolução no mês/produto, mostrar `% Evolução` em branco e `% Sustentação` como `100,00%`
+- Estratégia:
+  - reutilizar a base `tp_done` já calculada na própria aba
+  - derivar o produto a partir do projeto/item do dashboard e montar uma tabela mensal agregada
+  - renderizar a tabela no próprio `dashboard_full.py`, preservando os demais gráficos já existentes na aba
+- Critério de aceite:
+  - a aba `Throughput Breakdown` passa a exibir o consolidado mensal por produto
+  - a regra `Desenvolvimento` vs demais tipos` é aplicada corretamente
+  - o dashboard permanece válido sintaticamente
+
+## Review (Implementar consolidado por produto na aba Throughput Breakdown)
+- O que foi ajustado:
+  - adicionei em `dashboard_full.py` uma matriz mensal por produto dentro da própria aba `Throughput Breakdown`
+  - a tabela usa produtos fixos `S1NC`, `W1NNER`, `BEFINANCE` e `DATA&ANALYTICS`, com subcolunas `% Evolução` e `%Sustentação`
+  - `Evolução` passou a ser calculada como itens `Desenvolvimento`, enquanto `Sustentação` agrupa todos os demais tipos
+  - meses sem entregas de evolução ficam com célula vazia em `% Evolução` e `100,00%` em `% Sustentação`, seguindo a referência enviada
+  - mantive os gráficos já existentes da aba e inseri a nova tabela logo após o gráfico semanal
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py dash_board_metricas.py`
+  - revisão dirigida do diff em `dashboard_full.py`, `tasks/todo.md` e `tasks/lessons.md`
+- Risco residual:
+  - não executei smoke test visual no navegador nesta rodada, então ainda vale conferir largura das colunas e leitura da tabela no viewport real
+  - a tabela usa o ano do fim do período selecionado como referência para montar `jan.-YY` até `dez.-YY`
+- Suggested commit message:
+  - `feat(dashboard): add monthly throughput breakdown by product`

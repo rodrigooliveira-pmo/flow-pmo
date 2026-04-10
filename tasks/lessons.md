@@ -11,6 +11,20 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-04-10
+- Context: Ajuste da aba `Throughput Breakdown` para alinhar tabela mensal e gráfico agregado.
+- User correction: Informou que o gráfico de barras deveria refletir março, mas estava exibindo valores de um recorte incompatível com a tabela mensal.
+- Root cause: Eu deixei o gráfico agregado calculado sobre todo o período filtrado, enquanto a nova tabela foi desenhada em granularidade mensal.
+- Prevention rule: Quando uma nova visualização mensal for adicionada ao dashboard, revisar todos os gráficos vizinhos para garantir que usem a mesma granularidade temporal da leitura principal.
+- Action added to workflow: Em mudanças de breakdown temporal, validar explicitamente `período inteiro` vs `mês corrente/selecionado` antes de encerrar.
+
+- Date: 2026-04-10
+- Context: Pedido para implementar um consolidado mensal por produto na aba `Throughput Breakdown`.
+- User correction: Esclareceu que a alteração precisava ser feita no `dashboard_full.py`, não no exportador `dash_board_metricas.py`.
+- Root cause: Eu associei `Throughput breakdown` à planilha/exportação por causa do layout de referência e não revalidei primeiro qual superfície do produto o usuário queria alterar.
+- Prevention rule: Quando o usuário mencionar uma aba/tela do dashboard, confirmar primeiro o ponto de renderização em `dashboard_full.py` antes de implementar qualquer versão paralela em planilhas, exportadores ou scripts auxiliares.
+- Action added to workflow: Em demandas com mockup de tabela/aba, validar explicitamente `dashboard vs workbook/export` antes de abrir a etapa de implementação.
+
 - Date: 2026-04-07
 - Context: Integração inicial da régua financeira de custos na aba de portfólio do dashboard.
 - User correction: Esclareceu que não quer ler uma planilha externa no dashboard; quer que os dados de custo sejam gerados a partir da extração do Jira e de heurísticas/parâmetros que reproduzam a régua da planilha.
