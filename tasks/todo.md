@@ -1,3 +1,46 @@
+## Current Task (Unificar runner all-projects entre Windows e macOS)
+- [x] Comparar `run_all_projects.ps1` e `run_all_projects_macos.sh` para mapear divergências e escolher a estratégia de unificação com menor risco
+- [x] Centralizar a lógica do pipeline em um runner cross-platform que detecte o sistema operacional em runtime e preserve os comportamentos atuais
+- [x] Transformar os scripts específicos de SO em wrappers mínimos ou equivalentes, sem duplicação de regras de negócio
+- [x] Validar sintaxe dos artefatos alterados e registrar review com commit sugerido
+
+## Specification (Unificar runner all-projects entre Windows e macOS)
+- Objetivo: eliminar a divergência entre `run_all_projects.ps1` e `run_all_projects_macos.sh`, centralizando a lógica de execução do pipeline em um único ponto que detecta o ambiente (`Windows` ou `macOS`) em runtime.
+- Escopo:
+  - `run_all_projects.py`
+  - `run_all_projects.ps1`
+  - `run_all_projects_macos.sh`
+  - `tasks/todo.md`
+- Estratégia:
+  - extrair a lógica comum para um runner Python cross-platform
+  - detectar o sistema operacional com `platform.system()` e aplicar defaults/abertura de dashboard compatíveis com cada ambiente
+  - portar para o runner unificado os comportamentos que hoje existem só no `ps1`, incluindo GMUD coverage, escopo Bitbucket por projeto e sincronização `latest`
+  - reduzir `ps1` e `sh` a wrappers de invocação para manter ergonomia local sem manter duas implementações completas
+- Critério de aceite:
+  - existe um único fluxo de negócio compartilhado para Windows e macOS
+  - o runner identifica o ambiente atual e usa defaults compatíveis para diretórios e abertura do dashboard
+  - `run_all_projects.ps1` e `run_all_projects_macos.sh` deixam de duplicar a lógica principal
+  - os arquivos alterados continuam válidos sintaticamente
+
+## Review (Unificar runner all-projects entre Windows e macOS)
+- O que foi ajustado:
+  - criei `run_all_projects.py` como runner unico do pipeline, com deteccao de sistema operacional via `platform.system()` para defaults de diretorio, sanitizacao de `FLOW_PMO_LATEST_DIR` e abertura do dashboard
+  - movi para o runner Python o fluxo completo que antes estava duplicado, incluindo export downstream, portfolio, cobertura GMUD, CAPEX, metricas, sincronizacao de artefatos `latest` e atualizacao de `latest-upload`
+  - repliquei no fluxo unificado os comportamentos mais completos do `ps1`, como escopo Bitbucket por projeto e restauracao temporaria de `JIRA_STATUS_MAP` e `BB_*`
+  - reduzi `run_all_projects.ps1` a um wrapper PowerShell com a interface antiga, apenas resolvendo o interpretador Python e repassando os parametros ao runner unificado
+  - reduzi `run_all_projects_macos.sh` a um wrapper minimo que executa o mesmo runner Python e mantive compatibilidade de flags antigas no parser Python, como `--run-portfolio-export`, `--open-dashboard` e equivalentes `--no-*`
+- Evidencias de validacao:
+  - `python3 -m py_compile run_all_projects.py`
+  - `bash -n run_all_projects_macos.sh`
+  - `python3 run_all_projects.py --help`
+  - `./run_all_projects_macos.sh --help`
+  - revisao dirigida do diff em `run_all_projects.py`, `run_all_projects.ps1`, `run_all_projects_macos.sh` e `tasks/todo.md`
+- Risco residual:
+  - nao consegui validar sintaticamente `run_all_projects.ps1` com parser real de PowerShell neste ambiente porque `pwsh` nao esta instalado
+  - o comportamento de precedencia do arquivo `jira_env.txt` agora segue a semantica do runner consolidado em Python; isso alinha macOS ao fluxo mais completo, mas merece um smoke test real em Windows
+- Suggested commit message:
+  - `refactor(runner): unify all-projects flow behind cross-platform python entrypoint`
+
 ## Current Task (Permitir multiseleção no filtro de responsável)
 - [x] Mapear o dropdown `filter-responsavel` e os pontos onde o valor ainda é tratado como seleção única
 - [x] Ajustar a UI e os helpers de filtro para aceitar um ou mais responsáveis
