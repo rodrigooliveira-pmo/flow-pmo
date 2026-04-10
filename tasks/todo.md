@@ -9861,6 +9861,61 @@
   - o tenant só devolveu ruído externo (`IT`) na rota global, e o filtro atual está correto ao descartá-lo
 - Suggested commit message:
   - `chore(capex): log discarded global worklogs with issue context`
+## Current Task (Implementar Onda 1 de indicadores na aba de portfólio)
+- [x] Adicionar scorecard de saúde do portfólio no topo do resumo executivo
+- [x] Adicionar flow distribution de snapshot por tipo, status e team
+- [x] Explicitar load/WIP atual por etapa com alertas de limite
+- [x] Validar sintaxe e smoke test do snapshot com CSV local
+
+## Specification (Implementar Onda 1 de indicadores na aba de portfólio)
+- Objetivo: entregar a primeira onda de indicadores de portfólio sem mexer no exportador, enriquecendo a aba `Portfólio` com leitura executiva consolidada e diagnóstico operacional do snapshot atual.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - ampliar `compute_portfolio_snapshot(...)` para gerar agregados novos de saúde, flow distribution e load por etapa
+  - renderizar um scorecard consolidado no topo de `Resumo Executivo`
+  - renderizar a nova leitura `Flow Distribution & Load Atual` na seção `Aging & Fluxo`
+  - usar apenas colunas já existentes no CSV atual (`Tipo`, `Status`, `Team`, `UpdatedAt`, `StatusChangedAt`, `DueDate`, `EffortTShirtSize`)
+- Critério de aceite:
+  - a aba exibe score consolidado e scores por dimensão (`Estrutura`, `Aging`, `Prazo`, `Workflow`, `Effort`)
+  - a aba exibe distribuição de itens abertos por tipo, status e team
+  - a aba exibe carga atual por etapa e alerta etapas acima do limite configurado
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Implementar Onda 1 de indicadores na aba de portfólio)
+- O que foi implementado:
+  - novo `portfolio_health_scorecard` com score geral e cinco dimensões derivadas do snapshot
+  - novas distribuições `flow_distribution_by_type`, `flow_distribution_by_status` e `flow_distribution_by_team`
+  - novo bloco de load por etapa com `stage_load_summary`, `stage_load_detail` e `stage_limit_alerts`
+  - encaixe do scorecard no topo de `Resumo Executivo`
+  - encaixe do bloco `Flow Distribution & Load Atual` em `Aging & Fluxo`
+- Regras adotadas:
+  - score de `Estrutura`: cobertura de decomposição e ausência de órfãos
+  - score de `Aging`: backlog parado + P90 de aging aberto
+  - score de `Prazo`: vencidos, vencendo em até 14 dias e itens sem target date
+  - score de `Workflow`: status fora do workflow e status não mapeados
+  - score de `Effort`: cobertura de effort e features sem movimentação >30d
+  - limites por etapa: leitura por `Status` com fallback para `StatusCategoria`, configurável por `FLOW_PMO_PORTFOLIO_STAGE_LIMITS`
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - smoke test local com `../flow-pmo/portfolio-bt-ns-latest-data.csv`
+  - grupos novos confirmados no snapshot:
+    - `portfolio_health_scorecard`
+    - `portfolio_health_dimension_summary`
+    - `flow_distribution_by_type`
+    - `flow_distribution_by_status`
+    - `flow_distribution_by_team`
+    - `stage_load_summary`
+    - `stage_load_detail`
+    - `stage_limit_alerts`
+- Limitações / riscos residuais:
+  - os limites por etapa usam fallback simples por categoria quando não há configuração explícita por status
+  - o scorecard é intencionalmente heurístico; ele serve como sinal executivo do snapshot, não como métrica histórica SAFe
+  - o smoke test funcional da UI no navegador ainda não foi executado nesta rodada
+- Suggested commit message:
+  - `feat(portfolio): add health scorecard and snapshot flow load diagnostics`
+
 ## Current Task (Planejar indicadores de portfólio com base nos anexos)
 - [x] Inventariar os indicadores já implementados na aba `Portfólio` e no exportador `jira_portfolio_to_csv.py`
 - [x] Extrair dos anexos as famílias de indicadores relevantes para a visão de portfólio

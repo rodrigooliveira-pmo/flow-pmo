@@ -3669,6 +3669,14 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'aging_por_projeto': pd.DataFrame(),
                 'flow_health_summary': pd.DataFrame(),
                 'flow_health_por_team': pd.DataFrame(),
+                'portfolio_health_scorecard': pd.DataFrame(),
+                'portfolio_health_dimension_summary': pd.DataFrame(),
+                'flow_distribution_by_type': pd.DataFrame(),
+                'flow_distribution_by_status': pd.DataFrame(),
+                'flow_distribution_by_team': pd.DataFrame(),
+                'stage_load_summary': pd.DataFrame(),
+                'stage_load_detail': pd.DataFrame(),
+                'stage_limit_alerts': pd.DataFrame(),
                 'decision_queue_aging': pd.DataFrame(),
                 'decision_queue_summary': pd.DataFrame(),
                 'data_freshness_por_team_statuscat': pd.DataFrame(),
@@ -4080,6 +4088,111 @@ def compute_portfolio_snapshot(df, updated_at_label):
         flow_health_por_team = flow_health_por_team.sort_values(['% Backlog parado >30d', '% WIP', 'TotalItems'], ascending=[False, False, False], ignore_index=True)
     else:
         flow_health_por_team = pd.DataFrame()
+
+    # Flow distribution (snapshot atual): leitura de mix do trabalho aberto por tipo, status e team.
+    flow_base = df[df['IsOpen']].copy()
+
+    def build_distribution(df_source, group_col, display_col):
+        if df_source is None or df_source.empty or group_col not in df_source.columns:
+            return pd.DataFrame(columns=[display_col, 'WorkItems', '% Share'])
+        out = group_count(df_source, [group_col], 'WorkItems').rename(columns={group_col: display_col})
+        total_scope = float(out['WorkItems'].sum())
+        out['% Share'] = (out['WorkItems'] / (total_scope if total_scope else np.nan) * 100).fillna(0).round(1)
+        out = out.sort_values(['WorkItems', display_col], ascending=[False, True], ignore_index=True)
+        return out
+
+    flow_distribution_by_type = build_distribution(flow_base, 'Tipo', 'Tipo')
+    flow_distribution_by_status = build_distribution(flow_base, 'Status', 'Status')
+    flow_distribution_by_team = build_distribution(flow_base, 'TeamDisplay', 'Team')
+
+    # Load/WIP atual por etapa com alertas de limite.
+    stage_limit_cfg = parse_json_env('FLOW_PMO_PORTFOLIO_STAGE_LIMITS', {
+        'backlog': 25,
+        'em progresso': 15,
+        'nao mapeado': 5,
+    })
+    if flow_base.empty:
+        stage_load_detail = pd.DataFrame(columns=[
+            'Status', 'StatusCategoria', 'TotalItems', 'WIPItems', 'BacklogItems',
+            'Aging Médio', 'Aging P90', 'Limite', 'LoadRatio', 'Severidade'
+        ])
+        stage_limit_alerts = pd.DataFrame(columns=[
+            'Status', 'StatusCategoria', 'TotalItems', 'Limite', 'LoadRatio', 'Severidade', 'Mensagem'
+        ])
+        stage_load_summary = pd.DataFrame(columns=['Indicador', 'Valor'])
+    else:
+        stage_load_detail = (
+            flow_base.groupby(['Status', 'StatusCategoria'], dropna=False)
+            .agg(
+                TotalItems=('ID', 'count'),
+                WIPItems=('IsInProgress', 'sum'),
+                BacklogItems=('IsBacklog', 'sum'),
+                Aging_Medio=('AgingDiasSemAlteracao', 'mean'),
+                Aging_P90=('AgingDiasSemAlteracao', lambda s: s.quantile(0.90) if len(s) else np.nan),
+            )
+            .reset_index()
+        )
+        stage_load_detail['WIPItems'] = pd.to_numeric(stage_load_detail['WIPItems'], errors='coerce').fillna(0).astype(int)
+        stage_load_detail['BacklogItems'] = pd.to_numeric(stage_load_detail['BacklogItems'], errors='coerce').fillna(0).astype(int)
+        stage_load_detail['Aging_Medio'] = pd.to_numeric(stage_load_detail['Aging_Medio'], errors='coerce').round(1)
+        stage_load_detail['Aging_P90'] = pd.to_numeric(stage_load_detail['Aging_P90'], errors='coerce').round(1)
+
+        def resolve_stage_limit(row):
+            raw_status = normalize_text(row.get('Status', ''))
+            raw_category = normalize_text(row.get('StatusCategoria', ''))
+            specific = stage_limit_cfg.get(raw_status)
+            if specific is None:
+                specific = stage_limit_cfg.get(raw_category)
+            try:
+                limit = int(float(specific))
+            except Exception:
+                limit = 0
+            return max(0, limit)
+
+        stage_load_detail['Limite'] = stage_load_detail.apply(resolve_stage_limit, axis=1)
+        stage_load_detail['LoadRatio'] = np.where(
+            stage_load_detail['Limite'] > 0,
+            stage_load_detail['TotalItems'] / stage_load_detail['Limite'],
+            np.nan,
+        )
+
+        def classify_stage_severity(row):
+            ratio = pd.to_numeric(row.get('LoadRatio'), errors='coerce')
+            if pd.isna(ratio):
+                return 'Sem limite'
+            if float(ratio) > 1.25:
+                return 'Critico'
+            if float(ratio) > 1.00:
+                return 'Alerta'
+            return 'OK'
+
+        stage_load_detail['Severidade'] = stage_load_detail.apply(classify_stage_severity, axis=1)
+        stage_load_detail = stage_load_detail.rename(columns={
+            'Aging_Medio': 'Aging Médio',
+            'Aging_P90': 'Aging P90',
+        }).sort_values(
+            ['Severidade', 'LoadRatio', 'TotalItems', 'Status'],
+            ascending=[True, False, False, True],
+            ignore_index=True,
+        )
+        stage_limit_alerts = stage_load_detail[stage_load_detail['Severidade'].isin(['Critico', 'Alerta'])].copy()
+        if not stage_limit_alerts.empty:
+            stage_limit_alerts['Mensagem'] = stage_limit_alerts.apply(
+                lambda row: (
+                    f"Etapa com {int(row.get('TotalItems', 0) or 0)} itens para limite {int(row.get('Limite', 0) or 0)} "
+                    f"({float(row.get('LoadRatio', 0.0) or 0.0):.2f}x)."
+                ),
+                axis=1,
+            )
+            stage_limit_alerts = stage_limit_alerts[[
+                'Status', 'StatusCategoria', 'TotalItems', 'Limite', 'LoadRatio', 'Severidade', 'Mensagem'
+            ]].copy()
+        stage_load_summary = pd.DataFrame([
+            {'Indicador': 'Itens abertos no fluxo', 'Valor': int(len(flow_base))},
+            {'Indicador': 'Etapas abertas', 'Valor': int(stage_load_detail['Status'].nunique())},
+            {'Indicador': 'Etapas acima do limite', 'Valor': int(len(stage_limit_alerts))},
+            {'Indicador': 'Maior carga relativa', 'Valor': round(float(stage_load_detail['LoadRatio'].max()), 2) if stage_load_detail['LoadRatio'].notna().any() else 0.0},
+        ])
 
     # Fila de decisão por aging (status típicos de entrada/decisão inicial).
     decision_terms = {'triagem', 'backlog', 'business review', 'ready for development'}
@@ -4763,6 +4876,100 @@ def compute_portfolio_snapshot(df, updated_at_label):
         },
     ])
 
+    # Scorecard consolidado de saúde do portfólio.
+    def _clamp_score(value):
+        try:
+            return round(max(0.0, min(100.0, float(value))), 1)
+        except Exception:
+            return 0.0
+
+    def _score_band(score):
+        if score >= 85:
+            return 'Saudável'
+        if score >= 70:
+            return 'Atenção'
+        return 'Crítico'
+
+    pct_epicos_fluxo = round((len(epics_com_itens_fluxo) / len(epics) * 100), 1) if len(epics) else 0.0
+    pct_features_filhos = round((len(features_com_filhos) / len(features) * 100), 1) if len(features) else 0.0
+    pct_story_sem_feature = float(storytask_sem_feature_tatico_metric.get('Percentual', 0.0) or 0.0)
+    pct_story_orfaos = float(storytask_orfaos_metric.get('Percentual', 0.0) or 0.0)
+    features_com_effort_count = int((features['EffortTShirtSize'].fillna('').astype(str).str.strip() != '').sum()) if not features.empty else 0
+    pct_features_effort = round((features_com_effort_count / len(features) * 100), 1) if len(features) else 100.0
+    pct_status_nao_mapeado = round((int((~df['StatusMapeado']).sum()) / total_items_all * 100), 1) if total_items_all else 0.0
+    structure_score = _clamp_score(np.mean([
+        pct_epicos_fluxo,
+        pct_features_filhos,
+        100.0 - pct_story_sem_feature,
+        100.0 - pct_story_orfaos,
+    ]))
+
+    aging_p90_open = float(aging_open['AgingDiasSemAlteracao'].quantile(0.90)) if not aging_open.empty else np.nan
+    if pd.isna(aging_p90_open):
+        aging_p90_score = 100.0
+    elif aging_p90_open <= 15:
+        aging_p90_score = 100.0
+    elif aging_p90_open <= 30:
+        aging_p90_score = 75.0
+    elif aging_p90_open <= 45:
+        aging_p90_score = 50.0
+    elif aging_p90_open <= 60:
+        aging_p90_score = 25.0
+    else:
+        aging_p90_score = 0.0
+    aging_score = _clamp_score(np.mean([
+        100.0 - float(flow_health_summary.loc[flow_health_summary['Indicador'] == '% backlog parado >15d', 'Percentual'].iloc[0]) if not flow_health_summary.empty else 100.0,
+        100.0 - float(flow_health_summary.loc[flow_health_summary['Indicador'] == '% backlog parado >30d', 'Percentual'].iloc[0]) if not flow_health_summary.empty else 100.0,
+        aging_p90_score,
+    ]))
+
+    scope_due_base = df[df['TipoNorm'].isin(epic_types | feature_types)].copy()
+    open_due_scope = scope_due_base[scope_due_base['IsOpen'] == True].copy() if not scope_due_base.empty else pd.DataFrame(columns=df.columns)
+    due_scope_total = int(len(open_due_scope))
+    overdue_scope = int(((pd.to_datetime(open_due_scope.get('DueDate'), errors='coerce').dt.normalize() < today) & pd.to_datetime(open_due_scope.get('DueDate'), errors='coerce').notna()).sum()) if due_scope_total else 0
+    upcoming_14_scope = int((((pd.to_datetime(open_due_scope.get('DueDate'), errors='coerce').dt.normalize() - today).dt.days >= 0) & ((pd.to_datetime(open_due_scope.get('DueDate'), errors='coerce').dt.normalize() - today).dt.days <= 14)).sum()) if due_scope_total else 0
+    missing_due_scope = int(pd.to_datetime(open_due_scope.get('DueDate'), errors='coerce').isna().sum()) if due_scope_total else 0
+    prazo_score = _clamp_score(np.mean([
+        100.0 - (overdue_scope / due_scope_total * 100.0 if due_scope_total else 0.0),
+        100.0 - (upcoming_14_scope / due_scope_total * 100.0 if due_scope_total else 0.0),
+        100.0 - (missing_due_scope / due_scope_total * 100.0 if due_scope_total else 0.0),
+    ]))
+
+    pct_status_fora = round((int(df['StatusForaWorkflow'].sum()) / len(df) * 100), 1) if len(df) else 0.0
+    workflow_score = _clamp_score(np.mean([
+        100.0 - pct_status_fora,
+        100.0 - pct_status_nao_mapeado,
+    ]))
+
+    sem_mov_30_effort = int(pd.to_numeric(effort_stale_summary.get('SemMov30d'), errors='coerce').fillna(0).sum()) if not effort_stale_summary.empty else 0
+    effort_score = _clamp_score(np.mean([
+        pct_features_effort,
+        100.0 - (sem_mov_30_effort / len(features) * 100.0 if len(features) else 0.0),
+    ]))
+
+    overall_health_score = _clamp_score(np.mean([
+        structure_score,
+        aging_score,
+        prazo_score,
+        workflow_score,
+        effort_score,
+    ]))
+    portfolio_health_scorecard = pd.DataFrame([
+        {'Indicador': 'Saúde geral do portfólio', 'Score': overall_health_score, 'Status': _score_band(overall_health_score), 'Detalhe': 'Consolida estrutura, aging, prazo, workflow e effort.'},
+        {'Indicador': 'Estrutura', 'Score': structure_score, 'Status': _score_band(structure_score), 'Detalhe': f'Épicos com itens: {pct_epicos_fluxo:.1f}% | Features com filhos: {pct_features_filhos:.1f}% | Órfãos: {pct_story_orfaos:.1f}%'},
+        {'Indicador': 'Aging', 'Score': aging_score, 'Status': _score_band(aging_score), 'Detalhe': f'Backlog >15d: {backlog_parado_15} | >30d: {backlog_parado_30} | P90 aberto: {0 if pd.isna(aging_p90_open) else round(aging_p90_open, 1)}d'},
+        {'Indicador': 'Prazo', 'Score': prazo_score, 'Status': _score_band(prazo_score), 'Detalhe': f'Vencidos: {overdue_scope} | Vencendo <=14d: {upcoming_14_scope} | Sem target: {missing_due_scope}'},
+        {'Indicador': 'Workflow', 'Score': workflow_score, 'Status': _score_band(workflow_score), 'Detalhe': f'Fora workflow: {pct_status_fora:.1f}% | Não mapeado: {pct_status_nao_mapeado:.1f}%'},
+        {'Indicador': 'Effort', 'Score': effort_score, 'Status': _score_band(effort_score), 'Detalhe': f'Features com effort: {pct_features_effort:.1f}% | Sem mov. 30d: {sem_mov_30_effort}'},
+    ])
+    portfolio_health_dimension_summary = pd.DataFrame([
+        {'Dimensão': 'Estrutura', 'Score': structure_score, 'Status': _score_band(structure_score), 'Driver': '% épicos com itens / % features com filhos / órfãos'},
+        {'Dimensão': 'Aging', 'Score': aging_score, 'Status': _score_band(aging_score), 'Driver': 'Backlog parado + P90 de aging aberto'},
+        {'Dimensão': 'Prazo', 'Score': prazo_score, 'Status': _score_band(prazo_score), 'Driver': 'Vencidos / vencendo / sem target date'},
+        {'Dimensão': 'Workflow', 'Score': workflow_score, 'Status': _score_band(workflow_score), 'Driver': 'Status fora do workflow + não mapeados'},
+        {'Dimensão': 'Effort', 'Score': effort_score, 'Status': _score_band(effort_score), 'Driver': 'Cobertura de effort + stale 30d'},
+    ])
+
     # Cards executivos no estilo "mosaico".
     sem_team = int((df['Team'].str.strip() == '').sum())
     em_dia = int(((df['IsOpen']) & (df['AgingDiasSemAlteracao'] <= 15)).sum())
@@ -4949,6 +5156,14 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'aging_por_projeto': aging_por_projeto,
             'flow_health_summary': flow_health_summary,
             'flow_health_por_team': flow_health_por_team,
+            'portfolio_health_scorecard': portfolio_health_scorecard,
+            'portfolio_health_dimension_summary': portfolio_health_dimension_summary,
+            'flow_distribution_by_type': flow_distribution_by_type,
+            'flow_distribution_by_status': flow_distribution_by_status,
+            'flow_distribution_by_team': flow_distribution_by_team,
+            'stage_load_summary': stage_load_summary,
+            'stage_load_detail': stage_load_detail,
+            'stage_limit_alerts': stage_limit_alerts,
             'decision_queue_aging': decision_queue_aging,
             'decision_queue_summary': decision_queue_summary,
             'data_freshness_por_team_statuscat': data_freshness_por_team_statuscat,
@@ -16062,6 +16277,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         aging_por_projeto = groups.get('aging_por_projeto', pd.DataFrame())
         flow_health_summary = groups.get('flow_health_summary', pd.DataFrame())
         flow_health_por_team = groups.get('flow_health_por_team', pd.DataFrame())
+        portfolio_health_scorecard = groups.get('portfolio_health_scorecard', pd.DataFrame())
+        portfolio_health_dimension_summary = groups.get('portfolio_health_dimension_summary', pd.DataFrame())
+        flow_distribution_by_type = groups.get('flow_distribution_by_type', pd.DataFrame())
+        flow_distribution_by_status = groups.get('flow_distribution_by_status', pd.DataFrame())
+        flow_distribution_by_team = groups.get('flow_distribution_by_team', pd.DataFrame())
+        stage_load_summary = groups.get('stage_load_summary', pd.DataFrame())
+        stage_load_detail = groups.get('stage_load_detail', pd.DataFrame())
+        stage_limit_alerts = groups.get('stage_limit_alerts', pd.DataFrame())
         decision_queue_aging = groups.get('decision_queue_aging', pd.DataFrame())
         decision_queue_summary = groups.get('decision_queue_summary', pd.DataFrame())
         data_freshness_por_team_statuscat = groups.get('data_freshness_por_team_statuscat', pd.DataFrame())
@@ -16868,6 +17091,135 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 )
             ], style={'marginTop': '24px'})
 
+        def render_portfolio_health_scorecard(df_scorecard, df_dimensions):
+            if df_scorecard is None or df_scorecard.empty:
+                return html.Div([html.H3('Scorecard de Saúde do Portfólio'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            severity_palette = {
+                'Saudável': {'bg': '#e8f5e9', 'border': '#2e7d32', 'value': '#1b5e20'},
+                'Atenção': {'bg': '#fff8e1', 'border': '#f9a825', 'value': '#8d6e00'},
+                'Crítico': {'bg': '#ffebee', 'border': '#c62828', 'value': '#8e0000'},
+            }
+            overall = df_scorecard.iloc[0]
+            overall_style = severity_palette.get(str(overall.get('Status', '')), severity_palette['Atenção'])
+            hero = html.Div([
+                html.Div('Saúde geral do portfólio', style={'fontSize': '15px', 'fontWeight': '700', 'color': '#334155'}),
+                html.Div(f"{float(overall.get('Score', 0.0)):.1f}", style={'fontSize': '72px', 'lineHeight': '1.0', 'fontWeight': '800', 'color': overall_style['value']}),
+                html.Div(str(overall.get('Status', '')), style={'fontSize': '18px', 'fontWeight': '700', 'color': overall_style['value']}),
+                html.Div(str(overall.get('Detalhe', '')), style={'fontSize': '13px', 'marginTop': '8px', 'color': '#475569'}),
+            ], style={
+                'padding': '18px 20px',
+                'borderRadius': '12px',
+                'backgroundColor': overall_style['bg'],
+                'border': f"2px solid {overall_style['border']}",
+                'minHeight': '210px',
+                'display': 'flex',
+                'flexDirection': 'column',
+                'justifyContent': 'space-between',
+            })
+            cards = []
+            for _, row in df_scorecard.iloc[1:].iterrows():
+                style_cfg = severity_palette.get(str(row.get('Status', '')), severity_palette['Atenção'])
+                cards.append(html.Div([
+                    html.Div(str(row.get('Indicador', '')), style={'fontSize': '15px', 'fontWeight': '700', 'color': '#334155'}),
+                    html.Div(f"{float(row.get('Score', 0.0)):.1f}", style={'fontSize': '36px', 'lineHeight': '1.0', 'fontWeight': '800', 'color': style_cfg['value'], 'marginTop': '10px'}),
+                    html.Div(str(row.get('Status', '')), style={'fontSize': '14px', 'fontWeight': '700', 'color': style_cfg['value'], 'marginTop': '6px'}),
+                    html.Div(str(row.get('Detalhe', '')), style={'fontSize': '12px', 'lineHeight': '1.35', 'marginTop': '8px', 'color': '#475569'}),
+                ], style={
+                    'padding': '14px 16px',
+                    'borderRadius': '12px',
+                    'backgroundColor': style_cfg['bg'],
+                    'border': f"1px solid {style_cfg['border']}",
+                    'minHeight': '170px',
+                }))
+            return html.Div([
+                html.H3('Scorecard de Saúde do Portfólio', style={'textAlign': 'left'}),
+                html.Div([
+                    html.Div(hero, style={'gridColumn': 'span 2'}),
+                    *cards,
+                ], style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(220px, 1fr))',
+                    'gap': '12px',
+                    'alignItems': 'stretch',
+                }),
+                portfolio_table_component(df_dimensions.copy(), 'Dimensões do scorecard de saúde', 'table-portfolio-health-dimensions')
+            ], style={'marginTop': '24px'})
+
+        def render_flow_distribution_and_load(df_type, df_status, df_team, df_stage_summary, df_stage_detail, df_stage_alerts):
+            empty_distribution = all(frame is None or frame.empty for frame in [df_type, df_status, df_team])
+            empty_load = (df_stage_detail is None or df_stage_detail.empty)
+            if empty_distribution and empty_load:
+                return html.Div([html.H3('Flow Distribution & Load Atual'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
+            sections = [html.H3('Flow Distribution & Load Atual', style={'textAlign': 'left'})]
+            sections.append(html.P(
+                'Leitura de snapshot dos itens abertos no portfólio. A distribuição mostra mix atual; o load explicita a carga por etapa e sinaliza excesso sobre limites configurados.',
+                style={'color': '#555', 'marginBottom': '10px'}
+            ))
+            if df_stage_summary is not None and not df_stage_summary.empty:
+                cards = []
+                for _, row in df_stage_summary.iterrows():
+                    value = row.get('Valor', 0)
+                    if isinstance(value, float):
+                        display_value = f"{value:.2f}"
+                    else:
+                        display_value = str(value)
+                    cards.append(_portfolio_metric_card(str(row.get('Indicador', '')), display_value))
+                sections.append(html.Div(cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
+                    'gap': '12px',
+                    'marginBottom': '12px',
+                }))
+            if not empty_distribution:
+                fig = make_subplots(rows=1, cols=3, subplot_titles=('Por tipo', 'Por status', 'Por TEAM'))
+                distribution_frames = [
+                    (df_type, 'Tipo'),
+                    (df_status, 'Status'),
+                    (df_team, 'Team'),
+                ]
+                colors = ['#1565c0', '#2e7d32', '#ef6c00']
+                for idx, (frame, label_col) in enumerate(distribution_frames, start=1):
+                    if frame is None or frame.empty or label_col not in frame.columns:
+                        continue
+                    plot_df = frame.head(10).copy().sort_values('WorkItems', ascending=True)
+                    fig.add_trace(
+                        go.Bar(
+                            x=plot_df['WorkItems'],
+                            y=plot_df[label_col],
+                            orientation='h',
+                            marker_color=colors[idx - 1],
+                            showlegend=False,
+                            text=plot_df['% Share'].map(lambda v: f"{float(v):.1f}%"),
+                            textposition='outside',
+                        ),
+                        row=1,
+                        col=idx,
+                    )
+                fig.update_layout(height=430, template='plotly_white', margin=dict(t=60, b=40, l=40, r=20))
+                sections.append(dcc.Graph(figure=fig))
+                sections.append(portfolio_table_component(df_type.copy(), 'Flow distribution por tipo (itens abertos)', 'table-portfolio-flow-distribution-type'))
+                sections.append(portfolio_table_component(df_status.copy(), 'Flow distribution por status (itens abertos)', 'table-portfolio-flow-distribution-status'))
+                sections.append(portfolio_table_component(df_team.copy(), 'Flow distribution por TEAM (itens abertos)', 'table-portfolio-flow-distribution-team'))
+            if not empty_load:
+                load_plot = df_stage_detail.copy().sort_values(['TotalItems', 'Status'], ascending=[True, True])
+                fig_load = px.bar(
+                    load_plot,
+                    x='TotalItems',
+                    y='Status',
+                    orientation='h',
+                    color='Severidade',
+                    template='plotly_white',
+                    title='Load atual por etapa',
+                    hover_data=['StatusCategoria', 'WIPItems', 'BacklogItems', 'Limite', 'LoadRatio', 'Aging Médio', 'Aging P90'],
+                    color_discrete_map={'OK': '#2e7d32', 'Alerta': '#f9a825', 'Critico': '#c62828', 'Sem limite': '#90a4ae'}
+                )
+                fig_load.update_layout(height=max(340, 38 * max(1, len(load_plot)) + 120), margin=dict(t=60, b=40, l=80, r=20))
+                sections.append(dcc.Graph(figure=fig_load))
+                if df_stage_alerts is not None and not df_stage_alerts.empty:
+                    sections.append(portfolio_table_component(df_stage_alerts.copy(), 'Alertas de limite por etapa', 'table-portfolio-stage-limit-alerts'))
+                sections.append(portfolio_table_component(df_stage_detail.copy(), 'Load atual por etapa (snapshot)', 'table-portfolio-stage-load-detail'))
+            return html.Div(sections, style={'marginTop': '24px'})
+
         def render_flow_health(df_summary, df_team):
             if (df_summary is None or df_summary.empty) and (df_team is None or df_team.empty):
                 return html.Div([html.H3('Saúde de Fluxo (Snapshot)'), html.P('Sem dados para exibição.')], style={'marginTop': '20px'})
@@ -17428,6 +17780,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
 
         resumo_exec_section = html.Div([
             render_thresholds_config_summary(),
+            render_portfolio_health_scorecard(portfolio_health_scorecard, portfolio_health_dimension_summary),
             html.Div([
                 create_kpi_card('Total de épicos', f"{total_epicos_visao}", class_name='', **portfolio_kpi_style(kpi_color_epic)),
                 create_kpi_card('Total de features', f"{total_features_visao}", class_name='', **portfolio_kpi_style(kpi_color_feature)),
@@ -17459,6 +17812,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         )
 
         aging_fluxo_section = html.Div([
+            render_flow_distribution_and_load(
+                flow_distribution_by_type,
+                flow_distribution_by_status,
+                flow_distribution_by_team,
+                stage_load_summary,
+                stage_load_detail,
+                stage_limit_alerts,
+            ),
             render_flow_health_dynamic(items_base_scope),
             render_q_pendencias_grid(pendencias_q_por_time, pendencias_breakdown, pendencias_detalhe),
             html.Div([
