@@ -9861,3 +9861,40 @@
   - o tenant só devolveu ruído externo (`IT`) na rota global, e o filtro atual está correto ao descartá-lo
 - Suggested commit message:
   - `chore(capex): log discarded global worklogs with issue context`
+## Current Task (Planejar indicadores de portfólio com base nos anexos)
+- [x] Inventariar os indicadores já implementados na aba `Portfólio` e no exportador `jira_portfolio_to_csv.py`
+- [x] Extrair dos anexos as famílias de indicadores relevantes para a visão de portfólio
+- [x] Comparar implementação atual versus recomendações e definir lacunas por prioridade e dependência de dados
+- [x] Consolidar um plano de implementação pragmático com fases e commit sugerido
+
+## Specification (Planejar indicadores de portfólio com base nos anexos)
+- Objetivo: avaliar a visão de `Portfólio` do projeto contra os anexos de referência e produzir um plano de implementação que deixe explícito o que já existe, o que falta e o que depende de ampliar o contrato de dados.
+- Escopo:
+  - `dashboard_full.py`
+  - `jira_portfolio_to_csv.py`
+  - `ROADMAP_INDICADORES_PORTFOLIO.md`
+  - `ESPECIFICACAO_ALERTAS_PORTFOLIO.md`
+  - anexos externos de referência (`KPIs_indicadores.txt`, SAFe 4.5, SAFe 6.0, Kerzner)
+- Estratégia:
+  - validar no código os grupos realmente calculados em `compute_portfolio_snapshot(...)` e as seções expostas na aba
+  - mapear os indicadores sugeridos pelos anexos em três blocos: fluxo SAFe, governança/economia e saúde de portfólio
+  - classificar cada indicador em `já implementado`, `parcial`, `não implementado mas viável com snapshot atual` e `bloqueado por dados`
+- Critério de aceite:
+  - o plano final diferencia claramente gaps de UI/cálculo versus gaps de fonte de dados
+  - a recomendação prioriza indicadores com maior valor executivo para a aba de portfólio
+  - o resultado deixa explícitas as próximas evoluções do exportador necessárias para SAFe/Kerzner
+
+## Review (Planejar indicadores de portfólio com base nos anexos)
+- Evidências revisadas:
+  - `dashboard_full.py` confirma uma aba de portfólio já estruturada em `Resumo Executivo`, `Alertas`, `One Page Completo`, `Aging & Fluxo`, `Hierarquia & Estrutura`, `Status & Workflow`, `Effort & Concentração` e `Process Mining & CAPEX`
+  - `compute_portfolio_snapshot(...)` já calcula KPIs e tabelas de aging, qualidade estrutural, workflow, effort, concentração, alertas por vencimento e proxies de prontidão técnica
+  - `jira_portfolio_to_csv.py` exporta `Prioridade`, `UpdatedAt`, `StatusChangedAt` e `DueDate`, mas ainda não exporta `CreatedAt`, `ResolvedAt` ou histórico de transições
+  - os anexos SAFe 6.0 reforçam a necessidade de `Flow Distribution`, `Flow Velocity`, `Flow Time`, `Flow Load`, `Flow Efficiency` e `Flow Predictability`
+  - o anexo SAFe 4.5 adiciona portfolio kanban, epic burn-up/progress, enterprise scorecard, economic framework, WSJF, Cost of Delay, solution/program predictability e cumulative flow
+  - o material do Kerzner puxa a visão macro de `portfolio health`, `benefits realization`, `portfolio value achieved`, `portfolio selection and mix`, `capacity/resources`, `portfolio budget vs actual` e `portfolio deadline vs actual`
+- Conclusão prática:
+  - a base atual já cobre bem saúde estrutural, aging, estagnação, risco de prazo, qualidade de cadastro, concentração e parte da governança operacional
+  - os maiores gaps para aderência SAFe/Kerzner estão em fluxo histórico, previsibilidade, alinhamento estratégico, benefício realizado, capacidade e funding
+  - o próximo passo mais pragmático é separar uma onda `snapshot-only` e outra de `enriquecimento do exportador`
+- Suggested commit message:
+  - `docs(portfolio): map implemented indicators and portfolio metric gaps`
