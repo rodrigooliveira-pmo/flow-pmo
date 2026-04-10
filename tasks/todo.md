@@ -10011,3 +10011,41 @@
   - ainda há `SettingWithCopyWarning` pré-existente em `dashboard_full.py` e `FutureWarning` do `plotly/pandas` durante o smoke test; não bloquearam a montagem da aba, mas merecem saneamento separado
 - Suggested commit message:
   - `feat(portfolio): add cross-delivery integration view`
+
+## Current Task (Refatorar aba de custos e fluxo para leitura executiva primeiro)
+- [x] Localizar a composição atual da aba `Process Mining & CAPEX` em `dashboard_full.py`
+- [x] Definir a hierarquia desejada: KPIs e gráficos primeiro, dados analíticos depois
+- [x] Refatorar a UI para destacar sinais acionáveis no topo da tela
+- [x] Remover referências visíveis a `process mining` na aba
+- [x] Validar sintaxe e revisar o diff final
+
+## Specification (Refatorar aba de custos e fluxo para leitura executiva primeiro)
+- Objetivo: reorganizar a aba hoje rotulada como `Process Mining & CAPEX` para que a leitura comece por KPIs executivos e gráficos acionáveis, deixando tabelas e dados analíticos em segundo plano, sem expor a expressão `process mining` na interface dessa tela.
+- Escopo:
+  - `dashboard_full.py`
+- Estratégia:
+  - manter os cálculos existentes e atacar primeiro a hierarquia de informação e a rotulagem da UI
+  - mover a camada executiva para o topo com cards e gráficos principais antes das tabelas detalhadas
+  - agrupar tabelas e detalhamentos em uma seção analítica posterior
+  - substituir títulos, notas e rótulos que mencionam `process mining` por linguagem focada em fluxo, custo, atraso e execução
+- Critério de aceite:
+  - a aba abre mostrando primeiro KPIs e gráficos principais
+  - referências textuais a `process mining` deixam de aparecer nessa tela
+  - a camada analítica continua disponível abaixo, sem perder conteúdo
+  - `dashboard_full.py` permanece válido sintaticamente
+
+## Review (Refatorar aba de custos e fluxo para leitura executiva primeiro)
+- O que foi implementado:
+  - a aba passou a se chamar `Custos & Fluxo`
+  - a hierarquia foi reorganizada em três blocos: `KPIs Prioritários`, `Onde Agir Agora` e `Base Analítica`
+  - foram adicionados cards de leitura acionável para destacar ausência de custo real, baixa cobertura de mapeamento e pressão de budget
+  - os principais gráficos e KPIs ficaram antes das tabelas detalhadas
+  - títulos, notas e rótulos visíveis da tela foram ajustados para linguagem de fluxo/custo, sem expor `process mining`
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Limitações / riscos residuais:
+  - o id/valor técnico da aba continua `portfolio-process-mining-capex` para evitar impacto em callbacks existentes
+  - a limpeza de nomenclatura foi focada nesta tela; referências técnicas a `PM` permanecem no código e em outras áreas do produto
+- Suggested commit message:
+  - `refactor(portfolio): prioritize executive cost and flow insights`

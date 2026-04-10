@@ -6079,19 +6079,19 @@ def _build_custo_por_fase_section(events_df: 'pd.DataFrame', worklog_df: 'pd.Dat
     if has_real_cost:
         hr_rows = []
         for _, row in phase_df.iterrows():
-            hr_rows.append({'Fase': row['Fase'], 'Horas': row['HorasEstimadasPM'], 'Tipo': 'PM Elegíveis'})
+            hr_rows.append({'Fase': row['Fase'], 'Horas': row['HorasEstimadasPM'], 'Tipo': 'Horas elegíveis'})
             hr_rows.append({'Fase': row['Fase'], 'Horas': row['HorasReaisApontadas'], 'Tipo': 'Real Apontado'})
         fig_hours = px.bar(
             pd.DataFrame(hr_rows),
             x='Fase', y='Horas', color='Tipo', barmode='group',
-            title='Horas por fase: PM elegíveis vs. reais apontadas',
-            color_discrete_map={'PM Elegíveis': '#98df8a', 'Real Apontado': '#2ca02c'},
+            title='Horas por fase: elegíveis vs. reais apontadas',
+            color_discrete_map={'Horas elegíveis': '#98df8a', 'Real Apontado': '#2ca02c'},
         )
         fig_hours.update_layout(showlegend=True)
     else:
         fig_hours = px.bar(
             phase_df, x='Fase', y='HorasEstimadasPM',
-            title='Horas PM elegíveis por fase',
+            title='Horas elegíveis por fase',
             color='Fase', text='HorasEstimadasPM',
         )
         fig_hours.update_traces(texttemplate='%{text:,.1f}h', textposition='outside')
@@ -6546,7 +6546,7 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
 
     has_cost = data.get('has_cost', False)
     value_col = 'CustoPMCalibrado' if has_cost else 'HorasPMCalibradas'
-    value_label = 'Custo PM Calibrado (R$)' if has_cost else 'Horas PM Calibradas'
+    value_label = 'Custo calibrado (R$)' if has_cost else 'Horas calibradas'
 
     def _fmt_r(v):
         if v is None or (isinstance(v, float) and np.isnan(v)):
@@ -6562,19 +6562,19 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
 
     notes = [
         html.P(
-            'Sem worklog Jira real no período atual. Esta seção usa o Process Mining como fonte principal: '
-            'horas de execução elegíveis observadas no fluxo x taxa hora PM configurada.',
+            'Sem worklog Jira real no período atual. Esta seção usa a trilha de execução observada no fluxo: '
+            'horas elegíveis de execução x taxa hora configurada.',
             style={'color': '#333', 'fontSize': '13px', 'marginBottom': '8px'}
         ),
         html.P(
-            'Leia estes valores como custo PM calibrado/observado do processo, útil para gestão operacional e '
+            'Leia estes valores como custo calibrado/observado do processo, útil para gestão operacional e '
             'comparação entre produtos/issues, e não como apontamento contábil formal de horas.',
             style={'color': '#555', 'fontSize': '13px', 'marginBottom': '8px'}
         ),
     ]
     if not has_cost:
         notes.append(html.P(
-            'Taxas de custo não configuradas — a visão está exibida em horas PM calibradas.',
+            'Taxas de custo não configuradas — a visão está exibida em horas calibradas.',
             style={'color': '#8a6d3b', 'fontSize': '13px', 'marginBottom': '8px'}
         ))
     if triangulation_available:
@@ -6582,7 +6582,7 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
             html.Summary('Metodologia de triangulação (3 modelos — clique para expandir)',
                          style={'cursor': 'pointer', 'color': '#1a5276', 'fontWeight': '600', 'fontSize': '13px'}),
             html.Div([
-                html.P('M1 — PM Puro: Σ dias em status de execução ativa × 24h (event log Jira). '
+                html.P('M1 — Fluxo observado: Σ dias em status de execução ativa × 24h (event log Jira). '
                        'Confiança Alta quando o item está mapeado ao portfólio.',
                        style={'marginBottom': '4px', 'fontSize': '12px'}),
                 html.P('M2 — Alocação por Capacidade: (CycleTime_item / Σ CycleTimes_produto) × Capacidade_Mensal_Produto_h. '
@@ -6602,12 +6602,12 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
     _fmt_pct = (f"{pct_conv:.0f}%" if pct_conv is not None and not (isinstance(pct_conv, float) and np.isnan(pct_conv)) else '—')
 
     kpi_cards_items = [
-        _portfolio_metric_card('Issues com custo PM', str(kpis.get('issues', 0))),
+        _portfolio_metric_card('Issues com custo calibrado', str(kpis.get('issues', 0))),
         _portfolio_metric_card(
-            'Custo PM calibrado total' if has_cost else 'Horas PM calibradas',
+            'Custo calibrado total' if has_cost else 'Horas calibradas',
             _fmt_r(kpis.get('valor_total')) if has_cost else _fmt_h(kpis.get('horas_total')),
         ),
-        _portfolio_metric_card('Horas PM calibradas', _fmt_h(kpis.get('horas_total'))),
+        _portfolio_metric_card('Horas calibradas', _fmt_h(kpis.get('horas_total'))),
         _portfolio_metric_card('Mediana por issue', _fmt_r(kpis.get('valor_mediano_issue')) if has_cost else _fmt_h(kpis.get('valor_mediano_issue'))),
     ]
     if triangulation_available:
@@ -6633,18 +6633,18 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
             value_col: False,
         },
         labels={
-            'HorasPMCalibradas': 'Horas PM Calibradas',
+            'HorasPMCalibradas': 'Horas calibradas',
             value_col: value_label,
             '_hover_valor': value_label,
             'DiasExecucao': 'Dias em execução',
             'FasesExecucao': 'Fases exec.',
-            'ResponsaveisPM': 'Pessoas PM',
+            'ResponsaveisPM': 'Pessoas',
         },
-        title='Custo PM calibrado por issue (Process Mining como fonte principal)',
+        title='Custo calibrado por issue',
     )
     fig_scatter.update_layout(
         height=420,
-        xaxis_title='Horas PM Calibradas',
+        xaxis_title='Horas calibradas',
         yaxis_title=value_label,
         margin=dict(t=50, b=60, l=60, r=20),
         legend=dict(title='', orientation='h', yanchor='bottom', y=-0.25),
@@ -6680,7 +6680,7 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
             x='Produto',
             y='ValorPM',
             color='Produto',
-            title='Custo PM calibrado total por produto',
+            title='Custo calibrado total por produto',
             text='ValorPM',
             labels={'ValorPM': value_label, 'Produto': ''},
         )
@@ -6702,7 +6702,7 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
             x=value_col,
             y='_label',
             orientation='h',
-            title='Top 15 issues por custo PM calibrado',
+            title='Top 15 issues por custo calibrado',
             color=value_col,
             color_continuous_scale='Blues',
             text=value_col,
@@ -6781,8 +6781,8 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
         triangulation_table = html.Div([
             html.H5('Triangulação de Touch Time por Issue (Top 30)',
                     style={'textAlign': 'left', 'marginTop': '20px', 'marginBottom': '6px', 'color': '#1a5276'}),
-            html.P('M1=PM Puro | M2=Alocação por Capacidade | M3=Complexidade×Taxa Sync. '
-                   'Confiança Alta = item mapeado com eventos PM diretos.',
+            html.P('M1=Fluxo observado | M2=Alocação por Capacidade | M3=Complexidade×Taxa Sync. '
+                   'Confiança Alta = item mapeado com eventos diretos de execução.',
                    style={'fontSize': '11px', 'color': '#555', 'marginBottom': '8px'}),
             html.Div(
                 html.Table(
@@ -6794,7 +6794,7 @@ def _build_custo_pm_calibrado_section(events_df: 'pd.DataFrame', touch_time_df: 
         ])
 
     return html.Div([
-        html.H4('Custo PM Calibrado por Issue', style={'textAlign': 'left', 'marginTop': '22px'}),
+        html.H4('Custo Calibrado por Issue', style={'textAlign': 'left', 'marginTop': '22px'}),
         html.Div(notes),
         kpi_cards,
         html.Div([
@@ -7767,7 +7767,7 @@ def _build_custo_retrabalho_section(events_df: 'pd.DataFrame', worklog_df: 'pd.D
         ),
         _portfolio_metric_card('% do custo total', pct_str),
         _portfolio_metric_card(
-            'Custo real retrabalho' if has_real else 'Horas retrabalho (PM)',
+            'Custo real retrabalho' if has_real else 'Horas de retrabalho',
             _fmt(kpis.get('custo_real_retrabalho') if has_real else kpis.get('horas_pm_retrabalho'), is_money=has_real),
         ),
     ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '12px'})
@@ -7783,7 +7783,7 @@ def _build_custo_retrabalho_section(events_df: 'pd.DataFrame', worklog_df: 'pd.D
     fig_stack = px.bar(
         stack_df, x='Categoria', y=value_label,
         color='Categoria',
-        title='Custo PM: retrabalho vs. execução normal',
+        title='Custo estimado: retrabalho vs. execução normal',
         color_discrete_map={'Retrabalho': '#d62728', 'Execução normal': '#2ca02c'},
         text=value_label,
     )
@@ -18561,16 +18561,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 var_name='Faixa',
                 value_name='Horas',
             )
+            pm_chart_df['Faixa'] = pm_chart_df['Faixa'].replace({
+                'Horas PM Mapeadas': 'Horas elegíveis mapeadas',
+                'Horas PM Não Mapeadas': 'Horas elegíveis não mapeadas',
+            })
             pm_chart = px.bar(
                 pm_chart_df,
                 x='Produto',
                 y='Horas',
                 color='Faixa',
                 barmode='stack',
-                title='Horas PM elegíveis por produto',
+                title='Horas elegíveis por produto',
                 color_discrete_map={
-                    'Horas PM Mapeadas': '#2e7d32',
-                    'Horas PM Não Mapeadas': '#c62828',
+                    'Horas elegíveis mapeadas': '#2e7d32',
+                    'Horas elegíveis não mapeadas': '#c62828',
                 },
             )
             pm_chart.update_layout(height=420, xaxis_title='Produto', yaxis_title='Horas')
@@ -18617,6 +18621,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 return '—'
             return f"R$ {_fmt_number_br(number, 2)}/h"
 
+        def _clean_exec_label(value):
+            text = str(value or '').strip()
+            if not text:
+                return '—'
+            replacements = [
+                ('Process mining', 'Fluxo estimado'),
+                ('process mining', 'fluxo estimado'),
+                ('Process Mining', 'Fluxo estimado'),
+                ('PM', 'Fluxo'),
+            ]
+            for old, new in replacements:
+                text = text.replace(old, new)
+            return text
+
         portfolio_metric_grid_style = {
             'display': 'grid',
             'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -18624,21 +18642,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         }
 
         pm_overall_cards = html.Div([
-            _portfolio_metric_card('Horas PM elegíveis', _fmt_number_br(pm_overall.get('hours', 0.0), 1)),
+            _portfolio_metric_card('Horas de execução elegíveis', _fmt_number_br(pm_overall.get('hours', 0.0), 1)),
             _portfolio_metric_card('% horas mapeadas', _fmt_percent_br(pm_overall.get('mapped_pct'), 1)),
             _portfolio_metric_card('Horas reais apontadas', _fmt_number_br(pm_overall.get('actual_hours', 0.0), 1)),
             _portfolio_metric_card('% custo real mapeado', _fmt_percent_br(pm_overall.get('actual_mapped_pct_cost'), 1)),
-            _portfolio_metric_card('Produtos c/ artefato PM', str(int(pm_overall.get('products_with_artifacts', 0)))),
+            _portfolio_metric_card('Produtos com cobertura de fluxo', str(int(pm_overall.get('products_with_artifacts', 0)))),
             _portfolio_metric_card('Ativos c/ custo real', str(int(pm_overall.get('actual_assets_mapped', 0)))),
             _portfolio_metric_card('Custo real apontado', _fmt_currency_compact_br(pm_overall.get('actual_cost', 0.0)) if pm_overall.get('actual_cost_configured') else '—'),
-            _portfolio_metric_card('Custo PM estimado', _fmt_currency_compact_br(pm_overall.get('cost', 0.0)) if pm_overall.get('cost_configured') else '—'),
+            _portfolio_metric_card('Custo estimado de execução', _fmt_currency_compact_br(pm_overall.get('cost', 0.0)) if pm_overall.get('cost_configured') else '—'),
         ], style=portfolio_metric_grid_style)
 
         pm_product_cards = []
         for row in pm_product_summary.to_dict(orient='records'):
             pm_product_cards.append(
                 create_kpi_card(
-                    f"{row.get('Produto', '')} | h PM",
+                    f"{row.get('Produto', '')} | horas elegíveis",
                     _fmt_number_br(row.get('Horas PM Elegíveis', 0.0), 1),
                     class_name='',
                     **portfolio_kpi_style(_pm_product_color(row.get('Projeto PM')))
@@ -18688,9 +18706,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             cost_kpi_cards = html.Div([
                 _portfolio_metric_card('Budget TI anual', _fmt_currency_compact_br(cost_kpis.get('Budget TI Anual'))),
                 _portfolio_metric_card('Custo base do portfólio', _fmt_currency_compact_br(cost_kpis.get('Custo Total do Portfólio'))),
-                _portfolio_metric_card('Fonte primária', str(cost_kpis.get('Fonte Primária Custo', '—'))),
+                _portfolio_metric_card('Fonte primária', _clean_exec_label(cost_kpis.get('Fonte Primária Custo', '—'))),
                 _portfolio_metric_card('Custo real apontado', _fmt_currency_compact_br(cost_kpis.get('Custo Real Apontado'))),
-                _portfolio_metric_card('Custo estimado PM', _fmt_currency_compact_br(cost_kpis.get('Custo Estimado PM'))),
+                _portfolio_metric_card('Custo estimado de execução', _fmt_currency_compact_br(cost_kpis.get('Custo Estimado PM'))),
                 _portfolio_metric_card('Budget disponível', _fmt_currency_compact_br(cost_kpis.get('Budget Disponível'))),
                 _portfolio_metric_card('% budget comprometido', _fmt_percent_br(cost_kpis.get('% Budget Comprometido'), 1)),
                 _portfolio_metric_card('Custo hora carregado', _fmt_currency_hour_br(cost_kpis.get('Custo Hora Carregado'))),
@@ -18700,7 +18718,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ], style=portfolio_metric_grid_style)
             cost_notes.append(
                 html.P(
-                    'Régua financeira híbrida: prioriza worklog real do Jira e usa process mining/heurística apenas como trilha complementar.',
+                    'Régua financeira híbrida: prioriza worklog real do Jira e usa trilha estimada de fluxo apenas como complemento.',
                     style={'color': '#555', 'marginBottom': '8px'}
                 )
             )
@@ -18722,7 +18740,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 )
             for note in generated_financials.get('notes', []):
                 cost_notes.append(
-                    html.P(str(note), style={'color': '#8a6d3b', 'marginBottom': '8px'})
+                    html.P(_clean_exec_label(note), style={'color': '#8a6d3b', 'marginBottom': '8px'})
                 )
             cost_portfolio_display = generated_financials.get('project_costs_df', pd.DataFrame()).copy()
             cost_product_display = generated_financials.get('product_cost_summary_df', pd.DataFrame()).copy()
@@ -18742,21 +18760,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         else:
             cost_notes.append(
                 html.P(
-                    str(generated_financials.get('error', 'Régua financeira heurística não disponível.')),
+                    _clean_exec_label(generated_financials.get('error', 'Régua financeira heurística não disponível.')),
                     style={'color': '#8a6d3b', 'marginBottom': '8px'}
                 )
             )
 
         pm_notes = [
             html.P(
-                'As horas PM elegíveis usam apenas permanência em estados de execução; custo real apontado vem dos worklogs CAPEX quando disponíveis.',
+                'As horas elegíveis usam apenas permanência em estados de execução; custo real apontado vem dos worklogs CAPEX quando disponíveis.',
                 style={'color': '#555', 'marginBottom': '6px'}
             )
         ]
         if not pm_overall.get('actual_cost', 0):
             pm_notes.append(
                 html.P(
-                    'Sem worklog real monetizado no período atual; o dashboard continua exibindo a trilha estimada por process mining.',
+                    'Sem worklog real monetizado no período atual; o dashboard continua exibindo a trilha estimada de execução.',
                     style={'color': '#8a6d3b', 'marginBottom': '6px'}
                 )
             )
@@ -18773,7 +18791,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         if not pm_has_hours:
             pm_notes.append(
                 html.P(
-                    'Sem horas elegíveis de process mining no período/filtros atuais. Verifique a disponibilidade dos artefatos PM para os produtos em escopo.',
+                    'Sem horas elegíveis de execução no período/filtros atuais. Verifique a disponibilidade dos artefatos de fluxo para os produtos em escopo.',
                     style={'color': '#b22222', 'marginBottom': '0'}
                 )
             )
@@ -18802,10 +18820,100 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             strategic_items_df=items_base_scope,
         )
 
-        pm_portfolio_section = html.Div([
-            html.Div(pm_notes, style={'marginBottom': '12px'}),
+        pm_summary_display = pm_summary_display.rename(columns={
+            'Projeto PM': 'Equipe de fluxo',
+            'Artefato PM': 'Cobertura de fluxo',
+            'Horas PM Elegíveis': 'Horas elegíveis',
+            'Horas PM Mapeadas': 'Horas elegíveis mapeadas',
+            'Horas PM Não Mapeadas': 'Horas elegíveis não mapeadas',
+            'Taxa Hora PM': 'Taxa hora estimada',
+            'Custo PM Estimado': 'Custo estimado',
+            'Custo PM Mapeado': 'Custo estimado mapeado',
+        })
+        pm_top_assets_display = pm_top_assets_display.rename(columns={
+            'Projeto PM': 'Equipe de fluxo',
+            'Responsável PM': 'Responsável',
+            'Horas PM Elegíveis': 'Horas elegíveis',
+            'Custo PM Estimado': 'Custo estimado',
+        })
+        cost_product_display = cost_product_display.rename(columns={
+            'Horas PM Elegíveis': 'Horas elegíveis',
+            'Horas PM Mapeadas': 'Horas elegíveis mapeadas',
+            'Horas PM Não Mapeadas': 'Horas elegíveis não mapeadas',
+            'Taxa Hora PM': 'Taxa hora estimada',
+            'Custo PM Estimado': 'Custo estimado',
+        })
+        cost_portfolio_display = cost_portfolio_display.rename(columns={
+            'Horas PM Elegíveis': 'Horas elegíveis',
+            'Custo PM Estimado': 'Custo estimado',
+        })
+
+        executive_alerts = []
+        mapped_pct = float(pm_overall.get('mapped_pct', 0.0) or 0.0)
+        budget_commit_pct = float((generated_financials.get('kpis', {}) or {}).get('% Budget Comprometido', 0.0) or 0.0)
+        if not pm_overall.get('actual_cost', 0):
+            executive_alerts.append(('Ação imediata', 'Sem custo real apontado no período. Priorize capturar worklogs nas frentes críticas para substituir a estimativa.'))
+        if mapped_pct < 0.6:
+            executive_alerts.append(('Cobertura fraca', f'Apenas {_fmt_percent_br(mapped_pct, 1)} das horas elegíveis estão mapeadas ao portfólio. Revise vínculos de ativos/produtos.'))
+        if budget_commit_pct >= 0.8:
+            executive_alerts.append(('Pressão de budget', f'O portfólio já comprometeu {_fmt_percent_br(budget_commit_pct, 1)} do budget anual. Reavalie prioridades e fila de entrada.'))
+        if pm_has_hours and mapped_pct >= 0.6 and pm_overall.get('actual_cost', 0):
+            executive_alerts.append(('Leitura atual', 'A cobertura de execução e custo já permite leitura comparativa entre produtos. Foque os gargalos e o custo de espera abaixo.'))
+
+        executive_alert_cards = html.Div([
+            html.Div([
+                html.Div(title, style={'fontSize': '12px', 'fontWeight': '700', 'color': '#102a43', 'marginBottom': '6px'}),
+                html.Div(message, style={'fontSize': '13px', 'color': '#334e68', 'lineHeight': '1.45'}),
+            ], style={
+                'backgroundColor': '#f8fbff',
+                'border': '1px solid #d9e6f2',
+                'borderRadius': '12px',
+                'padding': '14px 16px',
+                'boxShadow': '0 1px 2px rgba(16, 42, 67, 0.05)',
+            }) for title, message in executive_alerts
+        ], style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(240px, 1fr))',
+            'gap': '12px',
+            'marginTop': '12px',
+            'marginBottom': '14px',
+        }) if executive_alerts else html.Div()
+
+        executive_summary_section = html.Div([
+            html.H4('KPIs Prioritários', style={'textAlign': 'left', 'marginTop': '10px', 'marginBottom': '8px'}),
+            html.Div(pm_notes, style={'marginBottom': '8px'}),
             pm_overall_cards,
-            html.H4('Régua Financeira do Portfólio', style={'textAlign': 'left', 'marginTop': '18px'}),
+            executive_alert_cards,
+        ])
+
+        executive_visual_section = html.Div([
+            html.H4('Onde Agir Agora', style={'textAlign': 'left', 'marginTop': '22px', 'marginBottom': '8px'}),
+            html.P(
+                'Comece pelos gráficos de atraso, custo calibrado e cobertura por produto. Os detalhamentos analíticos ficam abaixo.',
+                style={'color': '#555', 'marginBottom': '12px'}
+            ),
+            custo_espera_section,
+            custo_issue_value_section,
+            html.H4('Cobertura e Custo por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
+            html.Div(pm_product_cards, style={
+                'display': 'grid',
+                'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
+                'gap': '10px',
+                'marginTop': '12px',
+            }) if pm_product_cards else html.Div(),
+            html.Div([dcc.Graph(figure=pm_chart)], style={'marginTop': '14px'}),
+            custo_por_fase_section,
+            custo_por_atividade_section,
+            custo_retrabalho_section,
+        ])
+
+        analytical_section = html.Div([
+            html.H4('Base Analítica', style={'textAlign': 'left', 'marginTop': '22px'}),
+            html.P(
+                'Detalhamento financeiro e tabelas de apoio para investigação dos números executivos exibidos acima.',
+                style={'color': '#555', 'marginBottom': '8px'}
+            ),
+            html.H4('Régua Financeira do Portfólio', style={'textAlign': 'left', 'marginTop': '8px'}),
             html.Div(cost_notes, style={'marginBottom': '8px'}),
             cost_kpi_cards,
             portfolio_table_component(
@@ -18815,7 +18923,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             ) if not cost_portfolio_display.empty else html.Div(),
             portfolio_table_component(
                 cost_product_display,
-                'Resumo financeiro híbrido por produto',
+                'Resumo financeiro por produto',
                 'table-portfolio-costs-generated-products'
             ) if not cost_product_display.empty else html.Div(),
             portfolio_table_component(
@@ -18823,24 +18931,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Parâmetros e taxas heurísticas por produto',
                 'table-portfolio-costs-generated-rates'
             ) if not cost_rates_display.empty else html.Div(),
-            custo_por_atividade_section,
-            custo_por_fase_section,
-            custo_issue_value_section,
-            custo_retrabalho_section,
-            custo_espera_section,
-            html.H4('Process Mining e CAPEX por Produto', style={'textAlign': 'left', 'marginTop': '18px'}),
-            html.Div(pm_product_cards, style={
-                'display': 'grid',
-                'gridTemplateColumns': 'repeat(auto-fill, minmax(180px, 1fr))',
-                'gap': '10px',
-                'marginTop': '12px',
-            }) if pm_product_cards else html.Div(),
-            html.Div([
-                dcc.Graph(figure=pm_chart)
-            ], style={'marginTop': '14px'}),
             portfolio_table_component(
                 pm_summary_display,
-                'Resumo PM + custo real por produto',
+                'Resumo de execução e custo real por produto',
                 'table-portfolio-process-mining-produto'
             ),
             portfolio_table_component(
@@ -18848,6 +18941,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'Top ativos por custo real/estimado',
                 'table-portfolio-process-mining-ativos'
             ),
+        ])
+
+        pm_portfolio_section = html.Div([
+            executive_summary_section,
+            executive_visual_section,
+            analytical_section,
         ], style={'paddingTop': '10px'})
         cross_delivery_section = render_portfolio_cross_delivery(cross_delivery_data)
 
@@ -18870,7 +18969,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     dcc.Tab(label='Status & Workflow', value='portfolio-status-workflow', children=[workflow_section]),
                     dcc.Tab(label='Effort & Concentração', value='portfolio-effort-concentracao', children=[effort_concentracao_section]),
                     dcc.Tab(label='Portfólio x Delivery', value='portfolio-cross-delivery', children=[cross_delivery_section]),
-                    dcc.Tab(label='Process Mining & CAPEX', value='portfolio-process-mining-capex', children=[pm_portfolio_section]),
+                    dcc.Tab(label='Custos & Fluxo', value='portfolio-process-mining-capex', children=[pm_portfolio_section]),
                 ]
             ),
             not_started_section,
