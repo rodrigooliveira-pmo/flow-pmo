@@ -9738,3 +9738,41 @@
   - a tabela usa o ano do fim do período selecionado como referência para montar `jan.-YY` até `dez.-YY`
 - Suggested commit message:
   - `feat(dashboard): add monthly throughput breakdown by product`
+
+## Current Task (Instrumentar descarte de worklogs no CAPEX)
+- [x] Registrar a necessidade de rastrear os worklogs descartados no fallback global do CAPEX
+- [x] Adicionar logs diagnósticos em `jira_capex_monthly.py` para expor `worklogId`, `issueId` e projeto/issue resolvidos
+- [x] Executar um smoke test real do export CAPEX para capturar os worklogs descartados do tenant atual
+- [x] Registrar a leitura final da causa com evidências e commit sugerido
+
+## Specification (Instrumentar descarte de worklogs no CAPEX)
+- Objetivo: tornar auditável o descarte de worklogs fora do conjunto de issues candidatas do CAPEX, identificando exatamente quais `worklogId` e `issueId/projeto` foram removidos pelo filtro.
+- Escopo:
+  - `jira_capex_monthly.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - manter o filtro atual de escopo
+  - registrar uma amostra dos worklogs descartados com metadados básicos do worklog
+  - tentar enriquecer os `issueId` descartados com contexto Jira (`Issue Key`, `Projeto Jira`, `Issue Type`, `Summary`) sem alterar a lógica de aceitação/rejeição
+- Critério de aceite:
+  - quando houver descarte por `issueId` fora do escopo, o log passa a mostrar quais worklogs foram afetados
+  - o diagnóstico passa a indicar em quais `issueId/projeto` esses worklogs caíram
+  - o script permanece funcional no caminho nominal
+
+## Review (Instrumentar descarte de worklogs no CAPEX)
+- O que foi ajustado:
+  - [`jira_capex_monthly.py`](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_capex_monthly.py) agora registra uma amostra dos worklogs descartados pela rota global quando o `issueId` cai fora do conjunto de issues candidatas do CAPEX
+  - o log tenta enriquecer cada `issueId` descartado com `Issue Key`, `Projeto Jira`, `Issue Type` e `Summary`, sem alterar a regra atual de filtro
+- Evidências de validação:
+  - `python3 -m py_compile jira_capex_monthly.py`
+  - smoke test real: `python3 jira_capex_monthly.py --projects W1NNR S1NC BF DT BT NS --date-from 2026-01-01 --date-to 2026-04-10 --out /tmp/capex-investigation-raw.csv --summary-out /tmp/capex-investigation-summary.csv --xlsx-out /tmp/capex-investigation.xlsx --env-file jira_env.txt --workers 4`
+- Resultado do smoke test:
+  - o fallback global descartou exatamente `2` worklogs fora do escopo do CAPEX
+  - `worklogId=10000` caiu em `issueId=55575`, `issueKey=IT-13`, `projeto=IT`, `tipo=Tarefa`
+  - `worklogId=10001` caiu em `issueId=55574`, `issueKey=IT-12`, `projeto=IT`, `tipo=Tarefa`
+  - não apareceu nenhum worklog descartado pertencente a `W1NNR`, `S1NC`, `BF`, `DT`, `BT` ou `NS`
+- Leitura final:
+  - a ausência de linhas no `capex-latest` desta execução não foi causada por filtro excessivo removendo worklogs válidos do escopo
+  - o tenant só devolveu ruído externo (`IT`) na rota global, e o filtro atual está correto ao descartá-lo
+- Suggested commit message:
+  - `chore(capex): log discarded global worklogs with issue context`

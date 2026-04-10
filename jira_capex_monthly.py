@@ -942,6 +942,7 @@ def collect_rows_via_global_worklogs(
     matching_worklogs = []
     issue_ids_from_worklogs: List[str] = []
     dropped_outside_issue_scope = 0
+    dropped_worklog_samples: List[Dict[str, str]] = []
     for worklog in global_worklogs:
         if not worklog_in_period(worklog, start_date, end_date):
             continue
@@ -950,6 +951,17 @@ def collect_rows_via_global_worklogs(
             continue
         if allowed_issue_ids_set and issue_id not in allowed_issue_ids_set:
             dropped_outside_issue_scope += 1
+            if len(dropped_worklog_samples) < 20:
+                dropped_worklog_samples.append(
+                    {
+                        "worklog_id": str(worklog.get("id") or "").strip(),
+                        "issue_id": issue_id,
+                        "started": str(worklog.get("started") or "").strip(),
+                        "updated": str(worklog.get("updated") or "").strip(),
+                        "author": extract_display_name(worklog.get("author")),
+                        "hours": f"{float((worklog.get('timeSpentSeconds') or 0) / 3600.0):.2f}",
+                    }
+                )
             continue
         matching_worklogs.append(worklog)
         issue_ids_from_worklogs.append(issue_id)
@@ -959,6 +971,32 @@ def collect_rows_via_global_worklogs(
             f"Aviso: {dropped_outside_issue_scope} worklog(s) da rota global foram descartados "
             "por estarem fora do conjunto de issues candidatas do CAPEX."
         )
+        dropped_issue_contexts = fetch_issue_contexts_by_ids(
+            client,
+            sorted({item["issue_id"] for item in dropped_worklog_samples if item.get("issue_id")}),
+            base_url=base_url,
+            field_map=field_map,
+            fields_to_fetch=fields_to_fetch,
+        )
+        for item in dropped_worklog_samples:
+            issue_context = dropped_issue_contexts.get(item["issue_id"], {})
+            issue_key = str(issue_context.get("Issue Key") or "").strip() or "?"
+            issue_project = str(issue_context.get("Projeto Jira") or "").strip() or "?"
+            issue_type = str(issue_context.get("Issue Type") or "").strip() or "?"
+            issue_summary = str(issue_context.get("Issue Summary") or "").strip() or "?"
+            print(
+                "  - worklog descartado "
+                f"id={item['worklog_id'] or '?'} "
+                f"issueId={item['issue_id']} "
+                f"issueKey={issue_key} "
+                f"projeto={issue_project} "
+                f"tipo={issue_type} "
+                f"horas={item['hours']} "
+                f"autor={item['author'] or '?'} "
+                f"started={item['started'] or '?'} "
+                f"updated={item['updated'] or '?'} "
+                f"summary={issue_summary}"
+            )
 
     issue_context_by_id = dict(preloaded_issue_context_by_id or {})
     missing_issue_ids = [issue_id for issue_id in sorted(set(issue_ids_from_worklogs)) if issue_id not in issue_context_by_id]
