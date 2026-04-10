@@ -12097,6 +12097,16 @@ def build_throughput_avg_cost_series(tp_done: pd.DataFrame, scope_df: pd.DataFra
     ]
     empty_series = pd.DataFrame(columns=series_columns)
 
+    def _summarize_avg_cost(series_df: pd.DataFrame) -> tuple[float, float]:
+        if series_df is None or series_df.empty:
+            return np.nan, np.nan
+        total_throughput = float(pd.to_numeric(series_df.get('Throughput'), errors='coerce').fillna(0).sum())
+        total_bucket_cost = float(pd.to_numeric(series_df.get('CustoCapacidadeBucket (R$)'), errors='coerce').fillna(0).sum())
+        avg_cost_series = pd.to_numeric(series_df.get('Custo Medio Demanda (R$)'), errors='coerce').dropna()
+        avg_cost_period = (total_bucket_cost / total_throughput) if total_throughput > 0 else np.nan
+        avg_cost_p85 = float(exact_empirical_percentile(avg_cost_series, 0.85)) if not avg_cost_series.empty else np.nan
+        return avg_cost_period, avg_cost_p85
+
     if tp_done is None or tp_done.empty:
         return {
             'available': False,
@@ -12226,9 +12236,7 @@ def build_throughput_avg_cost_series(tp_done: pd.DataFrame, scope_df: pd.DataFra
                         .rolling(5, min_periods=1)
                         .mean()
                     )
-                    avg_cost_series = pd.to_numeric(series_df['Custo Medio Demanda (R$)'], errors='coerce').dropna()
-                    avg_cost_mean = float(avg_cost_series.mean()) if not avg_cost_series.empty else np.nan
-                    avg_cost_p85 = float(exact_empirical_percentile(avg_cost_series, 0.85)) if not avg_cost_series.empty else np.nan
+                    avg_cost_mean, avg_cost_p85 = _summarize_avg_cost(series_df)
                     return {
                         'available': True,
                         'series_df': series_df,
@@ -12281,9 +12289,7 @@ def build_throughput_avg_cost_series(tp_done: pd.DataFrame, scope_df: pd.DataFra
         .mean()
     )
 
-    avg_cost_series = pd.to_numeric(series_df['Custo Medio Demanda (R$)'], errors='coerce').dropna()
-    avg_cost_mean = float(avg_cost_series.mean()) if not avg_cost_series.empty else np.nan
-    avg_cost_p85 = float(exact_empirical_percentile(avg_cost_series, 0.85)) if not avg_cost_series.empty else np.nan
+    avg_cost_mean, avg_cost_p85 = _summarize_avg_cost(series_df)
 
     return {
         'available': True,
@@ -20060,9 +20066,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                         x=tp_cost_df['Semana'],
                         y=[avg_cost_mean] * len(tp_cost_df),
                         mode='lines',
-                        name='Média',
+                        name='Média período',
                         line=dict(color='#1565c0', width=1.5, dash='dot'),
-                        hovertemplate='Média: R$ %{y:,.2f}<extra></extra>',
+                        hovertemplate='Média do período: R$ %{y:,.2f}<extra></extra>',
                     )
                 )
             if pd.notna(avg_cost_p85):
@@ -20099,6 +20105,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                         f"`FLOW_PMO_PORTFOLIO_COST_MODEL` (dias úteis/mês={int(throughput_cost_data.get('dias_uteis_mes', 0) or 0)}), "
                         f"`FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP`, `FLOW_PMO_PORTFOLIO_BU_SALARY_MAP` e "
                         f"`FLOW_PMO_PM_COST_PER_HOUR_MAP` quando houver override por produto. "
+                        f"`Custo médio / demanda` = custo total rateado do período ÷ throughput total do período. "
                         f"Escopo monetizado: {throughput_cost_data.get('scope_label', 'TI total')} ({throughput_cost_data.get('scope_source', 'escopo global')})."
                     ),
                     style={'textAlign': 'center', 'color': '#666', 'marginTop': '6px', 'marginBottom': '14px'}

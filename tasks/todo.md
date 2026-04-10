@@ -1,3 +1,46 @@
+## Current Task (Corrigir custo médio da demanda na aba de throughput)
+- [x] Confirmar a causa raiz da divergência entre `Custo médio / demanda` e `P85 custo / demanda`
+- [x] Corrigir o cálculo para refletir o custo médio por demanda do período, sem distorção por média simples semanal
+- [x] Validar sintaxe e registrar evidências/review com commit sugerido
+
+## Specification (Corrigir custo médio da demanda na aba de throughput)
+- Objetivo: corrigir o card `Custo médio / demanda` da visualização `Custo Médio da Demanda` para que ele represente o custo médio por demanda do período na mesma semântica executiva esperada pelo dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar a série semanal monetizada usada no gráfico
+  - substituir a média simples das semanas por um cálculo ponderado do período (`custo total / throughput total`)
+  - preservar o `P85 custo / demanda` como percentil da distribuição semanal, deixando as duas leituras coerentes entre si
+- Critério de aceite:
+  - `Custo médio / demanda` deixa de usar `mean()` simples da série semanal
+  - o KPI passa a refletir o custo médio por demanda do período selecionado
+  - `P85 custo / demanda` continua calculado sobre a série semanal do gráfico
+  - o arquivo alterado continua válido sintaticamente
+
+## Review (Corrigir custo médio da demanda na aba de throughput)
+- Causa raiz confirmada:
+  - o card `Custo médio / demanda` usava `mean()` da série semanal de `Custo Medio Demanda (R$)`
+  - isso produz uma média simples entre semanas, sem ponderar pelo throughput de cada bucket
+  - com outliers e semanas com poucos itens, a média semanal simples pode ficar acima do `P85` semanal, gerando leitura enganosa
+- Correção aplicada:
+  - extraí um helper local em `build_throughput_avg_cost_series(...)` para resumir a série monetizada
+  - o KPI `Custo médio / demanda` agora usa `custo total rateado do período / throughput total do período`
+  - o `P85 custo / demanda` foi mantido como percentil exato da distribuição semanal exibida no gráfico
+  - a linha horizontal do gráfico passou a se chamar `Média período` para refletir a nova semântica
+  - a legenda explicativa abaixo dos cards agora documenta explicitamente a fórmula do KPI
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - reprodução numérica do problema com série sintética:
+    - `weekly_mean=6850.0`
+    - `period_mean=3042.03`
+    - `p85_weekly=5000.0`
+  - essa evidência mostra por que a média simples semanal pode ultrapassar o `P85`, enquanto a média ponderada do período volta à semântica esperada
+- Risco residual:
+  - a validação desta rodada foi sintática e numérica; ainda vale um smoke test visual no dashboard para confirmar os novos valores com o dataset real do ambiente
+- Suggested commit message:
+  - `fix(throughput): weight average demand cost by period throughput`
+
 ## Current Task (Unificar runner all-projects entre Windows e macOS)
 - [x] Comparar `run_all_projects.ps1` e `run_all_projects_macos.sh` para mapear divergências e escolher a estratégia de unificação com menor risco
 - [x] Centralizar a lógica do pipeline em um runner cross-platform que detecte o sistema operacional em runtime e preserve os comportamentos atuais
