@@ -13361,6 +13361,458 @@ def build_generated_portfolio_financial_view(start_ts, end_ts, portfolio_scope_d
     }
 
 
+def build_portfolio_cross_delivery_integration(start_ts, end_ts, portfolio_scope_df, pm_portfolio_data: dict = None, generated_financials: dict = None) -> dict:
+    empty_asset_df = pd.DataFrame(columns=[
+        'AssetID', 'Projeto PM', 'Produto', 'Tipo', 'Team', 'Titulo', 'Status Portfolio', 'DueDate',
+        'ItensDownstream', 'ItensDone', 'ItensReadyProd', 'CasosPM', 'Lead Time Fluxo Médio (dias)',
+        'Cycle Time Dev Médio (dias)', 'Horas Reais Apontadas', 'Custo Real Apontado (R$)',
+        'DependenciesTotal', 'DependenciesAbertasConhecidas', 'PrazoRealStatus', 'ProxyRealizacaoValor', 'Link'
+    ])
+    empty_product_df = pd.DataFrame(columns=[
+        'Projeto PM', 'Produto', 'Capacidade Período (h)', 'Horas Consumidas', '% Capacidade Consumida',
+        'Assets Portfolio', 'Assets com Evidência', 'Assets Entregues', '% Valor Realizado (proxy)'
+    ])
+    empty_dependency_df = pd.DataFrame(columns=[
+        'AssetID', 'Produto', 'Titulo', 'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas', 'PrazoRealStatus', 'Link'
+    ])
+    empty_kpis = pd.DataFrame(columns=['Indicador', 'Valor', 'Detalhe'])
+    empty_notes = [
+        'Sem ativos de portfólio elegíveis no escopo atual para cruzar com downstream/process mining.'
+    ]
+
+    if portfolio_scope_df is None or portfolio_scope_df.empty:
+        return {
+            'available': False,
+            'asset_delivery_df': empty_asset_df,
+            'product_capacity_df': empty_product_df,
+            'dependency_df': empty_dependency_df,
+            'kpis_df': empty_kpis,
+            'notes': empty_notes,
+        }
+
+    scope = portfolio_scope_df.copy()
+    for col in ['ID', 'Titulo', 'Tipo', 'Status', 'Projeto', 'Team', 'Link']:
+        if col not in scope.columns:
+            scope[col] = ''
+    if 'DueDate' not in scope.columns:
+        scope['DueDate'] = pd.NaT
+    scope['DueDate'] = pd.to_datetime(scope['DueDate'], errors='coerce')
+    if 'IssueLinkKeys' not in scope.columns:
+        scope['IssueLinkKeys'] = ''
+    scope['TipoNorm'] = scope['Tipo'].apply(normalize_text)
+    scope['AssetID'] = scope['ID'].astype(str).str.strip().str.upper()
+    scope['TeamPortfolio'] = scope['Team'].fillna('').astype(str).str.strip()
+    scope['Projeto PM'] = scope['TeamPortfolio'].apply(_portfolio_team_to_pm_project_key)
+    scope['Projeto PM'] = np.where(
+        scope['Projeto PM'].astype(str).str.strip().eq(''),
+        scope['Projeto'].apply(_canonical_pm_product_key),
+        scope['Projeto PM'],
+    )
+    scope['Produto'] = scope['Projeto PM'].apply(_pm_product_label)
+    asset_scope = scope[scope['TipoNorm'].isin({'epic', 'epico', 'feature', 'funcionalidade'})].copy()
+    asset_scope = asset_scope[asset_scope['AssetID'].ne('')].copy()
+    asset_scope = asset_scope.sort_values(['AssetID', 'DueDate'], ascending=[True, True], na_position='last')
+    asset_scope = asset_scope.drop_duplicates(subset=['AssetID'], keep='first').reset_index(drop=True)
+    if asset_scope.empty:
+        return {
+            'available': False,
+            'asset_delivery_df': empty_asset_df,
+            'product_capacity_df': empty_product_df,
+            'dependency_df': empty_dependency_df,
+            'kpis_df': empty_kpis,
+            'notes': empty_notes,
+        }
+
+    asset_scope['Status Portfolio'] = asset_scope['Status'].fillna('').astype(str).str.strip()
+    asset_scope['DependenciesPortfolioRaw'] = asset_scope['IssueLinkKeys'].fillna('').astype(str)
+
+    def _split_link_keys(value):
+        text = str(value or '').strip()
+        if not text:
+            return []
+        out = []
+        for token in re.split(r'[,\n;]+', text):
+            cleaned = str(token or '').strip().upper()
+            if cleaned and cleaned not in out:
+                out.append(cleaned)
+        return out
+
+    portfolio_lookup = _pm_build_portfolio_lookup(scope)
+    asset_ids = set(asset_scope['AssetID'])
+    downstream_frames = []
+    pm_case_frames = []
+    canonical_projects = sorted({
+        _canonical_pm_product_key(project_key)
+        for project_key in asset_scope['Projeto PM'].dropna().astype(str).tolist()
+        if _canonical_pm_product_key(project_key)
+    })
+
+    for project_key in canonical_projects:
+        ds = load_project_downstream_items_csv(project_key)
+        if ds is None or ds.empty or 'ID' not in ds.columns:
+            continue
+        ds = ds.copy()
+        ds['Issue Key'] = ds['ID'].astype(str).str.strip().str.upper()
+        ds = ds[ds['Issue Key'].ne('')].copy()
+        asset_map = _pm_build_downstream_asset_map(project_key, portfolio_lookup)
+        if asset_map.empty:
+            continue
+        ds = ds.merge(asset_map[['Issue Key', 'AssetID', 'Fonte Vínculo']], on='Issue Key', how='left')
+        ds = ds[ds['AssetID'].astype(str).isin(asset_ids)].copy()
+        if ds.empty:
+            continue
+        stage_cols = _detect_stage_date_columns(ds)
+        done_col = get_downstream_done_stage_column(stage_cols)
+        ready_prod_col = next((col for col in stage_cols if normalize_text(col) == 'ready for production'), None)
+        ds['CreatedDate'] = pd.to_datetime(ds.get('Created'), errors='coerce')
+        ds['StartDate'] = pd.to_datetime(ds.get('Start date'), errors='coerce')
+        ds['DoneDate'] = pd.to_datetime(ds.get(done_col), dayfirst=True, errors='coerce') if done_col else pd.NaT
+        ds['ReadyProdDate'] = pd.to_datetime(ds.get(ready_prod_col), dayfirst=True, errors='coerce') if ready_prod_col else pd.NaT
+        ds['BlockedFlag'] = _coerce_bool_flag(ds.get('Blocked', pd.Series(False, index=ds.index)))
+        ds['BlockedDaysNum'] = pd.to_numeric(ds.get('Blocked Days'), errors='coerce').fillna(0.0)
+        if 'IssueLinkKeys' not in ds.columns:
+            ds['IssueLinkKeys'] = ''
+        ds['DependencyKeys'] = ds['IssueLinkKeys'].apply(_split_link_keys)
+        ds['DependenciesCount'] = ds['DependencyKeys'].apply(len)
+        ds['Projeto PM'] = project_key
+        ds['Produto'] = _pm_product_label(project_key)
+        downstream_frames.append(ds[[
+            'Issue Key', 'AssetID', 'Projeto PM', 'Produto', 'CreatedDate', 'StartDate', 'DoneDate',
+            'ReadyProdDate', 'BlockedFlag', 'BlockedDaysNum', 'DependencyKeys', 'DependenciesCount'
+        ]].copy())
+
+        pm_cases = load_project_pm_case_df(project_key)
+        if pm_cases is not None and not pm_cases.empty and 'Issue Key' in pm_cases.columns:
+            pm_cases = pm_cases.copy()
+            pm_cases['Issue Key'] = pm_cases['Issue Key'].astype(str).str.strip().str.upper()
+            pm_cases = pm_cases[pm_cases['Issue Key'].ne('')].copy()
+            pm_cases = pm_cases.merge(asset_map[['Issue Key', 'AssetID']], on='Issue Key', how='left')
+            pm_cases = pm_cases[pm_cases['AssetID'].astype(str).isin(asset_ids)].copy()
+            if not pm_cases.empty:
+                pm_cases['Done Final Date'] = pd.to_datetime(pm_cases.get('Done Final Date'), errors='coerce')
+                for col in ['Lead Time Fluxo (dias)', 'Cycle Time Dev Medio (dias)', 'Retornos para Desenvolvimento', 'Rework Score']:
+                    if col in pm_cases.columns:
+                        pm_cases[col] = pd.to_numeric(pm_cases[col], errors='coerce')
+                pm_cases['Projeto PM'] = project_key
+                pm_cases['Produto'] = _pm_product_label(project_key)
+                pm_case_frames.append(pm_cases[[
+                    'Issue Key', 'AssetID', 'Projeto PM', 'Produto', 'Done Final Date',
+                    'Lead Time Fluxo (dias)', 'Cycle Time Dev Medio (dias)', 'Retornos para Desenvolvimento', 'Rework Score'
+                ]].copy())
+
+    downstream_all = pd.concat(downstream_frames, ignore_index=True) if downstream_frames else pd.DataFrame()
+    pm_cases_all = pd.concat(pm_case_frames, ignore_index=True) if pm_case_frames else pd.DataFrame()
+
+    known_portfolio_open = {
+        str(row['AssetID']).strip().upper(): normalize_text(row.get('Status Portfolio', '')) not in {'done', 'concluido', 'concluida', 'closed', 'resolved', 'cancelado', 'cancelled'}
+        for _, row in asset_scope[['AssetID', 'Status Portfolio']].drop_duplicates(subset=['AssetID']).iterrows()
+    }
+    known_downstream_done = {}
+    if not downstream_all.empty:
+        done_by_issue = downstream_all.groupby('Issue Key', dropna=False)['DoneDate'].max()
+        for issue_key, done_date in done_by_issue.items():
+            known_downstream_done[str(issue_key).strip().upper()] = pd.notna(done_date)
+
+    def _count_open_dependencies(key_series):
+        keys = []
+        for value in key_series:
+            for key in value if isinstance(value, list) else []:
+                if key and key not in keys:
+                    keys.append(key)
+        total = len(keys)
+        open_known = 0
+        external = 0
+        for key in keys:
+            if key in known_portfolio_open:
+                if known_portfolio_open[key]:
+                    open_known += 1
+            elif key in known_downstream_done:
+                if not known_downstream_done[key]:
+                    open_known += 1
+            else:
+                external += 1
+        return pd.Series({'DependenciesTotal': total, 'DependenciesAbertasConhecidas': open_known, 'DependenciesExternas': external})
+
+    if not downstream_all.empty:
+        ds_dependency_agg = (
+            downstream_all.groupby('AssetID', dropna=False)['DependencyKeys']
+            .apply(_count_open_dependencies)
+            .reset_index()
+        )
+        if isinstance(ds_dependency_agg.columns, pd.MultiIndex):
+            ds_dependency_agg.columns = ['AssetID', 'Metric', 'Value']
+            ds_dependency_agg = ds_dependency_agg.pivot(index='AssetID', columns='Metric', values='Value').reset_index()
+    else:
+        ds_dependency_agg = pd.DataFrame(columns=['AssetID', 'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas'])
+
+    portfolio_dependency_df = asset_scope[['AssetID', 'DependenciesPortfolioRaw']].copy()
+    portfolio_dependency_df['DependencyKeysPortfolio'] = portfolio_dependency_df['DependenciesPortfolioRaw'].apply(_split_link_keys)
+    portfolio_dependency_agg = (
+        portfolio_dependency_df.groupby('AssetID', dropna=False)['DependencyKeysPortfolio']
+        .apply(_count_open_dependencies)
+        .reset_index()
+    )
+    if isinstance(portfolio_dependency_agg.columns, pd.MultiIndex):
+        portfolio_dependency_agg.columns = ['AssetID', 'Metric', 'Value']
+        portfolio_dependency_agg = portfolio_dependency_agg.pivot(index='AssetID', columns='Metric', values='Value').reset_index()
+    for df_dep in [ds_dependency_agg, portfolio_dependency_agg]:
+        for col in ['DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas']:
+            if col not in df_dep.columns:
+                df_dep[col] = 0
+
+    if not downstream_all.empty:
+        ds_agg = (
+            downstream_all.groupby('AssetID', dropna=False)
+            .agg(
+                **{
+                    'Projeto PM': ('Projeto PM', 'first'),
+                    'Produto': ('Produto', 'first'),
+                    'ItensDownstream': ('Issue Key', 'nunique'),
+                    'ItensDone': ('DoneDate', lambda s: int(s.notna().sum())),
+                    'ItensReadyProd': ('ReadyProdDate', lambda s: int(s.notna().sum())),
+                    'DownstreamCreatedMin': ('CreatedDate', 'min'),
+                    'DownstreamStartMin': ('StartDate', 'min'),
+                    'DownstreamDoneMax': ('DoneDate', 'max'),
+                    'DownstreamReadyProdMax': ('ReadyProdDate', 'max'),
+                    'IssuesBlocked': ('BlockedFlag', 'sum'),
+                    'BlockedDaysTotal': ('BlockedDaysNum', 'sum'),
+                }
+            )
+            .reset_index()
+        )
+        ds_agg['IssuesBlocked'] = pd.to_numeric(ds_agg['IssuesBlocked'], errors='coerce').fillna(0).astype(int)
+    else:
+        ds_agg = pd.DataFrame(columns=[
+            'AssetID', 'Projeto PM', 'Produto', 'ItensDownstream', 'ItensDone', 'ItensReadyProd',
+            'DownstreamCreatedMin', 'DownstreamStartMin', 'DownstreamDoneMax', 'DownstreamReadyProdMax',
+            'IssuesBlocked', 'BlockedDaysTotal'
+        ])
+
+    if not pm_cases_all.empty:
+        pm_agg = (
+            pm_cases_all.groupby('AssetID', dropna=False)
+            .agg(
+                **{
+                    'CasosPM': ('Issue Key', 'nunique'),
+                    'PMDoneMax': ('Done Final Date', 'max'),
+                    'Lead Time Fluxo Médio (dias)': ('Lead Time Fluxo (dias)', 'mean'),
+                    'Lead Time Fluxo P85 (dias)': ('Lead Time Fluxo (dias)', lambda s: exact_empirical_percentile(pd.Series(s).dropna(), 0.85) if pd.Series(s).dropna().shape[0] else np.nan),
+                    'Cycle Time Dev Médio (dias)': ('Cycle Time Dev Medio (dias)', 'mean'),
+                    'Retornos QA->Dev': ('Retornos para Desenvolvimento', 'sum'),
+                    'Rework Score Médio': ('Rework Score', 'mean'),
+                }
+            )
+            .reset_index()
+        )
+    else:
+        pm_agg = pd.DataFrame(columns=[
+            'AssetID', 'CasosPM', 'PMDoneMax', 'Lead Time Fluxo Médio (dias)', 'Lead Time Fluxo P85 (dias)',
+            'Cycle Time Dev Médio (dias)', 'Retornos QA->Dev', 'Rework Score Médio'
+        ])
+
+    cost_assets = pd.DataFrame()
+    if isinstance(generated_financials, dict):
+        cost_assets = generated_financials.get('project_costs_df', pd.DataFrame()).copy()
+    if cost_assets is not None and not cost_assets.empty and 'AssetID' in cost_assets.columns:
+        cost_assets['AssetID'] = cost_assets['AssetID'].astype(str).str.strip().str.upper()
+        for col in ['Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis', 'Custo PM Estimado']:
+            if col not in cost_assets.columns:
+                cost_assets[col] = np.nan
+        cost_assets = cost_assets.groupby('AssetID', dropna=False).agg(
+            **{
+                'Horas Reais Apontadas': ('Horas Reais Apontadas', 'sum'),
+                'Custo Real Apontado (R$)': ('Custo Real Apontado (R$)', 'sum'),
+                'Horas PM Elegíveis': ('Horas PM Elegíveis', 'sum'),
+                'Custo PM Estimado': ('Custo PM Estimado', 'sum'),
+            }
+        ).reset_index()
+    else:
+        cost_assets = pd.DataFrame(columns=['AssetID', 'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis', 'Custo PM Estimado'])
+
+    asset_delivery_df = asset_scope[[
+        'AssetID', 'Projeto PM', 'Produto', 'Tipo', 'TeamPortfolio', 'Titulo', 'Status Portfolio', 'DueDate', 'Link'
+    ]].copy().rename(columns={'TeamPortfolio': 'Team'})
+    merge_frames = [ds_agg.copy(), pm_agg.copy(), cost_assets.copy()]
+    if merge_frames[0] is not None and not merge_frames[0].empty:
+        merge_frames[0] = merge_frames[0].drop(columns=[col for col in ['Projeto PM', 'Produto'] if col in merge_frames[0].columns])
+    for frame in merge_frames:
+        asset_delivery_df = asset_delivery_df.merge(frame, on='AssetID', how='left')
+    asset_delivery_df = asset_delivery_df.merge(
+        ds_dependency_agg[['AssetID', 'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas']],
+        on='AssetID', how='left'
+    )
+    if not portfolio_dependency_agg.empty:
+        asset_delivery_df = asset_delivery_df.merge(
+            portfolio_dependency_agg[['AssetID', 'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas']].rename(columns={
+                'DependenciesTotal': 'DependenciesTotalPortfolio',
+                'DependenciesAbertasConhecidas': 'DependenciesAbertasConhecidasPortfolio',
+                'DependenciesExternas': 'DependenciesExternasPortfolio',
+            }),
+            on='AssetID', how='left'
+        )
+        for target, source in [
+            ('DependenciesTotal', 'DependenciesTotalPortfolio'),
+            ('DependenciesAbertasConhecidas', 'DependenciesAbertasConhecidasPortfolio'),
+            ('DependenciesExternas', 'DependenciesExternasPortfolio'),
+        ]:
+            asset_delivery_df[target] = (
+                pd.to_numeric(asset_delivery_df.get(target), errors='coerce').fillna(0)
+                + pd.to_numeric(asset_delivery_df.get(source), errors='coerce').fillna(0)
+            )
+    asset_delivery_df = asset_delivery_df.drop_duplicates(subset=['AssetID'], keep='first').reset_index(drop=True)
+    for col in [
+        'ItensDownstream', 'ItensDone', 'ItensReadyProd', 'CasosPM', 'IssuesBlocked',
+        'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas', 'Retornos QA->Dev'
+    ]:
+        asset_delivery_df[col] = pd.to_numeric(asset_delivery_df.get(col), errors='coerce').fillna(0).astype(int)
+    for col in [
+        'Lead Time Fluxo Médio (dias)', 'Lead Time Fluxo P85 (dias)', 'Cycle Time Dev Médio (dias)',
+        'Rework Score Médio', 'BlockedDaysTotal', 'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis', 'Custo PM Estimado'
+    ]:
+        asset_delivery_df[col] = pd.to_numeric(asset_delivery_df.get(col), errors='coerce')
+
+    asset_delivery_df['DataEntregaReal'] = pd.to_datetime(asset_delivery_df.get('DownstreamReadyProdMax'), errors='coerce')
+    asset_delivery_df['DataEntregaReal'] = asset_delivery_df['DataEntregaReal'].combine_first(pd.to_datetime(asset_delivery_df.get('DownstreamDoneMax'), errors='coerce'))
+    asset_delivery_df['DataEntregaReal'] = asset_delivery_df['DataEntregaReal'].combine_first(pd.to_datetime(asset_delivery_df.get('PMDoneMax'), errors='coerce'))
+    today_ts = pd.Timestamp.now().normalize()
+    asset_delivery_df['DeltaPrazoDias'] = np.where(
+        asset_delivery_df['DueDate'].notna() & asset_delivery_df['DataEntregaReal'].notna(),
+        (asset_delivery_df['DataEntregaReal'].dt.normalize() - asset_delivery_df['DueDate'].dt.normalize()).dt.days,
+        np.where(
+            asset_delivery_df['DueDate'].notna() & asset_delivery_df['DataEntregaReal'].isna(),
+            (today_ts - asset_delivery_df['DueDate'].dt.normalize()).dt.days,
+            np.nan,
+        )
+    )
+
+    def _prazo_status(row):
+        due = pd.to_datetime(row.get('DueDate'), errors='coerce')
+        actual = pd.to_datetime(row.get('DataEntregaReal'), errors='coerce')
+        if pd.isna(due):
+            return 'Sem target'
+        if pd.notna(actual):
+            return 'No prazo' if actual.normalize() <= due.normalize() else 'Atrasado'
+        if due.normalize() < today_ts:
+            return 'Vencido sem entrega'
+        if due.normalize() <= (today_ts + pd.Timedelta(days=14)):
+            return 'Risco <=14d'
+        return 'Em acompanhamento'
+
+    def _value_realization_proxy(row):
+        actual = pd.to_datetime(row.get('DataEntregaReal'), errors='coerce')
+        real_cost = pd.to_numeric(row.get('Custo Real Apontado (R$)'), errors='coerce')
+        real_hours = pd.to_numeric(row.get('Horas Reais Apontadas'), errors='coerce')
+        if pd.notna(actual) and ((pd.notna(real_cost) and real_cost > 0) or (pd.notna(real_hours) and real_hours > 0)):
+            return 'Valor realizado'
+        if pd.notna(actual):
+            return 'Entrega com evidência'
+        if int(row.get('CasosPM', 0) or 0) > 0 or int(row.get('ItensDownstream', 0) or 0) > 0:
+            return 'Execução em andamento'
+        return 'Sem evidência'
+
+    asset_delivery_df['PrazoRealStatus'] = asset_delivery_df.apply(_prazo_status, axis=1)
+    asset_delivery_df['ProxyRealizacaoValor'] = asset_delivery_df.apply(_value_realization_proxy, axis=1)
+    asset_delivery_df = asset_delivery_df.sort_values(
+        ['PrazoRealStatus', 'DependenciesAbertasConhecidas', 'ItensDone', 'AssetID'],
+        ascending=[True, False, False, True],
+        ignore_index=True,
+    )
+
+    period_days = max(1, int((pd.to_datetime(end_ts) - pd.to_datetime(start_ts)).days) + 1)
+    period_months = max(1.0 / 30.0, float(period_days) / 30.4375)
+    product_capacity_df = pd.DataFrame()
+    cost_model = generated_financials.get('cost_model', {}) if isinstance(generated_financials, dict) else {}
+    product_rates_df = cost_model.get('product_rates_df', pd.DataFrame()).copy() if isinstance(cost_model, dict) else pd.DataFrame()
+    pm_product_summary = pm_portfolio_data.get('product_summary', pd.DataFrame()).copy() if isinstance(pm_portfolio_data, dict) else pd.DataFrame()
+    if product_rates_df is not None and not product_rates_df.empty:
+        product_capacity_df = product_rates_df[['Projeto PM', 'Produto', 'Capacidade Mensal Produto (h)']].copy()
+        product_capacity_df['Capacidade Período (h)'] = pd.to_numeric(product_capacity_df['Capacidade Mensal Produto (h)'], errors='coerce').fillna(0.0) * period_months
+        if pm_product_summary is not None and not pm_product_summary.empty:
+            for col in ['Horas PM Elegíveis', 'Horas Reais Apontadas']:
+                if col not in pm_product_summary.columns:
+                    pm_product_summary[col] = np.nan
+            product_capacity_df = product_capacity_df.merge(
+                pm_product_summary[['Projeto PM', 'Produto', 'Horas PM Elegíveis', 'Horas Reais Apontadas']],
+                on=['Projeto PM', 'Produto'],
+                how='left',
+            )
+        product_capacity_df['Horas Consumidas'] = pd.to_numeric(product_capacity_df.get('Horas Reais Apontadas'), errors='coerce')
+        missing_consumed = product_capacity_df['Horas Consumidas'].isna() | (product_capacity_df['Horas Consumidas'] <= 0)
+        product_capacity_df.loc[missing_consumed, 'Horas Consumidas'] = pd.to_numeric(
+            product_capacity_df.loc[missing_consumed, 'Horas PM Elegíveis'], errors='coerce'
+        ).fillna(0.0)
+        asset_product_agg = (
+            asset_delivery_df.groupby(['Projeto PM', 'Produto'], dropna=False)
+            .agg(
+                **{
+                    'Assets Portfolio': ('AssetID', 'nunique'),
+                    'Assets com Evidência': ('ItensDownstream', lambda s: int((pd.to_numeric(s, errors='coerce').fillna(0) > 0).sum())),
+                    'Assets Entregues': ('DataEntregaReal', lambda s: int(pd.to_datetime(s, errors='coerce').notna().sum())),
+                    'Assets Valor Realizado': ('ProxyRealizacaoValor', lambda s: int(pd.Series(s).eq('Valor realizado').sum())),
+                }
+            )
+            .reset_index()
+        )
+        product_capacity_df = product_capacity_df.merge(asset_product_agg, on=['Projeto PM', 'Produto'], how='left')
+        for col in ['Assets Portfolio', 'Assets com Evidência', 'Assets Entregues', 'Assets Valor Realizado']:
+            product_capacity_df[col] = pd.to_numeric(product_capacity_df.get(col), errors='coerce').fillna(0).astype(int)
+        product_capacity_df['% Capacidade Consumida'] = np.where(
+            pd.to_numeric(product_capacity_df['Capacidade Período (h)'], errors='coerce').fillna(0) > 0,
+            pd.to_numeric(product_capacity_df['Horas Consumidas'], errors='coerce').fillna(0)
+            / pd.to_numeric(product_capacity_df['Capacidade Período (h)'], errors='coerce').fillna(0),
+            np.nan,
+        )
+        product_capacity_df['% Valor Realizado (proxy)'] = np.where(
+            product_capacity_df['Assets Portfolio'] > 0,
+            product_capacity_df['Assets Valor Realizado'] / product_capacity_df['Assets Portfolio'],
+            np.nan,
+        )
+        product_capacity_df = product_capacity_df.sort_values('% Capacidade Consumida', ascending=False, na_position='last', ignore_index=True)
+
+    dependency_df = asset_delivery_df[
+        (asset_delivery_df['DependenciesTotal'] > 0) | (asset_delivery_df['DependenciesAbertasConhecidas'] > 0)
+    ][['AssetID', 'Produto', 'Titulo', 'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas', 'PrazoRealStatus', 'Link']].copy()
+    dependency_df = dependency_df.sort_values(
+        ['DependenciesAbertasConhecidas', 'DependenciesTotal', 'AssetID'],
+        ascending=[False, False, True],
+        ignore_index=True,
+    )
+
+    assets_total = int(asset_delivery_df['AssetID'].nunique())
+    assets_with_evidence = int((asset_delivery_df['ItensDownstream'] > 0).sum())
+    assets_delivered = int(asset_delivery_df['DataEntregaReal'].notna().sum())
+    assets_value_realized = int((asset_delivery_df['ProxyRealizacaoValor'] == 'Valor realizado').sum())
+    assets_at_risk = int(asset_delivery_df['PrazoRealStatus'].isin(['Atrasado', 'Vencido sem entrega']).sum())
+    open_dependencies = int(pd.to_numeric(asset_delivery_df['DependenciesAbertasConhecidas'], errors='coerce').fillna(0).sum())
+    capacity_pct = (
+        float(pd.to_numeric(product_capacity_df.get('% Capacidade Consumida'), errors='coerce').dropna().mean())
+        if product_capacity_df is not None and not product_capacity_df.empty else np.nan
+    )
+    kpis_df = pd.DataFrame([
+        {'Indicador': 'Ativos no portfólio', 'Valor': assets_total, 'Detalhe': 'Épicos e features no escopo atual.'},
+        {'Indicador': 'Ativos com evidência downstream', 'Valor': assets_with_evidence, 'Detalhe': 'Ao menos um item tático mapeado no downstream.'},
+        {'Indicador': 'Ativos com entrega factual', 'Valor': assets_delivered, 'Detalhe': 'Ready for production, done downstream ou done final no process mining.'},
+        {'Indicador': 'Ativos com valor realizado (proxy)', 'Valor': assets_value_realized, 'Detalhe': 'Entrega factual com horas/custo reais apontados.'},
+        {'Indicador': 'Ativos em risco de prazo', 'Valor': assets_at_risk, 'Detalhe': 'Atrasados ou vencidos sem entrega factual.'},
+        {'Indicador': 'Dependências abertas conhecidas', 'Valor': open_dependencies, 'Detalhe': 'Links explícitos ainda abertos no portfólio/downstream conhecido.'},
+        {'Indicador': '% capacidade consumida', 'Valor': round(capacity_pct * 100.0, 1) if pd.notna(capacity_pct) else np.nan, 'Detalhe': 'Média por produto no período atual.'},
+    ])
+    notes = [
+        'Prazo real usa a melhor evidência disponível entre ready for production, conclusão downstream e done final do process mining.',
+        'Capacidade é um proxy factual por produto: horas consumidas no período versus capacidade heurística carregada do modelo financeiro.',
+        'Dependências consideram links explícitos do snapshot de portfólio e do downstream; vínculos não materializados nas bases continuam fora da leitura.',
+        'Realização de valor é um proxy factual: entrega com evidência operacional e apontamento real de horas/custo.',
+    ]
+    return {
+        'available': True,
+        'asset_delivery_df': asset_delivery_df,
+        'product_capacity_df': product_capacity_df,
+        'dependency_df': dependency_df,
+        'kpis_df': kpis_df,
+        'notes': notes,
+    }
+
+
 _PM_DEV_STATUS_NAMES = frozenset({
     'in progress',
     'in development',
@@ -17652,6 +18104,131 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             sections.append(portfolio_table_component(hhi_df, 'HHI de concentração (quanto maior, mais concentrado)', 'table-portfolio-hhi'))
             return html.Div(sections, style={'marginTop': '24px'})
 
+        def render_portfolio_cross_delivery(data):
+            if not isinstance(data, dict) or not data.get('available'):
+                notes = data.get('notes', ['Sem dados suficientes para cruzar portfólio com downstream/process mining.']) if isinstance(data, dict) else ['Sem dados suficientes para cruzar portfólio com downstream/process mining.']
+                return html.Div([
+                    html.H3('Portfólio x Delivery', style={'textAlign': 'left'}),
+                    *[html.P(str(note), style={'color': '#666'}) for note in notes]
+                ], style={'paddingTop': '10px'})
+
+            kpis_df = data.get('kpis_df', pd.DataFrame()).copy()
+            asset_delivery_df = data.get('asset_delivery_df', pd.DataFrame()).copy()
+            product_capacity_df = data.get('product_capacity_df', pd.DataFrame()).copy()
+            dependency_df = data.get('dependency_df', pd.DataFrame()).copy()
+            notes = data.get('notes', [])
+
+            cards = []
+            for _, row in kpis_df.iterrows():
+                label = str(row.get('Indicador', '')).strip()
+                value = row.get('Valor')
+                if isinstance(value, float) and pd.notna(value):
+                    if '%' in label:
+                        display_value = f"{float(value):.1f}%"
+                    else:
+                        display_value = f"{float(value):.1f}" if not float(value).is_integer() else f"{int(value)}"
+                else:
+                    display_value = '—' if pd.isna(value) else str(value)
+                cards.append(_portfolio_metric_card(label, display_value))
+
+            children = [
+                html.H3('Portfólio x Delivery', style={'textAlign': 'left'}),
+                *[
+                    html.P(str(note), style={'color': '#555', 'marginBottom': '6px'})
+                    for note in notes
+                ],
+                html.Div(cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
+                    'gap': '12px',
+                    'marginTop': '12px',
+                }),
+            ]
+
+            if product_capacity_df is not None and not product_capacity_df.empty:
+                cap_plot = product_capacity_df.copy()
+                fig_capacity = px.bar(
+                    cap_plot,
+                    x='Produto',
+                    y='% Capacidade Consumida',
+                    color='% Capacidade Consumida',
+                    template='plotly_white',
+                    title='Consumo de capacidade por produto',
+                    color_continuous_scale=['#2e7d32', '#f9a825', '#c62828'],
+                    hover_data=['Capacidade Período (h)', 'Horas Consumidas', 'Assets Portfolio', 'Assets Entregues']
+                )
+                fig_capacity.update_layout(height=360, margin=dict(t=60, b=60))
+                children.extend([
+                    dcc.Graph(figure=fig_capacity),
+                    portfolio_table_component(
+                        product_capacity_df.copy(),
+                        'Capacidade, entrega e valor realizado por produto',
+                        'table-portfolio-cross-capacity'
+                    )
+                ])
+
+            if dependency_df is not None and not dependency_df.empty:
+                dep_plot = dependency_df.head(15).copy().sort_values('DependenciesAbertasConhecidas', ascending=True)
+                fig_dep = px.bar(
+                    dep_plot,
+                    x='DependenciesAbertasConhecidas',
+                    y='AssetID',
+                    orientation='h',
+                    color='Produto',
+                    template='plotly_white',
+                    title='Top ativos por dependências abertas conhecidas',
+                    hover_data=['Titulo', 'DependenciesTotal', 'DependenciesExternas', 'PrazoRealStatus']
+                )
+                fig_dep.update_layout(height=max(320, len(dep_plot) * 28 + 120), margin=dict(t=60, b=40, l=110, r=20))
+                children.extend([
+                    dcc.Graph(figure=fig_dep),
+                    portfolio_table_component(
+                        dependency_df.copy(),
+                        'Dependências explícitas por ativo',
+                        'table-portfolio-cross-dependencies'
+                    )
+                ])
+
+            if asset_delivery_df is not None and not asset_delivery_df.empty:
+                status_order = ['Atrasado', 'Vencido sem entrega', 'Risco <=14d', 'No prazo', 'Em acompanhamento', 'Sem target']
+                asset_plot = asset_delivery_df.copy()
+                status_rank = {status: idx for idx, status in enumerate(status_order)}
+                asset_plot['PrazoRealStatusRank'] = asset_plot['PrazoRealStatus'].map(status_rank).fillna(len(status_order))
+                asset_plot = asset_plot.sort_values(['PrazoRealStatusRank', 'DependenciesAbertasConhecidas', 'AssetID']).head(20)
+                fig_assets = px.scatter(
+                    asset_plot,
+                    x='Lead Time Fluxo Médio (dias)',
+                    y='DependenciesAbertasConhecidas',
+                    size='ItensDownstream',
+                    color='PrazoRealStatus',
+                    category_orders={'PrazoRealStatus': status_order},
+                    hover_name='AssetID',
+                    hover_data=['Titulo', 'Produto', 'ProxyRealizacaoValor', 'DeltaPrazoDias', 'Horas Reais Apontadas'],
+                    template='plotly_white',
+                    title='Prazo real x dependências x evidência downstream'
+                )
+                fig_assets.update_layout(height=420, margin=dict(t=60, b=40, l=60, r=20))
+                asset_cols = [
+                    c for c in [
+                        'AssetID', 'Produto', 'Tipo', 'Team', 'Titulo', 'Status Portfolio', 'DueDate',
+                        'DataEntregaReal', 'DeltaPrazoDias', 'PrazoRealStatus', 'ProxyRealizacaoValor',
+                        'ItensDownstream', 'ItensDone', 'ItensReadyProd', 'CasosPM',
+                        'Lead Time Fluxo Médio (dias)', 'Cycle Time Dev Médio (dias)',
+                        'Horas Reais Apontadas', 'Custo Real Apontado (R$)',
+                        'DependenciesTotal', 'DependenciesAbertasConhecidas', 'DependenciesExternas', 'Link'
+                    ] if c in asset_delivery_df.columns
+                ]
+                children.extend([
+                    dcc.Graph(figure=fig_assets),
+                    portfolio_table_component(
+                        asset_delivery_df[asset_cols].copy(),
+                        'Ativos do portfólio com prazo real, dependências e proxy de realização de valor',
+                        'table-portfolio-cross-assets'
+                    )
+                ])
+
+            return html.Div(children, style={'paddingTop': '10px'})
+
         total_epicos_visao = int(epicos_por_team_total['QtdEpicos'].sum()) if epicos_por_team_total is not None and not epicos_por_team_total.empty else 0
         total_features_visao = int(features_por_team_total['QtdFeatures'].sum()) if features_por_team_total is not None and not features_por_team_total.empty else 0
         epicos_sem_features_visao = int((epicos_detalhe['QtdFeatures'] == 0).sum()) if epicos_detalhe is not None and not epicos_detalhe.empty else 0
@@ -17964,6 +18541,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             df_portfolio_full_scope,
             pm_portfolio_data,
         )
+        cross_delivery_data = build_portfolio_cross_delivery_integration(
+            start_date,
+            end_date,
+            df_portfolio_full_scope,
+            pm_portfolio_data,
+            generated_financials,
+        )
         pm_product_summary = pm_portfolio_data.get('product_summary', pd.DataFrame()).copy()
         pm_top_assets = pm_portfolio_data.get('top_assets', pd.DataFrame()).copy()
         pm_overall = pm_portfolio_data.get('overall', {})
@@ -18265,6 +18849,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 'table-portfolio-process-mining-ativos'
             ),
         ], style={'paddingTop': '10px'})
+        cross_delivery_section = render_portfolio_cross_delivery(cross_delivery_data)
 
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
@@ -18284,6 +18869,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                     dcc.Tab(label='Hierarquia & Estrutura', value='portfolio-estrutura', children=[estrutura_section]),
                     dcc.Tab(label='Status & Workflow', value='portfolio-status-workflow', children=[workflow_section]),
                     dcc.Tab(label='Effort & Concentração', value='portfolio-effort-concentracao', children=[effort_concentracao_section]),
+                    dcc.Tab(label='Portfólio x Delivery', value='portfolio-cross-delivery', children=[cross_delivery_section]),
                     dcc.Tab(label='Process Mining & CAPEX', value='portfolio-process-mining-capex', children=[pm_portfolio_section]),
                 ]
             ),

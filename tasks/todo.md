@@ -9953,3 +9953,61 @@
   - o próximo passo mais pragmático é separar uma onda `snapshot-only` e outra de `enriquecimento do exportador`
 - Suggested commit message:
   - `docs(portfolio): map implemented indicators and portfolio metric gaps`
+
+## Current Task (Implementar Onda 5 de integração cruzada na aba de portfólio)
+- [x] Mapear os pontos de integração entre snapshot de portfólio, downstream e process mining
+- [x] Implementar agregados cruzados de prazo real, capacidade, dependências e proxy de realização de valor
+- [x] Expor uma nova sub-aba `Portfólio x Delivery` na visão de portfólio
+- [x] Validar sintaxe e smoke test com o CSV local de portfólio
+- [x] Registrar revisão, evidências e commit sugerido
+
+## Specification (Implementar Onda 5 de integração cruzada na aba de portfólio)
+- Objetivo: unir a visão de portfólio com downstream/process mining para oferecer, na própria aba de portfólio, leitura factual de prazo real, capacidade consumida, dependências explícitas e realização de valor.
+- Escopo:
+  - `dashboard_full.py`
+- Estratégia:
+  - reutilizar a malha já existente de `process mining + CAPEX` e o mapeamento portfólio -> downstream/PM por `AssetID`
+  - construir um agregador único por ativo de portfólio com:
+    - evidência downstream (`ItensDownstream`, `ItensDone`, `ItensReadyProd`)
+    - evidência PM (`CasosPM`, `Lead Time Fluxo Médio`, `Cycle Time Dev Médio`, `Done Final Date`)
+    - capacidade por produto via `product_rates_df` e consumo real/estimado via `product_summary`
+    - dependências explícitas via `IssueLinkKeys` do snapshot e do downstream
+    - proxy factual de realização de valor combinando entrega com apontamento real de horas/custo
+  - renderizar uma nova sub-aba executiva `Portfólio x Delivery` com cards, gráfico de capacidade, ranking de dependências e tabela/scatter por ativo
+- Critério de aceite:
+  - a aba de portfólio passa a exibir a sub-aba `Portfólio x Delivery`
+  - a sub-aba mostra KPIs executivos de integração cruzada
+  - o cálculo suporta cobertura parcial dos dados financeiros sem quebrar a renderização
+  - `dashboard_full.py` continua válido sintaticamente e `render_tab(...)` monta a aba sem erro
+
+## Review (Implementar Onda 5 de integração cruzada na aba de portfólio)
+- O que foi implementado:
+  - novo agregador `build_portfolio_cross_delivery_integration(...)` consolidando portfólio, downstream, process mining e régua financeira por `AssetID`
+  - nova sub-aba `Portfólio x Delivery` na visão de portfólio
+  - novo renderer `render_portfolio_cross_delivery(...)` com:
+    - KPIs de cobertura e risco (`ativos com evidência`, `entrega factual`, `valor realizado`, `dependências abertas`, `% capacidade consumida`)
+    - gráfico/tabela de capacidade por produto
+    - gráfico/tabela de dependências explícitas por ativo
+    - scatter/tabela de ativos com prazo real, lead time, dependências e proxy de valor
+  - endurecimento do agregador para:
+    - aceitar `project_costs_df` e `product_summary` com cobertura parcial de colunas financeiras
+    - evitar colisão de colunas `Projeto PM`/`Produto` durante merges
+    - normalizar e deduplicar o escopo final por `AssetID`
+    - evitar quebra do scatter quando nem todos os status de prazo existem no filtro atual
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - smoke test local com `FLOW_PMO_PORTFOLIO_CSV_FILE=/Users/rodrigoalmeidadeoliveira/Documents/dados/latest/portfolio-bt-ns-latest-data.csv`
+  - smoke test de `build_portfolio_cross_delivery_integration(...)` retornando:
+    - `available=true`
+    - `assets_rows=264`
+    - `assets_unique=264`
+    - `products=4`
+  - smoke test de `render_tab(main_view='portfolio', ...)` confirmando:
+    - `has_cross_tab True`
+    - `has_cross_title True`
+- Limitações / riscos residuais:
+  - o snapshot local atual praticamente não traz dependências explícitas materializadas; por isso `dependency_df` ficou vazio neste smoke test
+  - o proxy de valor realizado depende de apontamento real de horas/custo; no dataset validado ele ficou zerado
+  - ainda há `SettingWithCopyWarning` pré-existente em `dashboard_full.py` e `FutureWarning` do `plotly/pandas` durante o smoke test; não bloquearam a montagem da aba, mas merecem saneamento separado
+- Suggested commit message:
+  - `feat(portfolio): add cross-delivery integration view`
