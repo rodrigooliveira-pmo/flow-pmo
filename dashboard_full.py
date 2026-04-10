@@ -14156,7 +14156,7 @@ def _format_change_lead_time(days_value):
 
 
 def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Dias', projeto=None,
-                                   wip_stage_map=None, wip_stage_filter=None):
+                                   wip_stage_map=None, wip_stage_filter=None, wip_base_df=None):
     """Calcula métricas de performance do serviço por semana (layout transposto)."""
     metric_names = [
         'Taxa de chegada / semana',
@@ -14182,6 +14182,7 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         df_projeto.get(lead_start_col, pd.Series(pd.NaT, index=df_projeto.index)),
         errors='coerce'
     )
+    wip_source = wip_base_df if wip_base_df is not None else df_projeto
 
     for i in range(len(weeks) - 1):
         week_start = weeks[i]
@@ -14194,12 +14195,9 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         finished = df_projeto[
             (df_projeto['DataDone'] >= week_start) & (df_projeto['DataDone'] < week_end)
         ]
-        wip = df_projeto[
-            (df_projeto['DataInProgress'] < week_end) &
-            ((df_projeto['DataDone'] >= week_end) | pd.isna(df_projeto['DataDone']))
-        ]
-        wip = filter_items_by_current_stage(
-            wip,
+        weekly_wip = build_live_wip_snapshot(
+            wip_source,
+            week_end,
             projeto=projeto,
             selected_stages=wip_stage_filter,
             stage_map=wip_stage_map,
@@ -14211,7 +14209,8 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         tp_def = len(finished_eligible[finished_eligible['TipoDemanda'] == TYPE_ISSUES]) if tp_total > 0 else 0
         tp_discard = int(finished_eligible['Descartado'].sum()) if 'Descartado' in finished_eligible.columns else 0
 
-        wip_age = (week_end - wip['DataInProgress']).dt.days.mean() if len(wip) > 0 else 0
+        wip_age_series = pd.to_numeric(weekly_wip.get('WIPAge', pd.Series(dtype=float)), errors='coerce').dropna()
+        wip_age = float(wip_age_series.mean()) if not wip_age_series.empty else 0
         lt_finished = time_metric_series(finished, lead_time_col, non_negative=True)
         avg_lt = lt_finished.mean() if not lt_finished.empty else np.nan
         pressure_rho, avg_eff = calculate_flow_efficiency(len(arrived), tp_total)
@@ -14229,7 +14228,7 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
         rows['Taxa de chegada / semana'][week_label] = str(len(arrived))
         rows['Throughput / semana'][week_label] = str(tp_total)
         rows['Pressão de Fluxo (ρ)'][week_label] = f"{pressure_rho:.2f}" if pd.notna(pressure_rho) else '—'
-        rows['Média WIP / semana'][week_label] = str(len(wip))
+        rows['Média WIP / semana'][week_label] = str(len(weekly_wip))
         rows['WIP Age (dias)'][week_label] = f"{wip_age:.0f}" if wip_age else '0'
         rows['Média Lead Time'][week_label] = f"{avg_lt:.0f}" if pd.notna(avg_lt) else '—'
         rows['P85% DO LEAD TIME'][week_label] = f"{p85_lt:.0f}" if pd.notna(p85_lt) else '—'
@@ -14984,6 +14983,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             projeto=projeto,
             wip_stage_map=wip_stage_map if etapa_fluxo else None,
             wip_stage_filter=etapa_fluxo or None,
+            wip_base_df=df_wip_base,
         )
         week_labels = [str(weeks[i].date()) for i in range(len(weeks) - 1)]
 

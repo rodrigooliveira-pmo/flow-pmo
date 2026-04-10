@@ -1,3 +1,45 @@
+## Current Task (Corrigir WIP semanal zerado por time em Serviço e SLA)
+- [x] Reproduzir o zero indevido de `Média WIP / semana` e `WIP Age (dias)` ao filtrar um time
+- [x] Corrigir a base usada pela série semanal para WIP vivo, alinhando com o snapshot de WIP da aba
+- [x] Validar impacto nas demais linhas da tabela e registrar evidências
+
+## Specification (Corrigir WIP semanal zerado por time em Serviço e SLA)
+- Objetivo: impedir que a `Série semanal de apoio` da aba `Serviço e SLA` zere `Média WIP / semana` e `WIP Age (dias)` ao filtrar um time/projeto quando ainda existe WIP vivo elegível.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reproduzir o problema com o filtro do time `BEFINANCE` e o filtro default de `Etapa de Fluxo`
+  - substituir, na série semanal, o cálculo de WIP feito sobre `df_scope` por uma leitura baseada na mesma base de WIP vivo (`df_wip_base`) usada nos cards/breakdowns da aba
+  - manter chegadas, throughput, pressão, lead time e demais linhas calculadas sobre suas bases atuais para minimizar risco
+- Critério de aceite:
+  - `Média WIP / semana` e `WIP Age (dias)` deixam de ficar zerados indevidamente ao filtrar `BEFINANCE`
+  - o cálculo usa a base sem recorte por `DataDone` para WIP vivo semanal
+  - as demais linhas da série semanal permanecem inalteradas no mesmo cenário comparado
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Corrigir WIP semanal zerado por time em Serviço e SLA)
+- Causa raiz confirmada:
+  - a `Série semanal de apoio` calculava WIP semanal em cima de `df_scope`, que já entra filtrado por data, e ainda ancorava a idade em `DataInProgress`
+  - isso divergia do restante da aba, onde WIP vivo já usa `df_wip_base` com `apply_date=False` e `build_live_wip_snapshot(...)`
+  - no recorte `BEFINANCE` com as etapas default (`Ready to Start`, `In progress`, `Code review`), essa divergência zerava a série semanal mesmo com WIP vivo existente
+- Correção aplicada:
+  - `compute_weekly_service_metrics(...)` agora aceita `wip_base_df`
+  - `Média WIP / semana` e `WIP Age (dias)` passaram a ser calculados por `build_live_wip_snapshot(...)` a cada semana
+  - a chamada da aba `tab-performance` passou a enviar `df_wip_base` para a série semanal
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - reprodução local antes/depois para `BEFINANCE` com etapas default:
+    - antes: `WIP={'2026-03-02': '0', '2026-03-09': '0', '2026-03-16': '0', '2026-03-23': '0', '2026-03-30': '0'}`
+    - antes: `WIP Age={'2026-03-02': '0', '2026-03-09': '0', '2026-03-16': '0', '2026-03-23': '0', '2026-03-30': '0'}`
+    - depois: `WIP={'2026-03-02': '1', '2026-03-09': '5', '2026-03-16': '12', '2026-03-23': '13', '2026-03-30': '13'}`
+    - depois: `WIP Age={'2026-03-02': '6', '2026-03-09': '3', '2026-03-16': '6', '2026-03-23': '12', '2026-03-30': '19'}`
+  - comparação local no mesmo cenário confirmando que `Taxa de chegada / semana`, `Throughput / semana`, `Pressão de Fluxo (ρ)`, `Média Lead Time` e `P85% DO LEAD TIME` não mudaram
+- Risco residual:
+  - o filtro por `Etapa de Fluxo` na série semanal continua baseado no snapshot operacional de WIP fornecido por `build_live_wip_snapshot(...)`; não houve reinterpretação histórica da etapa por semana nesta rodada
+- Suggested commit message:
+  - `fix(service-sla): use live wip base for weekly support series`
+
 ## Current Task (Corrigir custo médio da demanda na aba de throughput)
 - [x] Confirmar a causa raiz da divergência entre `Custo médio / demanda` e `P85 custo / demanda`
 - [x] Corrigir o cálculo para refletir o custo médio por demanda do período, sem distorção por média simples semanal
