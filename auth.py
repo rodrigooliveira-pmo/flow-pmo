@@ -32,6 +32,13 @@ from flask import Blueprint, redirect, render_template_string, session, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_user, logout_user
 
 
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _strip_wrapping_quotes(value: str) -> str:
     value = value.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
@@ -247,6 +254,13 @@ _FORBIDDEN_HTML = """<!DOCTYPE html>
 
 def init_app(flask_server) -> None:
     """Attach Google Workspace OAuth + Flask-Login to an existing Flask app."""
+
+    if _env_truthy("FLOW_PMO_DISABLE_AUTH", default=False):
+        flask_server.logger.warning(
+            "Google OAuth desabilitado por FLOW_PMO_DISABLE_AUTH=1. "
+            "Aplicação local rodando sem autenticação."
+        )
+        return
 
     # --- Secret key (required for signed sessions) -------------------------
     secret_key = os.environ.get("FLASK_SECRET_KEY")

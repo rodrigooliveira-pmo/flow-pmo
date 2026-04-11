@@ -8,10 +8,12 @@ Seleciona o dashboard a servir via variáveis de ambiente:
 Dashboards disponíveis:
   dashboard_full          Dashboard principal com Flow Metrics, Portfólio e Process Mining
   dashboard_process_mining  Dashboard standalone dedicado ao Process Mining (análise detalhada)
+  dashboard_spaf          Dashboard standalone dedicado ao módulo SPAF
 
 Exemplos de configuração no Vercel (env vars):
   FLOW_PMO_DASH_MODULE=dashboard_full          → dashboard principal (padrão)
   FLOW_PMO_DASH_MODULE=dashboard_process_mining → somente process mining
+  FLOW_PMO_DASH_MODULE=dashboard_spaf          → módulo SPAF standalone
 """
 
 import importlib

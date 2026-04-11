@@ -26,6 +26,8 @@ flow-pmo/
 ├── dash_board_metricas.py          ← HUB CENTRAL de transformação
 ├── dashboard_full.py               ← Dashboard Dash principal (entry point)
 ├── dashboard_process_mining.py     ← Dashboard Process Mining (standalone)
+├── dashboard_spaf.py               ← Dashboard SPAF standalone
+├── spaf_engine.py                  ← Engine SPAF (loaders + scoring socio-técnico)
 │
 ├── jira_to_pipeline_csv.py         ← Extração Jira → CSVs de fluxo
 ├── jira_portfolio_to_csv.py        ← Extração Jira → CSV portfólio (BT/NS)
@@ -105,6 +107,10 @@ flow-pmo/
   │  dashboard_process_mining.py ← STANDALONE               │
   │    • Process Mining aprofundado                         │
   │    • Lê: *-process-mining-*.xlsx + Bitbucket CSVs       │
+  │                                                         │
+  │  dashboard_spaf.py            ← STANDALONE               │
+  │    • Leitura SPAF 2.0 / socio-técnica                   │
+  │    • Lê: PowerBI_Model + Bitbucket CSVs + Process Mining│
   └─────────────────────────────────────────────────────────┘
 ```
 
@@ -187,6 +193,9 @@ FLOW_PMO_DASH_MODULE=dashboard_full
 
 # Process Mining standalone
 FLOW_PMO_DASH_MODULE=dashboard_process_mining
+
+# SPAF standalone
+FLOW_PMO_DASH_MODULE=dashboard_spaf
 ```
 
 ---

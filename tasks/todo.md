@@ -1,3 +1,65 @@
+## Current Task (Implementar módulo SPAF separado com dashboard dedicado)
+- [x] Mapear os loaders mínimos e definir o contrato do novo módulo SPAF
+- [x] Implementar um engine SPAF separado das telas atuais do `FlowPMO`
+- [x] Implementar um dashboard dedicado `dashboard_spaf.py` com filtros e leitura executiva
+- [x] Validar sintaxe e o carregamento básico do novo dashboard
+
+## Specification (Implementar módulo SPAF separado com dashboard dedicado)
+- Objetivo: executar o plano SPAF criando uma trilha própria no projeto, com motor de métricas e dashboard separados do `dashboard_full.py`, preservando a implementação atual de `FlowPMO` e evitando regressão nas telas existentes.
+- Escopo:
+  - `spaf_engine.py`
+  - `dashboard_spaf.py`
+  - `api/index.py`
+  - `ARQUITETURA_CODIGO.md`
+  - `ARQUITETURA_E_FUNCIONAMENTO_PROJETO.md`
+  - `tasks/todo.md`
+- Estratégia:
+  - criar um módulo de carga e cálculo SPAF que reutilize as mesmas fontes já produzidas pelo pipeline atual (`PowerBI_Model`, CSVs de Bitbucket e workbooks de process mining)
+  - manter os indicadores SPAF isolados em estruturas próprias, sem importar ou reescrever a lógica de UI do `dashboard_full.py`
+  - entregar uma primeira versão funcional das 8 dimensões SPAF com scoring executivo e trilha de evidências por projeto/pessoa
+  - explicitar no dashboard quando uma dimensão usa proxy heurístico em vez de validação/modelo estatístico pleno
+- Critério de aceite:
+  - existe um `dashboard_spaf.py` inicializável via `FLOW_PMO_DASH_MODULE=dashboard_spaf`
+  - o dashboard apresenta dimensões SPAF, radar executivo, breakdown por projeto e tabela diagnóstica por pessoa
+  - a implementação não quebra `dashboard_full.py` nem `dashboard_process_mining.py`
+  - os arquivos novos/alterados passam em validação sintática
+
+## Review (Implementar módulo SPAF separado com dashboard dedicado)
+- O que foi implementado:
+  - novo engine [spaf_engine.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/spaf_engine.py:1) para:
+    - localizar o `PowerBI_Model_*.xlsx`
+    - carregar `Fato_Items` com dimensões legíveis
+    - cruzar CSVs de Bitbucket e workbooks de process mining por projeto
+    - calcular as 8 dimensões SPAF com scoring executivo e trilha de evidências
+    - gerar ranking de risco por pessoa no recorte selecionado
+  - novo dashboard dedicado [dashboard_spaf.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/dashboard_spaf.py:1) com:
+    - score geral SPAF
+    - cards por dimensão
+    - radar executivo
+    - bar chart e heatmap por projeto
+    - tabela por projeto e tabela diagnóstica por pessoa
+    - tabela de metodologia explicitando dimensões baseadas em proxy operacional
+  - atualização do entrypoint [api/index.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/api/index.py:1) e da documentação de arquitetura para reconhecer `dashboard_spaf`
+- Decisões de design:
+  - o módulo SPAF ficou isolado do `dashboard_full.py`; ele reaproveita as fontes de dados, mas não a UI nem os callbacks da tela principal
+  - `Intensity`, `Human Sustainability` e `Predictive` entram nesta rodada como baseline heurístico sobre telemetria existente, explicitado na interface
+  - a primeira entrega é orientada a leitura executiva e gap analysis, não a validação estatística final da pesquisa
+- Evidências de validação:
+  - `python3 -m py_compile spaf_engine.py dashboard_spaf.py api/index.py`
+  - smoke test do engine:
+    - `overall_score=53.3`
+    - `scope_counts={'items': 4184, 'projects': 4, 'people': 41}`
+    - projetos carregados na visão inicial: `S1NC`, `W1NNER`, `BEFINANCE`, `DATA&ANALYTICS`
+  - smoke test de import do dashboard:
+    - `dashboard_spaf.app.title == "SPAF Dashboard"`
+    - `dashboard_spaf.initial_payload['overall_score'] == 53.3`
+- Riscos residuais:
+  - o scoring SPAF desta versão usa proxies operacionais e thresholds heurísticos; ainda não há calibração por `ROC-AUC`, `Brier`, bootstrap ou validação externa
+  - o dashboard inicial recalcula o payload em memória por filtro; se o volume crescer muito, vale introduzir cache dedicado por recorte
+  - a camada prescritiva (`DCOP/DPOP`, recomendação ótima) ainda não entrou nesta rodada
+- Suggested commit message:
+  - `feat(spaf): add standalone socio-technical dashboard module`
+
 ## Current Task (Corrigir WIP semanal zerado por time em Serviço e SLA)
 - [x] Reproduzir o zero indevido de `Média WIP / semana` e `WIP Age (dias)` ao filtrar um time
 - [x] Corrigir a base usada pela série semanal para WIP vivo, alinhando com o snapshot de WIP da aba
@@ -198,6 +260,82 @@
   - como a JQL do `DT` agora e completa, qualquer filtro global via `JqlExtra` deixara de afetar apenas esse projeto enquanto essa regra dedicada estiver ativa
 - Suggested commit message:
   - `fix(dt-extraction): use dedicated board jql for data analytics`
+
+## Current Task (Avaliar documentos SPAF e planejar implementação das features faltantes)
+- [x] Extrair e consolidar os requisitos dos PDFs fornecidos
+- [x] Comparar os requisitos com as capacidades já implementadas no projeto atual
+- [x] Gerar um plano de implementação faseado para as features faltantes
+
+## Specification (Avaliar documentos SPAF e planejar implementação das features faltantes)
+- Objetivo: transformar os quatro documentos de referência (`SPAF`, `SPAF 2.0`, research plan e workshop slides) em um plano de implementação realista para o projeto atual, identificando o que já existe, o que está parcial e o que ainda não foi implementado.
+- Escopo:
+  - `tasks/todo.md`
+- Fontes avaliadas:
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/document_pdf.pdf`
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/document_pdf (1).pdf`
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/document_pdf (2).pdf`
+  - `/Users/rodrigoalmeidadeoliveira/Downloads/document_pdf (3).pdf`
+- Estratégia:
+  - consolidar os artefatos em um backlog único de capacidades SPAF/FlowPMO
+  - classificar cada capacidade em `já implementada`, `parcial` ou `ausente`
+  - propor uma ordem de execução com foco em reaproveitamento do pipeline atual (`jira_to_pipeline_csv.py`, `dash_board_metricas.py`, `process_mining_jira.py`, `dashboard_full.py`, `dashboard_process_mining.py`)
+- Critério de aceite:
+  - o plano deixa explícitas as features faltantes, dependências, ordem de implementação e evidências usadas na avaliação
+  - o plano diferencia claramente o núcleo já operacional de FlowPMO da expansão SPAF 2.0 ainda não entregue
+
+## Review (Avaliar documentos SPAF e planejar implementação das features faltantes)
+- Leitura dos documentos:
+  - os PDFs convergem para um mesmo alvo de produto/pesquisa: framework socio-técnico com 8 dimensões (`temporal`, `intensity`, `parallelism`, `quality vs load`, `human sustainability`, `efficiency`, `collaboration under load`, `predictive analytics`), validação externa, modelos preditivos calibrados e otimização multiagente (`DCOP/DPOP`)
+- Evidências do que já existe no projeto:
+  - `dashboard_full.py` já implementa parte forte do núcleo `FlowPMO`: `IED`, `IEF`, `Score Benchmark`, `ECR`, `ICC`, `FE Ajustada`, `Conformance Quality`, `Rework Rate PM`, `QA Return Rate`, previsibilidade `P85/P50`, DORA semanal básica (`deploy frequency`, `lead time for changes`, `change failure rate`, `mttr`) e integrações com process mining
+  - `process_mining_jira.py` + `dashboard_process_mining.py` já cobrem descoberta/conformidade operacional com artefatos PM4Py, TBR, alignments e tabelas executivas
+  - a base analítica atual é forte em fluxo, produtividade por dev, process mining e sinais executivos derivados
+- Lacunas principais encontradas:
+  - não encontrei implementação operacional das 8 dimensões completas do SPAF 2.0, especialmente `intensity`, `parallelism`, `human sustainability` e `collaboration under load` como índices próprios
+  - não encontrei pipeline de machine learning em produção com `Ridge`, `RF`, `XGBoost`, `ROC-AUC`, `Brier`, `reliability/calibration plots` nem score de `Predictive Risk`
+  - não encontrei integração sistemática com validação externa via `incidents`, `SLO breaches`, `turnover`, surveys ou estudos quasi-experimentais (`diff-in-diff`, `ITS`)
+  - não encontrei otimizador multiagente/DCOP-DPOP nem camada de recomendação prescritiva de rebalanceamento/WIP
+  - não encontrei camada explícita de métricas de colaboração sob carga com rede social técnica (`network density`, concentração de centralidade, overhead de coordenação) além dos proxies atuais de commits/reviews
+- Plano de implementação proposto:
+  - Fase 1 — Formalizar o modelo SPAF no código
+    - criar um módulo central de definição de métricas SPAF com catálogo, fórmulas, benchmarks e níveis de maturidade
+    - mapear cada dimensão aos datasets já disponíveis e explicitar `ready`, `partial`, `missing`
+    - saída esperada: tabela técnica única de métricas SPAF e dicionário de contratos para dashboard/export
+  - Fase 2 — Fechar lacunas de dados do núcleo socio-técnico
+    - adicionar extrações derivadas para `context switching`, `burstiness`, `concurrent cases`, `recovery cycles`, `review breadth`, `network density`, `knowledge concentration` por time/período
+    - concentrar isso em `dash_board_metricas.py` e, onde necessário, enriquecer a ingestão Bitbucket/Jira
+    - saída esperada: novas abas/tabelas no modelo analítico com granularidade por pessoa, time e semana
+  - Fase 3 — Implementar os 8 índices compostos SPAF
+    - operacionalizar `Workload Health`, `Efficiency`, `Collaboration Quality`, `Predictive Risk` e um `Overall Workload Index`
+    - preservar a camada atual de FlowPMO como leitura detalhada, usando SPAF como camada executiva agregada
+    - saída esperada: cards executivos, radar SPAF 2.0 e breakdown por dimensão
+  - Fase 4 — Validação estatística e confiança
+    - adicionar bootstrap/intervalos de confiança para métricas críticas e comparar sinais com benchmarks externos
+    - criar trilha de evidência para estabilidade temporal e qualidade dos indicadores
+    - saída esperada: métricas com banda de confiança e tela de confiabilidade metodológica
+  - Fase 5 — Predição operacional
+    - construir pipeline offline primeiro, não em tempo real, para risco de gargalo, risco de burnout proxy, degradação de qualidade e instabilidade de throughput
+    - avaliar com `time-series CV`, `ROC-AUC`, `Brier` e gráficos de calibração
+    - saída esperada: arquivo/modelo versionado + tela com `Predictive Risk`
+  - Fase 6 — Validação externa e intervenções
+    - integrar fontes opcionais de incidentes/SLOs e registrar intervenções de gestão (`WIP limit`, rotação, freeze de deploy, etc.)
+    - medir efeito antes/depois por time, inicialmente com comparativos simples e depois `diff-in-diff/ITS`
+    - saída esperada: trilha de causalidade mais defensável para os sinais do SPAF
+  - Fase 7 — Camada prescritiva
+    - só depois das fases anteriores, desenhar um otimizador de recomendação para WIP e rebalanceamento de carga
+    - começar por heurística explicável; deixar `DCOP/DPOP` como etapa de P&D, não como primeira entrega de produto
+    - saída esperada: recomendações acionáveis e auditáveis por time
+- Priorização recomendada:
+  - prioridade alta: Fases 1, 2 e 3
+  - prioridade média: Fase 4 e Fase 5
+  - prioridade baixa / pesquisa: Fase 6 e Fase 7
+- Decisão de design recomendada:
+  - não misturar a expansão SPAF 2.0 diretamente na lógica já estabilizada do `IED/IEF`; manter `FlowPMO` como camada operacional existente e introduzir `SPAF` como camada superior agregada, com datasets e componentes próprios
+- Risco residual:
+  - os PDFs descrevem parte do escopo como agenda de pesquisa; portanto, nem tudo deve virar backlog de produto imediatamente
+  - a maior lacuna real do projeto hoje não é visualização, e sim `modelagem formal`, `novas features socio-técnicas` e `validação/predição`
+- Suggested commit message:
+  - `docs(plan): map SPAF document gaps and phased implementation plan`
 
 ## Current Task (Refatorar a tela do Painel Fluxo removendo indicadores duplicados)
 - [x] Revisar a composição atual do `Painel Fluxo` e consolidar quais KPIs devem aparecer apenas uma vez na leitura rápida

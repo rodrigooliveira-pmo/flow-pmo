@@ -8,7 +8,7 @@ Este projeto implementa um pipeline completo de métricas de fluxo e portfólio:
 2. Consolida e padroniza os dados de fluxo.
 3. Calcula métricas semanais, métricas avançadas e eficiência baseada em capacidade de fila.
 4. Gera artefatos para Excel e modelo dimensional para Power BI.
-5. Publica dashboards interativos em Dash (`dashboard_full.py`, `dashboard_process_mining.py` e `dashboard_app.py`).
+5. Publica dashboards interativos em Dash (`dashboard_full.py`, `dashboard_process_mining.py`, `dashboard_spaf.py` e `dashboard_app.py`).
 
 Objetivo: acompanhar desempenho de entrega, gargalos, previsibilidade, qualidade e saúde do fluxo por projeto, tipo e responsável.
 
@@ -73,6 +73,14 @@ Responsável por:
 - Executar exportação de portfólio (opcional).
 - Executar pipeline de métricas (opcional).
 - Subir dashboard automaticamente (opcional).
+
+### 2.7 `spaf_engine.py` + `dashboard_spaf.py` (Módulo SPAF)
+
+Responsáveis por:
+
+- Carregar o `PowerBI_Model_*.xlsx` e cruzar com CSVs de Bitbucket e artefatos de process mining.
+- Calcular as 8 dimensões SPAF em trilha separada da UI principal.
+- Expor um dashboard dedicado com radar executivo, comparação por projeto e diagnóstico por pessoa.
 
 ## 3) Arquitetura de Dados
 
@@ -194,6 +202,12 @@ Características:
 - Aplicação Dash simplificada para leitura direta do `dashboard_output_*.xlsx`.
 - Útil para validações rápidas, smoke tests e consumo leve das análises.
 
+### 6.4 Dashboard SPAF (`dashboard_spaf.py`)
+
+- Aplicação Dash dedicada ao módulo socio-técnico SPAF.
+- Consolida 8 dimensões: `Temporal`, `Intensity`, `Parallelism`, `Quality vs Load`, `Human Sustainability`, `Efficiency`, `Collab under Load` e `Predictive`.
+- Reaproveita o pipeline atual, mas mantém o scoring SPAF isolado do `dashboard_full.py`.
+
 ## 7) Operação e Execução
 
 ### 7.1 Execução ponta a ponta (recomendado)
@@ -216,6 +230,7 @@ python jira_to_pipeline_csv.py --projects W1NNR S1NC BF DT --out "<arquivo>"
 python jira_portfolio_to_csv.py --projects BT NS --out "<arquivo>"
 python dash_board_metricas.py
 python dashboard_full.py
+python dashboard_spaf.py
 ```
 
 ## 8) Dependências Técnicas
