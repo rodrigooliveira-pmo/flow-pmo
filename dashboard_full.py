@@ -722,6 +722,44 @@ DEFAULT_PATTERN_RULES = {
     "compromisso_prematuro": {"flow_pressure_min": 1.1, "wip_tp_ratio_min": 2.2, "predictability_ratio_min": 2.0},
 }
 
+PATTERN_ACTIONS = {
+    "Times operando em estado de urgência": (
+        "Revisar política de Highest: limitar a 1 item ativo por vez. "
+        "Investigar a causa raiz dos expedites — são falhas de processo upstream ou comprometimentos comerciais sem base? "
+        "Separar demanda failure da fila principal e tratar com fluxo dedicado."
+    ),
+    "Times em processo de burnout": (
+        "Congelar novas entradas imediatamente. "
+        "Redistribuir carga ou adicionar capacidade temporária nos gargalos identificados. "
+        "Priorizar conclusão sobre início de trabalho novo até WIP cair abaixo do limite seguro."
+    ),
+    "Times comprometendo a confiança do cliente": (
+        "Revisar e comunicar o lead time de referência realista com o cliente. "
+        "Aumentar frequência de atualização proativa em itens com prazo em risco. "
+        "Identificar e atacar a principal fonte de variabilidade no lead time (dependências, retrabalho ou tamanho de itens)."
+    ),
+    "Times com problemas sistêmicos de fluxo": (
+        "Limitar WIP imediatamente — nenhum item novo começa enquanto a fila não reduzir. "
+        "Fazer swarming nos itens bloqueados: designar responsável e dar prazo de desbloqueio. "
+        "Revisar o critério de entrada no fluxo para cortar demanda inadequada."
+    ),
+    "Times com atrasos e desperdícios": (
+        "Auditar a fila de descarte: por que trabalho foi iniciado e não entregue? "
+        "Tornar bloqueios visíveis no quadro e resolver um por um antes de puxar novo trabalho. "
+        "Revisar Definition of Ready para evitar que itens imaturos entrem no fluxo."
+    ),
+    "Times estagnados": (
+        "Fazer retrospectiva de fluxo focada em: o que está preso e por quê? "
+        "Reduzir tamanho médio dos itens para aumentar cadência e visibilidade de progresso. "
+        "Investigar se há dependências externas não mapeadas que travam a entrega."
+    ),
+    "Times com compromisso prematuro": (
+        "Revisar o processo de aceite de demanda — não comprometer prazo sem capacidade confirmada. "
+        "Implementar política pull explícita: demanda só entra quando há slot disponível. "
+        "Usar dados históricos de lead time para fazer promessas com base em probabilidade, não em estimativas."
+    ),
+}
+
 
 TYPE_SUPPORT = 'Suporte'
 TYPE_ISSUES = 'Issues/Defeitos/Problemas'
@@ -21783,6 +21821,28 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 ),
             ])
 
+        period_days = max(1, (pd.Timestamp(end_ts).normalize() - pd.Timestamp(start_ts).normalize()).days + 1)
+        previous_end_ts = pd.Timestamp(start_ts).normalize() - pd.Timedelta(days=1)
+        previous_start_ts = previous_end_ts - pd.Timedelta(days=period_days - 1)
+        previous_patterns_df = filter_df(
+            fato,
+            previous_start_ts,
+            previous_end_ts,
+            projeto,
+            tipo,
+            classe_servico,
+            responsavel,
+            criadores=criadores,
+            use_creation_date=use_creation_date,
+            tipo_original=tipo_original_jira,
+        ).copy()
+        previous_details, previous_summary = detect_systemic_patterns(
+            previous_patterns_df,
+            previous_start_ts,
+            previous_end_ts,
+            PATTERN_RULES,
+        )
+
         criticos = int((details['Severidade'] == 'Crítico').sum()) if 'Severidade' in details.columns else 0
         atencao = int((details['Severidade'] == 'Atenção').sum()) if 'Severidade' in details.columns else 0
         semanas_afetadas = int(details['Semana'].nunique()) if 'Semana' in details.columns else 0
@@ -21792,27 +21852,443 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         variability_criticos = int((variability_alerts_df['Status'] == 'Crítico').sum()) if not variability_alerts_df.empty else 0
         expedite_status = expedite_kpis_data.get('policy_status', 'Sem base')
 
-        kpis = html.Div([
-            create_kpi_card('Ocorrências Críticas', criticos, class_name='four columns'),
-            create_kpi_card('Ocorrências Atenção', atencao, class_name='four columns'),
-            create_kpi_card('Semanas com Sinal', semanas_afetadas, class_name='four columns'),
-        ], className='row')
-        checklist_kpis = html.Div([
-            create_kpi_card('Checklist Crítico', checklist_criticos, class_name='four columns'),
-            create_kpi_card('Checklist Atenção', checklist_alertas, class_name='four columns'),
-            create_kpi_card('Diagnósticos Prescritivos', diagnosticos, class_name='four columns'),
-        ], className='row')
-        expedite_kpis = html.Div([
-            create_kpi_card('Highest nas Entradas', f"{expedite_kpis_data['arrivals_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('arrivals_pct')) else '—', class_name='three columns'),
-            create_kpi_card('Highest no Throughput', f"{expedite_kpis_data['throughput_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('throughput_pct')) else '—', class_name='three columns'),
-            create_kpi_card('Highest em Aberto', f"{int(expedite_kpis_data.get('open_items', 0))}", class_name='three columns'),
-            create_kpi_card('Política Highest', expedite_status, class_name='three columns'),
-        ], className='row')
-        variability_kpis = html.Div([
-            create_kpi_card('Alertas de Variabilidade Críticos', variability_criticos, class_name='four columns'),
-            create_kpi_card('CV Lead Time', f"{float(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].iloc[0]):.3f}" if not variability_metrics_df.empty and not variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].empty and pd.notna(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].iloc[0]) else '—', class_name='four columns'),
-            create_kpi_card('CV Cycle Time', f"{float(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].iloc[0]):.3f}" if not variability_metrics_df.empty and not variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].empty and pd.notna(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].iloc[0]) else '—', class_name='four columns'),
-        ], className='row')
+        def _safe_nunique(frame, column):
+            if frame is None or frame.empty or column not in frame.columns:
+                return 0
+            return int(frame[column].nunique())
+
+        def _trend_descriptor(current_value, previous_value, lower_is_better=True, tolerance=0.0, fmt='{:+.0f}', suffix=''):
+            if pd.isna(current_value) or pd.isna(previous_value):
+                return ('Sem base anterior', '#7b8694', 'Sem comparação com o período anterior')
+            delta = float(current_value) - float(previous_value)
+            if abs(delta) <= tolerance:
+                return ('Estável', '#7b8694', f'{fmt.format(delta)}{suffix} vs período anterior')
+            moved_up = delta > 0
+            improved = (not moved_up) if lower_is_better else moved_up
+            label = 'Melhorou' if improved else 'Piorou'
+            color = '#2e7d32' if improved else '#c62828'
+            return (label, color, f'{fmt.format(delta)}{suffix} vs período anterior')
+
+        def _fmt_int(value):
+            return f"{int(value)}" if pd.notna(value) else '—'
+
+        def _build_pattern_kpi_card(title, value, subtitle, trend_tuple, accent_color, featured=False):
+            trend_label, trend_color, trend_detail = trend_tuple
+            return html.Div([
+                html.Div(title, style={
+                    'fontSize': '12px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.05em',
+                    'textTransform': 'uppercase',
+                    'color': accent_color,
+                    'marginBottom': '10px',
+                }),
+                html.Div(value, style={
+                    'fontSize': '38px' if featured else '32px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.0',
+                    'color': '#10202f',
+                    'marginBottom': '8px',
+                }),
+                html.Div(subtitle, style={
+                    'fontSize': '13px',
+                    'color': '#52606d',
+                    'lineHeight': '1.45',
+                    'minHeight': '36px',
+                }),
+                html.Div([
+                    html.Span(trend_label, style={
+                        'display': 'inline-block',
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'letterSpacing': '0.04em',
+                        'textTransform': 'uppercase',
+                        'color': trend_color,
+                        'backgroundColor': '#f5f7fa',
+                        'border': f'1px solid {trend_color}33',
+                        'borderRadius': '999px',
+                        'padding': '4px 8px',
+                        'marginRight': '8px',
+                    }),
+                    html.Span(trend_detail, style={'fontSize': '12px', 'color': '#5f6e7b'}),
+                ], style={'marginTop': '10px'}),
+            ], style={
+                'background': 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)' if featured else 'white',
+                'border': f'1px solid {accent_color}2f' if featured else '1px solid #d9e2ec',
+                'borderTop': f'6px solid {accent_color}',
+                'borderRadius': '18px',
+                'padding': '18px',
+                'boxShadow': '0 10px 24px rgba(15, 23, 32, 0.06)' if featured else '0 2px 10px rgba(15, 23, 32, 0.05)',
+                'minHeight': '188px' if featured else '172px',
+                'height': '100%',
+            })
+
+        def _section_shell(kicker, title, subtitle, children, background_color='#ffffff', border_color='#d9e2ec'):
+            return html.Div([
+                html.Div(kicker, style={
+                    'display': 'inline-block',
+                    'fontSize': '11px',
+                    'fontWeight': '700',
+                    'letterSpacing': '0.05em',
+                    'textTransform': 'uppercase',
+                    'color': '#176ea4',
+                    'backgroundColor': 'rgba(255,255,255,0.72)',
+                    'border': '1px solid rgba(23, 110, 164, 0.18)',
+                    'borderRadius': '999px',
+                    'padding': '5px 10px',
+                    'marginBottom': '10px',
+                }),
+                html.Div(title, style={'fontSize': '24px', 'fontWeight': '700', 'lineHeight': '1.1', 'color': '#10202f', 'marginBottom': '6px'}),
+                html.Div(subtitle, style={'fontSize': '13px', 'color': '#4d5c6b', 'lineHeight': '1.55', 'marginBottom': '16px'}),
+                children,
+            ], style={
+                'backgroundColor': background_color,
+                'border': f'1px solid {border_color}',
+                'borderRadius': '20px',
+                'padding': '18px',
+                'boxShadow': '0 6px 18px rgba(15, 23, 32, 0.04)',
+                'marginBottom': '18px',
+            })
+
+        def _chart_card(title, subtitle, figure):
+            return html.Div([
+                html.Div(title, style={'fontSize': '16px', 'fontWeight': '700', 'color': '#17324d', 'marginBottom': '4px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b', 'lineHeight': '1.45', 'marginBottom': '8px'}),
+                dcc.Graph(figure=figure),
+            ], style={
+                'flex': '1 1 460px',
+                'minWidth': '360px',
+                'backgroundColor': 'white',
+                'border': '1px solid #d9e2ec',
+                'borderRadius': '18px',
+                'padding': '14px',
+                'boxShadow': '0 2px 10px rgba(15, 23, 32, 0.05)',
+            })
+
+        def _table_block(title, subtitle, component):
+            return html.Div([
+                html.Div(title, style={'fontSize': '16px', 'fontWeight': '700', 'color': '#17324d', 'marginBottom': '4px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#5f6e7b', 'lineHeight': '1.45', 'marginBottom': '10px'}),
+                component,
+            ], style={
+                'backgroundColor': 'white',
+                'border': '1px solid #d9e2ec',
+                'borderRadius': '18px',
+                'padding': '14px',
+                'boxShadow': '0 2px 10px rgba(15, 23, 32, 0.05)',
+                'marginBottom': '14px',
+            })
+
+        affected_teams = _safe_nunique(details, 'Projeto')
+        affected_teams_prev = _safe_nunique(previous_details, 'Projeto')
+        critical_teams = _safe_nunique(details[details['Severidade'] == 'Crítico'], 'Projeto') if not details.empty else 0
+        critical_teams_prev = _safe_nunique(previous_details[previous_details['Severidade'] == 'Crítico'], 'Projeto') if not previous_details.empty else 0
+        total_occurrences = int(len(details))
+        total_occurrences_prev = int(len(previous_details))
+        critical_occurrences_prev = int((previous_details['Severidade'] == 'Crítico').sum()) if not previous_details.empty and 'Severidade' in previous_details.columns else 0
+        weeks_with_signal_prev = int(previous_details['Semana'].nunique()) if not previous_details.empty and 'Semana' in previous_details.columns else 0
+
+        pattern_totals = details.groupby('Padrão').size().sort_values(ascending=False) if not details.empty else pd.Series(dtype='int64')
+        previous_pattern_totals = previous_details.groupby('Padrão').size().sort_values(ascending=False) if not previous_details.empty else pd.Series(dtype='int64')
+        pattern_critical_totals = (
+            details[details['Severidade'] == 'Crítico'].groupby('Padrão').size()
+            if not details.empty else pd.Series(dtype='int64')
+        )
+        top_patterns = pattern_totals.head(5).index.tolist()
+        top_pattern_name = top_patterns[0] if top_patterns else 'Sem padrão dominante'
+        top_pattern_count = int(pattern_totals.iloc[0]) if len(pattern_totals) else 0
+
+        latest_week_label = 'Sem base'
+        latest_week_details = pd.DataFrame(columns=details.columns)
+        if not details.empty and 'Semana' in details.columns:
+            details_for_week = details.copy()
+            details_for_week['Semana'] = pd.to_datetime(details_for_week['Semana'], errors='coerce')
+            latest_week = details_for_week['Semana'].max()
+            if pd.notna(latest_week):
+                latest_week_label = pd.Timestamp(latest_week).strftime('%d/%m/%Y')
+                latest_week_details = details_for_week[details_for_week['Semana'] == latest_week].copy()
+
+        _sev_order = {'Crítico': 0, 'Atenção': 1}
+        team_alert_cards = []
+        _atencao_teams = []
+        if not details.empty:
+            team_list_build = []
+            for _proj, _grp in details.groupby('Projeto'):
+                _pat_summary = (
+                    _grp.groupby(['Padrão', 'Severidade'])
+                    .size()
+                    .reset_index(name='Semanas')
+                    .sort_values('Semanas', ascending=False)
+                )
+                _top_sev = 'Crítico' if (_grp['Severidade'] == 'Crítico').any() else 'Atenção'
+                _total_cur = len(_grp)
+                _total_prev = (
+                    len(previous_details[previous_details['Projeto'] == _proj])
+                    if not previous_details.empty and 'Projeto' in previous_details.columns
+                    else 0
+                )
+                team_list_build.append((_sev_order.get(_top_sev, 1), -_total_cur, _proj, _pat_summary, _top_sev, _total_cur, _total_prev))
+            team_list_build.sort()
+            _atencao_teams = [t for t in team_list_build if t[4] == 'Atenção']
+
+            for _, _, _proj, _pat_summary, _top_sev, _total_cur, _total_prev in team_list_build:
+                if _top_sev != 'Crítico':
+                    continue
+                _accent = '#c62828' if _top_sev == 'Crítico' else '#c77d12'
+                _delta = _total_cur - _total_prev
+                if _delta > 0:
+                    _trend_txt = f'\u2191 +{_delta} ocorrência(s) vs período anterior'
+                    _trend_color = '#c62828'
+                elif _delta < 0:
+                    _trend_txt = f'\u2193 {_delta} ocorrência(s) vs período anterior'
+                    _trend_color = '#2e7d32'
+                else:
+                    _trend_txt = 'Estável vs período anterior'
+                    _trend_color = '#7b8694'
+
+                _pattern_rows = []
+                for _, _prow in _pat_summary.iterrows():
+                    _sev_color = '#c62828' if _prow['Severidade'] == 'Crítico' else '#c77d12'
+                    _sev_bg = '#fdecea' if _prow['Severidade'] == 'Crítico' else '#fff8e1'
+                    _pattern_rows.append(
+                        html.Div([
+                            html.Span(_prow['Severidade'], style={
+                                'fontSize': '10px', 'fontWeight': '700', 'color': _sev_color,
+                                'backgroundColor': _sev_bg,
+                                'border': f'1px solid {_sev_color}44',
+                                'borderRadius': '999px', 'padding': '2px 6px', 'marginRight': '6px',
+                            }),
+                            html.Span(_prow['Padrão'], style={'fontSize': '12px', 'color': '#243b53'}),
+                            html.Span(
+                                f" \u2014 {int(_prow['Semanas'])} sem.",
+                                style={'fontSize': '11px', 'color': '#7b8694'},
+                            ),
+                        ], style={'marginBottom': '5px'})
+                    )
+
+                _top_pattern = _pat_summary.iloc[0]['Padrão'] if not _pat_summary.empty else ''
+                _action_text = PATTERN_ACTIONS.get(_top_pattern, 'Investigar detalhes na seção Base Analítica abaixo.')
+
+                team_alert_cards.append(html.Div([
+                    html.Div([
+                        html.Div(_proj, style={
+                            'fontSize': '15px', 'fontWeight': '700', 'color': '#10202f', 'flex': '1',
+                        }),
+                        html.Span(_top_sev, style={
+                            'fontSize': '10px', 'fontWeight': '700', 'color': _accent,
+                            'backgroundColor': '#fdecea' if _top_sev == 'Crítico' else '#fff8e1',
+                            'border': f'1px solid {_accent}44',
+                            'borderRadius': '999px', 'padding': '3px 8px',
+                        }),
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '10px'}),
+                    html.Div(_pattern_rows, style={'marginBottom': '10px'}),
+                    html.Div(
+                        _trend_txt,
+                        style={'fontSize': '11px', 'color': _trend_color, 'fontWeight': '600', 'marginBottom': '10px'},
+                    ),
+                    html.Div([
+                        html.Div('Ação sugerida', style={
+                            'fontSize': '10px', 'fontWeight': '700', 'letterSpacing': '0.04em',
+                            'textTransform': 'uppercase', 'color': '#516170', 'marginBottom': '4px',
+                        }),
+                        html.Div(_action_text, style={
+                            'fontSize': '12px', 'color': '#243b53', 'lineHeight': '1.55',
+                        }),
+                    ], style={
+                        'backgroundColor': '#f8fbff',
+                        'borderLeft': f'3px solid {_accent}',
+                        'borderRadius': '0 8px 8px 0',
+                        'padding': '8px 10px',
+                    }),
+                ], style={
+                    'backgroundColor': 'white',
+                    'border': '1px solid #d9e2ec',
+                    'borderTop': f'4px solid {_accent}',
+                    'borderRadius': '14px',
+                    'padding': '14px',
+                    'boxShadow': '0 2px 8px rgba(15, 23, 32, 0.05)',
+                }))
+
+        if team_alert_cards:
+            team_alert_grid = html.Div(
+                team_alert_cards,
+                style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(300px, 1fr))',
+                    'gap': '12px',
+                },
+            )
+        else:
+            _atencao_count = len(_atencao_teams) if not details.empty else 0
+            _atencao_names = ', '.join(t[2] for t in _atencao_teams) if _atencao_teams else '—'
+            team_alert_grid = html.Div([
+                html.Div('\u2713 Nenhum time em estado crítico no período.', style={
+                    'fontSize': '15px', 'fontWeight': '700', 'color': '#2e7d32', 'marginBottom': '8px',
+                }),
+                html.Div(
+                    (
+                        f'{_atencao_count} time(s) com sinais de atenção: {_atencao_names}. '
+                        'Avalie os detalhes na seção Base Analítica abaixo — tabelas de detalhamento semanal e diagnóstico prescritivo.'
+                    ) if _atencao_count > 0 else 'Nenhum padrão sistêmico detectado no período.',
+                    style={'fontSize': '13px', 'color': '#4d5c6b', 'lineHeight': '1.6'},
+                ),
+            ], style={
+                'backgroundColor': '#eef8f1',
+                'border': '1px solid #a8d5b5',
+                'borderRadius': '14px',
+                'padding': '16px 20px',
+            })
+
+        def _operational_status_badge(label, tone):
+            palette = {
+                'danger': ('#fff1f0', '#c62828'),
+                'warning': ('#fff7e8', '#c77d12'),
+                'success': ('#eef8f1', '#2e7d32'),
+                'info': ('#eef6ff', '#176ea4'),
+                'neutral': ('#f3f6f9', '#607080'),
+            }
+            bg, color = palette.get(tone, palette['neutral'])
+            return html.Span(label, style={
+                'display': 'inline-block',
+                'fontSize': '10px',
+                'fontWeight': '700',
+                'letterSpacing': '0.05em',
+                'textTransform': 'uppercase',
+                'color': color,
+                'backgroundColor': bg,
+                'border': f'1px solid {color}22',
+                'borderRadius': '999px',
+                'padding': '4px 8px',
+                'marginBottom': '10px',
+            })
+
+        def _operational_stat_card(title, value, subtitle='', tone='neutral'):
+            tone_map = {
+                'danger': '#c62828',
+                'warning': '#c77d12',
+                'success': '#2e7d32',
+                'info': '#176ea4',
+                'neutral': '#7b8694',
+            }
+            accent = tone_map.get(tone, '#7b8694')
+            return html.Div([
+                html.Div(title, style={
+                    'fontSize': '12px',
+                    'fontWeight': '700',
+                    'color': '#243b53',
+                    'lineHeight': '1.35',
+                    'marginBottom': '10px',
+                    'minHeight': '34px',
+                }),
+                html.Div(value, style={
+                    'fontSize': '36px',
+                    'fontWeight': '700',
+                    'lineHeight': '1.0',
+                    'color': '#10202f',
+                    'marginBottom': '8px',
+                }),
+                html.Div(subtitle, style={
+                    'fontSize': '12px',
+                    'color': '#5f6e7b',
+                    'lineHeight': '1.45',
+                    'minHeight': '34px',
+                }),
+            ], style={
+                'backgroundColor': 'white',
+                'border': '1px solid #d9e2ec',
+                'borderTop': f'5px solid {accent}',
+                'borderRadius': '16px',
+                'padding': '14px 16px',
+                'boxShadow': '0 2px 8px rgba(15, 23, 32, 0.05)',
+                'minHeight': '154px',
+                'height': '100%',
+            })
+
+        def _operational_metric_group(kicker, title, description, cards, tone='neutral'):
+            return html.Div([
+                _operational_status_badge(kicker, tone),
+                html.Div(title, style={
+                    'fontSize': '18px',
+                    'fontWeight': '700',
+                    'color': '#17324d',
+                    'marginBottom': '6px',
+                }),
+                html.Div(description, style={
+                    'fontSize': '12px',
+                    'color': '#5f6e7b',
+                    'lineHeight': '1.5',
+                    'marginBottom': '12px',
+                }),
+                html.Div(cards, style={
+                    'display': 'grid',
+                    'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
+                    'gap': '12px',
+                }),
+            ], style={
+                'flex': '1 1 320px',
+                'minWidth': '280px',
+                'backgroundColor': '#f8fbff' if tone == 'info' else '#fffaf2' if tone == 'warning' else '#ffffff',
+                'border': '1px solid #d9e2ec',
+                'borderRadius': '18px',
+                'padding': '16px',
+                'boxShadow': '0 4px 14px rgba(15, 23, 32, 0.04)',
+            })
+
+        lead_time_cv_value = (
+            f"{float(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].iloc[0]):.3f}"
+            if not variability_metrics_df.empty and
+            not variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].empty and
+            pd.notna(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Lead Time', 'CV'].iloc[0])
+            else '—'
+        )
+        cycle_time_cv_value = (
+            f"{float(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].iloc[0]):.3f}"
+            if not variability_metrics_df.empty and
+            not variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].empty and
+            pd.notna(variability_metrics_df.loc[variability_metrics_df['Métrica'] == 'Cycle Time', 'CV'].iloc[0])
+            else '—'
+        )
+
+        operational_kpi_groups = html.Div([
+            _operational_metric_group(
+                'Checklist',
+                'Revisão semanal automatizada',
+                'Leitura rápida da última semana para confirmar estabilidade operacional e volume de diagnósticos acionáveis.',
+                [
+                    _operational_stat_card('Checklist Crítico', str(checklist_criticos), 'itens fora da banda segura', 'danger' if checklist_criticos > 0 else 'success'),
+                    _operational_stat_card('Checklist Atenção', str(checklist_alertas), 'itens com desvio moderado', 'warning' if checklist_alertas > 0 else 'success'),
+                    _operational_stat_card('Diagnósticos Prescritivos', str(diagnosticos), 'combinações com ação recomendada', 'info'),
+                ],
+                tone='info',
+            ),
+            _operational_metric_group(
+                'Fast Track',
+                'Governança Highest',
+                'Mede se o fluxo expedite continua exceção ou se está contaminando entrada, saída e estoque em aberto.',
+                [
+                    _operational_stat_card('Highest nas Entradas', f"{expedite_kpis_data['arrivals_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('arrivals_pct')) else '—', 'participação na entrada', 'warning'),
+                    _operational_stat_card('Highest no Throughput', f"{expedite_kpis_data['throughput_pct']:.1f}%" if pd.notna(expedite_kpis_data.get('throughput_pct')) else '—', 'participação na saída', 'warning'),
+                    _operational_stat_card('Highest em Aberto', f"{int(expedite_kpis_data.get('open_items', 0))}", 'itens expedite ainda abertos', 'danger' if int(expedite_kpis_data.get('open_items', 0)) > 0 else 'success'),
+                    _operational_stat_card('Política Highest', expedite_status, 'status consolidado da política', 'success' if normalize_text(expedite_status) == 'ok' else 'warning'),
+                ],
+                tone='warning',
+            ),
+            _operational_metric_group(
+                'Variabilidade',
+                'Dispersão operacional',
+                'Semáforos de estabilidade da operação com foco em volume de alertas e dispersão de lead time e cycle time.',
+                [
+                    _operational_stat_card('Alertas Críticos', str(variability_criticos), 'métricas em estado crítico', 'danger' if variability_criticos > 0 else 'success'),
+                    _operational_stat_card('CV Lead Time', lead_time_cv_value, 'coeficiente de variação', 'warning'),
+                    _operational_stat_card('CV Cycle Time', cycle_time_cv_value, 'coeficiente de variação', 'warning'),
+                ],
+                tone='neutral',
+            ),
+        ], style={
+            'display': 'flex',
+            'flexWrap': 'wrap',
+            'gap': '14px',
+        })
 
         fig_summary = go.Figure()
         if not summary.empty:
@@ -21825,7 +22301,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 title='Padrões Detectados por Severidade',
                 color_discrete_map={'Crítico': '#c62828', 'Atenção': '#f9a825'}
             )
-            fig_summary.update_layout(height=520, xaxis_tickangle=-25, margin=dict(b=140))
+            fig_summary.update_layout(height=500, xaxis_tickangle=-22, margin=dict(b=120))
 
         fig_expedite = go.Figure()
         if not expedite_table_df.empty:
@@ -21878,6 +22354,148 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             fig_weekly_review.update_xaxes(title_text='Semana', tickangle=-45)
             fig_weekly_review.update_yaxes(title_text='Itens', secondary_y=False)
             fig_weekly_review.update_yaxes(title_text='Cycle Time P50 (dias)', secondary_y=True)
+
+        fig_pattern_timeline = go.Figure()
+        fig_pattern_team_timeline = go.Figure()
+        if not details.empty and top_patterns:
+            details_plot = details.copy()
+            details_plot['Semana'] = pd.to_datetime(details_plot['Semana'], errors='coerce')
+            weeks_index = pd.date_range(start=start_ts, end=end_ts, freq=WEEK_DATE_RANGE_FREQ)
+            week_pattern_index = pd.MultiIndex.from_product(
+                [weeks_index, top_patterns],
+                names=['Semana', 'Padrão']
+            )
+
+            weekly_pattern_occurrences = (
+                details_plot[details_plot['Padrão'].isin(top_patterns)]
+                .groupby(['Semana', 'Padrão'])
+                .size()
+                .rename('Ocorrências')
+                .reindex(week_pattern_index, fill_value=0)
+                .reset_index()
+            )
+            fig_pattern_timeline = px.line(
+                weekly_pattern_occurrences,
+                x='Semana',
+                y='Ocorrências',
+                color='Padrão',
+                markers=True,
+            )
+            fig_pattern_timeline.update_layout(
+                height=430,
+                template='plotly_white',
+                hovermode='x unified',
+                margin=dict(l=36, r=16, t=24, b=48),
+                title=None,
+                legend=dict(
+                    title='Padrão',
+                    orientation='h',
+                    yanchor='bottom',
+                    y=1.06,
+                    xanchor='left',
+                    x=0,
+                    bgcolor='rgba(255,255,255,0.88)',
+                    bordercolor='rgba(23, 50, 77, 0.08)',
+                    borderwidth=1,
+                    font=dict(size=11),
+                ),
+                font={'family': 'Segoe UI, sans-serif', 'color': '#243b53'},
+            )
+            fig_pattern_timeline.update_traces(
+                line=dict(width=2.5),
+                marker=dict(size=7),
+            )
+            fig_pattern_timeline.update_xaxes(
+                title_text='Semana',
+                tickformat='%d/%m',
+                tickangle=-25,
+                showgrid=False,
+                zeroline=False,
+            )
+            fig_pattern_timeline.update_yaxes(
+                title_text='Ocorrências',
+                rangemode='tozero',
+                showgrid=True,
+                gridcolor='rgba(148,163,184,0.18)',
+                zeroline=False,
+            )
+
+            weekly_pattern_teams = (
+                details_plot[details_plot['Padrão'].isin(top_patterns)]
+                .groupby(['Semana', 'Padrão'])['Projeto']
+                .nunique()
+                .rename('Times Afetados')
+                .reindex(week_pattern_index, fill_value=0)
+                .reset_index()
+            )
+            fig_pattern_team_timeline = px.line(
+                weekly_pattern_teams,
+                x='Semana',
+                y='Times Afetados',
+                color='Padrão',
+                markers=True,
+            )
+            fig_pattern_team_timeline.update_layout(
+                height=430,
+                template='plotly_white',
+                hovermode='x unified',
+                margin=dict(l=36, r=16, t=24, b=48),
+                title=None,
+                legend=dict(
+                    title='Padrão',
+                    orientation='h',
+                    yanchor='bottom',
+                    y=1.06,
+                    xanchor='left',
+                    x=0,
+                    bgcolor='rgba(255,255,255,0.88)',
+                    bordercolor='rgba(23, 50, 77, 0.08)',
+                    borderwidth=1,
+                    font=dict(size=11),
+                ),
+                font={'family': 'Segoe UI, sans-serif', 'color': '#243b53'},
+            )
+            fig_pattern_team_timeline.update_traces(
+                line=dict(width=2.5),
+                marker=dict(size=7),
+            )
+            fig_pattern_team_timeline.update_xaxes(
+                title_text='Semana',
+                tickformat='%d/%m',
+                tickangle=-25,
+                showgrid=False,
+                zeroline=False,
+            )
+            fig_pattern_team_timeline.update_yaxes(
+                title_text='Times afetados',
+                rangemode='tozero',
+                showgrid=True,
+                gridcolor='rgba(148,163,184,0.18)',
+                zeroline=False,
+            )
+
+        pattern_priority_cards = []
+        for pattern_name in top_patterns[:4]:
+            pattern_count = int(pattern_totals.get(pattern_name, 0))
+            pattern_prev = int(previous_pattern_totals.get(pattern_name, 0))
+            pattern_teams = _safe_nunique(details[details['Padrão'] == pattern_name], 'Projeto')
+            latest_week_count = int(len(latest_week_details[latest_week_details['Padrão'] == pattern_name])) if not latest_week_details.empty else 0
+            accent_color = '#c62828' if int(pattern_critical_totals.get(pattern_name, 0)) > 0 else '#c77d12'
+            pattern_priority_cards.append(
+                _build_pattern_kpi_card(
+                    pattern_name,
+                    _fmt_int(pattern_count),
+                    f'{pattern_teams} times afetados no período | última semana: {latest_week_count} ocorrência(s).',
+                    _trend_descriptor(pattern_count, pattern_prev, lower_is_better=True),
+                    accent_color,
+                    featured=False,
+                )
+            )
+        priority_patterns_section = html.Div(pattern_priority_cards, style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fit, minmax(260px, 1fr))',
+            'gap': '12px',
+        }) if pattern_priority_cards else html.P('Sem base suficiente para destacar padrões prioritários.')
 
         details_view = details.sort_values(['Semana', 'Severidade'], ascending=[False, True]) if not details.empty else pd.DataFrame()
         table_summary = dash_table.DataTable(
@@ -21975,54 +22593,182 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         ) if not weekly_review_df.empty else html.P('Sem base semanal suficiente para a revisão automatizada.')
 
         return html.Div([
-            html.H3('Padrões Sistêmicos Detectados', style={'textAlign': 'center'}),
-            html.P(
-                'Detecção automática por regras configuráveis (PATTERN_RULES/JIRA_PATTERN_RULES). '
-                'Inclui urgência crônica, burnout, confiança comprometida, problema sistêmico de fluxo, '
-                'atrasos/desperdícios, estagnação e compromisso prematuro.',
-                style={'textAlign': 'center', 'color': '#555'}
+            html.Div([
+                html.Div([
+                    html.Div('Leitura Executiva', style={
+                        'display': 'inline-block',
+                        'fontSize': '11px',
+                        'fontWeight': '700',
+                        'letterSpacing': '0.06em',
+                        'textTransform': 'uppercase',
+                        'color': '#176ea4',
+                        'backgroundColor': 'rgba(255,255,255,0.72)',
+                        'border': '1px solid rgba(23, 110, 164, 0.18)',
+                        'borderRadius': '999px',
+                        'padding': '5px 10px',
+                        'marginBottom': '12px',
+                    }),
+                    html.H3('Padrões Sistêmicos Detectados', style={'marginBottom': '8px', 'fontSize': '34px', 'lineHeight': '1.05', 'color': '#10202f'}),
+                    html.P(
+                        'A aba foi reorganizada para começar pelos KPIs de times com problema, comparar com o período anterior e mostrar a evolução semanal dos padrões em gráfico de linha.',
+                        style={'color': '#4d5c6b', 'marginBottom': '14px', 'fontSize': '14px', 'lineHeight': '1.6'}
+                    ),
+                    html.Div([
+                        html.Div(f'Período atual: {pd.Timestamp(start_ts).strftime("%d/%m/%Y")} a {pd.Timestamp(end_ts).strftime("%d/%m/%Y")}', style={'fontSize': '12px', 'fontWeight': '600', 'color': '#516170'}),
+                        html.Div(f'Período anterior: {pd.Timestamp(previous_start_ts).strftime("%d/%m/%Y")} a {pd.Timestamp(previous_end_ts).strftime("%d/%m/%Y")}', style={'fontSize': '12px', 'fontWeight': '600', 'color': '#516170'}),
+                        html.Div(f'Última semana com sinal: {latest_week_label}', style={'fontSize': '12px', 'fontWeight': '600', 'color': '#516170'}),
+                    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px'}),
+                ], style={'flex': '1.7 1 360px'}),
+                html.Div([
+                    html.Div('Padrão líder', style={'fontSize': '11px', 'fontWeight': '700', 'letterSpacing': '0.05em', 'textTransform': 'uppercase', 'color': '#607080', 'marginBottom': '4px'}),
+                    html.Div(top_pattern_name, style={'fontSize': '24px', 'fontWeight': '700', 'lineHeight': '1.1', 'color': '#10202f', 'marginBottom': '8px'}),
+                    html.Div(f'{top_pattern_count} ocorrência(s) no período atual', style={'fontSize': '13px', 'color': '#52606d', 'marginBottom': '8px'}),
+                    html.Div(_trend_descriptor(top_pattern_count, int(previous_pattern_totals.get(top_pattern_name, 0)) if top_pattern_name in previous_pattern_totals.index else np.nan, lower_is_better=True)[2], style={'fontSize': '12px', 'color': '#5f6e7b'}),
+                ], style={
+                    'flex': '1 1 280px',
+                    'backgroundColor': 'rgba(255,255,255,0.88)',
+                    'border': '1px solid #d6e0eb',
+                    'borderRadius': '18px',
+                    'padding': '16px',
+                    'boxShadow': '0 2px 10px rgba(15, 23, 32, 0.05)',
+                }),
+            ], style={
+                'display': 'flex',
+                'flexWrap': 'wrap',
+                'alignItems': 'stretch',
+                'gap': '14px',
+                'background': 'linear-gradient(135deg, #eef6ff 0%, #f8fbff 55%, #fffaf2 100%)',
+                'border': '1px solid #d8e5f1',
+                'borderRadius': '22px',
+                'padding': '20px',
+                'marginBottom': '16px',
+                'boxShadow': '0 12px 30px rgba(15, 23, 32, 0.05)',
+            }),
+            _section_shell(
+                'Times em Alerta',
+                'Quais times, quais problemas e o que fazer',
+                (
+                    f'{affected_teams} time(s) com sinais detectados no período | '
+                    f'{critical_teams} crítico(s) | '
+                    f'{int(len(details))} ocorrências totais. '
+                    'Cards ordenados por severidade e volume. '
+                    'A ação sugerida é baseada no padrão mais recorrente do time.'
+                ),
+                team_alert_grid,
+                '#fff8f6' if critical_teams > 0 else '#f8fbff',
+                '#f5c6c6' if critical_teams > 0 else '#cfe0f3',
             ),
-            html.H4('Checklist Semanal Automatizado', style={'marginTop': '16px'}),
-            html.P(
-                'Leitura operacional automática da última semana do recorte, usando banda histórica de throughput, referência factual de cycle time e banda histórica de WIP.',
-                style={'color': '#555'}
+            _section_shell(
+                'Padrões Prioritários',
+                'Indicadores que mais pressionam o time',
+                'Aqui ficam os padrões mais incidentes do período, já com sinalização de tendência e leitura da última semana.',
+                priority_patterns_section,
+                '#ffffff',
+                '#d9e2ec',
             ),
-            checklist_kpis,
-            checklist_table,
-            html.H4('Tabela Diagnóstica Prescritiva', style={'marginTop': '16px'}),
-            html.P(
-                'Combinações semanais de métricas transformadas em diagnóstico provável e ação recomendada.',
-                style={'color': '#555'}
+            _section_shell(
+                'Evolução Semanal',
+                'Como cada padrão evolui ao longo das semanas',
+                'A primeira visão mostra volume de ocorrências; a segunda mostra quantos times foram atingidos por cada padrão líder.',
+                html.Div([
+                    _chart_card(
+                        'Ocorrências por padrão',
+                        'Linha semanal dos padrões mais recorrentes no período atual.',
+                        fig_pattern_timeline,
+                    ) if isinstance(fig_pattern_timeline, go.Figure) and fig_pattern_timeline.data else html.Div(),
+                    _chart_card(
+                        'Times afetados por padrão',
+                        'Linha semanal da quantidade de times impactados por cada padrão prioritário.',
+                        fig_pattern_team_timeline,
+                    ) if isinstance(fig_pattern_team_timeline, go.Figure) and fig_pattern_team_timeline.data else html.Div(),
+                ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px'}),
+                '#fffaf2',
+                '#f1d7a8',
             ),
-            diagnosis_table,
-            html.H4('Governança Fast Track / Highest', style={'marginTop': '16px'}),
-            html.P(
-                'Expõe a participação de itens Highest na entrada, na saída e no estoque em aberto para evitar que fast track vire regra em vez de exceção.',
-                style={'color': '#555'}
+            _section_shell(
+                'Governança Operacional',
+                'Checklist, fast track e variabilidade com layout dedicado',
+                'As leituras operacionais continuam abaixo do resumo executivo, mas agora organizadas em três blocos próprios para facilitar varredura e comparação.',
+                html.Div([
+                    operational_kpi_groups,
+                    html.Div([
+                        _chart_card(
+                            'Resumo semanal automatizado',
+                            'Throughput, WIP e cycle time da revisão semanal automatizada.',
+                            fig_weekly_review,
+                        ) if isinstance(fig_weekly_review, go.Figure) and fig_weekly_review.data else html.Div(),
+                        _chart_card(
+                            'Padrões por severidade',
+                            'Leitura agregada das ocorrências já consolidadas por padrão e severidade.',
+                            fig_summary,
+                        ) if isinstance(fig_summary, go.Figure) and fig_summary.data else html.Div(),
+                    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px', 'marginTop': '14px'}),
+                    html.Div([
+                        _chart_card(
+                            'Governança Fast Track / Highest',
+                            'Participação de Highest na saída para verificar se fast track está virando regra.',
+                            fig_expedite,
+                        ) if isinstance(fig_expedite, go.Figure) and fig_expedite.data else html.Div(),
+                        _chart_card(
+                            'Variabilidade e dispersão',
+                            'Semáforos de CV para lead time, cycle time e throughput.',
+                            fig_variability,
+                        ) if isinstance(fig_variability, go.Figure) and fig_variability.data else html.Div(),
+                    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px', 'marginTop': '14px'}),
+                ]),
+                '#ffffff',
+                '#d9e2ec',
             ),
-            expedite_kpis,
-            expedite_alerts_table,
-            dcc.Graph(figure=fig_expedite) if isinstance(fig_expedite, go.Figure) and fig_expedite.data else html.Div(),
-            expedite_table,
-            html.H4('Alertas Explícitos de Variabilidade / Dispersão', style={'marginTop': '16px'}),
-            html.P(
-                'Semáforos operacionais de dispersão para `Lead Time`, `Cycle Time` e `Throughput`, convertendo CV em alerta acionável.',
-                style={'color': '#555'}
+            _section_shell(
+                'Base Analítica',
+                'Tabelas detalhadas para investigação',
+                'As bases detalhadas ficam concentradas aqui no final da página para apoiar análise sem tirar foco dos KPIs e das tendências.',
+                html.Div([
+                    _table_block(
+                        'Resumo de ocorrências',
+                        'Tabela agregada por padrão e severidade.',
+                        table_summary,
+                    ),
+                    _table_block(
+                        'Detalhamento semanal',
+                        'Ocorrências por time, semana, padrão e regras acionadas.',
+                        table_details,
+                    ),
+                    _table_block(
+                        'Checklist semanal automatizado',
+                        'Leitura operacional da última semana do recorte usando bandas históricas.',
+                        checklist_table,
+                    ),
+                    _table_block(
+                        'Diagnóstico prescritivo',
+                        'Combinações semanais traduzidas em diagnóstico provável e ação recomendada.',
+                        diagnosis_table,
+                    ),
+                    _table_block(
+                        'Alertas Fast Track / Highest',
+                        'Sinais textuais da governança de expedite no recorte atual.',
+                        expedite_alerts_table,
+                    ),
+                    _table_block(
+                        'Tabela Fast Track / Highest',
+                        'Base analítica da distribuição de throughput por classe de serviço.',
+                        expedite_table,
+                    ),
+                    _table_block(
+                        'Alertas de variabilidade',
+                        'Tabela de dispersão operacional convertida em status acionável.',
+                        variability_alerts_table,
+                    ),
+                    _table_block(
+                        'Base semanal da revisão automatizada',
+                        'Série base da revisão semanal com throughput, WIP e cycle time.',
+                        weekly_review_table,
+                    ),
+                ]),
+                '#f8fbff',
+                '#cfe0f3',
             ),
-            variability_kpis,
-            dcc.Graph(figure=fig_variability) if isinstance(fig_variability, go.Figure) and fig_variability.data else html.Div(),
-            variability_alerts_table,
-            dcc.Graph(figure=fig_weekly_review) if isinstance(fig_weekly_review, go.Figure) and fig_weekly_review.data else html.Div(),
-            html.H4('Base Semanal da Revisão Automatizada', style={'marginTop': '16px'}),
-            weekly_review_table,
-            html.Hr(style={'margin': '28px 0'}),
-            kpis,
-            dcc.Graph(figure=fig_summary) if isinstance(fig_summary, go.Figure) and fig_summary.data else html.Div(),
-            html.H4('Resumo de Ocorrências', style={'marginTop': '16px'}),
-            table_summary,
-            html.H4('Detalhamento Semanal', style={'marginTop': '16px'}),
-            table_details,
-        ])
+        ], style={'maxWidth': '1320px', 'margin': '0 auto 24px auto', 'padding': '0 12px 24px 12px'})
 
     if tab == 'tab-process-mining-jira':
         if projeto and normalize_text(projeto) not in {'w1nner', 'w1nnr'}:

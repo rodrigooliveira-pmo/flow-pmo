@@ -1,3 +1,73 @@
+## Current Task (Ajustar formatação dos gráficos de evolução semanal)
+- [x] Revisar a composição visual dos dois gráficos de evolução semanal na aba de padrões
+- [x] Corrigir conflitos entre título interno, legenda e área útil do plot
+- [x] Validar sintaxe após o ajuste
+
+## Specification (Ajustar formatação dos gráficos de evolução semanal)
+- Objetivo: melhorar a legibilidade dos gráficos de evolução semanal dos padrões sistêmicos, removendo sobreposição entre título/legenda e usando melhor o espaço dentro dos cards.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - remover o título interno dos gráficos, já redundante com o cabeçalho do card
+  - reposicionar e estilizar a legenda para não invadir a área do plot
+  - ajustar margens, tipografia, grade e espessura das linhas para leitura mais limpa
+- Critério de aceite:
+  - os gráficos deixam de sobrepor título e legenda
+  - a área útil do gráfico aumenta dentro do card
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Ajustar formatação dos gráficos de evolução semanal)
+- Resultado:
+  - os dois gráficos da seção `Evolução Semanal` agora usam layout mais compacto, sem título interno duplicado e com legenda posicionada acima do plot sem invadir a área do gráfico
+- Mudanças aplicadas:
+  - remoção do `title` interno em `fig_pattern_timeline` e `fig_pattern_team_timeline`
+  - ajuste de `height`, `margin`, `legend`, `font`, `line width`, `marker size` e configuração dos eixos
+- Evidência de validação:
+  - `python3 -m py_compile dashboard_full.py`
+- Suggested commit message:
+  - `fix(padroes): improve weekly trend chart formatting`
+
+## Current Task (Refatorar tela de padrões sistêmicos com foco em KPIs)
+- [x] Revisar a seção `tab-padroes` e mapear os dados já disponíveis para KPIs, tendência e evolução semanal
+- [x] Reorganizar o topo da tela para destacar KPIs de times com problemas e deltas versus período anterior
+- [x] Substituir o detalhamento semanal tabular principal por gráficos de linha de evolução semanal por padrão
+- [x] Empurrar as tabelas analíticas para o final da página e validar sintaxe/resultado
+
+## Specification (Refatorar tela de padrões sistêmicos com foco em KPIs)
+- Objetivo: reorganizar a aba `Padrões Sistêmicos` em `dashboard_full.py` para priorizar leitura executiva, com KPIs principais, sinalização de tendência em relação ao período imediatamente anterior e evolução semanal dos padrões em gráfico de linha.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - manter a detecção existente (`detect_systemic_patterns`, checklist, diagnose e variabilidade) e refatorar apenas a apresentação
+  - calcular um período anterior equivalente para comparar KPIs e destacar se houve melhora ou piora
+  - agregar `details` por semana/padrão/severidade para montar séries semanais em linha focadas nos padrões com mais ocorrências
+  - mover tabelas de apoio e bases analíticas para a parte final da página
+- Critério de aceite:
+  - o topo da página passa a enfatizar os principais KPIs de times com problemas
+  - os KPIs exibem comparação com o último período
+  - o detalhamento semanal principal vira gráfico de linha com evolução por semana
+  - as tabelas analíticas permanecem disponíveis no final da página
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Refatorar tela de padrões sistêmicos com foco em KPIs)
+- Resultado:
+  - a aba `Padrões Sistêmicos` foi reorganizada para começar por KPIs executivos, destacar os padrões mais incidentes, comparar o recorte atual com o período anterior equivalente e mostrar a evolução semanal em gráficos de linha
+- Mudanças aplicadas:
+  - cálculo do período anterior equivalente dentro de `tab-padroes` para suportar deltas executivos
+  - novo hero executivo com contexto do período atual/anterior e destaque do padrão líder
+  - novos cards de KPI para `Times com problemas`, `Times críticos`, `Ocorrências críticas` e `Semanas com sinal`, todos com tendência vs período anterior
+  - nova seção de padrões prioritários com cards por padrão mais incidente
+  - substituição do foco do detalhamento semanal por dois gráficos de linha: ocorrências por padrão e times afetados por padrão
+  - concentração das tabelas detalhadas e bases analíticas no final da página
+- Evidência de validação:
+  - `python3 -m py_compile dashboard_full.py`
+- Risco residual:
+  - a validação realizada nesta rodada foi sintática; não houve execução interativa do dashboard para inspeção visual final no navegador
+- Suggested commit message:
+  - `refactor(padroes): prioritize executive kpis and weekly trend views`
+
 ## Current Task (Validar Cartões Relacionados na cobertura GMUD)
 - [x] Localizar onde `Cartões Relacionados (GMUD)` é extraído dos tickets CHG
 - [x] Confirmar se esse campo entra no matching que compõe `HasGMUD`
