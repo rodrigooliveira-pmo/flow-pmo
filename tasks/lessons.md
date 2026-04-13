@@ -11,6 +11,13 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+- Date: 2026-04-13
+- Context: Validação dos campos estruturados que devem contar para a cobertura GMUD.
+- User correction: Reforçou que `Cartões Relacionados (GMUD)` também precisa ser considerado, após já cobrar validação de `link` e `Itens de Configuração`.
+- Root cause: Eu validei os campos estruturados de GMUD de forma fragmentada, respondendo por campo pedido, em vez de revisar o conjunto completo de evidências estruturadas da GMUD.
+- Prevention rule: Ao validar cobertura GMUD, revisar sempre em bloco todos os canais estruturados relevantes (`IssueLink`, `Itens de Configuração`, `Cartões Relacionados`, rollback e links dedicados), não apenas o campo citado na rodada.
+- Action added to workflow: Em qualquer ajuste/validação de GMUD, abrir primeiro o mapa completo de evidências estruturadas antes de concluir que a cobertura está correta.
+
 - Date: 2026-04-10
 - Context: Ajuste da aba `Throughput Breakdown` para alinhar tabela mensal e gráfico agregado.
 - User correction: Informou que o gráfico de barras deveria refletir março, mas estava exibindo valores de um recorte incompatível com a tabela mensal.

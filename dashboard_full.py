@@ -5495,6 +5495,30 @@ def _gmud_bool_series(series):
     return normalized.isin({'1', 'true', 'yes', 'sim', 'on'})
 
 
+def _gmud_link_evidence_series(df: pd.DataFrame) -> pd.Series:
+    if df is None or df.empty:
+        return pd.Series(dtype=bool)
+
+    index = df.index
+    evidence = pd.Series(False, index=index, dtype=bool)
+    url_pattern = re.compile(r'https?://', re.IGNORECASE)
+    chg_pattern = re.compile(r'\bchg-\d+\b', re.IGNORECASE)
+
+    for col in ['CHGLink', 'GmudLink', 'GMUDLink', 'ChangeLink']:
+        if col not in df.columns:
+            continue
+        values = df[col].fillna('').astype(str).str.strip()
+        evidence |= values.ne('')
+
+    for col in ['link', 'Link']:
+        if col not in df.columns:
+            continue
+        values = df[col].fillna('').astype(str).str.strip()
+        evidence |= values.apply(lambda value: bool(value) and (bool(chg_pattern.search(value)) or bool(url_pattern.search(value))))
+
+    return evidence
+
+
 def _prepare_gmud_snapshot_df(df: pd.DataFrame, kind: str) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -5534,7 +5558,7 @@ def _prepare_gmud_snapshot_df(df: pd.DataFrame, kind: str) -> pd.DataFrame:
             out[dcol] = pd.to_datetime(out[dcol], errors='coerce')
         else:
             out[dcol] = pd.NaT
-    for col in ['ServiceTeam', 'Projeto', 'ItemKey', 'Titulo', 'DeliveryBucket', 'PrimaryEvidence', 'PrimaryEvidenceBucket', 'MatchedCHGKeys', 'Source']:
+    for col in ['ServiceTeam', 'Projeto', 'ItemKey', 'Titulo', 'DeliveryBucket', 'PrimaryEvidence', 'PrimaryEvidenceBucket', 'MatchedCHGKeys', 'Source', 'CHGLink', 'GMUDLink', 'GmudLink', 'ChangeLink', 'Link', 'link']:
         if col not in out.columns:
             out[col] = ''
         out[col] = out[col].fillna('').astype(str)
@@ -5547,6 +5571,12 @@ def _prepare_gmud_snapshot_df(df: pd.DataFrame, kind: str) -> pd.DataFrame:
         if col not in out.columns:
             out[col] = False
         out[col] = _gmud_bool_series(out[col])
+    link_evidence = _gmud_link_evidence_series(out)
+    out['HasGMUD'] = out['HasGMUD'] | link_evidence
+    missing_bucket_mask = out['PrimaryEvidenceBucket'].astype(str).str.strip().eq('')
+    out.loc[link_evidence & missing_bucket_mask, 'PrimaryEvidenceBucket'] = 'Explicita'
+    missing_evidence_mask = out['PrimaryEvidence'].astype(str).str.strip().eq('')
+    out.loc[link_evidence & missing_evidence_mask, 'PrimaryEvidence'] = 'Link no campo link'
     if 'MatchedCommentSignalCount' in out.columns:
         out['MatchedCommentSignalCount'] = pd.to_numeric(out['MatchedCommentSignalCount'], errors='coerce').fillna(0)
     return out

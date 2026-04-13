@@ -1,3 +1,103 @@
+## Current Task (Validar Cartões Relacionados na cobertura GMUD)
+- [x] Localizar onde `Cartões Relacionados (GMUD)` é extraído dos tickets CHG
+- [x] Confirmar se esse campo entra no matching que compõe `HasGMUD`
+- [x] Registrar a validação sem alterar a lógica quando o campo já estiver coberto
+
+## Specification (Validar Cartões Relacionados na cobertura GMUD)
+- Objetivo: confirmar se o campo `Cartões Relacionados (GMUD)` já participa do cálculo de cobertura GMUD usado pelo dashboard.
+- Escopo:
+  - `jira_gmud_coverage.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar a leitura do campo estruturado de cartões relacionados
+  - validar se ele alimenta `StructuredIssueKeys`
+  - confirmar se `StructuredIssueKeys` entra em `MatchedCHGKeys` e `HasGMUD`
+- Critério de aceite:
+  - fica explícito se `Cartões Relacionados` entra ou não no cálculo
+  - caso já entre, nenhuma mudança funcional é aplicada
+
+## Review (Validar Cartões Relacionados na cobertura GMUD)
+- Resultado:
+  - o campo `Cartões Relacionados (GMUD)` já é considerado no cálculo de cobertura GMUD
+- Evidência no código:
+  - `GMUD_RELATED_CARDS_FIELD = "customfield_11366"` é lido em `gmud_structured_field_texts(...)` e populado como `RelatedCardsFieldText` em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:432)
+  - `fetch_chg_issues(...)` envia `RelatedCardsFieldText` para `extract_issue_keys_from_text(...)`, junto com rollback e itens de configuração, formando `StructuredIssueKeys` em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:557)
+  - `compute_gmud_coverage(...)` converte `StructuredIssueKeys` em `structured_ref_map`, usado na composição de `all_chg`, `MatchedCHGKeys` e `HasGMUD` em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:639)
+- Impacto prático:
+  - se o card aparecer em `Cartões Relacionados` com uma chave parseável, ele conta para a cobertura mesmo sem menção em resumo, descrição ou comentário
+- Risco residual:
+  - assim como nos demais campos estruturados, o vínculo depende de o valor conter IDs reconhecíveis como `S1NC-1985`; texto puro sem chave não gera match automático
+- Suggested commit message:
+  - `docs(gmud): record related cards coverage validation`
+
+## Current Task (Validar Itens de Configuração na cobertura GMUD)
+- [x] Localizar no pipeline GMUD onde o campo `Itens de Configuração` é extraído dos tickets CHG
+- [x] Confirmar se esse campo entra no matching que produz `HasGMUD` e `PrimaryEvidence`
+- [x] Registrar a validação e o resultado sem alterar a lógica quando não houver lacuna
+
+## Specification (Validar Itens de Configuração na cobertura GMUD)
+- Objetivo: confirmar se o campo `Itens de Configuração (GMUD)` já participa do cálculo de cobertura GMUD usado pelo dashboard.
+- Escopo:
+  - `jira_gmud_coverage.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar a extração dos campos estruturados da GMUD
+  - validar se `ConfigItemsFieldText` alimenta `StructuredIssueKeys`
+  - confirmar se `StructuredIssueKeys` entra no matching que compõe `MatchedCHGKeys`, `HasGMUD` e `PrimaryEvidence`
+- Critério de aceite:
+  - fica explícito se `Itens de Configuração` entra ou não no cálculo
+  - caso já entre, nenhuma mudança funcional é aplicada
+
+## Review (Validar Itens de Configuração na cobertura GMUD)
+- Resultado:
+  - o campo `Itens de Configuração` já é considerado no cálculo de cobertura GMUD
+- Evidência no código:
+  - `gmud_structured_field_texts(...)` lê `GMUD_CONFIG_ITEMS_FIELD = "customfield_10802"` e popula `ConfigItemsFieldText` em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:432)
+  - `fetch_chg_issues(...)` passa `ConfigItemsFieldText` para `extract_issue_keys_from_text(...)`, junto com rollback e cartões relacionados, gerando `StructuredIssueKeys` em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:555)
+  - `compute_gmud_coverage(...)` transforma `StructuredIssueKeys` em `structured_ref_map`, que entra diretamente em `all_chg`, base de `MatchedCHGKeys` e `HasGMUD`, em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:639)
+  - `pick_primary_evidence(...)` classifica esse caso como `Campo estruturado da GMUD` ou `Campo estruturado via hierarquia`, que cai no bucket `Explicita`, em [jira_gmud_coverage.py](/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/jira_gmud_coverage.py:601)
+- Impacto prático:
+  - se o item aparecer em `Itens de Configuração`, ele pode compor a cobertura mesmo sem menção em texto livre, desde que o parser extraia uma chave reconhecível do conteúdo desse campo
+- Risco residual:
+  - a cobertura depende de o valor do campo conter chaves parseáveis pelo `extract_issue_keys_from_text(...)`; se o campo vier só com texto descritivo sem IDs de item, ele não gera vínculo automático
+- Suggested commit message:
+  - `docs(gmud): record config items coverage validation`
+
+## Current Task (Considerar campo link na cobertura GMUD)
+- [x] Mapear como a aba `GMUD` calcula `HasGMUD` no snapshot detalhado e identificar onde o campo `link` pode entrar como evidência
+- [x] Ajustar a normalização do snapshot para contar `link` na análise de cobertura sem quebrar os artefatos atuais
+- [x] Validar sintaxe e registrar review com evidências e commit sugerido
+
+## Specification (Considerar campo link na cobertura GMUD)
+- Objetivo: garantir que o indicador de cobertura GMUD no dashboard considere também o campo `link` como evidência válida quando ele estiver presente no artefato detalhado, evitando subcontagem na análise de cobertura.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - revisar a preparação do snapshot GMUD detalhado, hoje baseada principalmente em `HasGMUD`
+  - normalizar colunas de link relacionadas à GMUD e recalcular `HasGMUD` localmente quando houver evidência em `link`/`Link`/`CHGLink`
+  - manter os agregados, gráficos e tabelas da aba consumindo o mesmo campo derivado para minimizar risco
+- Critério de aceite:
+  - itens com evidência válida em campo `link` passam a entrar no numerador de cobertura GMUD
+  - a aba continua compatível com artefatos antigos que só trazem `HasGMUD`
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Considerar campo link na cobertura GMUD)
+- Causa raiz confirmada:
+  - a aba `GMUD` consumia o booleano `HasGMUD` pronto do CSV detalhado
+  - quando o artefato viesse com evidência apenas em colunas de `link`, essa evidência não era reaproveitada localmente no dashboard
+- Correção aplicada:
+  - adicionei o helper `_gmud_link_evidence_series(...)` em `dashboard_full.py` para detectar evidência por `CHGLink` e equivalentes, além de `link`/`Link`
+  - `_prepare_gmud_snapshot_df(...)` agora normaliza essas colunas e faz `OR` com `HasGMUD`, preservando compatibilidade com artefatos antigos
+  - quando a cobertura vier apenas por link e não houver bucket/evidência preenchidos, o dashboard passa a classificar o item como evidência explícita para manter os agregados coerentes
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - revisão dirigida do diff em `dashboard_full.py` e `tasks/todo.md`
+- Risco residual:
+  - para colunas genéricas `link`/`Link`, a detecção considera URLs e referências `CHG-*`; se o artefato usar esse campo para outro tipo de link não relacionado à GMUD, vale validar um CSV real da origem
+- Suggested commit message:
+  - `fix(gmud): count link evidence in coverage analysis`
+
 ## Current Task (Implementar módulo SPAF separado com dashboard dedicado)
 - [x] Mapear os loaders mínimos e definir o contrato do novo módulo SPAF
 - [x] Implementar um engine SPAF separado das telas atuais do `FlowPMO`
