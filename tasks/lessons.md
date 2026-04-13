@@ -12,6 +12,13 @@ Use this file after any user correction.
 
 ## Entries
 - Date: 2026-04-13
+- Context: Validação manual da pasta `latest-upload` após o usuário questionar a contagem do log.
+- User correction: Apontou que a captura do Finder mostrava 17 arquivos visíveis, então eu não deveria ter tratado isso imediatamente como se a divergência estivesse resolvida.
+- Root cause: Eu confrontei o log com a contagem atual do diretório, mas não comparei explicitamente a lista do screenshot com a lista completa para explicar por que a imagem mostrava menos itens.
+- Prevention rule: Quando o usuário trouxer uma captura de pasta/listagem que pareça contradizer o log, comparar nominalmente `itens visíveis na captura` vs `itens totais no diretório` antes de concluir que não existe divergência prática.
+- Action added to workflow: Em diagnósticos de arquivos copiados/publicados, sempre separar `contagem total no disco` de `subconjunto visível no screenshot/UI`.
+
+- Date: 2026-04-13
 - Context: Validação dos campos estruturados que devem contar para a cobertura GMUD.
 - User correction: Reforçou que `Cartões Relacionados (GMUD)` também precisa ser considerado, após já cobrar validação de `link` e `Itens de Configuração`.
 - Root cause: Eu validei os campos estruturados de GMUD de forma fragmentada, respondendo por campo pedido, em vez de revisar o conjunto completo de evidências estruturadas da GMUD.

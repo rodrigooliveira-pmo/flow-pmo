@@ -10448,3 +10448,42 @@
   - no smoke test em `/tmp`, a cópia dos aliases `latest` para `~/Documents/dados/latest` falhou por permissão do sandbox; isso não invalida a correção da seleção dos CSVs e precisa ser verificado novamente no runner real fora do sandbox
 - Suggested commit message:
   - `fix(metrics): ignore auxiliary csvs when selecting latest workflow inputs`
+
+## Current Task (Clarificar log do empacotamento latest-upload)
+- [x] Confirmar por que o log `Arquivos copiados` conflita com a leitura do Finder
+- [x] Ajustar `copy_latest_upload.py` para usar mensagem compatível com sincronização e preservação de `mtime`
+- [x] Validar a nova saída do script e registrar evidências
+
+## Specification (Clarificar log do empacotamento latest-upload)
+- Objetivo: remover a ambiguidade do log final do `copy_latest_upload.py`, deixando claro que o pacote `latest-upload` é sincronizado a partir de `latest` com preservação da data original dos arquivos, em vez de sugerir que todos os itens foram “copiados hoje”.
+- Escopo:
+  - `copy_latest_upload.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - confirmar no código e no filesystem que `shutil.copy2(...)` preserva `mtime`
+  - trocar o vocabulário do log de `copiado` para `sincronizado` e explicitar na saída resumida que a data exibida no Finder pode refletir a origem
+  - validar a nova saída do script em execução dirigida
+- Critério de aceite:
+  - o resumo final deixa de usar `Arquivos copiados`
+  - a saída deixa claro que o pacote foi sincronizado com preservação de metadados/data original
+  - a validação confirma o novo texto do log
+
+## Review (Clarificar log do empacotamento latest-upload)
+- Causa raiz confirmada:
+  - `copy_latest_upload.py` usa `shutil.copy2(...)`, que preserva `mtime` do arquivo de origem
+  - por isso o Finder pode mostrar datas antigas, como `2026-03-29`, mesmo quando o arquivo foi reempacotado agora a partir de `latest`
+  - o texto `Arquivos copiados: 33` sugeria incorretamente que os `33` itens tinham sido “copiados hoje”, quando na prática o pacote só foi sincronizado preservando a data original dos artefatos
+- Correção aplicada:
+  - troquei o log unitário de `Copiado:` para `Sincronizado no pacote:`
+  - troquei o resumo final de `Arquivos copiados:` para `Arquivos sincronizados no pacote: N (com data original preservada quando aplicavel)`
+- Evidências de validação:
+  - `python3 -m py_compile copy_latest_upload.py`
+  - verificação direta de `mtime` em origem e destino:
+    - `w1nner-process-mining-latest.xlsx` -> origem `2026-03-29 19:15:40`, destino `2026-03-29 19:15:40`
+    - `w1nner_commits.csv` -> origem `2026-03-29 19:03:32`, destino `2026-03-29 19:03:32`
+    - `PowerBI_Model_latest.xlsx` -> origem `2026-04-13 11:44:24`, destino `2026-04-13 11:44:24`
+  - execução dirigida:
+    - `python3 copy_latest_upload.py --source-dir "/Users/rodrigoalmeidadeoliveira/Documents/dados/latest" --dest-dir /tmp/flow-pmo-latest-upload-log-test --clean-dest`
+    - saída final confirmada: `Arquivos sincronizados no pacote: 33 (com data original preservada quando aplicavel)`
+- Suggested commit message:
+  - `fix(latest-upload): clarify sync log when preserving file dates`

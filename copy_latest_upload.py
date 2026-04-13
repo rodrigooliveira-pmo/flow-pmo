@@ -218,7 +218,7 @@ def main() -> int:
             retry_delay_ms=max(0, args.copy_retry_delay_ms),
         )
 
-    copied_count = 0
+    synced_count = 0
     required_missing: list[str] = []
     optional_missing: list[str] = []
     locked_artifacts: list[str] = []
@@ -231,8 +231,8 @@ def main() -> int:
             retry_delay_ms=max(0, args.copy_retry_delay_ms),
         )
         if status == "copied" and target is not None:
-            copied_count += 1
-            print(f"Copiado: {target.name}")
+            synced_count += 1
+            print(f"Sincronizado no pacote: {target.name}")
         elif status == "required-missing":
             required_missing.append(rule.pattern)
             print(f"Obrigatorio ausente: {rule.pattern}")
@@ -244,7 +244,10 @@ def main() -> int:
             print(f"Aviso: mantendo versao atual de {target.name} porque o destino esta em uso.")
 
     print(f"Pacote latest-upload atualizado em: {dest_dir}")
-    print(f"Arquivos copiados: {copied_count}")
+    print(
+        "Arquivos sincronizados no pacote: "
+        f"{synced_count} (com data original preservada quando aplicavel)"
+    )
     if required_missing:
         joined = ", ".join(required_missing)
         print(f"Obrigatorios ausentes: {joined}", file=sys.stderr)
