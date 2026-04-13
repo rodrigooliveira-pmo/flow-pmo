@@ -32,6 +32,76 @@ from shared.env_utils import load_env_file, parse_json_env
 from shared.path_utils import candidate_data_folders, _sanitize_os_path
 from shared.text_utils import normalize_text
 
+# Import from refactored modules
+from dashboards.core import (
+    _download_model_from_url,
+    _download_portfolio_csv_from_url,
+    _download_bottleneck_csv_from_url,
+    _download_process_mining_report_from_url,
+    _download_downstream_items_csv_from_url,
+    _download_capex_csv_from_url,
+    _download_gmud_csv_from_url,
+    _load_bottleneck_url_map,
+    _load_bitbucket_csv_url_map,
+    _download_bitbucket_csv_from_url,
+    _load_downstream_url_map,
+    _url_filename_matches_project_suffix,
+    _url_filename_matches_project,
+    _resolve_model_file,
+    DATA_FOLDERS,
+    DATA_FOLDER,
+    PROCESS_MINING_ARTIFACT_FOLDER,
+    MODEL_FILE,
+    _iter_local_data_folders,
+    _format_last_processed_load,
+    LAST_PROCESSED_LOAD_LABEL,
+    safe_read_sheet,
+    load_model_data,
+    resolve_service_class,
+    canonicalize_highest_label,
+    is_highest_alias,
+    portfolio_type_to_demand_type,
+    portfolio_project_team_aliases,
+    portfolio_has_extra_onepage_tag,
+    apply_portfolio_module_filters,
+    process_fato_data,
+    canonicalize_demand_type,
+    normalize_project_filter_value,
+    unique_sorted,
+    done_time_eligible_mask,
+    TYPE_SUPPORT,
+    TYPE_ISSUES,
+    TYPE_DEV,
+    TYPE_OTHER,
+    PORTFOLIO_EXTRA_ONEPAGE_TAG,
+    PROJECT_FILTER_ALL_VALUE,
+    ORIGINAL_JIRA_TYPE_FILTER_ALL_VALUE,
+)
+
+from dashboards.metrics.time_metrics import (
+    time_metric_series,
+    build_lead_time_comparable_scope,
+    unique_item_keys,
+    build_delivered_items_base,
+    exact_empirical_percentile,
+    exact_percentile_map,
+    fit_weibull_linearized,
+    describe_weibull_scale_cadence,
+    exact_percentile_band_summary,
+    add_statistical_lines,
+    compute_process_capability_metrics,
+)
+
+from dashboards.components.cards import (
+    create_kpi_card,
+    _portfolio_metric_card,
+)
+
+from dashboards.components.tables import (
+    create_table,
+    create_generic_datatable,
+)
+
 
 HIGHEST_ALIAS_TOKENS = (
     'highest', 'higest', 'expedite', 'urgent', 'urgente',
@@ -51,276 +121,6 @@ def canonicalize_highest_label(value):
     if not text or text.lower() == 'nan':
         return text
     return 'Highest' if is_highest_alias(text) else text
-
-
-def _download_model_from_url(url):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'PowerBI_Model_{file_key}.xlsx')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _download_portfolio_csv_from_url(url):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'portfolio-bt-ns-{file_key}-data.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _download_bottleneck_csv_from_url(url, project_key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data_bottlenecks.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _download_process_mining_report_from_url(url):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'w1nner-process-mining-{file_key}.xlsx')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _download_downstream_items_csv_from_url(url, project_key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _download_capex_csv_from_url(url, key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_key = ''.join(ch for ch in str(key or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'capex'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'capex-{safe_key}-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _download_gmud_csv_from_url(url, kind):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_key = ''.join(ch for ch in str(kind or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'gmud'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'gmud-{safe_key}-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _remote_cache_ttl_seconds():
-    raw = os.getenv('FLOW_PMO_REMOTE_CACHE_TTL_SECONDS', '').strip()
-    if not raw:
-        return 300
-    try:
-        return max(0, int(raw))
-    except Exception:
-        return 300
-
-
-def _refresh_remote_cache_file(url, out_file):
-    """Download URL into cache file with TTL-based refresh for stable *latest* URLs."""
-    ttl = _remote_cache_ttl_seconds()
-    if os.path.exists(out_file):
-        age_seconds = max(0.0, (datetime.now() - datetime.fromtimestamp(os.path.getmtime(out_file))).total_seconds())
-        if age_seconds <= float(ttl):
-            return out_file
-    tmp_file = f"{out_file}.tmp"
-    urllib.request.urlretrieve(url, tmp_file)
-    os.replace(tmp_file, out_file)
-    return out_file
-
-
-def _load_bottleneck_url_map():
-    raw = os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL_MAP', '').strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    out = {}
-    for key, value in parsed.items():
-        project_key = str(key).strip().upper()
-        url = str(value).strip()
-        if project_key and url:
-            out[project_key] = url
-    return out
-
-
-def _load_bitbucket_csv_url_map():
-    """Carrega mapa de URLs para CSVs do Bitbucket.
-    Formato: {"w1nner_commits": "https://...", "w1nner_pullrequests": "https://...", ...}
-    A chave é {prefix}_{tipo} (sem .csv). Ex: w1nner_commits, s1nc_pullrequests, befinance_commits.
-    """
-    raw = os.getenv('FLOW_PMO_BITBUCKET_CSV_URL_MAP', '').strip()
-    if not raw:
-        return {}
-    # Remove quebras de linha e espaços extras que o Vercel UI pode inserir
-    cleaned = ' '.join(raw.splitlines())
-    parsed = None
-    for candidate in (cleaned, cleaned.strip('"').strip("'"), cleaned.replace('\\"', '"')):
-        if not candidate:
-            continue
-        try:
-            parsed = json.loads(candidate)
-            break
-        except Exception:
-            continue
-    if parsed is None:
-        matches = re.findall(r'"([a-z0-9_]+)"\s*:\s*"([^"]+)"', cleaned)
-        if matches:
-            parsed = {k: v for k, v in matches}
-        else:
-            return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return {str(k).strip().lower(): str(v).strip() for k, v in parsed.items() if k and v}
-
-
-def _download_bitbucket_csv_from_url(url, key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    safe_key = ''.join(ch for ch in str(key).lower() if ch.isalnum() or ch == '_')
-    out_file = os.path.join(cache_dir, f'bb-{safe_key}-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
-
-
-def _load_downstream_url_map():
-    raw = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL_MAP', '').strip()
-    if not raw:
-        return {}
-    parsed = None
-    for candidate in (
-        raw,
-        raw.strip('"').strip("'"),
-        raw.replace('\\"', '"'),
-    ):
-        if not candidate:
-            continue
-        try:
-            parsed = json.loads(candidate)
-            break
-        except Exception:
-            continue
-    if parsed is None:
-        # Fallback tolerante para env malformada:
-        # ex.: FLOW_PMO_DOWNSTREAM_CSV_URL_MAP="{"W1NNER":"https://..."}"
-        matches = re.findall(r'"?([A-Za-z0-9& _-]+)"?\s*:\s*"([^"]+)"', raw)
-        if matches:
-            parsed = {k: v for k, v in matches}
-        else:
-            return {}
-    if not isinstance(parsed, dict):
-        return {}
-    out = {}
-    for key, value in parsed.items():
-        project_key = str(key).strip().upper()
-        url = str(value).strip()
-        if project_key and url:
-            out[project_key] = url
-    return out
-
-
-def _url_filename_matches_project_suffix(url, expected_prefix, suffix):
-    """Validate if URL filename seems to belong to the expected project prefix/suffix."""
-    if not url or not expected_prefix:
-        return False
-    parsed = urllib.parse.urlparse(str(url).strip())
-    filename = os.path.basename(parsed.path or '').lower()
-    prefix = str(expected_prefix).strip().lower()
-    return filename.startswith(prefix) and filename.endswith(str(suffix or '').lower())
-
-
-def _url_filename_matches_project(url, expected_prefix):
-    """Backward-compatible helper for bottleneck URLs."""
-    return _url_filename_matches_project_suffix(url, expected_prefix, '-data_bottlenecks.csv')
-
-
-def _resolve_model_file(data_folders):
-    explicit_model = _sanitize_os_path(os.getenv('FLOW_PMO_MODEL_FILE', ''))
-    if explicit_model:
-        candidate = explicit_model if os.path.isabs(explicit_model) else os.path.join(os.path.dirname(__file__), explicit_model)
-        if os.path.isfile(candidate):
-            return os.path.abspath(candidate)
-        raise FileNotFoundError(f'FLOW_PMO_MODEL_FILE aponta para arquivo inexistente: {candidate}')
-
-    model_url = os.getenv('FLOW_PMO_MODEL_URL', '').strip()
-    if model_url:
-        return _download_model_from_url(model_url)
-
-    model_files = []
-    for folder in data_folders:
-        try:
-            entries = os.listdir(folder)
-        except Exception:
-            continue
-        for name in entries:
-            if name.startswith('PowerBI_Model_') and name.endswith('.xlsx'):
-                model_files.append(os.path.join(folder, name))
-    if model_files:
-        return max(model_files, key=os.path.getctime)
-
-    raise FileNotFoundError(
-        'Arquivo de modelo não encontrado. Configure FLOW_PMO_MODEL_FILE ou FLOW_PMO_MODEL_URL, '
-        'ou adicione PowerBI_Model_*.xlsx em uma destas pastas: '
-        + ', '.join(data_folders or ['(nenhuma pasta encontrada)'])
-    )
-
-
-DATA_FOLDERS = candidate_data_folders()
-DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
-PROCESS_MINING_ARTIFACT_FOLDER = os.path.join(os.path.dirname(__file__), 'artifacts', 'process_mining')
-MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
-
-
-def _iter_local_data_folders(include_process_mining_artifacts=False):
-    folders = []
-    seen = set()
-    candidates = list(DATA_FOLDERS or [])
-    if include_process_mining_artifacts:
-        candidates.append(PROCESS_MINING_ARTIFACT_FOLDER)
-    for raw_folder in candidates:
-        folder = str(raw_folder or '').strip()
-        if not folder:
-            continue
-        folder = os.path.abspath(folder)
-        if folder in seen or not os.path.isdir(folder):
-            continue
-        seen.add(folder)
-        folders.append(folder)
-    return folders
-
-
-def _format_last_processed_load(model_file):
-    """Best-effort label for the processed data load timestamp."""
-    try:
-        filename = os.path.basename(model_file or '')
-        match = re.match(r'^PowerBI_Model_(\d{8})_(\d{6})\.xlsx$', filename)
-        if match:
-            return datetime.strptime(''.join(match.groups()), '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M')
-        return datetime.fromtimestamp(os.path.getmtime(model_file)).strftime('%Y-%m-%d %H:%M')
-    except Exception:
-        return 'indisponível'
-
-
-LAST_PROCESSED_LOAD_LABEL = _format_last_processed_load(MODEL_FILE)
 
 # Load model
 xls = pd.ExcelFile(MODEL_FILE)
@@ -362,167 +162,6 @@ if not dim_prioridade.empty:
     fato = fato.merge(dim_prioridade, how='left', left_on='PrioridadeID', right_on='PrioridadeID')
 if not dim_classe_servico.empty and 'ClasseServicoID' in fato.columns:
     fato = fato.merge(dim_classe_servico, how='left', left_on='ClasseServicoID', right_on='ClasseServicoID')
-
-
-def resolve_service_class(classe_servico, prioridade):
-    """Use explicit service classes first; fallback to priority instead of generic Standard."""
-    classe_text = ''
-    if pd.notna(classe_servico):
-        classe_text = str(classe_servico).strip()
-
-    normalized_class = canonicalize_highest_label(classe_text)
-    if normalized_class == 'Highest':
-        return normalized_class
-
-    classe_norm = ''.join(ch for ch in classe_text.lower() if ch.isalnum() or ch.isspace()).strip()
-    if classe_text and classe_norm and classe_norm not in {'standard', 'padrao', 'normal', 'default'}:
-        return canonicalize_highest_label(classe_text)
-
-    if pd.notna(prioridade):
-        prioridade_text = canonicalize_highest_label(prioridade)
-        if prioridade_text and prioridade_text.lower() != 'nan':
-            return prioridade_text
-
-    if classe_text and classe_text.lower() != 'nan':
-        return canonicalize_highest_label(classe_text)
-    return 'Standard'
-
-
-def portfolio_type_to_demand_type(tipo):
-    tipo_norm = normalize_text(tipo)
-    if tipo_norm in {'epico', 'epic', 'feature', 'funcionalidade', 'historia', 'story', 'task', 'tarefa', 'spike'}:
-        return TYPE_DEV
-    if tipo_norm in {'support', 'suporte'}:
-        return TYPE_SUPPORT
-    if tipo_norm in {'bug', 'defeito', 'defeitos', 'issue', 'issues', 'problema', 'problemas'}:
-        return TYPE_ISSUES
-    return canonicalize_demand_type(tipo)
-
-
-def portfolio_project_team_aliases(project_value):
-    project_text = str(project_value or '').strip()
-    if not project_text:
-        return []
-
-    aliases = [project_text]
-    alias_map = {
-        'DATA&ANALYTICS': ['TECH DATA', 'DATA ANALYTICS', 'DATA&ANALYTICS'],
-        'BEFINANCE': ['TECH BEFINANCE', 'BEFINANCE', 'BF'],
-        'S1NC': ['TECH S1NC', 'SQUAD | S1NC', 'S1NC'],
-        'W1NNER': ['TECH W1NNER', 'SQUAD | W1NNER', 'W1NNER', 'W1NNR'],
-    }
-    aliases.extend(alias_map.get(project_text.upper(), []))
-
-    out = []
-    seen = set()
-    for alias in aliases:
-        norm = normalize_text(alias)
-        if norm and norm not in seen:
-            seen.add(norm)
-            out.append(alias)
-    return out
-
-
-def portfolio_has_extra_onepage_tag(raw_labels):
-    text = normalize_text(str(raw_labels or '')).replace('-', ' ')
-    return PORTFOLIO_EXTRA_ONEPAGE_TAG in text
-
-
-def apply_portfolio_module_filters(df_portfolio, projeto=None, tipo=None, classe_servico=None, responsavel=None,
-                                   portfolio_project=None, portfolio_quarter='ALL'):
-    df_filtered = df_portfolio.copy() if df_portfolio is not None else pd.DataFrame()
-    notes = []
-
-    if df_filtered.empty:
-        return df_filtered, None, notes
-
-    if 'Prioridade' not in df_filtered.columns:
-        df_filtered['Prioridade'] = ''
-    df_filtered['Prioridade'] = df_filtered['Prioridade'].apply(canonicalize_highest_label)
-    if 'ClasseServico' not in df_filtered.columns:
-        df_filtered['ClasseServico'] = ''
-    df_filtered['ClasseServico'] = [
-        resolve_service_class(classe, prioridade)
-        for classe, prioridade in zip(df_filtered['ClasseServico'], df_filtered['Prioridade'])
-    ]
-
-    if 'Tipo' not in df_filtered.columns:
-        df_filtered['Tipo'] = ''
-    df_filtered['PortfolioTipoDemanda'] = df_filtered['Tipo'].apply(portfolio_type_to_demand_type)
-
-    if portfolio_quarter != 'ALL':
-        quarter_dates = {
-            'Q1-2026': ('2026-01-01', '2026-03-31'),
-            'Q2-2026': ('2026-04-01', '2026-06-30'),
-            'Q3-2026': ('2026-07-01', '2026-09-30'),
-            'Q4-2026': ('2026-10-01', '2026-12-31'),
-        }
-        if portfolio_quarter in quarter_dates and 'DueDate' in df_filtered.columns:
-            q_start, q_end = quarter_dates[portfolio_quarter]
-            q_start_ts = pd.to_datetime(q_start)
-            q_end_ts = pd.to_datetime(q_end)
-            df_filtered = df_filtered[
-                (df_filtered['DueDate'] >= q_start_ts) &
-                (df_filtered['DueDate'] <= q_end_ts)
-            ].copy()
-
-    effective_portfolio_project = None
-    team_col = 'Team' if 'Team' in df_filtered.columns else None
-    explicit_team = normalize_project_filter_value(portfolio_project)
-    project_team_hint = normalize_project_filter_value(projeto)
-    if explicit_team:
-        effective_portfolio_project = explicit_team
-        if team_col:
-            explicit_team_norm = normalize_text(explicit_team)
-            df_filtered = df_filtered[
-                df_filtered[team_col].fillna('').astype(str).map(normalize_text) == explicit_team_norm
-            ].copy()
-            if df_filtered.empty:
-                notes.append(f'TEAM "{explicit_team}" não possui itens no CSV atual de portfólio.')
-        else:
-            notes.append('O CSV atual de portfólio não possui a coluna Team.')
-            df_filtered = df_filtered.iloc[0:0].copy()
-    elif project_team_hint:
-        effective_portfolio_project = project_team_hint
-        if team_col:
-            team_series = df_filtered[team_col].fillna('').astype(str)
-            team_norm = team_series.map(normalize_text)
-            aliases = portfolio_project_team_aliases(project_team_hint)
-            alias_norms = [normalize_text(alias) for alias in aliases if normalize_text(alias)]
-            mask = pd.Series(False, index=df_filtered.index)
-            for alias_norm in alias_norms:
-                mask = mask | team_norm.str.contains(alias_norm, regex=False, na=False)
-            df_filtered = df_filtered[mask].copy()
-            if df_filtered.empty:
-                notes.append(f'Nenhum TEAM do portfólio corresponde ao filtro de projeto "{project_team_hint}".')
-        else:
-            notes.append('O CSV atual de portfólio não possui a coluna Team.')
-            df_filtered = df_filtered.iloc[0:0].copy()
-
-    if tipo:
-        df_filtered = df_filtered[df_filtered['PortfolioTipoDemanda'] == tipo].copy()
-        if df_filtered.empty:
-            notes.append(f'Tipo "{tipo}" sem itens no escopo atual do portfólio.')
-
-    if classe_servico:
-        df_filtered = df_filtered[df_filtered['ClasseServico'] == classe_servico].copy()
-        if df_filtered.empty:
-            notes.append(f'Classe de serviço "{classe_servico}" sem itens no escopo atual do portfólio.')
-
-    if responsavel:
-        responsavel_col = next((col for col in ['Responsavel', 'Responsável'] if col in df_filtered.columns), None)
-        if responsavel_col:
-            selected_responsaveis = set(_normalize_responsavel_filter_values(responsavel))
-            df_filtered = df_filtered[
-                df_filtered[responsavel_col].fillna('').astype(str).str.strip().isin(selected_responsaveis)
-            ].copy()
-            if df_filtered.empty:
-                notes.append(f'Responsável "{_format_responsavel_filter_label(responsavel)}" sem itens no escopo atual do portfólio.')
-        else:
-            notes.append('O CSV atual de portfólio não possui informação de responsável.')
-            df_filtered = df_filtered.iloc[0:0].copy()
-
-    return df_filtered, effective_portfolio_project, notes
 
 
 # Friendly column names
@@ -9286,58 +8925,6 @@ def render_portfolio_roadmap_full_epics_view(df_source, selected_quarter='ALL', 
         )
     ], style={'marginBottom': '20px'})
 
-def create_kpi_card(title, value, class_name='six columns', card_style=None, title_style=None, value_style=None):
-    base_card_style = {'padding': '10px', 'borderRadius': '6px'}
-    if isinstance(card_style, dict):
-        base_card_style.update(card_style)
-    base_title_style = {'textAlign': 'center'}
-    if isinstance(title_style, dict):
-        base_title_style.update(title_style)
-    base_value_style = {'textAlign': 'center'}
-    if isinstance(value_style, dict):
-        base_value_style.update(value_style)
-    return html.Div([
-        html.H4(title, style=base_title_style),
-        html.H2(value, style=base_value_style)
-    ], className=class_name, style=base_card_style)
-
-def _portfolio_metric_card(title, value):
-    return create_kpi_card(
-        title,
-        value,
-        class_name='',
-        card_style={
-            'padding': '14px 16px',
-            'borderRadius': '10px',
-            'backgroundColor': '#f8fafc',
-            'border': '1px solid #e2e8f0',
-            'minHeight': '136px',
-            'display': 'flex',
-            'flexDirection': 'column',
-            'justifyContent': 'space-between',
-        },
-        title_style={
-            'textAlign': 'left',
-            'fontSize': '15px',
-            'lineHeight': '1.25',
-            'margin': '0',
-            'fontWeight': '600',
-            'color': '#334155',
-        },
-        value_style={
-            'textAlign': 'left',
-            'fontSize': '26px',
-            'lineHeight': '1.15',
-            'margin': '8px 0 0 0',
-            'fontWeight': '700',
-            'color': '#0f172a',
-            'whiteSpace': 'nowrap',
-            'overflow': 'hidden',
-            'textOverflow': 'ellipsis',
-        },
-    )
-
-
 def unique_sorted(col):
     return sorted([x for x in col.dropna().unique()])
 
@@ -9379,270 +8966,6 @@ def weekly_bucket_start(date_series):
     return date_series.dt.to_period(WEEK_PERIOD).dt.start_time
 
 
-def done_time_eligible_mask(df):
-    """Rows eligible for time metrics: done/completed rows without cancellation history."""
-    if df is None or getattr(df, 'empty', True):
-        return pd.Series(dtype=bool)
-    mask = pd.Series(True, index=df.index)
-    if 'ElegivelTempoConcluido' in df.columns:
-        elig = pd.to_numeric(df['ElegivelTempoConcluido'], errors='coerce').fillna(0)
-        mask &= elig.eq(1)
-    else:
-        if 'Cancelado' in df.columns:
-            cancelado = pd.to_numeric(df['Cancelado'], errors='coerce').fillna(0)
-            mask &= cancelado.eq(0)
-        if 'DataCancelled' in df.columns:
-            mask &= pd.to_datetime(df['DataCancelled'], errors='coerce').isna()
-    return mask
-
-
-def time_metric_series(df, column, positive_only=False, non_negative=False):
-    """Numeric series for time metrics with exact eligibility filter (done without cancellation)."""
-    if df is None or getattr(df, 'empty', True) or column not in df.columns:
-        return pd.Series(dtype='float64')
-    base = df
-    if column in {'LeadTime_Dias', 'LeadTime_Selected_Dias', 'TempoExecucao_Dias', 'TempoBacklog_Dias', 'TempoBloqueioDias', 'TempoEsperaIntermediariaDias'}:
-        base = df[done_time_eligible_mask(df)]
-    s = pd.to_numeric(base[column], errors='coerce').dropna()
-    if positive_only:
-        s = s[s > 0]
-    elif non_negative:
-        s = s[s >= 0]
-    return s
-
-
-def build_lead_time_comparable_scope(df_source, lead_col='LeadTime_Selected_Dias'):
-    """
-    Build a canonical Lead Time scope used by both Lead Time and Estatística tabs.
-    Returns: (clean_df, lt_series, lt_stats)
-    """
-    if df_source is None or getattr(df_source, 'empty', True):
-        return pd.DataFrame(), pd.Series(dtype='float64'), {}
-    if lead_col not in df_source.columns or 'DataDone' not in df_source.columns:
-        return pd.DataFrame(), pd.Series(dtype='float64'), {}
-
-    df_lt = df_source.copy()
-    df_lt = df_lt[done_time_eligible_mask(df_lt)].copy()
-    if df_lt.empty:
-        return pd.DataFrame(), pd.Series(dtype='float64'), {}
-
-    df_lt[lead_col] = pd.to_numeric(df_lt[lead_col], errors='coerce')
-    df_lt['DataDone'] = pd.to_datetime(df_lt['DataDone'], errors='coerce')
-    df_lt = df_lt.dropna(subset=[lead_col, 'DataDone']).copy()
-    df_lt = df_lt[df_lt[lead_col] >= 0].sort_values('DataDone')
-    if df_lt.empty:
-        return pd.DataFrame(), pd.Series(dtype='float64'), {}
-
-    lt_series = time_metric_series(df_lt, lead_col, non_negative=True)
-    if lt_series.empty:
-        return pd.DataFrame(), pd.Series(dtype='float64'), {}
-
-    lt_stats = {
-        'count': int(len(lt_series)),
-        'mean': float(lt_series.mean()),
-        'p50': float(exact_empirical_percentile(lt_series, 0.50)),
-        'p75': float(exact_empirical_percentile(lt_series, 0.75)),
-        'p85': float(exact_empirical_percentile(lt_series, 0.85)),
-        'p95': float(exact_empirical_percentile(lt_series, 0.95)),
-    }
-    return df_lt, lt_series, lt_stats
-
-
-def unique_item_keys(df):
-    """Return deduplication keys preserving project context when available."""
-    keys = []
-    if df is not None and 'Projeto' in df.columns:
-        keys.append('Projeto')
-    if df is not None and 'ItemID' in df.columns:
-        keys.append('ItemID')
-    return keys
-
-
-def build_delivered_items_base(df_source, lead_time_col=None):
-    """
-    Standard delivered-items base used across tabs:
-    - done in current filtered scope (DataDone not null)
-    - eligible done items (no cancellation history)
-    - deduplicated by Projeto+ItemID (or ItemID)
-    - optional valid lead-time filter when lead_time_col is provided
-    """
-    if df_source is None or getattr(df_source, 'empty', True):
-        return pd.DataFrame(columns=getattr(df_source, 'columns', []))
-
-    out = df_source.dropna(subset=['DataDone']).copy() if 'DataDone' in df_source.columns else df_source.copy()
-    if out.empty:
-        return out
-
-    out = out[done_time_eligible_mask(out)].copy()
-    if out.empty:
-        return out
-
-    if lead_time_col and lead_time_col in out.columns:
-        out[lead_time_col] = pd.to_numeric(out[lead_time_col], errors='coerce')
-        out = out.dropna(subset=[lead_time_col])
-        out = out[out[lead_time_col] >= 0]
-        if out.empty:
-            return out
-
-    dedup_keys = unique_item_keys(out)
-    if dedup_keys:
-        out = out.drop_duplicates(subset=dedup_keys, keep='first')
-    return out
-
-
-def exact_empirical_percentile(values, q):
-    """Nearest-rank empirical percentile (no interpolation)."""
-    s = pd.Series(values).dropna()
-    if s.empty:
-        return np.nan
-    q = float(q)
-    if q <= 0:
-        return float(s.min())
-    if q >= 1:
-        return float(s.max())
-    ordered = s.sort_values().reset_index(drop=True)
-    rank = max(1, min(len(ordered), math.ceil(q * len(ordered))))
-    return float(ordered.iloc[rank - 1])
-
-
-def exact_percentile_map(values, quantiles):
-    return {q: exact_empirical_percentile(values, q) for q in quantiles}
-
-
-def fit_weibull_linearized(values):
-    """
-    2-parameter Weibull fit via linearized Weibull plot (same method as LT_STATS_WEIBULL.xlsx):
-    F(i) = (2i - 1) / (2n), y = ln(-ln(1-F)), x = ln(t), then linear regression y = k*x + b.
-    lambda = exp(-b/k)
-    """
-    s = pd.to_numeric(pd.Series(values), errors='coerce').dropna()
-    s = s[s > 0].sort_values().reset_index(drop=True)
-    n = int(len(s))
-    if n < 2:
-        return None
-
-    i = np.arange(1, n + 1, dtype=float)
-    f = (2.0 * i - 1.0) / (2.0 * n)
-    x = np.log(s.to_numpy(dtype=float))
-    y = np.log(-np.log(1.0 - f))
-    finite_mask = np.isfinite(x) & np.isfinite(y)
-    x = x[finite_mask]
-    y = y[finite_mask]
-    if x.size < 2 or len(np.unique(x)) < 2:
-        return None
-
-    try:
-        slope, intercept = np.polyfit(x, y, 1)
-    except (np.linalg.LinAlgError, ValueError, FloatingPointError):
-        return None
-    if not np.isfinite(slope) or abs(float(slope)) < 1e-12:
-        return None
-    weibull_lambda = math.exp(-float(intercept) / float(slope))
-    if not np.isfinite(weibull_lambda):
-        return None
-
-    return {
-        'shape': float(slope),
-        'lambda': float(weibull_lambda),
-        'n': n,
-    }
-
-
-def describe_weibull_scale_cadence(scale_days):
-    """
-    Translate Weibull scale (lambda) into explicit day bands for delivery cadence.
-    """
-    try:
-        scale = float(scale_days)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(scale) or scale <= 0:
-        return None
-
-    if scale <= 1.0:
-        band_label = 'até 1 dia'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, equivalente a 1 dia ou menos."
-    elif scale <= 5.0:
-        band_label = 'entre 1 e 5 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 1 e 5 dias."
-    elif scale <= 10.0:
-        band_label = 'entre 5 e 10 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 5 e 10 dias."
-    elif scale <= 15.0:
-        band_label = 'entre 10 e 15 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 10 e 15 dias."
-    elif scale <= 20.0:
-        band_label = 'entre 15 e 20 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 15 e 20 dias."
-    elif scale <= 25.0:
-        band_label = 'entre 20 e 25 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 20 e 25 dias."
-    elif scale <= 30.0:
-        band_label = 'entre 25 e 30 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, no intervalo entre 25 e 30 dias."
-    else:
-        band_label = 'acima de 30 dias'
-        detail = f"Cadência avaliada: λ={scale:.4f}d, acima de 30 dias."
-
-    return {
-        'label': band_label,
-        'subtitle': f"λ={scale:.4f}d no lead time",
-        'detail': detail,
-    }
-
-
-def exact_percentile_band_summary(values, cutoffs=(0.50, 0.70, 0.85, 0.95)):
-    """Build exact percentile-band summary using nearest-rank cumulative positions."""
-    s = pd.Series(values).dropna().sort_values().reset_index(drop=True)
-    if s.empty:
-        return pd.DataFrame(columns=['Percentile band', 'Items in range', 'Cumulative items', 'Cycle Time (Days)'])
-    n = len(s)
-    cutoffs = [float(c) for c in cutoffs]
-    cum_counts = [max(0, min(n, math.ceil(c * n))) for c in cutoffs] + [n]
-    # enforce monotonicity
-    for i in range(1, len(cum_counts)):
-        cum_counts[i] = max(cum_counts[i], cum_counts[i - 1])
-    labels = ['0-50%', '51-70%', '71-85%', '86-95%', '95%+']
-    thresholds = [exact_empirical_percentile(s, c) for c in cutoffs] + [float(s.max())]
-    ranges = []
-    prev = 0
-    for c in cum_counts:
-        ranges.append(c - prev)
-        prev = c
-    return pd.DataFrame({
-        'Percentile band': labels,
-        'Items in range': ranges,
-        'Cumulative items': cum_counts,
-        'Cycle Time (Days)': [int(round(x)) if pd.notna(x) else None for x in thresholds],
-    })
-
-def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=None):
-    """Adiciona linhas de percentil 15, 85, 95, média e média móvel (5 períodos) a um gráfico de tendência."""
-    y_series = pd.Series(y_values.values if hasattr(y_values, 'values') else y_values).dropna()
-    if y_series.empty:
-        return fig
-    p15 = exact_empirical_percentile(y_series, 0.15)
-    p85 = exact_empirical_percentile(y_series, 0.85)
-    p95 = exact_empirical_percentile(y_series, 0.95)
-    mean_val = y_series.mean()
-    ma5 = y_series.rolling(5, min_periods=1).mean()
-    kwargs = {}
-    if secondary_y is not None:
-        kwargs['secondary_y'] = secondary_y
-    x_list = list(x_values)
-    fig.add_trace(go.Scatter(x=x_list, y=[p15]*len(x_list), mode='lines', name=f'{name_prefix}P15',
-                             line=dict(dash='dot', width=1, color='gray')), **kwargs)
-    fig.add_trace(go.Scatter(x=x_list, y=[p85]*len(x_list), mode='lines', name=f'{name_prefix}P85',
-                             line=dict(dash='dash', width=1.5, color='orange')), **kwargs)
-    fig.add_trace(go.Scatter(x=x_list, y=[p95]*len(x_list), mode='lines', name=f'{name_prefix}P95',
-                             line=dict(dash='dash', width=1.5, color='red')), **kwargs)
-    fig.add_trace(go.Scatter(x=x_list, y=[mean_val]*len(x_list), mode='lines', name=f'{name_prefix}Média',
-                             line=dict(dash='solid', width=1.5, color='blue')), **kwargs)
-    fig.add_trace(go.Scatter(x=x_list, y=list(ma5), mode='lines', name=f'{name_prefix}MM(5)',
-                             line=dict(dash='solid', width=2, color='purple')), **kwargs)
-    return fig
-
-
 def format_currency_br(value, decimals=2, suffix=''):
     if pd.isna(value):
         return '—'
@@ -9652,71 +8975,6 @@ def format_currency_br(value, decimals=2, suffix=''):
         return '—'
     formatted = f"{number:,.{decimals}f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     return f"R$ {formatted}{suffix}"
-
-
-def compute_process_capability_metrics(values, lsl=None, usl=None):
-    series = pd.to_numeric(pd.Series(values), errors='coerce').dropna()
-    result = {
-        'count': int(len(series)),
-        'lsl': float(lsl) if pd.notna(lsl) else np.nan,
-        'usl': float(usl) if pd.notna(usl) else np.nan,
-        'mean': np.nan,
-        'std': np.nan,
-        'cpu': np.nan,
-        'cpl': np.nan,
-        'cpk': np.nan,
-        'sigma_short': np.nan,
-        'sigma_long': np.nan,
-        'quality': 'Sem classificação',
-        'error': None,
-    }
-
-    if series.empty:
-        result['error'] = 'Sem dados suficientes para calcular Cpk e Nível Sigma.'
-        return result
-    if result['count'] < 2:
-        result['error'] = 'São necessários pelo menos 2 pontos para calcular desvio padrão amostral.'
-        return result
-    if not np.isfinite(result['lsl']) and not np.isfinite(result['usl']):
-        result['error'] = 'Informe ao menos um limite de especificação (LSL ou USL).'
-        return result
-    if np.isfinite(result['lsl']) and np.isfinite(result['usl']) and result['lsl'] >= result['usl']:
-        result['error'] = 'LSL deve ser menor que USL.'
-        return result
-
-    mean = float(series.mean())
-    std = float(series.std(ddof=1))
-    result['mean'] = mean
-    result['std'] = std
-    if not np.isfinite(std) or std <= 0:
-        result['error'] = 'Desvio padrão inválido (zero ou não finito) para cálculo de capabilidade.'
-        return result
-
-    if np.isfinite(result['usl']):
-        result['cpu'] = (result['usl'] - mean) / (3.0 * std)
-    if np.isfinite(result['lsl']):
-        result['cpl'] = (mean - result['lsl']) / (3.0 * std)
-
-    candidates = [v for v in [result['cpu'], result['cpl']] if np.isfinite(v)]
-    if not candidates:
-        result['error'] = 'Não foi possível calcular CPU/CPL com os limites informados.'
-        return result
-
-    cpk = float(min(candidates))
-    result['cpk'] = cpk
-    result['sigma_short'] = cpk * 3.0
-    result['sigma_long'] = (cpk * 3.0) - 1.5
-
-    if cpk < 1.0:
-        result['quality'] = 'Incapaz (Cpk < 1.00)'
-    elif cpk < 1.33:
-        result['quality'] = 'Apenas capaz (1.00 ≤ Cpk < 1.33)'
-    elif cpk < 2.0:
-        result['quality'] = 'Bom (1.33 ≤ Cpk < 2.00)'
-    else:
-        result['quality'] = 'Classe Seis Sigma (Cpk ≥ 2.00)'
-
-    return result
 
 
 def build_cfd_dataframe(df_source, start_ts=None, end_ts=None):
@@ -27542,15 +26800,6 @@ def render_metric_chart(active_cell, table_data):
     return html.Div([
         dcc.Graph(figure=fig)
     ], style={'marginTop': '20px'})
-
-
-def create_table(df, table_id='table-main', title='Tabela'):
-    if df is None or getattr(df, 'empty', True):
-        return html.Div('Sem dados para exibir')
-    return html.Div([html.H3(title), dash_table.DataTable(id=table_id, columns=[{'name':c,'id':c} for c in df.columns], data=df.head(200).to_dict('records'), page_size=20, style_table={'overflowX':'auto'})])
-
-def create_generic_datatable(df, table_id, title):
-    return create_table(df, table_id=table_id, title=title)
 
 
 def _is_port_available(port, host='127.0.0.1'):

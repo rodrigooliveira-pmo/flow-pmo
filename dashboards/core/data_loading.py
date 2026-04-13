@@ -1,0 +1,283 @@
+import os
+import json
+import hashlib
+import urllib.request
+import urllib.parse
+import posixpath
+import re
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from shared.env_utils import load_env_file, parse_json_env
+from shared.path_utils import candidate_data_folders, _sanitize_os_path
+from shared.text_utils import normalize_text
+
+
+def _download_model_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'PowerBI_Model_{file_key}.xlsx')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _download_portfolio_csv_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'portfolio-bt-ns-{file_key}-data.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _download_bottleneck_csv_from_url(url, project_key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data_bottlenecks.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _download_process_mining_report_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'w1nner-process-mining-{file_key}.xlsx')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _download_downstream_items_csv_from_url(url, project_key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _download_capex_csv_from_url(url, key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_key = ''.join(ch for ch in str(key or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'capex'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'capex-{safe_key}-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _download_gmud_csv_from_url(url, kind):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_key = ''.join(ch for ch in str(kind or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'gmud'
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'gmud-{safe_key}-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _remote_cache_ttl_seconds():
+    raw = os.getenv('FLOW_PMO_REMOTE_CACHE_TTL_SECONDS', '').strip()
+    if not raw:
+        return 300
+    try:
+        return max(0, int(raw))
+    except Exception:
+        return 300
+
+
+def _refresh_remote_cache_file(url, out_file):
+    """Download URL into cache file with TTL-based refresh for stable *latest* URLs."""
+    ttl = _remote_cache_ttl_seconds()
+    if os.path.exists(out_file):
+        age_seconds = max(0.0, (datetime.now() - datetime.fromtimestamp(os.path.getmtime(out_file))).total_seconds())
+        if age_seconds <= float(ttl):
+            return out_file
+    tmp_file = f"{out_file}.tmp"
+    urllib.request.urlretrieve(url, tmp_file)
+    os.replace(tmp_file, out_file)
+    return out_file
+
+
+def _load_bottleneck_url_map():
+    raw = os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key, value in parsed.items():
+        project_key = str(key).strip().upper()
+        url = str(value).strip()
+        if project_key and url:
+            out[project_key] = url
+    return out
+
+
+def _load_bitbucket_csv_url_map():
+    """Carrega mapa de URLs para CSVs do Bitbucket.
+    Formato: {"w1nner_commits": "https://...", "w1nner_pullrequests": "https://...", ...}
+    A chave é {prefix}_{tipo} (sem .csv). Ex: w1nner_commits, s1nc_pullrequests, befinance_commits.
+    """
+    raw = os.getenv('FLOW_PMO_BITBUCKET_CSV_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    # Remove quebras de linha e espaços extras que o Vercel UI pode inserir
+    cleaned = ' '.join(raw.splitlines())
+    parsed = None
+    for candidate in (cleaned, cleaned.strip('"').strip("'"), cleaned.replace('\\"', '"')):
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            break
+        except Exception:
+            continue
+    if parsed is None:
+        matches = re.findall(r'"([a-z0-9_]+)"\s*:\s*"([^"]+)"', cleaned)
+        if matches:
+            parsed = {k: v for k, v in matches}
+        else:
+            return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k).strip().lower(): str(v).strip() for k, v in parsed.items() if k and v}
+
+
+def _download_bitbucket_csv_from_url(url, key):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    safe_key = ''.join(ch for ch in str(key).lower() if ch.isalnum() or ch == '_')
+    out_file = os.path.join(cache_dir, f'bb-{safe_key}-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
+def _load_downstream_url_map():
+    raw = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL_MAP', '').strip()
+    if not raw:
+        return {}
+    parsed = None
+    for candidate in (
+        raw,
+        raw.strip('"').strip("'"),
+        raw.replace('\\"', '"'),
+    ):
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            break
+        except Exception:
+            continue
+    if parsed is None:
+        # Fallback tolerante para env malformada:
+        # ex.: FLOW_PMO_DOWNSTREAM_CSV_URL_MAP="{"W1NNER":"https://..."}"
+        matches = re.findall(r'"?([A-Za-z0-9& _-]+)"?\s*:\s*"([^"]+)"', raw)
+        if matches:
+            parsed = {k: v for k, v in matches}
+        else:
+            return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key, value in parsed.items():
+        project_key = str(key).strip().upper()
+        url = str(value).strip()
+        if project_key and url:
+            out[project_key] = url
+    return out
+
+
+def _url_filename_matches_project_suffix(url, expected_prefix, suffix):
+    """Validate if URL filename seems to belong to the expected project prefix/suffix."""
+    if not url or not expected_prefix:
+        return False
+    parsed = urllib.parse.urlparse(str(url).strip())
+    filename = os.path.basename(parsed.path or '').lower()
+    prefix = str(expected_prefix).strip().lower()
+    return filename.startswith(prefix) and filename.endswith(str(suffix or '').lower())
+
+
+def _url_filename_matches_project(url, expected_prefix):
+    """Backward-compatible helper for bottleneck URLs."""
+    return _url_filename_matches_project_suffix(url, expected_prefix, '-data_bottlenecks.csv')
+
+
+def _resolve_model_file(data_folders):
+    explicit_model = _sanitize_os_path(os.getenv('FLOW_PMO_MODEL_FILE', ''))
+    if explicit_model:
+        candidate = explicit_model if os.path.isabs(explicit_model) else os.path.join(os.path.dirname(__file__), explicit_model)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        raise FileNotFoundError(f'FLOW_PMO_MODEL_FILE aponta para arquivo inexistente: {candidate}')
+
+    model_url = os.getenv('FLOW_PMO_MODEL_URL', '').strip()
+    if model_url:
+        return _download_model_from_url(model_url)
+
+    model_files = []
+    for folder in data_folders:
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            if name.startswith('PowerBI_Model_') and name.endswith('.xlsx'):
+                model_files.append(os.path.join(folder, name))
+    if model_files:
+        return max(model_files, key=os.path.getctime)
+
+    raise FileNotFoundError(
+        'Arquivo de modelo não encontrado. Configure FLOW_PMO_MODEL_FILE ou FLOW_PMO_MODEL_URL, '
+        'ou adicione PowerBI_Model_*.xlsx em uma destas pastas: '
+        + ', '.join(data_folders or ['(nenhuma pasta encontrada)'])
+    )
+
+
+DATA_FOLDERS = candidate_data_folders()
+DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
+PROCESS_MINING_ARTIFACT_FOLDER = os.path.join(os.path.dirname(__file__), 'artifacts', 'process_mining')
+MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
+
+
+def _iter_local_data_folders(include_process_mining_artifacts=False):
+    folders = []
+    seen = set()
+    candidates = list(DATA_FOLDERS or [])
+    if include_process_mining_artifacts:
+        candidates.append(PROCESS_MINING_ARTIFACT_FOLDER)
+    for raw_folder in candidates:
+        folder = str(raw_folder or '').strip()
+        if not folder:
+            continue
+        folder = os.path.abspath(folder)
+        if folder in seen or not os.path.isdir(folder):
+            continue
+        seen.add(folder)
+        folders.append(folder)
+    return folders
+
+
+def _format_last_processed_load(model_file):
+    """Best-effort label for the processed data load timestamp."""
+    try:
+        filename = os.path.basename(model_file or '')
+        match = re.match(r'^PowerBI_Model_(\d{8})_(\d{6})\.xlsx$', filename)
+        if match:
+            return datetime.strptime(''.join(match.groups()), '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M')
+        return datetime.fromtimestamp(os.path.getmtime(model_file)).strftime('%Y-%m-%d %H:%M')
+    except Exception:
+        return 'indisponível'
+
+
+LAST_PROCESSED_LOAD_LABEL = _format_last_processed_load(MODEL_FILE)
