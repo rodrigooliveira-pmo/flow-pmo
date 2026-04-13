@@ -568,3 +568,17 @@ Use this file after any user correction.
 - Root cause: Mesmo após enriquecer a extração de texto, eu ainda tratava parte desses dados como texto genérico, sem elevá-los a uma fonte estruturada explícita no modelo de correlação.
 - Prevention rule: Quando a UI do Jira evidencia blocos estruturados de rastreabilidade, modelá-los explicitamente no pipeline com nomes e semântica próprios, em vez de depender apenas de um corpus textual agregado.
 - Action added to workflow: Em integrações futuras com Jira Service Management/Change, sempre mapear a tela para a API em três camadas: `links nativos`, `custom fields estruturados` e `texto livre`.
+
+- Date: 2026-04-13
+- Context: Inclusão do novo filtro `Tipo original Jira` na barra principal do dashboard.
+- User correction: Esclareceu que o filtro novo precisava permitir `Todos`, um ou múltiplos tipos selecionados, e não somente seleção única.
+- Root cause: Eu repliquei o padrão visual mais simples do filtro anterior e não reavaliei a interação completa esperada para o novo controle antes de fechar a primeira versão.
+- Prevention rule: Quando o usuário pedir um novo filtro em tela, confirmar na primeira implementação se ele precisa suportar `todos`, seleção única e multiseleção, em vez de assumir modo simples.
+- Action added to workflow: Em novas mudanças de filtros, revisar explicitamente `opção todos`, `multi-select` e `resumo textual do escopo` antes de concluir.
+
+- Date: 2026-04-13
+- Context: Ajuste do indicador semanal `Demanda de Falha x Demanda de Valor` após inclusão do filtro `Tipo original Jira`.
+- User correction: Esclareceu que o indicador precisava respeitar o filtro novo e usar a taxonomia original do Jira: `Épico/Feature/História` como valor, `Bug/Suporte/Outro` como falha e `Task` fora da conta.
+- Root cause: Eu mantive o cálculo legado baseado em `TipoDemanda`, que não refletia a semântica do filtro novo nem excluía `Task` do denominador.
+- Prevention rule: Quando um novo filtro introduzir uma taxonomia mais granular, revisar imediatamente KPIs derivados que ainda dependem da classificação agregada anterior.
+- Action added to workflow: Em toda mudança de taxonomia/filtro, auditar explicitamente métricas percentuais e breakdowns que usam buckets de classificação antes de encerrar.

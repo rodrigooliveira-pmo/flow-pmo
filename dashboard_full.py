@@ -646,6 +646,8 @@ PORTFOLIO_TAB_VALUE = 'tab-portfolio'
 PORTFOLIO_EXTRA_ONEPAGE_TAG = 'extra onepage'
 PROJECT_FILTER_ALL_VALUE = '__ALL_PROJECTS__'
 PROJECT_FILTER_ALL_LABEL = 'Todos os times'
+ORIGINAL_JIRA_TYPE_FILTER_ALL_VALUE = '__ALL_ORIGINAL_JIRA_TYPES__'
+ORIGINAL_JIRA_TYPE_FILTER_ALL_LABEL = 'Todos os tipos'
 SERVICE_TABS = [
     ('Serviço e SLA', 'tab-performance'),
     ('Cobertura GMUD', 'tab-gmud'),
@@ -763,6 +765,42 @@ def canonicalize_demand_type(tipo, subtype=None):
     if tipo_norm in {'outro', 'other'}:
         return TYPE_OTHER
     return str(tipo) if str(tipo or '').strip() else TYPE_OTHER
+
+
+def canonicalize_original_jira_type(subtype=None, tipo=None):
+    subtype_text = str(subtype or '').strip()
+    tipo_text = str(tipo or '').strip()
+    subtype_norm = normalize_text(subtype_text)
+    tipo_norm = normalize_text(tipo_text)
+
+    if subtype_norm in {'epico', 'epic'} or tipo_norm in {'epico', 'epic'}:
+        return 'Épico'
+    if subtype_norm == 'feature' or tipo_norm == 'feature':
+        return 'Feature'
+    if subtype_norm in {'historia', 'story', 'user story', 'userstory'} or tipo_norm in {'historia', 'story', 'user story', 'userstory'}:
+        return 'História'
+    if subtype_norm in {'task', 'tarefa'} or tipo_norm in {'task', 'tarefa'}:
+        return 'Task'
+    if subtype_norm in {'bug', 'issue', 'issues', 'defeito', 'defeitos', 'problema', 'problemas'}:
+        return 'Bug'
+    if tipo_norm in {'bug', 'issue', 'issues', 'defeito', 'defeitos', 'problema', 'problemas'}:
+        return 'Bug'
+    if subtype_text:
+        return subtype_text
+    if tipo_text:
+        return tipo_text
+    return ''
+
+
+def classify_original_jira_demand_bucket(tipo_original):
+    tipo_norm = normalize_text(tipo_original)
+    if tipo_norm in {'epico', 'epic', 'feature', 'historia', 'story', 'user story', 'userstory'}:
+        return 'value'
+    if tipo_norm in {'bug', 'issue', 'issues', 'defeito', 'defeitos', 'problema', 'problemas', 'suporte', 'support', 'outro', 'other'}:
+        return 'failure'
+    if tipo_norm in {'task', 'tarefa'}:
+        return None
+    return None
 
 
 def is_failure_demand_type(tipo):
@@ -9243,6 +9281,32 @@ def normalize_project_filter_value(projeto):
     return projeto
 
 
+def normalize_original_jira_type_filter_values(tipo_original):
+    if tipo_original in (None, '', []):
+        return []
+    if isinstance(tipo_original, str):
+        values = [tipo_original]
+    else:
+        values = list(tipo_original)
+    cleaned = []
+    for value in values:
+        text = str(value or '').strip()
+        if not text:
+            continue
+        if text == ORIGINAL_JIRA_TYPE_FILTER_ALL_VALUE:
+            return []
+        if text not in cleaned:
+            cleaned.append(text)
+    return cleaned
+
+
+def format_original_jira_type_filter_label(tipo_original):
+    selected = normalize_original_jira_type_filter_values(tipo_original)
+    if not selected:
+        return ORIGINAL_JIRA_TYPE_FILTER_ALL_LABEL
+    return ', '.join(selected)
+
+
 def weekly_bucket_start(date_series):
     return date_series.dt.to_period(WEEK_PERIOD).dt.start_time
 
@@ -14872,8 +14936,21 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
 
         finished_eligible = finished[done_time_eligible_mask(finished)] if not finished.empty else finished
         tp_total = len(finished_eligible)
-        tp_dev = len(finished_eligible[finished_eligible['TipoDemanda'] == TYPE_DEV]) if tp_total > 0 else 0
-        tp_def = len(finished_eligible[finished_eligible['TipoDemanda'] == TYPE_ISSUES]) if tp_total > 0 else 0
+        if tp_total > 0:
+            original_type_series = finished_eligible.get('TipoOriginalJira')
+            if original_type_series is None:
+                original_type_series = finished_eligible.apply(
+                    lambda row: canonicalize_original_jira_type(row.get('WorkItemSubType'), row.get('Tipo')),
+                    axis=1
+                )
+            demand_bucket = original_type_series.apply(classify_original_jira_demand_bucket)
+            tp_value = int(demand_bucket.eq('value').sum())
+            tp_failure = int(demand_bucket.eq('failure').sum())
+            tp_value_failure_total = int(demand_bucket.isin(['value', 'failure']).sum())
+        else:
+            tp_value = 0
+            tp_failure = 0
+            tp_value_failure_total = 0
         tp_discard = int(finished_eligible['Descartado'].sum()) if 'Descartado' in finished_eligible.columns else 0
 
         wip_age_series = pd.to_numeric(weekly_wip.get('WIPAge', pd.Series(dtype=float)), errors='coerce').dropna()
@@ -14905,17 +14982,21 @@ def compute_weekly_service_metrics(df_projeto, weeks, lead_time_col='LeadTime_Di
             else '—'
         )
         rows['Média Eficiência de Fluxo'][week_label] = f"{avg_eff:.3f}" if pd.notna(avg_eff) else '0.000'
-        rows['% Demanda de Valor'][week_label] = f"{tp_dev / tp_total * 100:.1f}%" if tp_total > 0 else '—'
-        rows['% Demanda de Falha'][week_label] = f"{tp_def / tp_total * 100:.1f}%" if tp_total > 0 else '—'
+        rows['% Demanda de Valor'][week_label] = f"{tp_value / tp_value_failure_total * 100:.1f}%" if tp_value_failure_total > 0 else '—'
+        rows['% Demanda de Falha'][week_label] = f"{tp_failure / tp_value_failure_total * 100:.1f}%" if tp_value_failure_total > 0 else '—'
         rows['Qtd. Itens Descartados'][week_label] = str(tp_discard)
         rows['DDP'][week_label] = f"{max(0, p85_lt - median_lt):.1f}" if pd.notna(p85_lt) and pd.notna(median_lt) else '—'
-        rows['Frequência de Deploy'][week_label] = f"{dora_deploy_frequency:.0f}" if pd.notna(dora_deploy_frequency) else str(tp_dev)
+        rows['Frequência de Deploy'][week_label] = f"{dora_deploy_frequency:.0f}" if pd.notna(dora_deploy_frequency) else str(tp_value)
         rows['Lead time para mudanças'][week_label] = _format_change_lead_time(dora_lead_time) if pd.notna(dora_lead_time) else _format_change_lead_time(avg_lt)
 
     return metric_names, rows
 
 fato['TipoDemanda'] = fato.apply(
     lambda row: canonicalize_demand_type(row.get('Tipo'), row.get('WorkItemSubType')),
+    axis=1
+)
+fato['TipoOriginalJira'] = fato.apply(
+    lambda row: canonicalize_original_jira_type(row.get('WorkItemSubType'), row.get('Tipo')),
     axis=1
 )
 
@@ -15145,6 +15226,7 @@ app.layout = html.Div([
             )
         ], style={'width':'20%', 'display':'inline-block'}),
         html.Div([html.Label('Tipo:'), dcc.Dropdown(id='filter-tipo', options=[{'label':t,'value':t} for t in unique_sorted(fato['TipoDemanda'])], value=None, clearable=True)], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
+        html.Div([html.Label('Tipo original Jira:'), dcc.Dropdown(id='filter-tipo-original-jira', options=[{'label': ORIGINAL_JIRA_TYPE_FILTER_ALL_LABEL, 'value': ORIGINAL_JIRA_TYPE_FILTER_ALL_VALUE}] + [{'label':t,'value':t} for t in ['Épico', 'Feature', 'História', 'Task', 'Bug'] + [v for v in unique_sorted(fato['TipoOriginalJira']) if v not in {'Épico', 'Feature', 'História', 'Task', 'Bug'}]], value=[ORIGINAL_JIRA_TYPE_FILTER_ALL_VALUE], multi=True, clearable=True, placeholder='Selecione um ou mais tipos originais')], style={'width':'15%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([html.Label('Classe Serviço (Prioridade):'), dcc.Dropdown(id='filter-classe-servico', options=[{'label':c,'value':c} for c in unique_sorted(fato['ClasseServico'])], value=None, clearable=True)], style={'width':'16%', 'display':'inline-block', 'marginLeft':'20px'}),
         html.Div([
             html.Label('Responsável:'),
@@ -15318,12 +15400,15 @@ app.layout = html.Div([
     html.Div(id='tab-content')
 ])
 
-def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsavel, criadores=None, use_creation_date=False, apply_date=True):
+def filter_df(df, start_date, end_date, projeto, tipo, classe_servico, responsavel, criadores=None, use_creation_date=False, apply_date=True, tipo_original=None):
     d = df.copy()
     if projeto:
         d = d[d['Projeto'] == projeto]
     if tipo:
         d = d[d['TipoDemanda'] == tipo]
+    selected_original_types = set(normalize_original_jira_type_filter_values(tipo_original))
+    if selected_original_types:
+        d = d[d['TipoOriginalJira'].fillna('').astype(str).str.strip().isin(selected_original_types)]
     if classe_servico:
         d = d[d['ClasseServico'] == classe_servico]
     if responsavel:
@@ -15538,6 +15623,7 @@ def update_main_navigation_layout(main_view):
     Input('date-range', 'end_date'),
     Input('filter-projeto', 'value'),
     Input('filter-tipo', 'value'),
+    Input('filter-tipo-original-jira', 'value'),
     Input('filter-classe-servico', 'value'),
     Input('filter-responsavel', 'value'),
     Input('filter-leadtime-stages', 'value'),
@@ -15559,7 +15645,7 @@ def update_main_navigation_layout(main_view):
     optional_input('estatistica-lsl', 'value'),
     optional_input('estatistica-usl', 'value'),
 )
-def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servico, responsavel, leadtime_stages, etapa_fluxo=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
+def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_original_jira, classe_servico, responsavel, leadtime_stages, etapa_fluxo=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
                criadores=None, date_filter_mode=None,
@@ -15607,6 +15693,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
         responsavel,
         criadores=criadores,
         use_creation_date=use_creation_date,
+        tipo_original=tipo_original_jira,
     )
     df, leadtime_meta = apply_selected_lead_time_metric(df, projeto, leadtime_stages)
     leadtime_selection_summary = build_leadtime_stage_selection_summary(projeto, leadtime_stages)
@@ -15635,6 +15722,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=criadores,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
         if df_scope.empty and df_wip_base.empty:
             return html.Div('Sem dados para os filtros selecionados.')
@@ -18246,6 +18334,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             scope_parts.append('Todos os TEAMs')
         if tipo:
             scope_parts.append(f'Tipo: {tipo}')
+        scope_parts.append(f'Tipo original Jira: {format_original_jira_type_filter_label(tipo_original_jira)}')
         if classe_servico:
             scope_parts.append(f'Classe: {classe_servico}')
         if responsavel:
@@ -18996,6 +19085,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=criadores,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
         df_snapshot_base, _ = apply_selected_lead_time_metric(df_snapshot_base, projeto, leadtime_stages)
         df_snapshot_base, _ = apply_selected_commitment_metric(df_snapshot_base, projeto, leadtime_stages)
@@ -19012,6 +19102,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=None,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
         df_threshold_base, _ = apply_selected_lead_time_metric(df_threshold_base, projeto, leadtime_stages)
         df_threshold_base, _ = apply_selected_commitment_metric(df_threshold_base, projeto, leadtime_stages)
@@ -19686,6 +19777,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             responsavel,
             criadores=criadores,
             use_creation_date=use_creation_date,
+            tipo_original=tipo_original_jira,
         )
         previous_signal_base, _ = apply_selected_lead_time_metric(previous_signal_base, projeto, leadtime_stages)
         previous_signal_base, _ = apply_selected_commitment_metric(previous_signal_base, projeto, leadtime_stages)
@@ -20708,6 +20800,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 end_date=end_date,
                 projeto=projeto,
                 tipo=tipo,
+                tipo_original_jira=tipo_original_jira,
                 classe_servico=classe_servico,
                 responsavel=responsavel,
                 leadtime_stages=leadtime_stages,
@@ -20735,6 +20828,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 end_date=end_date,
                 projeto=projeto,
                 tipo=tipo,
+                tipo_original_jira=tipo_original_jira,
                 classe_servico=classe_servico,
                 responsavel=responsavel,
                 leadtime_stages=leadtime_stages,
@@ -20841,6 +20935,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 end_date=end_date,
                 projeto=projeto,
                 tipo=tipo,
+                tipo_original_jira=tipo_original_jira,
                 classe_servico=classe_servico,
                 responsavel=responsavel,
                 leadtime_stages=leadtime_stages,
@@ -20868,6 +20963,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 end_date=end_date,
                 projeto=projeto,
                 tipo=tipo,
+                tipo_original_jira=tipo_original_jira,
                 classe_servico=classe_servico,
                 responsavel=responsavel,
                 leadtime_stages=leadtime_stages,
@@ -20895,6 +20991,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                 end_date=end_date,
                 projeto=projeto,
                 tipo=tipo,
+                tipo_original_jira=tipo_original_jira,
                 classe_servico=classe_servico,
                 responsavel=responsavel,
                 leadtime_stages=leadtime_stages,
@@ -22858,6 +22955,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=criadores,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
         _stage_map_age = compute_current_stage_map(projeto) if etapa_fluxo and projeto else None
         df_age = build_live_wip_snapshot(
@@ -23260,6 +23358,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=criadores,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
         _stage_map_wip = compute_current_stage_map(projeto) if etapa_fluxo and projeto else None
 
@@ -23361,6 +23460,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=criadores,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
         df_base, _ = apply_selected_lead_time_metric(df_base, projeto, leadtime_stages)
 
@@ -23567,7 +23667,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
                                         height=500)
 
         # --- Layout da aba ---
-        filtro_info = f"Projeto: {projeto or 'Todos'} | Tipo: {tipo or 'Todos'}"
+        filtro_info = (
+            f"Projeto: {projeto or 'Todos'} | "
+            f"Tipo: {tipo or 'Todos'} | "
+            f"Tipo original Jira: {format_original_jira_type_filter_label(tipo_original_jira)}"
+        )
         comparativo_lead_info = (
             f"Lead Time comparável à aba 'Lead Time' | "
             f"Amostra: {int(lt_comparable_stats.get('count', 0))} | "
@@ -23818,6 +23922,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, classe_servi
             criadores=criadores,
             use_creation_date=use_creation_date,
             apply_date=False,
+            tipo_original=tipo_original_jira,
         )
 
         contributor_section = build_bitbucket_contributor_section(

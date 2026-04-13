@@ -10187,3 +10187,120 @@
   - a limpeza de nomenclatura foi focada nesta tela; referências técnicas a `PM` permanecem no código e em outras áreas do produto
 - Suggested commit message:
   - `refactor(portfolio): prioritize executive cost and flow insights`
+
+## Current Task (Adicionar filtro de tipo original do Jira)
+- [x] Mapear a coluna de origem do tipo original do Jira e definir a taxonomia exibida no novo filtro
+- [x] Adicionar um novo filtro visual para `Tipo original Jira` sem alterar o filtro `Tipo` existente
+- [x] Propagar o novo filtro para as bases e labels relevantes do dashboard
+- [x] Validar sintaxe, revisar o diff e registrar resultados
+
+## Specification (Adicionar filtro de tipo original do Jira)
+- Objetivo: incluir na área de filtros um controle separado para o tipo original do item no Jira, mantendo intacto o filtro atual `Tipo`.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - derivar um campo canônico de tipo original do Jira a partir de `WorkItemSubType`, com fallback defensivo para `Tipo`
+  - expor um novo `dcc.Dropdown` com rótulo explícito `Tipo original Jira`
+  - aplicar o recorte adicional nas mesmas bases centrais usadas pelas abas e visões derivadas do dashboard
+  - atualizar os resumos textuais de filtro para evidenciar quando o tipo original estiver selecionado
+- Critério de aceite:
+  - o filtro atual `Tipo` continua existindo e com o mesmo comportamento
+  - existe um novo filtro separado para `Tipo original Jira`
+  - ao selecionar um tipo original, o dashboard restringe o escopo sem quebrar os demais filtros
+  - `dashboard_full.py` continua válido sintaticamente
+
+## Review (Adicionar filtro de tipo original do Jira)
+- O que foi implementado:
+  - adicionei a coluna derivada `TipoOriginalJira` em `dashboard_full.py`, usando `WorkItemSubType` com fallback defensivo para `Tipo`
+  - incluí um novo dropdown `Tipo original Jira` na barra de filtros, preservando sem alterações o filtro atual `Tipo`
+  - propaguei o novo recorte para as bases principais das abas e para os resumos textuais que mostram o escopo ativo
+  - normalizei rótulos de tipos originais para leitura mais explícita, incluindo `Épico`, `Feature`, `História`, `Task` e `Bug`
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - smoke test em Python confirmando tipos canônicos carregados: `['Bug', 'Feature', 'História', 'Outro', 'Suporte', 'Task']`
+  - smoke test de filtragem:
+    - `Feature -> 126 itens`
+    - `História -> 45 itens`
+    - `Task -> 1588 itens`
+    - `Bug -> 515 itens`
+  - revisão do diff em `dashboard_full.py` e `tasks/todo.md`
+- Limitações / riscos residuais:
+  - no dataset carregado para este ambiente não apareceu nenhum item `Épico`; a opção continua visível no filtro, mas depende de existirem itens desse tipo na base para retornar resultados
+  - ainda não fiz smoke test visual no browser; a validação desta rodada foi sintática e via execução de funções em Python
+- Suggested commit message:
+  - `feat(filters): add original jira item type selector`
+
+## Current Task (Refinar filtro de tipo original do Jira para multiseleção)
+- [x] Ajustar o novo filtro para suportar `Todos`, seleção única e múltipla
+- [x] Normalizar o valor do filtro no backend para aceitar lista e opção explícita de todos
+- [x] Validar sintaxe e smoke test da filtragem refinada
+
+## Review (Refinar filtro de tipo original do Jira para multiseleção)
+- O que foi implementado:
+  - o dropdown `Tipo original Jira` passou a usar `multi=True` com opção explícita `Todos os tipos`
+  - adicionei helpers para normalizar o filtro em modo vazio, único, múltiplo ou com sentinel de `todos`
+  - os resumos textuais do escopo passaram a mostrar corretamente `Todos os tipos` ou a lista selecionada
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - smoke test em Python validando `filter_df(..., tipo_original=['Feature', 'Task'])` e `filter_df(..., tipo_original=['__ALL_ORIGINAL_JIRA_TYPES__'])`
+- Suggested commit message:
+  - `feat(filters): allow multi-select for original jira type`
+
+## Current Task (Corrigir demanda de falha x valor pelo tipo original Jira)
+- [x] Mapear o cálculo atual do indicador semanal `% Demanda de Valor` e `% Demanda de Falha`
+- [x] Trocar a regra para usar `TipoOriginalJira`, excluindo `Task` do denominador
+- [x] Validar sintaxe e smoke test da nova regra, depois registrar review
+
+## Review (Corrigir demanda de falha x valor pelo tipo original Jira)
+- O que foi implementado:
+  - troquei o cálculo semanal de `% Demanda de Valor` e `% Demanda de Falha` para usar `TipoOriginalJira` em vez de `TipoDemanda`
+  - apliquei a taxonomia pedida: `Épico`, `Feature` e `História` contam como valor; `Bug`, `Suporte` e `Outro` contam como falha; `Task` fica fora do denominador
+  - quando a semana contém apenas `Task` ou tipos neutros, o indicador passa a mostrar `—` em vez de forçar percentual inválido
+  - o fallback usado em `Frequência de Deploy` foi ajustado para continuar ancorado na contagem de demandas de valor
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - smoke test unitário leve em Python com semana sintética:
+    - base mista (`Feature`, `História`, `Bug`, `Suporte`, `Outro`, `Task`) -> `% valor = 40.0%`, `% falha = 60.0%`
+    - `Feature` isolado -> `% valor = 100.0%`, `% falha = 0.0%`
+    - `Task` isolado -> `% valor = —`, `% falha = —`
+- Suggested commit message:
+  - `fix(metrics): base value vs failure demand on original jira type`
+## Current Task (Corrigir erro na tela de portfólio em Custos & Fluxo)
+- [x] Reproduzir o erro do callback `tab-content.children` no branch da aba de portfólio
+- [x] Identificar a exceção real na montagem de `Custos & Fluxo`
+- [x] Aplicar a correção mínima em `dashboard_full.py`
+- [x] Validar sintaxe e executar uma reprodução dirigida do trecho corrigido
+
+## Specification (Corrigir erro na tela de portfólio em Custos & Fluxo)
+- Objetivo: eliminar o erro que quebra a renderização da tela de portfólio ao montar a seção `Custos & Fluxo`, preservando o restante da aba e sem introduzir regressões em outras visões do dashboard.
+- Escopo:
+  - `dashboard_full.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - localizar a exceção concreta dentro do callback `render_tab`
+  - corrigir a causa raiz no branch `tab-portfolio`, evitando workarounds genéricos que escondam o erro
+  - validar a correção com verificação sintática e reprodução dirigida do trecho afetado
+- Critério de aceite:
+  - a renderização de `tab-portfolio` não lança exceção ao montar `Custos & Fluxo`
+  - a correção tem impacto mínimo e não altera o comportamento esperado das demais abas
+  - os arquivos alterados permanecem válidos sintaticamente
+
+## Review (Corrigir erro na tela de portfólio em Custos & Fluxo)
+- O que foi ajustado:
+  - corrigi as chamadas internas de `render_tab` para repassarem o novo argumento `tipo_original_jira`
+  - removi a inconsistência introduzida após a expansão da assinatura do callback principal
+- Causa raiz identificada:
+  - a assinatura de `render_tab` foi alterada para incluir `tipo_original_jira`, mas abas compostas continuavam chamando a função sem esse argumento, gerando `TypeError: render_tab() missing 1 required positional argument: 'tipo_original_jira'`
+  - localmente não consegui reproduzir uma exceção específica dentro do bloco `Custos & Fluxo`; o branch `tab-portfolio` renderizou corretamente no smoke test
+- Evidências de validação:
+  - `python3 -m py_compile dashboard_full.py`
+  - smoke test direto de `render_tab(...)` para:
+    - `main_view='portfolio', tab='tab-portfolio'`
+    - `main_view='services', tab='tab-saude'`
+    - `main_view='services', tab='tab-analise-fluxo'`
+  - todos os cenários acima retornaram sem exceção após a correção
+- Risco residual:
+  - persistem `SettingWithCopyWarning` e `FutureWarning` não bloqueantes durante os smoke tests; não impedem a renderização, mas merecem limpeza separada
+- Suggested commit message:
+  - `fix(dashboard): pass tipo_original_jira through nested render_tab calls`
