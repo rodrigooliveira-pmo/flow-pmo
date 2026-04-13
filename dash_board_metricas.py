@@ -168,8 +168,9 @@ def get_project_policy(project, policies):
 
 
 # Load local env files (if present) for optional policy/rule configuration.
-load_env_file(Path(__file__).with_name('jira_env.txt'))
-load_env_file(Path(__file__).with_name('jira-env.txt'))
+# Do not override runtime env vars injected by the orchestrator.
+load_env_file(Path(__file__).with_name('jira_env.txt'), overwrite=False)
+load_env_file(Path(__file__).with_name('jira-env.txt'), overwrite=False)
 FLOW_POLICIES = load_flow_policies()
 CLASS_OF_SERVICE_RULES = load_class_of_service_rules()
 PATTERN_RULES = load_pattern_rules()
@@ -464,11 +465,24 @@ def select_latest_csv_per_project(csv_files):
         Return True only for CSVs that are valid workflow inputs for metrics consolidation.
         Excludes derived/report/process-mining artifacts that must not compete as latest project CSV.
         """
+        auxiliary_suffixes = (
+            "_commits",
+            "_pullrequests",
+            "_pipelines",
+        )
+        auxiliary_prefixes = (
+            "capex-",
+            "gmud-coverage-",
+        )
         if "bottleneck" in stem_lower:
             return False
         if "process-mining" in stem_lower:
             return False
         if "_detailed_changelog" in stem_lower:
+            return False
+        if stem_lower.endswith(auxiliary_suffixes):
+            return False
+        if stem_lower.startswith(auxiliary_prefixes):
             return False
         if stem_lower.startswith("executive_report_"):
             return False

@@ -10404,3 +10404,47 @@
   - persistem `SettingWithCopyWarning` e `FutureWarning` não bloqueantes durante os smoke tests; não impedem a renderização, mas merecem limpeza separada
 - Suggested commit message:
   - `fix(dashboard): pass tipo_original_jira through nested render_tab calls`
+
+## Current Task (Corrigir seleção de CSVs no consolidado de métricas)
+- [x] Confirmar a causa raiz do log `No data loaded from CSV files!`
+- [x] Ajustar a seleção de arquivos em `dash_board_metricas.py` para ignorar artefatos auxiliares que não são base de fluxo
+- [x] Validar a execução do consolidado e registrar evidências, incluindo a contagem real do `latest-upload`
+
+## Specification (Corrigir seleção de CSVs no consolidado de métricas)
+- Objetivo: impedir que `dash_board_metricas.py` escolha arquivos auxiliares como `*_pipelines.csv` como entrada principal do consolidado, eliminando o falso negativo `No data loaded from CSV files!` sem alterar a publicação do pacote `latest-upload`.
+- Escopo:
+  - `dash_board_metricas.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - reproduzir localmente a falha de seleção dos CSVs
+  - restringir `select_latest_csv_per_project(...)` a artefatos válidos de fluxo, excluindo exports auxiliares de Bitbucket e demais CSVs derivados
+  - validar a execução do script de métricas e confirmar no filesystem a quantidade real de arquivos em `~/Documents/dados/latest/latest-upload`
+- Critério de aceite:
+  - `dash_board_metricas.py` deixa de selecionar `*_pipelines.csv` como base principal por projeto
+  - a execução deixa de terminar em `No data loaded from CSV files!` no cenário atual
+  - fica registrado que o `latest-upload` real contém `33` arquivos no ambiente local
+
+## Review (Corrigir seleção de CSVs no consolidado de métricas)
+- Causa raiz confirmada:
+  - o pacote `latest-upload` em `~/Documents/dados/latest/latest-upload` está íntegro e contém `33` arquivos; a divergência visual vinha de inspeção parcial da pasta, não de falha no empacotamento
+  - o log `No data loaded from CSV files!` era disparado por `dash_board_metricas.py`, que escolhia `*_pipelines.csv` como “latest CSV” por projeto e descartava esses arquivos depois por schema incompatível
+  - além disso, o script recarregava `jira_env.txt` com overwrite habilitado e podia sobrescrever `FLOW_PMO_DATA_DIR`/`DATA_FOLDER` injetados pelo runner
+- Correção aplicada:
+  - em `select_latest_csv_per_project(...)`, passei a excluir também `*_commits.csv`, `*_pullrequests.csv`, `*_pipelines.csv`, além de prefixos auxiliares como `capex-` e `gmud-coverage-`
+  - a carga de `jira_env.txt` e `jira-env.txt` em `dash_board_metricas.py` agora usa `overwrite=False`, preservando a pasta de dados definida em runtime pelo orquestrador
+- Evidências de validação:
+  - `python3 -m py_compile dash_board_metricas.py`
+  - conferência direta do filesystem:
+    - `find "/Users/rodrigoalmeidadeoliveira/Documents/dados/latest/latest-upload" -maxdepth 1 -type f | wc -l` -> `33`
+    - listagem do diretório confirmou presença dos arquivos `.xlsx`, CSVs downstream, GMUD, CAPEX e Bitbucket
+  - reprodução antes da correção:
+    - `dash_board_metricas.py` selecionava `befinance_pipelines.csv`, `dataanalytics_pipelines.csv`, `s1nc_pipelines.csv` e `w1nner_pipelines.csv`
+    - a execução encerrava em `No data loaded from CSV files!`
+  - reprodução após a correção em diretório temporário:
+    - `Selected 4 latest CSV files for processing`
+    - `befinance-downstream-latest-data.csv`, `dataanalytics-downstream-latest-data.csv`, `s1nc-downstream-latest-data.csv` e `w1nner-downstream-latest-data.csv` foram carregados com sucesso
+    - a execução avançou até o fim do consolidado, gerando `dashboard_output_latest.xlsx`, `bottlenecks_consolidado_latest.xlsx`, `PowerBI_Model_latest.xlsx` e relatório executivo
+- Risco residual:
+  - no smoke test em `/tmp`, a cópia dos aliases `latest` para `~/Documents/dados/latest` falhou por permissão do sandbox; isso não invalida a correção da seleção dos CSVs e precisa ser verificado novamente no runner real fora do sandbox
+- Suggested commit message:
+  - `fix(metrics): ignore auxiliary csvs when selecting latest workflow inputs`
