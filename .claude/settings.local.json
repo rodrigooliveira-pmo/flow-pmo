@@ -44,7 +44,16 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard_full.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard_full.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard_full.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Sintaxe OK'\\)\")",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(python -m py_compile jira/four_ps_kanban.py)",
+      "Bash(python -m py_compile dashboards/four_ps/builder.py)",
+      "Bash(python -m py_compile dashboards/four_ps/renderer.py)",
+      "Bash(python -m py_compile dashboards/four_ps/__init__.py)",
+      "Bash(ls -lh \"c:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Dados\\\\latest\"/*.csv)",
+      "Bash(awk -F: '$2 > 18300 && $2 < 18450')",
+      "Bash(python -m py_compile jira/four_ps_kanban_export.py)",
+      "Bash(python jira/four_ps_kanban_export.py --verbose)",
+      "Bash(python jira/four_ps_kanban_export.py)"
     ]
   }
 }

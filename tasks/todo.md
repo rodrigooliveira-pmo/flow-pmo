@@ -10557,3 +10557,109 @@
     - saída final confirmada: `Arquivos sincronizados no pacote: 33 (com data original preservada quando aplicavel)`
 - Suggested commit message:
   - `fix(latest-upload): clarify sync log when preserving file dates`
+
+---
+
+## Current Task (Feature: Aba 4Ps — Relatório de Governança TECH)
+
+### Checklist
+
+#### Fase 0 — Configuração
+- [ ] Criar `four_ps_config.yaml` com: boards Kanban, base JQL operacional, mapeamento UUID→área (parcial), statuses por seção, threshold de bloqueio
+
+#### Fase 1 — Extração Kanban (boards IT/IC/AT/CROS/CT/EA)
+- [ ] Criar `jira/four_ps_kanban.py`
+  - [ ] `discover_team_uuid_map(client)` — lê sample de itens da JQL operacional, extrai campo `team` display name → mapeia UUID→nome; cacheia em memória
+  - [ ] `fetch_kanban_items(client, project_keys, statuses, next_month)` — JQL por projeto + status + (dueDate/targetDate para próximos passos)
+  - [ ] `detect_bau_kanban(items)` → `{linked: [...], bau: [...]}` com base em `Epic Link` field
+
+#### Fase 2 — Builder (portfólio operacional + hierarquia + BAU)
+- [ ] Criar `dashboards/four_ps/builder.py`
+  - [ ] `build_portfolio_4ps(df_full_scope, df_operational, month)`:
+    - reutiliza variáveis já computadas: `features_sem_epico`, `children_under_epic`, `_portfolio_team_to_pm_project_key`
+    - classifica épicos por `portfolio_roadmap_status_label()` → Running/Planning/Paused
+    - monta hierarquia épico→feature→story por área (W1nner/S1NC/BeFinance/Dados)
+    - detecta BAU: features sem EpicID, stories sem feature parent ou sem epic chain
+    - `suggest_epic_for_bau(item_title, active_epics)` — token overlap mínimo 2 termos
+  - [ ] `build_kanban_4ps(kanban_data)` — estrutura Geral por sub-área (IT/IC/AT/CROS/CT/EA)
+  - [ ] `build_four_ps_payload(df_portfolio, df_operational, kanban_data, month)` → dict final
+    ```python
+    {
+      "progresso":      {area: {epics: [...], features: [...], stories: [...], bau: [...]}},
+      "proximos_passos":{area: {...}},
+      "pontos_atencao": {area: [blocked_items]}   # sugestões automáticas
+    }
+    ```
+
+#### Fase 3 — Renderer (componentes Dash)
+- [ ] Criar `dashboards/four_ps/renderer.py`
+  - [ ] `render_four_ps_tab(payload, month_label)` — layout principal
+  - [ ] `_render_area_section(area_name, data)` — seção por área com sub-itens colapsáveis
+  - [ ] `_render_epic_card(epic)` — card com título, % progresso, status badge
+  - [ ] `_render_bau_section(bau_items)` — seção destacada ⚡ com sugestão de épico quando disponível
+  - [ ] `_render_atencao_section(blocked)` — itens bloqueados >5d com badge "sugestão Jira"
+  - [ ] Botão "Copiar como texto" → gera saída formatada para colar no PPTX
+
+#### Fase 4 — Integração no dashboard_full.py
+- [ ] Adicionar nova tab `dcc.Tab(label='4Ps - Governança', value='tab-four-ps', ...)` 
+- [ ] Adicionar callback (ou renderização dentro do callback de portfólio existente)
+- [ ] Importar de `dashboards.four_ps` seguindo padrão do `dashboards/portfolio/__init__.py`
+- [ ] Criar `dashboards/four_ps/__init__.py` com re-exports
+
+#### Fase 5 — Verificação
+- [ ] `python -m py_compile dashboard_full.py`
+- [ ] `python -c "from dashboards.four_ps import render_four_ps_tab"`
+- [ ] Teste de import chain completo sem erros
+
+### Specification
+
+**Objetivo:** Automatizar a montagem do relatório mensal 4Ps (Progresso, Próximos Passos, Pontos de Atenção, Pontos de Decisão) para a governança TECH, integrando dados do Jira.
+
+**Fontes de dados:**
+- Portfólio estratégico: projetos `BT`, `NS` → épicos e features (já em `df_portfolio_full_scope`)
+- Operacional produto: `project IN (W1NNR, S1NC, BF, BT) AND type IN (Bug, Story, Support, Tech, Task, "User Story", Sub-task) AND "team[team]" IN (<4 UUIDs>)`
+- Kanban Geral: boards IT(1424), IC(124), AT(1092), CROS(1125), CT(1059), EA(1224)
+
+**Mapeamento de áreas:**
+| Seção | Critério |
+|---|---|
+| W1nner | team UUID `4d885051` (a confirmar via API) |
+| S1NC | team UUID `5e56426c` (a confirmar via API) |
+| BeFinance | team UUID `b87876b2` (confirmado) |
+| Dados | team UUID `67eff902` (a confirmar via API) |
+| Infra Tech | project IT |
+| Infra DevOps | project IC |
+| Arquitetura | project AT |
+| Cross Team | project CROS |
+| Cibersegurança | project CT |
+| Esc. Agilidade | project EA |
+
+**Classificação por seção:**
+- **Progresso:** épicos `Running` + items operacionais em `In Progress / Code Review / Ready for Testing / ...`
+- **Próximos Passos:** épicos `Planning` com DueDate próximo mês + operacionais `To Do / Backlog` com DueDate/TargetDate próximo mês
+- **Pontos de Atenção:** épicos `Paused` + itens com flag/blocker há >5 dias (sugestão automática)
+- **Pontos de Decisão:** painel com orientação para preenchimento manual no PPTX
+
+**Hierarquia e BAU:**
+- Itens portfólio linkados: épico → feature → story/task (via `ParentID`, `EpicLinkID`, `FeatureLinkID`)
+- BAU: features sem epic parent + stories sem feature ou sem epic chain → seção ⚡ destacada por área
+- Sugestão de épico: token overlap ≥ 2 termos entre título BAU e épicos ativos do mesmo time
+
+**Arquitetura (seguindo AGENTS.md):**
+```
+dashboards/four_ps/
+  __init__.py       ← re-exports
+  builder.py        ← lógica de dados (sem Dash)
+  renderer.py       ← componentes Dash
+
+jira/
+  four_ps_kanban.py ← extração Jira Kanban + UUID discovery
+
+four_ps_config.yaml ← configuração centralizada (project root)
+```
+- `dashboard_full.py`: apenas importa + registra nova aba; lógica fica nos módulos
+- Sem duplicação: reutiliza `portfolio_roadmap_status_label`, `_portfolio_team_to_pm_project_key`, `jira/client.py`
+
+**UUID discovery (runtime):**
+- `discover_team_uuid_map(client)`: busca amostra de 50 itens da JQL operacional, lê campo team[team] e seu displayName, constrói map `{uuid: area_name}`, cacheia em memória de processo
+- Fallback: usa nomes do `four_ps_config.yaml` se API falhar

@@ -278,6 +278,8 @@ def canonicalize_demand_type(tipo, subtype=None):
 
     if tipo_norm in {'suporte', 'support'} or subtype_norm in {'suporte', 'support'}:
         return TYPE_SUPPORT
+    if tipo_norm in {'ad hoc', 'adhoc', 'ad-hoc'} or subtype_norm in {'ad hoc', 'adhoc', 'ad-hoc'}:
+        return TYPE_DEV
     if tipo_norm in {'defeitos', 'defeito', 'bug', 'issue', 'issues', 'problema', 'problemas'}:
         return TYPE_ISSUES
     if tipo_norm == normalize_text(TYPE_ISSUES):

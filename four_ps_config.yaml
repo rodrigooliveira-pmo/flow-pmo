@@ -1,0 +1,172 @@
+# =============================================================================
+# Configuração do módulo 4Ps — Relatório de Governança TECH
+# =============================================================================
+# Fonte de verdade para boards, projetos, statuses e mapeamentos de área.
+# Editável sem tocar em código Python.
+
+# -----------------------------------------------------------------------------
+# Portfólio estratégico (épicos + features — já carregados em df_portfolio_full_scope)
+# -----------------------------------------------------------------------------
+portfolio_projects:
+  - BT
+  - NS
+
+# -----------------------------------------------------------------------------
+# Nível operacional (histórias, tasks, bugs)
+# Os team_uuids filtram os itens pelos times de produto via campo "team[team]".
+# O mapeamento uuid → nome de área é resolvido em runtime via discover_team_uuid_map();
+# os nomes abaixo são fallback para quando a API não estiver disponível.
+# -----------------------------------------------------------------------------
+operational:
+  projects:
+    - W1NNR
+    - S1NC
+    - BF
+    - BT
+
+  issue_types:
+    - Bug
+    - Story
+    - Support
+    - Tech
+    - Task
+    - User Story
+    - Sub-task
+    - AD HOC
+
+  # UUIDs dos times de produto (campo "team[team]" no Jira)
+  # Resolução de nome em runtime; fallback_name usado se API falhar.
+  team_uuids:
+    - uuid: "4d885051-84d8-41c8-b630-de55b4d06a86"
+      fallback_name: "W1nner"
+    - uuid: "5e56426c-4da9-486d-b93d-a4ff28176938"
+      fallback_name: "S1NC"
+    - uuid: "b87876b2-78cd-4b67-bbcf-37ba395e5f39"
+      fallback_name: "BeFinance"     # confirmado
+    - uuid: "67eff902-ba3d-4499-82e1-7722bed5f084"
+      fallback_name: "Dados"
+
+# -----------------------------------------------------------------------------
+# Boards Kanban — seção "Geral" do 4Ps
+# -----------------------------------------------------------------------------
+kanban_areas:
+  - name: "Infra Tech"
+    project: IT
+    board_id: 1424
+    jql: 'project = IT ORDER BY Rank ASC'
+
+  - name: "Infra DevOps"
+    project: IC
+    board_id: 124
+    jql: 'project = TE AND issuetype IN (Bug, Support, Tech, "Test Plan", Task) ORDER BY Rank ASC'
+
+  - name: "Arquitetura"
+    project: AT
+    board_id: 1092
+    jql: 'project = AT ORDER BY Rank ASC'
+
+  - name: "Cross Team"
+    project: CROS
+    board_id: 1125
+    jql: 'project = CROS ORDER BY Rank ASC'
+
+  - name: "Cibersegurança"
+    project: CT
+    board_id: 1059
+    jql: 'project = CT ORDER BY Rank ASC'
+
+  - name: "Esc. Agilidade"
+    project: EA
+    board_id: 1224
+    jql: 'project = EA ORDER BY Rank ASC'
+
+  - name: "Governança"
+    project: GT
+    board_id: 1457
+    jql: 'project = GT ORDER BY Rank ASC'
+
+  - name: "Data & Analytics"
+    project: DT
+    board_id: 1290
+    jql: 'project = DT AND issuetype in ("Ad-hoc", "Feature") ORDER BY Rank ASC'
+
+# -----------------------------------------------------------------------------
+# Statuses por seção do 4Ps
+# -----------------------------------------------------------------------------
+in_progress_statuses:
+  - "In Progress"
+  - "Em andamento"
+  - "Em Progresso"
+  - "In Progess"        # typo recorrente no Jira desta instância
+  - "Desenvolvimento"
+  - "Development"
+  - "Doing"
+  - "In Development"
+  - "In Analyse"
+  - "In Validation"
+  - "Ready to Code Review"
+  - "Ready for Code Review"
+  - "Code Review"
+  - "In Review"
+  - "Ready for Testing"
+  - "Ready to Test"
+  - "Testing"
+  - "QA"
+  - "Homologação"
+  - "Homologacao"
+  - "Ready for Staging"
+  - "Staging"
+  - "Ready to Delivery"
+  - "Ready for Production"
+  - "Ready for Release"
+
+next_steps_statuses:
+  - "To Do"
+  - "A fazer"
+  - "Backlog"
+  - "Selected for Development"
+  - "Refinamento"
+  - "Refinement"
+  - "Ready to Start"
+  - "Pronto para iniciar"
+  - "Business Review"
+  - "Ready for Development"
+  - "Ready to Analyse"
+  - "Ready to Do"
+
+done_statuses:
+  - "Done"
+  - "Closed"
+  - "Concluído"
+  - "Concluido"
+  - "Resolved"
+  - "Released"
+
+# Número de dias sem movimento para considerar item como candidato a Ponto de Atenção
+blocked_threshold_days: 5
+
+# Número mínimo de tokens em comum para sugerir vínculo de épico a item BAU
+bau_suggest_min_tokens: 2
+
+# Palavras ignoradas na correspondência de tokens (stop words PT-BR mínimas)
+bau_suggest_stop_words:
+  - "de"
+  - "da"
+  - "do"
+  - "das"
+  - "dos"
+  - "e"
+  - "em"
+  - "o"
+  - "a"
+  - "os"
+  - "as"
+  - "para"
+  - "com"
+  - "por"
+  - "no"
+  - "na"
+  - "nos"
+  - "nas"
+  - "um"
+  - "uma"

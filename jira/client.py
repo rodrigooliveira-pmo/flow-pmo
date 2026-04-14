@@ -95,7 +95,7 @@ class JiraClient:
             return self._get("/rest/api/3/myself")
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
-            if status in {400, 404, 405, 410}:
+            if status in {400, 401, 404, 405, 410}:
                 return self._get("/rest/api/2/myself")
             raise
 
@@ -152,6 +152,11 @@ class JiraClient:
             status = exc.response.status_code if exc.response is not None else None
             errors.append(f"enhanced_get:{status}")
 
+        # If enhanced endpoints worked and simply returned zero issues, do not
+        # fallback to legacy search. Zero results are valid responses.
+        if empty_attempts and not errors:
+            return []
+
         # Fallback for tenants still on legacy behavior.
         try:
             issues = self._search_issues_legacy(jql=jql, fields=fields, page_size=page_size, expand=expand)
@@ -162,7 +167,7 @@ class JiraClient:
                         f"fallback legacy retornou {len(issues)} issue(s)."
                     )
                 return issues
-            if empty_attempts:
+            if empty_attempts or errors:
                 print(
                     "Aviso: endpoints enhanced e legacy retornaram 0 issues para a JQL informada. "
                     f"Tentativas vazias: {', '.join(empty_attempts)}."

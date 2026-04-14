@@ -697,8 +697,10 @@ def categorize_work_item_type(tipo_de_problema):
     tipo_str = str(tipo_de_problema).lower().strip()
     
     # Support is separated from defects/issues/problems.
-    if any(word in tipo_str for word in ['support', 'suporte', 'ad-hoc', 'adhoc', 'ad hoc']):
+    if any(word in tipo_str for word in ['support', 'suporte']):
         return ('Suporte', 'Suporte')
+    if any(word in tipo_str for word in ['ad-hoc', 'adhoc', 'ad hoc']):
+        return ('Desenvolvimento', 'Ad-hoc')
 
     # Defect/Issue/Problem category
     if any(word in tipo_str for word in ['bug', 'problema', 'defeito', 'issue']):

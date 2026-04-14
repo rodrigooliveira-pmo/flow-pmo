@@ -20,6 +20,9 @@ import urllib.request
 import urllib.parse
 import posixpath
 import re
+from collections import defaultdict
+from datetime import datetime, timedelta, date
+from typing import Any, Dict, List
 try:
     from plotly.subplots import make_subplots
 except ImportError:
@@ -31,6 +34,9 @@ import platform
 from shared.env_utils import load_env_file, parse_json_env
 from shared.path_utils import candidate_data_folders, _sanitize_os_path
 from shared.text_utils import normalize_text
+
+from jira.client import JiraClient
+from jira.four_ps_kanban import FourPsKanbanExtractor
 
 # Import from refactored modules
 from dashboards.core import (
@@ -101,6 +107,8 @@ from dashboards.components.tables import (
     create_table,
     create_generic_datatable,
 )
+
+from dashboards.four_ps import build_four_ps_payload, render_four_ps_tab
 
 
 # Load model
@@ -415,6 +423,8 @@ def canonicalize_original_jira_type(subtype=None, tipo=None):
         return 'Feature'
     if subtype_norm in {'historia', 'story', 'user story', 'userstory'} or tipo_norm in {'historia', 'story', 'user story', 'userstory'}:
         return 'História'
+    if subtype_norm in {'ad hoc', 'adhoc', 'ad-hoc'} or tipo_norm in {'ad hoc', 'adhoc', 'ad-hoc'}:
+        return 'Ad-hoc'
     if subtype_norm in {'task', 'tarefa'} or tipo_norm in {'task', 'tarefa'}:
         return 'Task'
     if subtype_norm in {'bug', 'issue', 'issues', 'defeito', 'defeitos', 'problema', 'problemas'}:
@@ -430,7 +440,7 @@ def canonicalize_original_jira_type(subtype=None, tipo=None):
 
 def classify_original_jira_demand_bucket(tipo_original):
     tipo_norm = normalize_text(tipo_original)
-    if tipo_norm in {'epico', 'epic', 'feature', 'historia', 'story', 'user story', 'userstory'}:
+    if tipo_norm in {'epico', 'epic', 'feature', 'historia', 'story', 'user story', 'userstory', 'ad hoc', 'adhoc', 'ad-hoc'}:
         return 'value'
     if tipo_norm in {'bug', 'issue', 'issues', 'defeito', 'defeitos', 'problema', 'problemas', 'suporte', 'support', 'outro', 'other'}:
         return 'failure'
@@ -2611,6 +2621,115 @@ load_env_file('.env', overwrite=False)
 load_env_file('.env.local', overwrite=False)
 load_env_file('jira_env.txt', overwrite=False)
 load_env_file('jira-env.txt', overwrite=False)
+
+
+def _parse_env_date(name: str, default_date: date) -> date:
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return default_date
+    try:
+        return date.fromisoformat(raw)
+    except Exception:
+        pass
+    try:
+        return datetime.strptime(raw, '%Y-%m').date()
+    except Exception:
+        return default_date
+
+
+def _bool_env(name: str) -> bool:
+    return os.getenv(name, '').strip().lower() in {'1', 'true', 'yes', 'y'}
+
+
+def _load_four_ps_kanban_csv(csv_source: str) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    if not csv_source:
+        return {}
+    try:
+        df = pd.read_csv(csv_source, dtype=str, keep_default_na=False)
+    except Exception as exc:
+        print(f"[dashboard_full] Erro ao ler CSV de Kanban 4Ps de {csv_source}: {exc}")
+        return {}
+
+    if df.empty:
+        return {}
+
+    result: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    for _, row in df.iterrows():
+        area = str(row.get('area_name', '') or '').strip()
+        bucket = str(row.get('bucket', '') or '').strip()
+        if not area or bucket not in {'in_progress', 'next_steps', 'blocked', 'done'}:
+            continue
+
+        item: Dict[str, Any] = {}
+        for column in df.columns:
+            if column in {'area_name', 'bucket', 'source'}:
+                continue
+            value = row.get(column, '')
+            if isinstance(value, str):
+                item[column] = value.strip()
+            else:
+                item[column] = value
+
+        item['is_bau'] = str(item.get('is_bau', '')).strip().lower() in {'1', 'true', 'yes', 'y', 'sim'}
+        try:
+            item['days_stale'] = int(float(str(item.get('days_stale', '')).strip() or 0))
+        except Exception:
+            item['days_stale'] = 0
+
+        bucket_items = result.setdefault(area, {'in_progress': [], 'next_steps': [], 'blocked': [], 'done': []})
+        bucket_items.setdefault(bucket, []).append(item)
+
+    return result
+
+
+def _load_four_ps_kanban_online(month: date, period_months: int = 1) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    base_url = os.getenv('FLOW_PMO_JIRA_BASE_URL', '').strip() or os.getenv('JIRA_BASE_URL', '').strip()
+    email = os.getenv('FLOW_PMO_JIRA_EMAIL', '').strip() or os.getenv('JIRA_EMAIL', '').strip()
+    token = os.getenv('FLOW_PMO_JIRA_API_TOKEN', '').strip() or os.getenv('JIRA_API_TOKEN', '').strip()
+    if not base_url or not email or not token:
+        print('[dashboard_full] Credenciais Jira não configuradas — boards Kanban do 4Ps não serão carregados.')
+        return {}
+    try:
+        client = JiraClient(base_url=base_url, email=email, api_token=token)
+        extractor = FourPsKanbanExtractor(client, month=month, period_months=period_months)
+        return extractor.fetch_all_kanban()
+    except Exception as exc:
+        print(f"[dashboard_full] Erro ao extrair Kanban 4Ps online do Jira: {exc}")
+        return {}
+
+
+def _resolve_four_ps_kanban_csv_source() -> str:
+    csv_source = os.getenv('FLOW_PMO_FOUR_PS_KANBAN_CSV', '').strip()
+    if csv_source:
+        return csv_source
+
+    root = Path(__file__).resolve().parent
+    # Caminhos de busca em ordem de preferência
+    candidates = [
+        root / 'four_ps_kanban.csv',                                  # projeto raiz
+        root / 'Dados' / 'latest' / 'latest-upload' / 'four_ps_kanban.csv',
+    ]
+    for p in candidates:
+        if p.exists():
+            print(f"[dashboard_full] Usando CSV 4Ps em {p}")
+            return str(p)
+
+    return ''
+
+
+def _load_four_ps_kanban_data(month: date, period_months: int = 1) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    csv_source = _resolve_four_ps_kanban_csv_source()
+    if csv_source:
+        return _load_four_ps_kanban_csv(csv_source)
+
+    # Tenta online sempre que houver credenciais Jira disponíveis
+    base_url = os.getenv('FLOW_PMO_JIRA_BASE_URL', '').strip() or os.getenv('JIRA_BASE_URL', '').strip()
+    if base_url:
+        return _load_four_ps_kanban_online(month, period_months=period_months)
+
+    return {}
+
+
 PATTERN_RULES = load_pattern_rules()
 DEFAULT_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT = float(os.getenv('FLOW_WEEKLY_WIP_ITEMS_PER_PERSON_LIMIT', '2').strip() or '2')
 DEFAULT_EXPEDITE_TARGET_PCT = float(os.getenv('FLOW_EXPEDITE_TARGET_PCT', '20').strip() or '20')
@@ -10461,9 +10580,13 @@ def _compute_storytask_orphan_from_downstream():
 
     def _is_storytask(tipo):
         t = normalize_text(tipo)
-        if t in {'story', 'user story', 'historia', 'historia de usuario', 'us', 'task', 'tarefa', 'subtarefa', 'sub task', 'tech task', 'task de produto'}:
+        if t in {
+            'story', 'user story', 'historia', 'historia de usuario', 'us',
+            'task', 'tarefa', 'subtarefa', 'sub task', 'tech task', 'task de produto',
+            'ad hoc', 'adhoc', 'ad-hoc'
+        }:
             return True
-        return ('historia' in t) or ('task' in t)
+        return ('historia' in t) or ('task' in t) or ('ad hoc' in t) or ('adhoc' in t) or ('ad-hoc' in t)
 
     tipo_series = ds.get('Tipo de Problema', pd.Series('', index=ds.index)).fillna('').astype(str)
     mask_storytask = tipo_series.apply(_is_storytask)
@@ -18313,6 +18436,50 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         ], style={'paddingTop': '10px'})
         cross_delivery_section = render_portfolio_cross_delivery(cross_delivery_data)
 
+        # 4Ps — Governança TECH
+        try:
+            from datetime import date as _date_cls, datetime as _dt_cls
+            _four_ps_month = _date_cls.today().replace(day=1)
+            # Detecta tamanho do período a partir do filtro de quarter OU do intervalo de datas
+            if portfolio_quarter and portfolio_quarter not in ('ALL', '', None) and portfolio_quarter.startswith('Q'):
+                _four_ps_period = 3
+            elif start_date and end_date:
+                try:
+                    _sd = _dt_cls.fromisoformat(str(start_date)[:10]).date()
+                    _ed = _dt_cls.fromisoformat(str(end_date)[:10]).date()
+                    _four_ps_period = 3 if (_ed - _sd).days >= 80 else 1
+                except Exception:
+                    _four_ps_period = 1
+            else:
+                _four_ps_period = 1
+            _four_ps_kanban_data = _load_four_ps_kanban_data(_four_ps_month, period_months=_four_ps_period)
+            _four_ps_payload = build_four_ps_payload(
+                df_portfolio=df_portfolio_full_scope,
+                kanban_data=_four_ps_kanban_data or None,
+                month=_four_ps_month,
+                period_months=_four_ps_period,
+            )
+            # Converte start_date/end_date para date para passar ao renderer
+            try:
+                _four_ps_start = _dt_cls.fromisoformat(str(start_date)[:10]).date() if start_date else None
+                _four_ps_end   = _dt_cls.fromisoformat(str(end_date)[:10]).date()   if end_date   else None
+            except Exception:
+                _four_ps_start = _four_ps_end = None
+            four_ps_section = render_four_ps_tab(
+                _four_ps_payload,
+                month=_four_ps_month,
+                df_portfolio=df_portfolio_full_scope,
+                period_months=_four_ps_period,
+                date_start=_four_ps_start,
+                date_end=_four_ps_end,
+                kanban_data=_four_ps_kanban_data or None,
+            )
+        except Exception as _four_ps_err:
+            four_ps_section = html.Div(
+                html.P(f'Erro ao montar 4Ps: {_four_ps_err}',
+                       style={'color': '#b22222', 'padding': '20px'}),
+            )
+
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
@@ -18327,6 +18494,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     dcc.Tab(label='Resumo Executivo', value='portfolio-resumo-executivo', children=[resumo_exec_section]),
                     dcc.Tab(label='Alertas', value='portfolio-alertas', children=[alertas_section]),
                     dcc.Tab(label='One Page Completo', value='portfolio-one-page-completo', children=[roadmap_full_section]),
+                    dcc.Tab(label='4Ps - Governança', value='portfolio-four-ps', children=[four_ps_section]),
                     dcc.Tab(label='Aging & Fluxo', value='portfolio-aging-fluxo', children=[aging_fluxo_section]),
                     dcc.Tab(label='Hierarquia & Estrutura', value='portfolio-estrutura', children=[estrutura_section]),
                     dcc.Tab(label='Status & Workflow', value='portfolio-status-workflow', children=[workflow_section]),
@@ -26798,6 +26966,38 @@ def update_cfd_summary_panel(click_data, hover_data, summary_payload):
         selected_date = None
 
     return create_cfd_summary_panel(summary_payload, selected_date=selected_date)
+
+
+# ---------------------------------------------------------------------------
+# 4Ps — callback do botão "Copiar como texto"
+# ---------------------------------------------------------------------------
+from dash import clientside_callback, ClientsideFunction
+
+clientside_callback(
+    """
+    function(n_clicks, text) {
+        if (!n_clicks || !text) return '';
+        try {
+            navigator.clipboard.writeText(text);
+            return 'Copiado!';
+        } catch(e) {
+            // fallback para browsers sem clipboard API
+            var el = document.createElement('textarea');
+            el.value = text;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            return 'Copiado!';
+        }
+    }
+    """,
+    Output('four-ps-copy-feedback', 'children'),
+    Input('btn-four-ps-copy', 'n_clicks'),
+    Input('four-ps-copy-text-store', 'data'),
+    prevent_initial_call=True,
+)
+
 
 if __name__ == '__main__':
     app.run(**_resolve_dash_runtime_options())
