@@ -113,19 +113,36 @@ from dashboards.four_ps import build_four_ps_payload, render_four_ps_tab
 
 
 # Load model
-xls = pd.ExcelFile(MODEL_FILE)
-dim_projeto = pd.read_excel(xls, sheet_name='Dim_Projeto')
-dim_tipo = pd.read_excel(xls, sheet_name='Dim_Tipo')
-
-dim_responsavel = safe_read_sheet(xls, 'Dim_Responsavel', ['ResponsavelID', 'Responsavel'])
-dim_prioridade = safe_read_sheet(xls, 'Dim_Prioridade', ['PrioridadeID', 'Prioridade'])
-dim_classe_servico = safe_read_sheet(xls, 'Dim_ClasseServico', ['ClasseServicoID', 'ClasseServico'])
-fato = pd.read_excel(xls, sheet_name='Fato_Items')
-fato_gargalos = safe_read_sheet(
-    xls,
-    'Fato_Gargalos',
-    ['Projeto', 'Etapa', 'Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)', 'Qtde Itens', 'Vazão da Etapa (itens)'],
-)
+try:
+    _model_file_to_load = MODEL_FILE or _resolve_model_file(DATA_FOLDERS)
+    xls = pd.ExcelFile(_model_file_to_load)
+    dim_projeto = pd.read_excel(xls, sheet_name='Dim_Projeto')
+    dim_tipo = pd.read_excel(xls, sheet_name='Dim_Tipo')
+    dim_responsavel = safe_read_sheet(xls, 'Dim_Responsavel', ['ResponsavelID', 'Responsavel'])
+    dim_prioridade = safe_read_sheet(xls, 'Dim_Prioridade', ['PrioridadeID', 'Prioridade'])
+    dim_classe_servico = safe_read_sheet(xls, 'Dim_ClasseServico', ['ClasseServicoID', 'ClasseServico'])
+    fato = pd.read_excel(xls, sheet_name='Fato_Items')
+    fato_gargalos = safe_read_sheet(
+        xls,
+        'Fato_Gargalos',
+        ['Projeto', 'Etapa', 'Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)', 'Qtde Itens', 'Vazão da Etapa (itens)'],
+    )
+except Exception as _model_load_exc:
+    import warnings
+    warnings.warn(
+        f"[dashboard_full] Falha ao carregar arquivo de modelo: {_model_load_exc}. "
+        "Verifique FLOW_PMO_MODEL_URL ou FLOW_PMO_MODEL_FILE na Vercel — o token do blob pode ter expirado.",
+        RuntimeWarning,
+        stacklevel=1,
+    )
+    xls = None
+    dim_projeto = pd.DataFrame()
+    dim_tipo = pd.DataFrame()
+    dim_responsavel = pd.DataFrame()
+    dim_prioridade = pd.DataFrame()
+    dim_classe_servico = pd.DataFrame()
+    fato = pd.DataFrame()
+    fato_gargalos = pd.DataFrame()
 
 # Normalize date columns
 for dcol in ['DataBacklog', 'DataInProgress', 'DataDone']:

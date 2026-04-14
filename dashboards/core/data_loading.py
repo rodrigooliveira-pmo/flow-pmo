@@ -256,7 +256,17 @@ def _resolve_model_file(data_folders):
 DATA_FOLDERS = candidate_data_folders()
 DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
 PROCESS_MINING_ARTIFACT_FOLDER = os.path.join(os.path.dirname(__file__), 'artifacts', 'process_mining')
-MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
+try:
+    MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
+except Exception as _model_file_exc:
+    import warnings
+    warnings.warn(
+        f"[data_loading] Não foi possível resolver MODEL_FILE no import: {_model_file_exc}. "
+        "O modelo será carregado sob demanda na primeira requisição.",
+        RuntimeWarning,
+        stacklevel=1,
+    )
+    MODEL_FILE = None
 
 
 def _iter_local_data_folders(include_process_mining_artifacts=False):
