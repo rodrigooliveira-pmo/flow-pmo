@@ -57,6 +57,61 @@
 
 ---
 
+## Dashboard Refactoring (Modular Architecture)
+
+### Project Structure
+
+As of April 2026, `dashboard_full.py` has been refactored into a modular package structure:
+
+```
+dashboards/
+├── __init__.py
+├── core/
+│   ├── __init__.py
+│   ├── data_loading.py      # Download, caching, URL resolution functions
+│   └── data_processing.py   # Data cleaning, filtering, normalization
+├── metrics/
+│   ├── __init__.py
+│   └── time_metrics.py      # Statistical calculations (percentiles, Weibull, capability metrics)
+└── components/
+    ├── __init__.py
+    ├── cards.py             # KPI card rendering
+    └── tables.py            # Data table rendering
+```
+
+### Key Module Responsibilities
+
+- **`dashboards/core/data_loading.py`**: Download functions, model loading, file resolution
+- **`dashboards/core/data_processing.py`**: Data merging, service class resolution, filtering, portfolio operations, `done_time_eligible_mask`
+- **`dashboards/metrics/time_metrics.py`**: Time series metrics, percentiles, Weibull fit, capability indices, `add_statistical_lines`
+- **`dashboards/components/cards.py`**: KPI card rendering (`create_kpi_card`, `_portfolio_metric_card`)
+- **`dashboards/components/tables.py`**: Data table UI (`create_table`, `create_generic_datatable`)
+
+### Import Rules
+
+When working with dashboard functions:
+1. Import from the **modular packages**, not directly from `dashboard_full.py`
+2. Use `from dashboards.core import ...` for data operations
+3. Use `from dashboards.metrics.time_metrics import ...` for statistical functions
+4. Use `from dashboards.components.* import ...` for UI rendering
+
+### When Adding New Functions
+
+- **Data processing logic**: Add to `dashboards/core/data_processing.py`
+- **Statistical calculations**: Add to `dashboards/metrics/time_metrics.py`
+- **New UI components**: Create in `dashboards/components/`
+- **Import aggregation**: Update `dashboards/__init__.py` and submodule `__init__.py` files
+- **Dashboard usage**: Import from modular packages, not `dashboard_full.py`
+
+### Common Pitfalls to Avoid
+
+- ❌ DO NOT remove functions from modules without updating imports in `dashboard_full.py` and module `__init__.py`
+- ❌ DO NOT create circular dependencies between core and metrics modules
+- ❌ DO NOT skip adding new exports to `__init__.py` files
+- ❌ DO NOT import private functions (prefix `_`) from components unless absolutely necessary
+
+---
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.

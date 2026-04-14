@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from dashboard_full import app; print\\('OK'\\)\")"
+    ]
+  }
+}

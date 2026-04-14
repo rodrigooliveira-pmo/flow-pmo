@@ -55,6 +55,52 @@
 - Workspace tem múltiplos domínios (`w1.com.br`, `w1consultoria.com.br`, `w1technology.com.br`) — não validar por sufixo de e-mail nem por `hd == domínio_primário`. Usar `hd` apenas para bloquear contas Gmail pessoais.
 - Para rodar localmente: `python -c "from dotenv import load_dotenv; load_dotenv('.env.local'); from api.index import app; app.run(port=3000, debug=True)"`
 
+## Dashboard Refactoring (Modular Architecture)
+
+### Project Structure Changes
+
+**Previous**: Monolithic `dashboard_full.py` (27,610 lines with mixed concerns)
+
+**Current**: Modular package structure under `dashboards/`:
+- `dashboards/core/` — Data loading & processing (imports, downloads, filtering)
+- `dashboards/metrics/` — Statistical metrics & calculations (percentiles, Weibull, capability)
+- `dashboards/components/` — UI component rendering (cards, tables, charts)
+
+### Key Modules
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| `core/data_loading.py` | Download/cache models, resolve files | `_download_*`, `load_model_data`, `_resolve_model_file` |
+| `core/data_processing.py` | Data transformation & filtering | `apply_portfolio_module_filters`, `resolve_service_class`, `done_time_eligible_mask` |
+| `metrics/time_metrics.py` | Time-based metrics & analysis | `time_metric_series`, `exact_empirical_percentile`, `fit_weibull_linearized`, `add_statistical_lines` |
+| `components/cards.py` | KPI and metric cards | `create_kpi_card`, `_portfolio_metric_card` |
+| `components/tables.py` | Data tables | `create_table`, `create_generic_datatable` |
+
+### Working with the Modular Codebase
+
+1. **Locate function**: Search in appropriate module under `dashboards/`
+2. **Update imports**: Ensure function is exported in module `__init__.py` and imported in `dashboard_full.py`
+3. **Test imports**: Run `python -c "from dashboard_full import function_name"` to verify
+4. **Avoid duplication**: Check if function already exists in a module before creating new one
+
+### Import Export Checklist
+
+When moving a function to a module:
+- [ ] Function exists in correct module file (e.g., `dashboards/core/data_processing.py`)
+- [ ] Function is exported from module's `__init__.py` (e.g., `from .data_processing import function_name`)
+- [ ] Function is imported in `dashboard_full.py` from the module (e.g., `from dashboards.core import function_name`)
+- [ ] Test import verification passes
+
+### Expected Error Scenarios & Fixes
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `NameError: name 'func' is not defined` | Function moved but import missing | Add to `dashboard_full.py` imports from module |
+| `ImportError: cannot import name 'func'` | Function not exported from module | Add to module's `__init__.py` |
+| Circular dependency warnings | Modules importing each other | Check dependency direction; `core` → `metrics` → `components` |
+
+---
+
 ## Core Principles
 - Simplicity first: solve with minimal complexity and minimal surface area.
 - No laziness: find root causes, avoid temporary patches.
