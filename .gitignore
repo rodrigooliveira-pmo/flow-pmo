@@ -17,3 +17,4 @@ artifacts/process_mining/*.csv
 artifacts/process_mining/*.xlsx
 artifacts/process_mining/**/*.csv
 artifacts/process_mining/**/*.xlsx
+node_modules/
