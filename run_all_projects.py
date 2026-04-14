@@ -106,6 +106,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-metrics", dest="metrics", action="store_true")
     parser.add_argument("--no-run-metrics", dest="metrics", action="store_false")
     parser.add_argument(
+        "--run-four-ps-kanban",
+        dest="four_ps_kanban",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--no-run-four-ps-kanban",
+        dest="four_ps_kanban",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--four-ps-history-months",
+        type=int,
+        default=6,
+        help="Meses de historico de entregas concluidas para o 4Ps (padrao: 6).",
+    )
+    parser.add_argument(
         "--run-open-dashboard",
         "--open-dashboard",
         dest="open_dashboard",
@@ -122,6 +138,7 @@ def parse_args() -> argparse.Namespace:
         gmud_coverage=True,
         capex_export=True,
         metrics=True,
+        four_ps_kanban=True,
         open_dashboard=True,
     )
     return parser.parse_args()
@@ -489,6 +506,44 @@ def export_capex(out_dir: Path, latest_dir: Path, env_file: Path, workers: int) 
     publish_latest_artifact(capex_xlsx_latest, latest_dir)
 
 
+def export_four_ps_kanban(
+    latest_dir: Path,
+    env_file: Path,
+    history_months: int = 6,
+) -> None:
+    """Exporta boards Kanban 4Ps para CSV e publica no latest-upload."""
+    kanban_script = SCRIPT_DIR / "jira" / "four_ps_kanban_export.py"
+    ensure_file(kanban_script)
+
+    kanban_out = latest_dir / "four_ps_kanban.csv"
+
+    print()
+    print("Exportando boards Kanban 4Ps (in_progress / next_steps / done)...")
+    print(f"Arquivo: {kanban_out}")
+    print(f"Historico de entregas: {history_months} meses")
+
+    kanban_args = [
+        sys.executable,
+        str(kanban_script),
+        "--out",
+        str(kanban_out),
+        "--env-file",
+        str(env_file),
+        "--history-months",
+        str(history_months),
+    ]
+
+    if run_command(kanban_args, check=False) != 0:
+        print(
+            "Aviso: falha na exportacao dos boards Kanban 4Ps. "
+            "O restante do pipeline seguira sem bloquear."
+        )
+        return
+
+    publish_latest_artifact(kanban_out, latest_dir / "latest-upload")
+    print(f"four_ps_kanban.csv publicado em: {latest_dir / 'latest-upload' / 'four_ps_kanban.csv'}")
+
+
 def run_metrics(out_dir: Path, latest_dir: Path) -> None:
     metrics_script = SCRIPT_DIR / "dash_board_metricas.py"
     ensure_file(metrics_script)
@@ -576,6 +631,13 @@ def main() -> int:
 
     if args.capex_export:
         export_capex(out_dir, latest_dir, env_file, args.workers)
+
+    if args.four_ps_kanban:
+        export_four_ps_kanban(
+            latest_dir=latest_dir,
+            env_file=env_file,
+            history_months=args.four_ps_history_months,
+        )
 
     if args.metrics:
         run_metrics(out_dir, latest_dir)

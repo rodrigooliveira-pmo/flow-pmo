@@ -53,7 +53,8 @@
       "Bash(awk -F: '$2 > 18300 && $2 < 18450')",
       "Bash(python -m py_compile jira/four_ps_kanban_export.py)",
       "Bash(python jira/four_ps_kanban_export.py --verbose)",
-      "Bash(python jira/four_ps_kanban_export.py)"
+      "Bash(python jira/four_ps_kanban_export.py)",
+      "Bash(python -m py_compile run_all_projects.py)"
     ]
   }
 }
