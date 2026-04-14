@@ -21815,10 +21815,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                         'marginBottom': '12px',
                     }),
                     html.H3('Padrões Sistêmicos Detectados', style={'marginBottom': '8px', 'fontSize': '34px', 'lineHeight': '1.05', 'color': '#10202f'}),
-                    html.P(
-                        'A aba foi reorganizada para começar pelos KPIs de times com problema, comparar com o período anterior e mostrar a evolução semanal dos padrões em gráfico de linha.',
-                        style={'color': '#4d5c6b', 'marginBottom': '14px', 'fontSize': '14px', 'lineHeight': '1.6'}
-                    ),
                     html.Div([
                         html.Div(f'Período atual: {pd.Timestamp(start_ts).strftime("%d/%m/%Y")} a {pd.Timestamp(end_ts).strftime("%d/%m/%Y")}', style={'fontSize': '12px', 'fontWeight': '600', 'color': '#516170'}),
                         html.Div(f'Período anterior: {pd.Timestamp(previous_start_ts).strftime("%d/%m/%Y")} a {pd.Timestamp(previous_end_ts).strftime("%d/%m/%Y")}', style={'fontSize': '12px', 'fontWeight': '600', 'color': '#516170'}),
