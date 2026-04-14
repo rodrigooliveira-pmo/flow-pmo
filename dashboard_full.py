@@ -42,6 +42,7 @@ from jira.four_ps_kanban import FourPsKanbanExtractor
 from dashboards.core import (
     _download_model_from_url,
     _download_portfolio_csv_from_url,
+    _download_four_ps_kanban_csv_from_url,
     _download_bottleneck_csv_from_url,
     _download_process_mining_report_from_url,
     _download_downstream_items_csv_from_url,
@@ -2699,12 +2700,23 @@ def _load_four_ps_kanban_online(month: date, period_months: int = 1) -> Dict[str
 
 
 def _resolve_four_ps_kanban_csv_source() -> str:
+    # 1. Caminho local explícito
     csv_source = os.getenv('FLOW_PMO_FOUR_PS_KANBAN_CSV', '').strip()
     if csv_source:
         return csv_source
 
+    # 2. URL de blob (Vercel Blob ou equivalente) — baixa para /tmp e retorna path local
+    csv_url = os.getenv('FLOW_PMO_FOUR_PS_KANBAN_CSV_URL', '').strip()
+    if csv_url:
+        try:
+            local_path = _download_four_ps_kanban_csv_from_url(csv_url)
+            print(f"[dashboard_full] CSV 4Ps baixado do blob: {csv_url}")
+            return local_path
+        except Exception as exc:
+            print(f"[dashboard_full] Aviso: falha ao baixar CSV 4Ps de {csv_url}: {exc}")
+
+    # 3. Fallback: caminhos locais padrão
     root = Path(__file__).resolve().parent
-    # Caminhos de busca em ordem de preferência
     candidates = [
         root / 'four_ps_kanban.csv',                                  # projeto raiz
         root / 'Dados' / 'latest' / 'latest-upload' / 'four_ps_kanban.csv',

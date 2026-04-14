@@ -31,6 +31,15 @@ def _download_portfolio_csv_from_url(url):
     return out_file
 
 
+def _download_four_ps_kanban_csv_from_url(url):
+    cache_dir = '/tmp/flow-pmo-models'
+    os.makedirs(cache_dir, exist_ok=True)
+    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    out_file = os.path.join(cache_dir, f'four-ps-kanban-{file_key}.csv')
+    _refresh_remote_cache_file(url, out_file)
+    return out_file
+
+
 def _download_bottleneck_csv_from_url(url, project_key):
     cache_dir = '/tmp/flow-pmo-models'
     os.makedirs(cache_dir, exist_ok=True)

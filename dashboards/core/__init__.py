@@ -1,6 +1,7 @@
 from .data_loading import (
     _download_model_from_url,
     _download_portfolio_csv_from_url,
+    _download_four_ps_kanban_csv_from_url,
     _download_bottleneck_csv_from_url,
     _download_process_mining_report_from_url,
     _download_downstream_items_csv_from_url,
