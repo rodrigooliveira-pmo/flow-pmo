@@ -56,7 +56,7 @@ kanban_areas:
     jql: 'project = IT ORDER BY Rank ASC'
 
   - name: "Infra DevOps"
-    project: IC
+    project: TE
     board_id: 124
     jql: 'project = TE AND issuetype IN (Bug, Support, Tech, "Test Plan", Task) ORDER BY Rank ASC'
 

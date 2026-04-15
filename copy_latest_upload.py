@@ -43,6 +43,7 @@ REQUIRED_RULES = (
 )
 
 OPTIONAL_RULES = (
+    ArtifactRule("four_ps_kanban.csv", required=False),
     ArtifactRule("s1nc_commits.csv", required=False),
     ArtifactRule("s1nc_pullrequests.csv", required=False),
     ArtifactRule("s1nc_pipelines.csv", required=False),
