@@ -18912,14 +18912,28 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         demand_vs_capacity_pct = ((demand_total - capacity_total) / capacity_total * 100.0) if capacity_total > 0 else np.nan
         inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
+        # Razões calculadas sobre df_snapshot_base (inclui itens não concluídos),
+        # evitando o viés de df_signal_base que filtra apenas itens com DataDone no período.
+        snapshot_backlog_date = datetime_col_or_nat(df_snapshot_base, 'DataBacklog')
+        snapshot_commit_date_ratio = datetime_col_or_nat(df_snapshot_base, 'Commitment_Selected')
+        true_arrivals_period = float(len(df_snapshot_base[
+            (snapshot_backlog_date >= start_ts) &
+            (snapshot_backlog_date <= end_ts)
+        ]))
+        true_inflow_period = float(len(df_snapshot_base[
+            (snapshot_commit_date_ratio >= start_ts) &
+            (snapshot_commit_date_ratio <= end_ts)
+        ]))
+        true_arrivals_per_week = true_arrivals_period / weeks_count if weeks_count > 0 else np.nan
+        true_inflow_per_week = true_inflow_period / weeks_count if weeks_count > 0 else np.nan
         backlog_throughput_ratio = (
-            arrivals_avg / throughput_avg
-            if pd.notna(arrivals_avg) and pd.notna(throughput_avg) and throughput_avg > 0
+            true_arrivals_per_week / throughput_avg
+            if pd.notna(true_arrivals_per_week) and pd.notna(throughput_avg) and throughput_avg > 0
             else np.nan
         )
         inflow_throughput_ratio = (
-            commitment_avg / throughput_avg
-            if pd.notna(commitment_avg) and pd.notna(throughput_avg) and throughput_avg > 0
+            true_inflow_per_week / throughput_avg
+            if pd.notna(true_inflow_per_week) and pd.notna(throughput_avg) and throughput_avg > 0
             else np.nan
         )
         commit_times = pd.Series(dtype='float64')
