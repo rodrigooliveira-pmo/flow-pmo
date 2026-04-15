@@ -128,13 +128,9 @@ try:
         ['Projeto', 'Etapa', 'Tempo Médio (dias)', 'Tempo Mediano (dias)', 'P90 (dias)', 'Qtde Itens', 'Vazão da Etapa (itens)'],
     )
 except Exception as _model_load_exc:
-    import warnings
-    warnings.warn(
-        f"[dashboard_full] Falha ao carregar arquivo de modelo: {_model_load_exc}. "
-        "Verifique FLOW_PMO_MODEL_URL ou FLOW_PMO_MODEL_FILE na Vercel — o token do blob pode ter expirado.",
-        RuntimeWarning,
-        stacklevel=1,
-    )
+    import traceback as _tb
+    print(f"[dashboard_full] ERRO ao carregar modelo: {_model_load_exc}", flush=True)
+    print(_tb.format_exc(), flush=True)
     xls = None
     dim_projeto = pd.DataFrame()
     dim_tipo = pd.DataFrame()
@@ -179,6 +175,9 @@ rename_map = {
     'ClasseServico': 'ClasseServico',
 }
 fato.rename(columns={k: v for k, v in rename_map.items() if k in fato.columns}, inplace=True)
+if 'Projeto' not in fato.columns:
+    print(f"[dashboard_full] AVISO: coluna 'Projeto' ausente em fato. Colunas disponíveis: {list(fato.columns)}", flush=True)
+    fato['Projeto'] = ''
 if 'ClasseServico' not in fato.columns:
     fato['ClasseServico'] = np.nan
 if 'Prioridade' not in fato.columns:
