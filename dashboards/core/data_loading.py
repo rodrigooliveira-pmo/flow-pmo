@@ -14,6 +14,7 @@ from shared.text_utils import normalize_text
 
 
 def _download_model_from_url(url):
+    print(f"[data_loading] Downloading model from URL: {url}", flush=True)
     cache_dir = '/tmp/flow-pmo-models'
     os.makedirs(cache_dir, exist_ok=True)
     file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
