@@ -1,8 +1,10 @@
 ﻿Issue Key,Tipo de Problema,Rework Score,Reopen Count,Backward Moves,QA Returns,Revisitas Status,Entradas Desenvolvimento,Retornos para Desenvolvimento,Tempo Ida e Volta Dev Mediano (dias),Cycle Time Dev Total (dias),Cycle Time Dev Mediano (dias),Conformance Score,Conforme Basico,Lead Time Fluxo (dias),Done Final Author,Done Final Date,Variant
-W1NNR-2216,Tarefa,10,0,0,0,10,1,0,,0.6527,0.6527,0.0,Nao,28.8851,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review
+W1NNR-2216,Tarefa,15,0,0,0,15,1,0,,0.6527,0.6527,0.0,Nao,31.0057,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > In Progess
+W1NNR-2218,Tarefa,10,0,0,0,10,1,0,,5.633,5.633,0.0,Nao,35.6701,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review
 W1NNR-2201,Tarefa,8,0,0,0,8,1,0,,3.9262,3.9262,0.1579,Nao,33.0449,Peterson Bem,2026-04-07 15:01:34,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-2297,Tarefa,7,0,0,0,7,1,0,,5.2891,5.2891,0.125,Nao,14.378,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging
+W1NNR-2341,Problema,7,0,0,0,7,1,0,,0.0,0.0,0.1765,Nao,6.7704,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
 W1NNR-2050,Tarefa,6,0,0,0,6,1,0,,0.0,0.0,0.0,Nao,11.0272,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
-W1NNR-2218,Tarefa,6,0,0,0,6,1,0,,5.633,5.633,0.0,Nao,27.9746,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > In Progess
 W1NNR-2008,Tarefa,5,0,0,0,5,1,0,,13.131,13.131,0.1765,Nao,33.806,Lara Junqueira Alvarenga,2026-03-17 13:34:47,Approval > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2174,Tarefa,5,0,0,0,5,1,0,,0.7452,0.7452,0.1875,Nao,40.8146,Peterson Bem,2026-04-07 15:01:35,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2183,Tarefa,5,0,0,0,5,1,0,,1.0666,1.0666,0.1875,Nao,36.0842,Peterson Bem,2026-04-07 15:01:35,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
@@ -24,6 +26,7 @@ W1NNR-599,Tarefa,3,0,1,0,2,2,0,,5.7937,2.8968,0.4375,Nao,39.6902,Lorraine Caribe
 W1NNR-855,Problema,3,0,1,0,2,1,0,,6.9973,6.9973,0.4375,Nao,32.2457,Thaís Cabral,2025-06-06 18:58:24,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > QA Approved Staging > Ready for Production > Done
 W1NNR-885,Problema,3,0,1,0,2,1,0,,0.9331,0.9331,0.4375,Nao,8.2063,Thaís Cabral,2025-05-15 19:23:48,in analytics > In Development > Staging > QA Approved Staging > Ready for Production > QA Approved Staging > Ready for Production > Done
 W1NNR-2045,Tarefa,3,0,0,0,3,1,0,,0.0001,0.0001,0.0,Nao,4.0055,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2306,Problema,3,0,0,0,3,1,0,,0.1778,0.1778,0.0833,Nao,15.1972,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging
 W1NNR-2099,Problema,3,0,0,0,3,1,0,,18.0332,18.0332,0.2,Nao,26.911,Lara Junqueira Alvarenga,2026-03-17 13:34:45,Triagem > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2,Tarefa,3,0,0,0,3,2,0,,0.003,0.0015,0.4444,Nao,104.2564,Lorraine Caribe,2024-07-24 20:13:35,In Progress > Ready for Staging > Staging > In Progress > Ready for Staging > Staging > Ready for Production > Production > Done
 W1NNR-917,Tarefa,3,0,0,0,3,2,0,,2.1211,0.4856,0.4667,Nao,17.8646,Lorraine Caribe,2025-06-02 17:36:26,in analytics > In Development > In Progress > Ready to Analytics > in analytics > In Development > In Progress > Ready to Homolog > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
@@ -44,7 +47,9 @@ W1NNR-625,Tarefa,2,0,1,0,1,1,0,,12.9355,12.9355,0.6,Nao,94.3764,Lorraine Caribe,
 W1NNR-861,Tarefa,2,0,1,0,1,1,0,,0.0729,0.0729,0.6,Nao,66.4869,Lorraine Caribe,2025-06-22 23:38:01,In Progress > Ready To Staging > Ready to Homologation > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-862,Tarefa,2,0,1,0,1,1,0,,0.0312,0.0312,0.6,Nao,66.4454,Lorraine Caribe,2025-06-22 23:38:15,In Progress > Ready To Staging > Ready to Homologation > Homolog > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-2220,Tarefa,2,0,0,0,2,1,0,,13.6923,13.6923,0.0,Nao,22.6308,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
-W1NNR-2306,Problema,2,0,0,0,2,1,0,,0.1778,0.1778,0.0,Nao,8.0861,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > In Progess > Ready for code review
+W1NNR-2223,História,2,0,0,0,2,1,0,,21.727,21.727,0.0,Nao,29.3265,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > In Progess > Ready for code review
+W1NNR-2334,Tarefa,2,0,0,0,2,1,0,,0.3045,0.3045,0.0,Nao,6.0008,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > In Progess > Ready for code review
+W1NNR-2356,Problema,2,0,0,0,2,0,0,,,,0.0,Nao,2.079,Sem Autor,,Backlog > Triagem > Backlog > Triagem > Cancelada
 W1NNR-2192,Problema,2,0,0,0,2,0,0,,,,0.2,Nao,24.954,Marielle Freire,2026-03-31 14:22:46,Backlog > Triagem > Backlog > Triagem > Done
 W1NNR-2006,Tarefa,2,0,0,0,2,2,0,,0.0001,0.0,0.2143,Nao,33.794,Lara Junqueira Alvarenga,2026-03-17 13:34:47,Approval > Backlog > READY FOR DEVELOPMENT > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2240,Problema,2,0,0,0,2,1,0,,0.0,0.0,0.2308,Nao,18.6688,Peterson Bem,2026-04-06 14:05:47,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
@@ -71,7 +76,6 @@ W1NNR-800,Tarefa,2,0,0,0,2,1,0,,0.0019,0.0019,0.75,Nao,82.1225,Lorraine Caribe,2
 W1NNR-863,Tarefa,2,0,0,0,2,1,0,,21.9582,21.9582,0.75,Nao,66.337,Lorraine Caribe,2025-06-22 23:38:22,In Progress > Ready To Staging > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-2326,Problema,1,0,0,0,1,1,0,,0.0,0.0,0.0,Nao,4.0114,Sem Autor,,Backlog > Triagem > Backlog > READY FOR DEVELOPMENT > In Progess
 W1NNR-866,Problema,1,0,0,0,1,0,0,,,,0.0,Nao,15.1372,Sem Autor,,Triagem > Backlog > Triagem
-W1NNR-2341,Problema,1,0,0,0,1,1,0,,0.0,0.0,0.1,Nao,1.8497,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > In Progess
 W1NNR-13,Tarefa,1,0,0,0,1,0,0,,,,0.1667,Nao,682.0353,Lorraine Caribe,2026-03-06 15:58:16,To Do > Backlog > Triagem > Backlog > Cancelled > Done
 W1NNR-2276,Problema,1,0,0,0,1,1,0,,0.1794,0.1794,0.1667,Nao,8.7319,Marielle Freire,2026-04-02 13:11:02,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > In Progess > Done
 W1NNR-2162,Problema,1,0,0,0,1,1,0,,0.1545,0.1545,0.2308,Nao,13.2111,Lara Junqueira Alvarenga,2026-03-19 21:01:48,Backlog > Triagem > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
@@ -112,11 +116,11 @@ W1NNR-844,Tarefa,1,0,0,0,1,1,0,,6.1773,6.1773,0.7778,Nao,33.0779,Thaís Cabral,2
 W1NNR-845,Tarefa,1,0,0,0,1,1,0,,1.9297,1.9297,0.7778,Nao,28.8303,Thaís Cabral,2025-05-27 15:41:21,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-849,Tarefa,1,0,0,0,1,1,0,,0.1947,0.1947,0.7778,Nao,27.0952,Thaís Cabral,2025-05-27 15:41:24,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
 W1NNR-852,Tarefa,1,0,0,0,1,1,0,,6.002,6.002,0.7778,Nao,26.8897,Thaís Cabral,2025-05-27 15:41:26,In Progress > Staging > Homologation > QA Approved Hml > Ready To Staging > Staging > QA Approved Staging > Ready for Production > Done
-W1NNR-2046,Tarefa,0,0,0,0,0,1,0,,,,0.0,Nao,0.0,Sem Autor,,READY FOR DEVELOPMENT
+W1NNR-2046,Tarefa,0,0,0,0,0,1,0,,38.2558,38.2558,0.0,Nao,38.2558,Sem Autor,,READY FOR DEVELOPMENT > In Progess
 W1NNR-2047,Tarefa,0,0,0,0,0,1,0,,9.9988,9.9988,0.0,Nao,24.0634,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2048,Tarefa,0,0,0,0,0,1,0,,0.0001,0.0001,0.0,Nao,0.0003,Sem Autor,,Triagem > Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2049,Tarefa,0,0,0,0,0,1,0,,10.1719,10.1719,0.0,Nao,10.1719,Sem Autor,,READY FOR DEVELOPMENT > In Progess
-W1NNR-2051,Tarefa,0,0,0,0,0,1,0,,28.2515,28.2515,0.0,Nao,35.2262,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review
+W1NNR-2051,Tarefa,0,0,0,0,0,1,0,,28.2515,28.2515,0.0,Nao,44.0417,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2052,Tarefa,0,0,0,0,0,1,0,,1.0525,1.0525,0.0,Nao,8.2248,Sem Autor,,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2055,Tarefa,0,0,0,0,0,1,0,,6.2729,6.2729,0.0,Nao,6.2729,Sem Autor,,READY FOR DEVELOPMENT > In Progess
 W1NNR-2056,Tarefa,0,0,0,0,0,1,0,,1.0077,1.0077,0.0,Nao,1.0077,Sem Autor,,READY FOR DEVELOPMENT > In Progess
@@ -124,24 +128,37 @@ W1NNR-2057,Tarefa,0,0,0,0,0,1,0,,0.0003,0.0003,0.0,Nao,2.3161,Sem Autor,,READY F
 W1NNR-2206,História,0,0,0,0,0,0,0,,,,0.0,Nao,13.0503,Sem Autor,,Backlog > Triagem
 W1NNR-2207,História,0,0,0,0,0,0,0,,,,0.0,Nao,13.0489,Sem Autor,,Backlog > Triagem
 W1NNR-2217,Tarefa,0,0,0,0,0,1,0,,0.0674,0.0674,0.0,Nao,1.9086,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
-W1NNR-2223,História,0,0,0,0,0,1,0,,21.727,21.727,0.0,Nao,21.7271,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
 W1NNR-2226,Tarefa,0,0,0,0,0,1,0,,0.672,0.672,0.0,Nao,14.1399,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2227,Tarefa,0,0,0,0,0,1,0,,0.0,0.0,0.0,Nao,0.0018,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA
 W1NNR-2255,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Cancelada
 W1NNR-2268,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Cancelada
 W1NNR-2271,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Backlog
 W1NNR-2272,Problema,0,0,0,0,0,1,0,,0.0028,0.0028,0.0,Nao,4.9941,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
-W1NNR-2283,Tarefa,0,0,0,0,0,1,0,,0.0,0.0,0.0,Nao,0.0,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
 W1NNR-2284,Tarefa,0,0,0,0,0,1,0,,0.7872,0.7872,0.0,Nao,2.1084,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2285,Tarefa,0,0,0,0,0,1,0,,1.7753,1.7753,0.0,Nao,8.9839,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2286,Tarefa,0,0,0,0,0,1,0,,0.7655,0.7655,0.0,Nao,2.8229,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2288,Tarefa,0,0,0,0,0,1,0,,1.0678,1.0678,0.0,Nao,8.1393,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
 W1NNR-2289,Tarefa,0,0,0,0,0,1,0,,6.8114,6.8114,0.0,Nao,9.0651,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
-W1NNR-2297,Tarefa,0,0,0,0,0,1,0,,5.2891,5.2891,0.0,Nao,8.1356,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW
 W1NNR-2307,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,2.863,Sem Autor,,Backlog > Triagem
 W1NNR-2321,História,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Cancelada
 W1NNR-2327,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Cancelada
+W1NNR-2329,Tarefa,0,0,0,0,0,1,0,,,,0.0,Nao,0.026,Sem Autor,,Backlog > READY FOR DEVELOPMENT
+W1NNR-2330,Tarefa,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2331,Tarefa,0,0,0,0,0,1,0,,0.2285,0.2285,0.0,Nao,0.2389,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
+W1NNR-2332,Tarefa,0,0,0,0,0,1,0,,0.0001,0.0001,0.0,Nao,5.0583,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2333,Tarefa,0,0,0,0,0,1,0,,0.0217,0.0217,0.0,Nao,5.0584,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2335,Tarefa,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2338,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2348,Problema,0,0,0,0,0,1,0,,0.0,0.0,0.0,Nao,0.0037,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess
+W1NNR-2350,Tarefa,0,0,0,0,0,1,0,,0.0,0.0,0.0,Nao,0.0814,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2351,Tarefa,0,0,0,0,0,1,0,,0.2054,0.2054,0.0,Nao,5.036,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA
+W1NNR-2359,Tarefa,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2363,Tarefa,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Cancelada
+W1NNR-2366,Problema,0,0,0,0,0,0,0,,,,0.0,Nao,0.0,Sem Autor,,Backlog
+W1NNR-2368,Tarefa,0,0,0,0,0,1,0,,,,0.0,Nao,0.0117,Sem Autor,,Backlog > READY FOR DEVELOPMENT
+W1NNR-2369,Problema,0,0,0,0,0,1,0,,0.2484,0.2484,0.0,Nao,0.2504,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review
 W1NNR-766,Tarefa,0,0,0,0,0,0,0,,,,0.0,Nao,323.8972,Sem Autor,,Backlog > Triagem
+W1NNR-2364,Tarefa,0,0,0,0,0,1,0,,0.015,0.015,0.1111,Nao,0.1912,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging
 W1NNR-2304,Problema,0,0,0,0,0,1,0,,0.0177,0.0177,0.125,Nao,1.2796,Peterson Bem,2026-03-31 21:41:05,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Done
 W1NNR-2029,Tarefa,0,0,0,0,0,1,0,,7.2134,7.2134,0.1667,Nao,18.9517,Lorraine Caribe,2026-03-10 12:52:49,READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Done
 W1NNR-127,Problema,0,0,0,0,0,1,0,,1.0364,1.0364,0.2,Nao,12.6832,Lara Junqueira Alvarenga,2024-08-26 17:39:43,in analytics > In Development > In Validation > Tech Review > Done
@@ -150,11 +167,11 @@ W1NNR-15,Tarefa,0,0,0,0,0,0,0,,,,0.2,Nao,682.0353,Lorraine Caribe,2026-03-06 15:
 W1NNR-1500,Tarefa,0,0,0,0,0,1,0,,119.1418,119.1418,0.2,Nao,147.8915,Lara Junqueira Alvarenga,2026-02-18 15:42:53,in analytics > In Development > Backlog > Cancelled > Done
 W1NNR-2203,Problema,0,0,0,0,0,1,0,,0.0,0.0,0.2,Nao,0.3015,João Pedro Gomes da Silva,2026-03-24 20:15:07,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Done
 W1NNR-2278,Problema,0,0,0,0,0,1,0,,0.7217,0.7217,0.2,Nao,13.229,Peterson Bem,2026-04-06 18:32:22,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Done
-W1NNR-2281,Problema,0,0,0,0,0,1,0,,0.0289,0.0289,0.2,Nao,15.0383,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
+W1NNR-2283,Tarefa,0,0,0,0,0,1,0,,0.0,0.0,0.2,Nao,20.8644,Marielle Freire,2026-04-14 14:44:24,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Done
 W1NNR-2290,Problema,0,0,0,0,0,1,0,,0.0,0.0,0.2,Nao,5.7399,Marielle Freire,2026-03-30 14:56:36,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Done
 W1NNR-2301,Problema,0,0,0,0,0,1,0,,0.0,0.0,0.2,Nao,4.1343,Lorraine Caribe,2026-03-30 22:02:06,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Done
-W1NNR-2314,Problema,0,0,0,0,0,1,0,,0.0003,0.0003,0.2,Nao,5.9146,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
-W1NNR-2339,Problema,0,0,0,0,0,1,0,,0.0831,0.0831,0.2,Nao,2.0331,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
+W1NNR-2347,Tarefa,0,0,0,0,0,1,0,,0.0138,0.0138,0.2,Nao,5.8704,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
+W1NNR-2355,Problema,0,0,0,0,0,1,0,,0.0001,0.0001,0.2,Nao,3.9586,Sem Autor,,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production
 W1NNR-6,Problema,0,0,0,0,0,0,0,,,,0.2,Nao,99.1848,Lorraine Caribe,2024-07-31 18:51:29,To Do > Ready to Analytics > Cancelled > in analytics > Done
 W1NNR-651,Problema,0,0,0,0,0,1,0,,1.7871,1.7871,0.2,Nao,6.0963,Lorraine Caribe,2025-03-11 21:23:08,in analytics > In Development > Staging > QA Approved > Done
 W1NNR-853,Problema,0,0,0,0,0,1,0,,7.7297,7.7297,0.2,Nao,9.0313,Thaís Cabral,2025-04-25 22:11:55,in analytics > In Development > Staging > QA Approved > Done
@@ -215,10 +232,13 @@ W1NNR-2260,História,0,0,0,0,0,1,0,,0.0,0.0,0.2727,Nao,18.7437,Peterson Bem,2026
 W1NNR-2262,Problema,0,0,0,0,0,1,0,,0.8825,0.8825,0.2727,Nao,17.708,Peterson Bem,2026-04-06 14:06:07,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2265,Tarefa,0,0,0,0,0,1,0,,2.154,2.154,0.2727,Nao,14.9042,Peterson Bem,2026-04-07 15:01:33,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2266,Tarefa,0,0,0,0,0,1,0,,1.765,1.765,0.2727,Nao,14.9042,Peterson Bem,2026-04-07 15:01:32,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-2281,Problema,0,0,0,0,0,1,0,,0.0289,0.0289,0.2727,Nao,16.0135,Peterson Bem,2026-04-09 15:23:21,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2291,Problema,0,0,0,0,0,1,0,,0.0,0.0,0.2727,Nao,5.74,Marielle Freire,2026-03-30 14:56:48,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2302,Tarefa,0,0,0,0,0,1,0,,0.0,0.0,0.2727,Nao,10.8147,Peterson Bem,2026-04-06 14:05:07,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-2314,Problema,0,0,0,0,0,1,0,,0.0003,0.0003,0.2727,Nao,6.8971,Peterson Bem,2026-04-09 15:23:17,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2320,História,0,0,0,0,0,1,0,,0.0,0.0,0.2727,Nao,5.0433,Peterson Bem,2026-04-06 14:05:06,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-2324,Tarefa,0,0,0,0,0,1,0,,0.0,0.0,0.2727,Nao,4.791,Peterson Bem,2026-04-06 14:05:03,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
+W1NNR-2339,Problema,0,0,0,0,0,1,0,,0.0831,0.0831,0.2727,Nao,3.0166,Peterson Bem,2026-04-09 15:23:15,Backlog > READY FOR DEVELOPMENT > In Progess > Ready for code review > CODE REVIEW > READY FOR TESTING/QA > Testing / QA > Ready To Staging > Staging > Ready for Production > Done
 W1NNR-658,Problema,0,0,0,0,0,1,0,,0.0124,0.0124,0.2857,Nao,4.846,Thaís Cabral,2025-03-11 16:14:03,Ready to Analytics > in analytics > In Development > In Validation > QA Approved > Ready for Production > Done
 W1NNR-7,Problema,0,0,0,0,0,2,0,,2.2278,1.1139,0.2857,Nao,685.806,Lara Junqueira Alvarenga,2026-02-18 15:42:58,In Progress > Ready for Staging > Staging > in analytics > In Development > Cancelled > Done
 W1NNR-1697,Problema,0,0,0,0,0,1,0,,0.0235,0.0235,0.3,Nao,4.139,Lara Junqueira Alvarenga,2025-10-27 17:28:52,in analytics > In Development > In Validation > QA Approved Staging > Done

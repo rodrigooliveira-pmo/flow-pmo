@@ -124,6 +124,56 @@ refresh_latest_upload_package() {
         --clean-dest
 }
 
+upload_to_r2() {
+    local upload_dir="${LATEST_DIR}/latest-upload"
+    if ! "$PYTHON_BIN" -c "import boto3" 2>/dev/null; then
+        echo "Aviso: boto3 nao encontrado (pip install boto3). Upload R2 pulado."
+        return 0
+    fi
+    if [[ -z "${CLOUDFLARE_R2_ENDPOINT_URL:-}" || -z "${CLOUDFLARE_R2_BUCKET:-}" || \
+          -z "${CLOUDFLARE_R2_ACCESS_KEY_ID:-}" || -z "${CLOUDFLARE_R2_SECRET_ACCESS_KEY:-}" ]]; then
+        echo "Aviso: variaveis CLOUDFLARE_R2_* nao configuradas. Upload R2 pulado."
+        return 0
+    fi
+    echo
+    echo "Iniciando upload para R2..."
+    "$PYTHON_BIN" - <<'EOF_UPLOAD'
+import os, sys, boto3
+from botocore.config import Config
+from pathlib import Path
+
+upload_dir = Path(os.environ["FLOW_PMO_LATEST_DIR"]) / "latest-upload"
+bucket     = os.environ["CLOUDFLARE_R2_BUCKET"]
+s3 = boto3.client(
+    "s3",
+    endpoint_url=os.environ["CLOUDFLARE_R2_ENDPOINT_URL"],
+    aws_access_key_id=os.environ["CLOUDFLARE_R2_ACCESS_KEY_ID"],
+    aws_secret_access_key=os.environ["CLOUDFLARE_R2_SECRET_ACCESS_KEY"],
+    config=Config(signature_version="s3v4"),
+    region_name="auto",
+)
+content_types = {".csv": "text/csv", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+uploaded, failed = [], []
+for f in sorted(upload_dir.iterdir()):
+    if not f.is_file():
+        continue
+    ct = content_types.get(f.suffix.lower(), "application/octet-stream")
+    try:
+        s3.upload_file(str(f), bucket, f.name, ExtraArgs={"ContentType": ct})
+        print(f"  OK  {f.name} ({f.stat().st_size/1024:.1f} KB)")
+        uploaded.append(f.name)
+    except Exception as e:
+        print(f"  ERRO  {f.name}: {e}", file=sys.stderr)
+        failed.append(f.name)
+print(f"\nUpload concluido: {len(uploaded)} OK, {len(failed)} falhou.")
+pub = os.environ.get("CLOUDFLARE_R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+if pub and uploaded:
+    print("\n--- URLs publicas ---")
+    for k in uploaded:
+        print(f"  {pub}/{k}")
+EOF_UPLOAD
+}
+
 import_env_file "$ENV_FILE"
 
 if looks_like_windows_path "$LATEST_DIR"; then
@@ -256,6 +306,9 @@ fi
 unset JIRA_IGNORE_STATUS_MAP
 
 refresh_latest_upload_package
+
+export FLOW_PMO_LATEST_DIR="$LATEST_DIR"
+upload_to_r2
 
 echo
 echo "Exportacao dedicada de process mining concluida."
