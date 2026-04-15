@@ -108,7 +108,9 @@ def _refresh_remote_cache_file(url, out_file):
         if age_seconds <= float(ttl):
             return out_file
     tmp_file = f"{out_file}.tmp"
-    urllib.request.urlretrieve(url, tmp_file)
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req) as response, open(tmp_file, 'wb') as f:
+        f.write(response.read())
     os.replace(tmp_file, out_file)
     return out_file
 
