@@ -156,6 +156,7 @@ if 'DataInProgress' in fato.columns and 'DataBacklog' in fato.columns:
         fato.loc[missing_in_progress, 'DataInProgress'] = fato.loc[missing_in_progress, 'DataBacklog']
 
 # Merge readable names
+print(f"[dashboard_full] dim_projeto empty={dim_projeto.empty} cols={list(dim_projeto.columns) if not dim_projeto.empty else []}", flush=True)
 if not dim_projeto.empty and 'ProjetoID' in dim_projeto.columns:
     fato = fato.merge(dim_projeto, how='left', left_on='ProjetoID', right_on='ProjetoID')
 if not dim_tipo.empty and 'TipoID' in dim_tipo.columns:
@@ -166,6 +167,7 @@ if not dim_prioridade.empty:
     fato = fato.merge(dim_prioridade, how='left', left_on='PrioridadeID', right_on='PrioridadeID')
 if not dim_classe_servico.empty and 'ClasseServicoID' in fato.columns:
     fato = fato.merge(dim_classe_servico, how='left', left_on='ClasseServicoID', right_on='ClasseServicoID')
+print(f"[dashboard_full] fato cols after merge: {list(fato.columns)}", flush=True)
 
 
 # Friendly column names
