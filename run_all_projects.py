@@ -137,6 +137,18 @@ def parse_args() -> argparse.Namespace:
         help="Meses de historico de entregas concluidas para o 4Ps (padrao: 6).",
     )
     parser.add_argument(
+        "--run-process-mining",
+        dest="process_mining",
+        action="store_true",
+        help="Executa process mining para W1NNR, S1NC, BF e DT (requer --run-detailed-changelog-export).",
+    )
+    parser.add_argument(
+        "--no-run-process-mining",
+        dest="process_mining",
+        action="store_false",
+        help="Pula o process mining.",
+    )
+    parser.add_argument(
         "--run-r2-upload",
         dest="r2_upload",
         action="store_true",
@@ -166,6 +178,7 @@ def parse_args() -> argparse.Namespace:
         capex_export=True,
         metrics=True,
         four_ps_kanban=True,
+        process_mining=False,
         r2_upload=True,
         open_dashboard=True,
     )
@@ -583,6 +596,81 @@ def run_metrics(out_dir: Path, latest_dir: Path) -> None:
     sync_latest_artifacts_from_out_dir(out_dir, latest_dir)
 
 
+_PM_PROJECTS = [
+    {
+        "key": "W1NNR",
+        "changelog": "w1nner-downstream-latest-data_detailed_changelog.csv",
+        "pm_prefix": "w1nner-process-mining",
+        "project_arg": "W1NNR",
+    },
+    {
+        "key": "S1NC",
+        "changelog": "s1nc-downstream-latest-data_detailed_changelog.csv",
+        "pm_prefix": "s1nc-process-mining",
+        "project_arg": "S1NC",
+    },
+    {
+        "key": "BF",
+        "changelog": "befinance-downstream-latest-data_detailed_changelog.csv",
+        "pm_prefix": "befinance-process-mining",
+        "project_arg": "BF",
+    },
+    {
+        "key": "DT",
+        "changelog": "dataanalytics-downstream-latest-data_detailed_changelog.csv",
+        "pm_prefix": "dataanalytics-process-mining",
+        "project_arg": "DT",
+    },
+]
+
+
+def run_process_mining(out_dir: Path, latest_dir: Path) -> None:
+    """Executa process mining para cada projeto e publica os xlsx latest."""
+    pm_script = SCRIPT_DIR / "process_mining_jira.py"
+    ensure_file(pm_script)
+
+    pm_out_dir = out_dir / "process_mining"
+    pm_out_dir.mkdir(parents=True, exist_ok=True)
+
+    print()
+    print("Executando process mining por projeto...")
+
+    for proj in _PM_PROJECTS:
+        changelog_csv = out_dir / proj["changelog"]
+        if not changelog_csv.is_file():
+            print(
+                f"Aviso: changelog detalhado ausente para {proj['key']} "
+                f"({changelog_csv.name}). Execute com --run-detailed-changelog-export. Pulando."
+            )
+            continue
+
+        pm_prefix = proj["pm_prefix"]
+        print()
+        print(f"Process mining: {proj['key']} -> {pm_prefix}")
+
+        rc = run_command(
+            [
+                sys.executable,
+                str(pm_script),
+                "--input", str(changelog_csv),
+                "--out-dir", str(pm_out_dir),
+                "--project", proj["project_arg"],
+                "--prefix", pm_prefix,
+            ],
+            check=False,
+        )
+
+        if rc != 0:
+            print(f"Aviso: falha no process mining para {proj['key']}. Continuando.")
+            continue
+
+        pm_latest_xlsx = pm_out_dir / f"{pm_prefix}-latest.xlsx"
+        if pm_latest_xlsx.is_file():
+            publish_latest_artifact(pm_latest_xlsx, latest_dir)
+        else:
+            print(f"Aviso: {pm_latest_xlsx.name} não encontrado após execução.")
+
+
 def upload_to_r2(upload_dir: Path) -> None:
     """Upload all files in *upload_dir* to Cloudflare R2 (S3-compatible).
 
@@ -773,6 +861,9 @@ def main() -> int:
             env_file=env_file,
             history_months=args.four_ps_history_months,
         )
+
+    if args.process_mining:
+        run_process_mining(out_dir, latest_dir)
 
     if args.metrics:
         run_metrics(out_dir, latest_dir)
