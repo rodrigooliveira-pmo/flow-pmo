@@ -232,7 +232,16 @@ def _resolve_model_file(data_folders):
 
     model_url = os.getenv('FLOW_PMO_MODEL_URL', '').strip()
     if model_url:
-        return _download_model_from_url(model_url)
+        try:
+            return _download_model_from_url(model_url)
+        except Exception as _url_exc:
+            import warnings
+            warnings.warn(
+                f"[data_loading] Falha ao baixar modelo de FLOW_PMO_MODEL_URL ({_url_exc}). "
+                "Tentando arquivo local como fallback.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     model_files = []
     for folder in data_folders:

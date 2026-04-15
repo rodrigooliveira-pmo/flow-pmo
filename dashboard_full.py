@@ -156,8 +156,10 @@ if 'DataInProgress' in fato.columns and 'DataBacklog' in fato.columns:
         fato.loc[missing_in_progress, 'DataInProgress'] = fato.loc[missing_in_progress, 'DataBacklog']
 
 # Merge readable names
-fato = fato.merge(dim_projeto, how='left', left_on='ProjetoID', right_on='ProjetoID')
-fato = fato.merge(dim_tipo, how='left', left_on='TipoID', right_on='TipoID')
+if not dim_projeto.empty and 'ProjetoID' in dim_projeto.columns:
+    fato = fato.merge(dim_projeto, how='left', left_on='ProjetoID', right_on='ProjetoID')
+if not dim_tipo.empty and 'TipoID' in dim_tipo.columns:
+    fato = fato.merge(dim_tipo, how='left', left_on='TipoID', right_on='TipoID')
 if not dim_responsavel.empty:
     fato = fato.merge(dim_responsavel, how='left', left_on='ResponsavelID', right_on='ResponsavelID')
 if not dim_prioridade.empty:
@@ -5039,7 +5041,16 @@ def find_latest_portfolio_csv():
 
     csv_url = os.getenv('FLOW_PMO_PORTFOLIO_CSV_URL', '').strip()
     if csv_url:
-        return _download_portfolio_csv_from_url(csv_url)
+        try:
+            return _download_portfolio_csv_from_url(csv_url)
+        except Exception as _url_exc:
+            import warnings
+            warnings.warn(
+                f"[dashboard_full] Falha ao baixar CSV de portfólio de FLOW_PMO_PORTFOLIO_CSV_URL ({_url_exc}). "
+                "Tentando arquivo local como fallback.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     candidates = []
     preferred_latest_name = f'{PORTFOLIO_CSV_PREFIX}latest{PORTFOLIO_CSV_SUFFIX}'.lower()
@@ -5242,7 +5253,16 @@ def find_latest_gmud_csv(kind: str):
 
     csv_url = os.getenv(spec['env_url'], '').strip()
     if csv_url:
-        return _download_gmud_csv_from_url(csv_url, spec['kind'])
+        try:
+            return _download_gmud_csv_from_url(csv_url, spec['kind'])
+        except Exception as _url_exc:
+            import warnings
+            warnings.warn(
+                f"[dashboard_full] Falha ao baixar GMUD CSV de {spec['env_url']} ({_url_exc}). "
+                "Tentando arquivo local como fallback.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     candidates = []
     preferred = {name.lower() for name in spec['preferred_latest_names']}
@@ -5471,7 +5491,16 @@ def _find_latest_capex_csv(kind: str = 'raw'):
 
     explicit_url = os.getenv(f'FLOW_PMO_CAPEX_{env_suffix}_URL', '').strip()
     if explicit_url:
-        return _download_capex_csv_from_url(explicit_url, kind)
+        try:
+            return _download_capex_csv_from_url(explicit_url, kind)
+        except Exception as _url_exc:
+            import warnings
+            warnings.warn(
+                f"[dashboard_full] Falha ao baixar CAPEX CSV de FLOW_PMO_CAPEX_{env_suffix}_URL ({_url_exc}). "
+                "Tentando arquivo local como fallback.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     candidates = []
     latest_candidates = []
@@ -8258,7 +8287,16 @@ def _capex_find_latest_csv_v2_unused(kind: str = 'raw'):
 
     csv_url = os.getenv(spec['env_url'], '').strip()
     if csv_url:
-        return _download_capex_csv_from_url(csv_url, spec['kind'])
+        try:
+            return _download_capex_csv_from_url(csv_url, spec['kind'])
+        except Exception as _url_exc:
+            import warnings
+            warnings.warn(
+                f"[dashboard_full] Falha ao baixar CAPEX CSV de {spec['env_url']} ({_url_exc}). "
+                "Tentando arquivo local como fallback.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     candidates = []
     preferred = {name.lower() for name in spec['preferred_latest_names']}
@@ -18874,6 +18912,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         demand_vs_capacity_pct = ((demand_total - capacity_total) / capacity_total * 100.0) if capacity_total > 0 else np.nan
         inflow_vs_outflow_pct = ((inflow_total - throughput_total) / throughput_total * 100.0) if throughput_total > 0 else np.nan
         commitment_rate = (throughput_total / demand_total * 100.0) if demand_total > 0 else np.nan
+        backlog_throughput_ratio = (
+            arrivals_avg / throughput_avg
+            if pd.notna(arrivals_avg) and pd.notna(throughput_avg) and throughput_avg > 0
+            else np.nan
+        )
+        inflow_throughput_ratio = (
+            commitment_avg / throughput_avg
+            if pd.notna(commitment_avg) and pd.notna(throughput_avg) and throughput_avg > 0
+            else np.nan
+        )
         commit_times = pd.Series(dtype='float64')
         commit_date = datetime_col_or_nat(df_signal_base, 'Commitment_Selected')
         df_commit_period = df_signal_base[
@@ -19958,6 +20006,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                                     else "Sem base para variação de inventário."
                                 )
                             ),
+                            html.Li(html.Span([
+                                f"Razão Demanda/Throughput: {backlog_throughput_ratio:.1f}×" if pd.notna(backlog_throughput_ratio) else "Razão Demanda/Throughput: —",
+                                html.Span(
+                                    " ⚠ ≥ 3×",
+                                    style={
+                                        'display': 'inline-block',
+                                        'marginLeft': '8px',
+                                        'fontSize': '11px',
+                                        'fontWeight': '700',
+                                        'color': '#fff',
+                                        'backgroundColor': '#c62828',
+                                        'borderRadius': '999px',
+                                        'padding': '1px 8px',
+                                        'verticalAlign': 'middle',
+                                    }
+                                ) if pd.notna(backlog_throughput_ratio) and backlog_throughput_ratio >= 3.0 else None,
+                            ])),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
                 ], className='six columns', style={
@@ -20013,6 +20078,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                                 if metric_catalog['wip_growth']['value'] >= 0
                                 else f"WIP reduziu em {int(abs(metric_catalog['wip_growth']['value']))} itens de fluxo."
                             ),
+                            html.Li(html.Span([
+                                f"Razão Entrada/Throughput: {inflow_throughput_ratio:.1f}×" if pd.notna(inflow_throughput_ratio) else "Razão Entrada/Throughput: —",
+                                html.Span(
+                                    " ⚠ ≥ 3×",
+                                    style={
+                                        'display': 'inline-block',
+                                        'marginLeft': '8px',
+                                        'fontSize': '11px',
+                                        'fontWeight': '700',
+                                        'color': '#fff',
+                                        'backgroundColor': '#c62828',
+                                        'borderRadius': '999px',
+                                        'padding': '1px 8px',
+                                        'verticalAlign': 'middle',
+                                    }
+                                ) if pd.notna(inflow_throughput_ratio) and inflow_throughput_ratio >= 3.0 else None,
+                            ])),
                         ], style={'marginBottom': '0', 'fontSize': '16px', 'color': muted_txt, 'lineHeight': '1.7'}),
                     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '18px'}),
                 ], className='six columns', style={
