@@ -13161,7 +13161,7 @@ def build_portfolio_cross_delivery_integration(start_ts, end_ts, portfolio_scope
         'AssetID', 'Projeto PM', 'Produto', 'Tipo', 'TeamPortfolio', 'Titulo', 'Status Portfolio', 'DueDate', 'Link'
     ]].copy().rename(columns={'TeamPortfolio': 'Team'})
     merge_frames = [ds_agg.copy(), pm_agg.copy(), cost_assets.copy()]
-    if merge_frames[0] is not None and not merge_frames[0].empty:
+    if merge_frames[0] is not None:
         merge_frames[0] = merge_frames[0].drop(columns=[col for col in ['Projeto PM', 'Produto'] if col in merge_frames[0].columns])
     for frame in merge_frames:
         asset_delivery_df = asset_delivery_df.merge(frame, on='AssetID', how='left')
@@ -18936,6 +18936,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             if pd.notna(true_inflow_per_week) and pd.notna(throughput_avg) and throughput_avg > 0
             else np.nan
         )
+        true_demand_vs_capacity_pct = (
+            (true_arrivals_period - capacity_total) / capacity_total * 100.0
+            if capacity_total > 0 else np.nan
+        )
+        true_inflow_vs_outflow_pct = (
+            (true_inflow_period - throughput_total) / throughput_total * 100.0
+            if throughput_total > 0 else np.nan
+        )
         commit_times = pd.Series(dtype='float64')
         commit_date = datetime_col_or_nat(df_signal_base, 'Commitment_Selected')
         df_commit_period = df_signal_base[
@@ -20003,11 +20011,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                         ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
                         html.Ul([
                             html.Li(
-                                f"Demanda {abs(metric_catalog['demand_vs_capacity_pct']['value']):.1f}% acima da capacidade."
-                                if pd.notna(metric_catalog['demand_vs_capacity_pct']['value']) and metric_catalog['demand_vs_capacity_pct']['value'] >= 0
+                                f"Demanda {abs(true_demand_vs_capacity_pct):.1f}% acima da capacidade."
+                                if pd.notna(true_demand_vs_capacity_pct) and true_demand_vs_capacity_pct >= 0
                                 else (
-                                    f"Demanda {abs(metric_catalog['demand_vs_capacity_pct']['value']):.1f}% abaixo da capacidade."
-                                    if pd.notna(metric_catalog['demand_vs_capacity_pct']['value'])
+                                    f"Demanda {abs(true_demand_vs_capacity_pct):.1f}% abaixo da capacidade."
+                                    if pd.notna(true_demand_vs_capacity_pct)
                                     else "Sem base para comparação."
                                 )
                             ),
@@ -20079,11 +20087,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                         ], style={'width': '160px', 'display': 'flex', 'alignItems': 'flex-end', 'justifyContent': 'center'}),
                         html.Ul([
                             html.Li(
-                                f"Entrada {abs(metric_catalog['inflow_vs_outflow_pct']['value']):.1f}% acima da saída."
-                                if pd.notna(metric_catalog['inflow_vs_outflow_pct']['value']) and metric_catalog['inflow_vs_outflow_pct']['value'] >= 0
+                                f"Entrada {abs(true_inflow_vs_outflow_pct):.1f}% acima da saída."
+                                if pd.notna(true_inflow_vs_outflow_pct) and true_inflow_vs_outflow_pct >= 0
                                 else (
-                                    f"Entrada {abs(metric_catalog['inflow_vs_outflow_pct']['value']):.1f}% abaixo da saída."
-                                    if pd.notna(metric_catalog['inflow_vs_outflow_pct']['value'])
+                                    f"Entrada {abs(true_inflow_vs_outflow_pct):.1f}% abaixo da saída."
+                                    if pd.notna(true_inflow_vs_outflow_pct)
                                     else "Sem base para comparação."
                                 )
                             ),
