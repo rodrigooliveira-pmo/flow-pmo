@@ -9859,33 +9859,56 @@ def resolve_project_sla_days(projeto, default=8.0):
 
 
 # SLA de referência por tipo de item
-_TYPE_SLA_DAYS_MAP = {
-    # Bug / Problema / Suporte → 5 dias
-    'bug': 5, 'bugs': 5, 'defeito': 5, 'defeitos': 5,
-    'issue': 5, 'issues': 5, 'problema': 5, 'problemas': 5,
-    'suporte': 5, 'support': 5,
-    # História / User Story → 15 dias
-    'historia': 15, 'historias': 15, 'story': 15, 'us': 15,
-    'user story': 15, 'userstory': 15, 'user_story': 15,
-    'tarefa': 15, 'task': 15,
-    # Feature → 30 dias
-    'feature': 30, 'features': 30, 'funcionalidade': 30, 'funcionalidades': 30,
-    # Épico → 90 dias
-    'epic': 90, 'epico': 90, 'epicos': 90,
+# Chaves canônicas das 4 categorias — configuráveis via FLOW_PMO_TYPE_SLA_DAYS no .env
+_TYPE_SLA_DEFAULTS = {'bug': 5, 'historia': 15, 'feature': 30, 'epico': 90}
+_TYPE_CATEGORY_ORDER = ['bug', 'historia', 'feature', 'epico']
+_TYPE_SLA_DISPLAY_LABELS = {
+    'bug': 'Bug / Suporte',
+    'historia': 'Histórias',
+    'feature': 'Features',
+    'epico': 'Épicos',
 }
-TYPE_SLA_DISPLAY = [
-    ('Bug / Suporte', 5),
-    ('Histórias', 15),
-    ('Features', 30),
-    ('Épicos', 90),
-]
+# Mapa de TipoNorm (Jira) → chave canônica de categoria
+_TYPE_NORM_TO_CATEGORY = {
+    'bug': 'bug', 'bugs': 'bug', 'defeito': 'bug', 'defeitos': 'bug',
+    'issue': 'bug', 'issues': 'bug', 'problema': 'bug', 'problemas': 'bug',
+    'suporte': 'bug', 'support': 'bug',
+    'historia': 'historia', 'historias': 'historia', 'story': 'historia',
+    'us': 'historia', 'user story': 'historia', 'userstory': 'historia',
+    'user_story': 'historia', 'tarefa': 'historia', 'task': 'historia',
+    'feature': 'feature', 'features': 'feature',
+    'funcionalidade': 'feature', 'funcionalidades': 'feature',
+    'epic': 'epico', 'epico': 'epico', 'epicos': 'epico',
+}
+
+
+def _resolve_type_sla_config():
+    """Retorna dict categoria → dias, mesclando defaults com FLOW_PMO_TYPE_SLA_DAYS do .env."""
+    cfg = dict(_TYPE_SLA_DEFAULTS)
+    overrides = parse_json_env('FLOW_PMO_TYPE_SLA_DAYS', {})
+    for k, v in overrides.items():
+        if k in cfg:
+            try:
+                cfg[k] = float(v)
+            except Exception:
+                pass
+    return cfg
+
+
+def get_type_sla_display():
+    """Retorna lista de (label, dias) para o card de referência, refletindo env vars."""
+    cfg = _resolve_type_sla_config()
+    return [(_TYPE_SLA_DISPLAY_LABELS[k], int(cfg[k])) for k in _TYPE_CATEGORY_ORDER]
 
 
 def get_type_sla_days(tipo_norm, default=15):
-    """Retorna o SLA de referência (dias) para um tipo de item normalizado."""
+    """Retorna o SLA de referência (dias) para um TipoNorm, respeitando env vars."""
     if not tipo_norm or (isinstance(tipo_norm, float) and pd.isna(tipo_norm)):
         return default
-    return _TYPE_SLA_DAYS_MAP.get(str(tipo_norm).strip().lower(), default)
+    cat = _TYPE_NORM_TO_CATEGORY.get(str(tipo_norm).strip().lower())
+    if cat:
+        return _resolve_type_sla_config().get(cat, default)
+    return default
 
 
 def infer_service_bucket_config(start_ts, end_ts):
@@ -15326,6 +15349,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             sla_share = float((_elt[_vmask] <= _esla[_vmask]).mean() * 100.0) if _vmask.sum() > 0 else np.nan
         else:
             sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
+
+        # % dentro do SLA por categoria de tipo
+        sla_share_by_type = []
+        if not df_done_period_eligible.empty and 'TipoNorm' in df_done_period_eligible.columns:
+            _elt_all = pd.to_numeric(df_done_period_eligible.get('LeadTime_Selected_Dias'), errors='coerce')
+            _esla_all = pd.to_numeric(df_done_period_eligible.get('SLARef_Dias', pd.Series(dtype=float)), errors='coerce')
+            _tnorm = df_done_period_eligible['TipoNorm'].fillna('').astype(str).str.strip().str.lower()
+            for _cat in _TYPE_CATEGORY_ORDER:
+                _label = _TYPE_SLA_DISPLAY_LABELS[_cat]
+                _cat_norms = {k for k, v in _TYPE_NORM_TO_CATEGORY.items() if v == _cat}
+                _cmask = _tnorm.isin(_cat_norms) & _elt_all.notna() & (_elt_all >= 0) & _esla_all.notna()
+                if _cmask.sum() > 0:
+                    _pct = float((_elt_all[_cmask] <= _esla_all[_cmask]).mean() * 100.0)
+                    sla_share_by_type.append((_label, _pct, int(_cmask.sum())))
+                else:
+                    sla_share_by_type.append((_label, None, 0))
+        else:
+            sla_share_by_type = [(_TYPE_SLA_DISPLAY_LABELS[k], None, 0) for k in _TYPE_CATEGORY_ORDER]
+
         lt_weibull = fit_weibull_linearized(lead_series) if not lead_series.empty else None
         weibull_shape = float(lt_weibull['shape']) if lt_weibull else np.nan
         weibull_lambda = float(lt_weibull['lambda']) if lt_weibull else np.nan
@@ -15402,7 +15444,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     html.Span(label, style={'fontSize': '11px', 'color': '#64748b'}),
                     html.Span(f'{days}d', style={'fontSize': '13px', 'fontWeight': '800', 'color': '#0f172a', 'marginLeft': '6px'}),
                 ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'padding': '3px 0', 'borderBottom': '1px solid #e2e8f0'})
-                for label, days in TYPE_SLA_DISPLAY
+                for label, days in get_type_sla_display()
             ]),
         ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
 
@@ -15426,12 +15468,36 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             ),
             service_card('Itens entregues', f"{len(df_done_period_eligible)}", period_label),
             service_card('WIP atual', f'{wip_count}', f"age médio {wip_age_avg:.1f}d" if pd.notna(wip_age_avg) else 'sem aging disponível'),
-            service_card('% dentro do SLA', f"{sla_share:.1f}%" if pd.notna(sla_share) else '—', 'itens concluídos no período'),
+            html.Div([
+                html.Div('% dentro do SLA', style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569', 'marginBottom': '6px'}),
+                html.Div(
+                    f"{sla_share:.1f}%" if pd.notna(sla_share) else '—',
+                    style={'fontSize': '22px', 'fontWeight': '800', 'color': '#0f172a', 'lineHeight': '1.1', 'marginBottom': '6px'}
+                ),
+                html.Div([
+                    html.Div([
+                        html.Span(label, style={'fontSize': '10px', 'color': '#64748b'}),
+                        html.Span(
+                            f"{pct:.0f}%" if pct is not None else '—',
+                            style={'fontSize': '11px', 'fontWeight': '700',
+                                   'color': '#16a34a' if pct is not None and pct >= 70 else ('#dc2626' if pct is not None and pct < 40 else '#d97706'),
+                                   'marginLeft': '4px'}
+                        ),
+                        html.Span(f" ({n})" if n > 0 else '', style={'fontSize': '10px', 'color': '#94a3b8'}),
+                    ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'padding': '2px 0', 'borderBottom': '1px solid #e2e8f0'})
+                    for label, pct, n in sla_share_by_type
+                ]),
+            ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'}),
         ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))', 'gap': '10px', 'marginTop': '12px', 'marginBottom': '14px'})
 
         executive_findings = []
         if pd.notna(lead_p85):
-            executive_findings.append(f"Lead Time P85 em {lead_p85:.1f}d no período (SLA: Bug/Suporte 5d · Histórias 15d · Features 30d · Épicos 90d).")
+            _sla_cfg = _resolve_type_sla_config()
+            executive_findings.append(
+                f"Lead Time P85 em {lead_p85:.1f}d no período "
+                f"(SLA: Bug/Suporte {int(_sla_cfg['bug'])}d · Histórias {int(_sla_cfg['historia'])}d · "
+                f"Features {int(_sla_cfg['feature'])}d · Épicos {int(_sla_cfg['epico'])}d)."
+            )
         else:
             executive_findings.append('Lead Time sem base suficiente para leitura executiva no período.')
 
@@ -16277,12 +16343,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 )
                 lead_time_breakdown_component = dcc.Graph(figure=fig_lead_time_breakdown)
 
-        # --- Breakdown por Produto ---
+        # --- Breakdown por Produto e Tipo de Item ---
+        _df_breakdown = df_flow_done_period_eligible.copy()
+        if 'Produto' not in _df_breakdown.columns and 'Projeto' in _df_breakdown.columns:
+            _df_breakdown['Produto'] = _df_breakdown['Projeto'].apply(_pm_product_label)
         lead_by_produto = build_service_lead_time_breakdown(
-            df_flow_done_period_eligible, 'Produto', 'Produto'
+            _df_breakdown, 'Produto', 'Produto'
         )
         lead_by_tipo = build_service_lead_time_breakdown(
-            df_flow_done_period_eligible, 'Tipo', 'Tipo de Item'
+            _df_breakdown, 'Tipo', 'Tipo de Item'
         )
 
         def _lt_breakdown_table(title, df_table, table_id):
@@ -16333,16 +16402,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 hovertemplate=f'{dimension_col}: %{{y}}<br>P85: %{{x:.1f}}d<extra></extra>',
             ))
             n_items = len(chart_df)
-            bar_height = max(280, n_items * 36 + 80)
+            bar_height = max(320, n_items * 36 + 120)
             fig.update_layout(
                 title=title,
                 template='plotly_white',
                 barmode='group',
                 xaxis_title='Lead Time (dias)',
                 yaxis_title='',
-                legend=dict(orientation='h', y=-0.15, x=0.5, xanchor='center'),
+                legend=dict(orientation='h', y=1.08, x=0.5, xanchor='center', yanchor='bottom'),
                 height=bar_height,
-                margin=dict(l=20, r=20, t=60, b=60),
+                margin=dict(l=20, r=20, t=80, b=60),
             )
             return dcc.Graph(figure=fig)
 
