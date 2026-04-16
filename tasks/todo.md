@@ -1,3 +1,21 @@
+## Current Task (Integrar repositório com o Bitbucket para usar o pipeline já configurado da AWS)
+- [x] Adicionar o Bitbucket como remote do git local
+- [x] Identificar e diagnosticar a falha de push por incompatibilidade de históricos (arquivos antigos de pipeline da AWS)
+- [x] Executar checkout isolado apenas dos arquivos de nuvem (bitbucket-pipelines.yml, Dockerfile, etc)
+- [x] Realizar o merge (commit) no código local sem sobrescrever a refatoração modular recente
+- [x] Orientar o desenvolvedor a forçar o push localmente por exigir popup do Windows
+
+## Specification (Integrar repositório com o Bitbucket para usar o pipeline já configurado da AWS)
+- Objetivo: conectar e publicar o código no Bitbucket, reaproveitando os arquivos de deploy existentes lá (AWS App Runner) sem perder as grandes refatorações mais recentes do repositório local.
+- Escopo: Git remoto
+- Critério de aceite: Bitbucket integrado, `bitbucket-pipelines.yml` no projeto local sem conflito, sem alteração manual ou destrutiva nos códigos `python`.
+
+## Review (Integrar repositório com o Bitbucket para usar o pipeline já configurado da AWS)
+- Resultado: Arquivos importados e commit local criado
+- O que foi feito: `git remote add bitbucket`, em seguida `git fetch`, e `git checkout bitbucket/main -- bitbucket-pipelines.yml Dockerfile .env.docker PIPELINE_AWS_APP_RUNNER.md deploy_aws.py`
+- Risco Residual: Force push depende do usuário.
+- Suggested commit message: `chore(pipeline): importar configuracao aws app runner do bitbucket`
+
 ## Current Task (Ajustar formatação dos gráficos de evolução semanal)
 - [x] Revisar a composição visual dos dois gráficos de evolução semanal na aba de padrões
 - [x] Corrigir conflitos entre título interno, legenda e área útil do plot
