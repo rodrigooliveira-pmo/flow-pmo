@@ -267,7 +267,9 @@ def _resolve_model_file(data_folders):
 
 DATA_FOLDERS = candidate_data_folders()
 DATA_FOLDER = DATA_FOLDERS[0] if DATA_FOLDERS else os.path.dirname(__file__)
-PROCESS_MINING_ARTIFACT_FOLDER = os.path.join(os.path.dirname(__file__), 'artifacts', 'process_mining')
+_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_MODULE_DIR))
+PROCESS_MINING_ARTIFACT_FOLDER = os.path.join(_PROJECT_ROOT, 'artifacts', 'process_mining')
 try:
     MODEL_FILE = _resolve_model_file(DATA_FOLDERS)
 except Exception as _model_file_exc:
