@@ -15027,12 +15027,15 @@ date_max_candidates = [series.max() for series in [done_date_defaults, creation_
 min_date = min(date_min_candidates) if date_min_candidates else pd.to_datetime('2023-01-01')
 max_date = max(date_max_candidates) if date_max_candidates else pd.to_datetime('today')
 
+_deploy_version = os.environ.get('VERCEL_GIT_COMMIT_SHA') or os.environ.get('BITBUCKET_COMMIT') or 'Local'
+_deploy_version_display = _deploy_version[:7] if len(_deploy_version) > 7 and _deploy_version != 'Local' else _deploy_version
+
 app.layout = html.Div([
     dcc.Store(id='main-view', data='home'),
     html.Div([
         html.H1('Dashboard de Métricas - Full', style={'margin': '0'}),
         html.Span(
-            f'Última carga processada: {LAST_PROCESSED_LOAD_LABEL}',
+            f'Última carga processada: {LAST_PROCESSED_LOAD_LABEL} | Versão: {_deploy_version_display}',
             style={
                 'fontSize': '14px',
                 'color': '#555',
