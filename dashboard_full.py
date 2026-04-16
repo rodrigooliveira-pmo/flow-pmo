@@ -9858,6 +9858,36 @@ def resolve_project_sla_days(projeto, default=8.0):
         return sla_default
 
 
+# SLA de referência por tipo de item
+_TYPE_SLA_DAYS_MAP = {
+    # Bug / Problema / Suporte → 5 dias
+    'bug': 5, 'bugs': 5, 'defeito': 5, 'defeitos': 5,
+    'issue': 5, 'issues': 5, 'problema': 5, 'problemas': 5,
+    'suporte': 5, 'support': 5,
+    # História / User Story → 15 dias
+    'historia': 15, 'historias': 15, 'story': 15, 'us': 15,
+    'user story': 15, 'userstory': 15, 'user_story': 15,
+    'tarefa': 15, 'task': 15,
+    # Feature → 30 dias
+    'feature': 30, 'features': 30, 'funcionalidade': 30, 'funcionalidades': 30,
+    # Épico → 90 dias
+    'epic': 90, 'epico': 90, 'epicos': 90,
+}
+TYPE_SLA_DISPLAY = [
+    ('Bug / Suporte', 5),
+    ('Histórias', 15),
+    ('Features', 30),
+    ('Épicos', 90),
+]
+
+
+def get_type_sla_days(tipo_norm, default=15):
+    """Retorna o SLA de referência (dias) para um tipo de item normalizado."""
+    if not tipo_norm or (isinstance(tipo_norm, float) and pd.isna(tipo_norm)):
+        return default
+    return _TYPE_SLA_DAYS_MAP.get(str(tipo_norm).strip().lower(), default)
+
+
 def infer_service_bucket_config(start_ts, end_ts):
     days_span = max(1, int((pd.Timestamp(end_ts).normalize() - pd.Timestamp(start_ts).normalize()).days + 1))
     if days_span <= 120:
@@ -9880,8 +9910,8 @@ def _service_dimension_label(series, empty_label='Não classificado'):
     return values
 
 
-def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, lead_col='LeadTime_Selected_Dias', sla_days=None):
-    empty = pd.DataFrame(columns=[dimension_label, 'Itens', 'Lead Médio', 'Lead P50', 'Lead P85', '% SLA'])
+def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, lead_col='LeadTime_Selected_Dias', sla_days=None, sla_col=None):
+    empty = pd.DataFrame(columns=[dimension_label, 'Itens', 'Lead Médio', 'Lead P50', 'Lead P85', '% SLA', 'SLA Ref (d)'])
     if done_df is None or done_df.empty or dimension_col not in done_df.columns:
         return empty
 
@@ -9906,7 +9936,27 @@ def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, l
         .reset_index()
         .sort_values(['Itens', 'Lead P85', dimension_label], ascending=[False, False, True], ignore_index=True)
     )
-    if sla_days and sla_days > 0:
+    if sla_col and sla_col in base.columns:
+        # Per-item SLA: each row compared against its own SLA threshold
+        _sla_ref = pd.to_numeric(base[sla_col], errors='coerce')
+        base = base.assign(InSLA=(base['LeadMetric'] <= _sla_ref) & _sla_ref.notna())
+        sla_share = (
+            base.groupby(dimension_label, dropna=False)['InSLA']
+            .mean()
+            .mul(100.0)
+            .reset_index(name='% SLA')
+        )
+        sla_ref_per_group = (
+            base.groupby(dimension_label, dropna=False)[sla_col]
+            .median()
+            .round(0)
+            .astype(int)
+            .reset_index()
+            .rename(columns={sla_col: 'SLA Ref (d)'})
+        )
+        summary = summary.merge(sla_share, on=dimension_label, how='left')
+        summary = summary.merge(sla_ref_per_group, on=dimension_label, how='left')
+    elif sla_days and sla_days > 0:
         sla_share = (
             base.assign(InSLA=base['LeadMetric'] <= float(sla_days))
             .groupby(dimension_label, dropna=False)['InSLA']
@@ -9915,8 +9965,10 @@ def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, l
             .reset_index(name='% SLA')
         )
         summary = summary.merge(sla_share, on=dimension_label, how='left')
+        summary['SLA Ref (d)'] = int(sla_days)
     else:
         summary['% SLA'] = np.nan
+        summary['SLA Ref (d)'] = np.nan
 
     for col in ['Lead Médio', 'Lead P50', 'Lead P85', '% SLA']:
         summary[col] = pd.to_numeric(summary[col], errors='coerce').round(1)
@@ -15247,6 +15299,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         df_done_period_eligible = df_done_period_eligible.copy()
         if not df_done_period_eligible.empty:
             df_done_period_eligible['ClassificacaoUrgencia'] = df_done_period_eligible.apply(classify_urgency_label, axis=1)
+            if 'TipoNorm' not in df_done_period_eligible.columns and 'Tipo' in df_done_period_eligible.columns:
+                df_done_period_eligible['TipoNorm'] = df_done_period_eligible['Tipo'].apply(normalize_text)
+            _tipo_norm_col = df_done_period_eligible['TipoNorm'] if 'TipoNorm' in df_done_period_eligible.columns else pd.Series('', index=df_done_period_eligible.index)
+            df_done_period_eligible['SLARef_Dias'] = _tipo_norm_col.apply(get_type_sla_days)
 
         active_wip = build_live_wip_snapshot(
             df_wip_base,
@@ -15263,7 +15319,13 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         lead_series = time_metric_series(df_done_period_eligible, 'LeadTime_Selected_Dias', non_negative=True)
         lead_avg = float(lead_series.mean()) if not lead_series.empty else np.nan
         lead_p85 = exact_empirical_percentile(lead_series, 0.85) if not lead_series.empty else np.nan
-        sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
+        if not df_done_period_eligible.empty and 'SLARef_Dias' in df_done_period_eligible.columns:
+            _elt = pd.to_numeric(df_done_period_eligible.get('LeadTime_Selected_Dias'), errors='coerce')
+            _esla = pd.to_numeric(df_done_period_eligible.get('SLARef_Dias'), errors='coerce')
+            _vmask = _elt.notna() & (_elt >= 0) & _esla.notna()
+            sla_share = float((_elt[_vmask] <= _esla[_vmask]).mean() * 100.0) if _vmask.sum() > 0 else np.nan
+        else:
+            sla_share = float((lead_series <= sla_days).mean() * 100.0) if not lead_series.empty and sla_days > 0 else np.nan
         lt_weibull = fit_weibull_linearized(lead_series) if not lead_series.empty else None
         weibull_shape = float(lt_weibull['shape']) if lt_weibull else np.nan
         weibull_lambda = float(lt_weibull['lambda']) if lt_weibull else np.nan
@@ -15301,7 +15363,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         wip_age_p85 = float(exact_empirical_percentile(wip_age_series, 0.85)) if not wip_age_series.empty else np.nan
         oldest_wip = float(wip_age_series.max()) if not wip_age_series.empty else np.nan
 
-        lead_by_type = build_service_lead_time_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', sla_days=sla_days)
+        lead_by_type = build_service_lead_time_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', sla_days=sla_days, sla_col='SLARef_Dias' if 'SLARef_Dias' in df_done_period_eligible.columns else None)
         lead_by_urgency = build_service_lead_time_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', sla_days=sla_days)
         tp_by_type = build_service_throughput_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', start_ts, end_ts, bucket_freq=bucket_freq)
         tp_by_urgency = build_service_throughput_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', start_ts, end_ts, bucket_freq=bucket_freq)
@@ -15333,8 +15395,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 html.Div(subtitle, style={'fontSize': '12px', 'color': '#64748b', 'marginTop': '6px'}),
             ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
 
+        sla_ref_card = html.Div([
+            html.Div('SLA de referência por tipo', style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569', 'marginBottom': '8px'}),
+            html.Div([
+                html.Div([
+                    html.Span(label, style={'fontSize': '11px', 'color': '#64748b'}),
+                    html.Span(f'{days}d', style={'fontSize': '13px', 'fontWeight': '800', 'color': '#0f172a', 'marginLeft': '6px'}),
+                ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'padding': '3px 0', 'borderBottom': '1px solid #e2e8f0'})
+                for label, days in TYPE_SLA_DISPLAY
+            ]),
+        ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
+
         summary_cards = html.Div([
-            service_card('SLA de referência', f'{sla_days:.0f} dias', 'Meta usada para leitura rápida do serviço'),
+            sla_ref_card,
             service_card('Lead Time', f"{lead_avg:.1f} / {lead_p85:.1f}" if pd.notna(lead_avg) and pd.notna(lead_p85) else '—', 'médio / P85 do período'),
             service_card(
                 'Cadência avaliada',
@@ -15358,15 +15431,12 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
 
         executive_findings = []
         if pd.notna(lead_p85):
-            if lead_p85 <= sla_days:
-                executive_findings.append(f"Lead Time P85 em {lead_p85:.1f}d, dentro do SLA de {sla_days:.0f}d.")
-            else:
-                executive_findings.append(f"Lead Time P85 em {lead_p85:.1f}d, acima do SLA de {sla_days:.0f}d.")
+            executive_findings.append(f"Lead Time P85 em {lead_p85:.1f}d no período (SLA: Bug/Suporte 5d · Histórias 15d · Features 30d · Épicos 90d).")
         else:
             executive_findings.append('Lead Time sem base suficiente para leitura executiva no período.')
 
         if pd.notna(sla_share):
-            executive_findings.append(f"{sla_share:.1f}% das entregas ficaram dentro do SLA no recorte.")
+            executive_findings.append(f"{sla_share:.1f}% das entregas ficaram dentro do SLA do seu tipo no recorte.")
         else:
             executive_findings.append('Sem amostra suficiente para medir aderência ao SLA no recorte.')
 
@@ -15400,7 +15470,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             html.Strong('Resumo executivo do serviço'),
             html.Ul([
                 *[html.Li(text) for text in executive_findings],
-                html.Li(weibull_cadence['detail'] if weibull_cadence else 'Sem leitura de frequência de entregas via Weibull no período.'),
                 html.Li(f"Vazão {bucket_adj}: P15 {throughput_p15:.1f}, média {throughput_avg:.1f} e P85 {throughput_p85:.1f} por {bucket_label.lower()}." if pd.notna(throughput_p15) and pd.notna(throughput_avg) and pd.notna(throughput_p85) else f'Vazão sem base suficiente por {bucket_label.lower()}.'),
                 html.Li(f"WIP atual: {wip_count} itens | age médio {wip_age_avg:.1f}d | P85 {wip_age_p85:.1f}d | mais antigo {oldest_wip:.1f}d." if pd.notna(wip_age_avg) and pd.notna(wip_age_p85) and pd.notna(oldest_wip) else f'WIP atual: {wip_count} itens.'),
             ], style={'marginTop': '8px', 'marginBottom': '0', 'paddingLeft': '20px'}),
@@ -16208,6 +16277,91 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 )
                 lead_time_breakdown_component = dcc.Graph(figure=fig_lead_time_breakdown)
 
+        # --- Breakdown por Produto ---
+        lead_by_produto = build_service_lead_time_breakdown(
+            df_flow_done_period_eligible, 'Produto', 'Produto'
+        )
+        lead_by_tipo = build_service_lead_time_breakdown(
+            df_flow_done_period_eligible, 'Tipo', 'Tipo de Item'
+        )
+
+        def _lt_breakdown_table(title, df_table, table_id):
+            if df_table is None or df_table.empty:
+                body = html.P('Sem dados suficientes para o recorte selecionado.',
+                              style={'color': '#64748b', 'margin': 0})
+            else:
+                body = dash_table.DataTable(
+                    id=table_id,
+                    columns=[{"name": c, "id": c} for c in df_table.columns],
+                    data=df_table.to_dict('records'),
+                    style_cell={'textAlign': 'left', 'padding': '8px', 'fontSize': '12px'},
+                    style_header={'backgroundColor': '#e2e8f0', 'fontWeight': 'bold'},
+                    style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
+                    style_table={'overflowX': 'auto'},
+                )
+            return html.Div([
+                html.H5(title, style={'marginTop': '0', 'marginBottom': '8px'}),
+                body,
+            ], style={
+                'backgroundColor': '#ffffff',
+                'border': '1px solid #e2e8f0',
+                'borderRadius': '10px',
+                'padding': '14px',
+                'flex': '1',
+                'minWidth': '280px',
+            })
+
+        def _lt_breakdown_chart(df_table, dimension_col, title):
+            if df_table is None or df_table.empty:
+                return html.Div()
+            chart_df = df_table.copy().sort_values('Lead P85', ascending=True)
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                y=chart_df[dimension_col],
+                x=chart_df['Lead P50'],
+                name='P50',
+                orientation='h',
+                marker_color='#27AE60',
+                hovertemplate=f'{dimension_col}: %{{y}}<br>P50: %{{x:.1f}}d<extra></extra>',
+            ))
+            fig.add_trace(go.Bar(
+                y=chart_df[dimension_col],
+                x=chart_df['Lead P85'],
+                name='P85',
+                orientation='h',
+                marker_color='#9B51E0',
+                hovertemplate=f'{dimension_col}: %{{y}}<br>P85: %{{x:.1f}}d<extra></extra>',
+            ))
+            n_items = len(chart_df)
+            bar_height = max(280, n_items * 36 + 80)
+            fig.update_layout(
+                title=title,
+                template='plotly_white',
+                barmode='group',
+                xaxis_title='Lead Time (dias)',
+                yaxis_title='',
+                legend=dict(orientation='h', y=-0.15, x=0.5, xanchor='center'),
+                height=bar_height,
+                margin=dict(l=20, r=20, t=60, b=60),
+            )
+            return dcc.Graph(figure=fig)
+
+        breakdown_by_produto_section = html.Div([
+            html.H4("Lead Time por Produto", style={'textAlign': 'center', 'marginTop': '30px'}),
+            html.Div([
+                _lt_breakdown_table('Tabela: Lead Time por Produto', lead_by_produto, 'lt-breakdown-produto-table'),
+            ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap', 'marginBottom': '8px'}),
+            _lt_breakdown_chart(lead_by_produto, 'Produto', 'Lead Time P50 e P85 por Produto'),
+        ])
+
+        breakdown_by_tipo_section = html.Div([
+            html.H4("Lead Time por Tipo de Item", style={'textAlign': 'center', 'marginTop': '30px'}),
+            html.Div([
+                _lt_breakdown_table('Tabela: Lead Time por Tipo de Item', lead_by_tipo, 'lt-breakdown-tipo-table'),
+            ], style={'display': 'flex', 'gap': '16px', 'flexWrap': 'wrap', 'marginBottom': '8px'}),
+            _lt_breakdown_chart(lead_by_tipo, 'Tipo de Item', 'Lead Time P50 e P85 por Tipo de Item'),
+        ])
+
         return html.Div([
             html.H3("Lead Time", style={'textAlign': 'center'}),
             html.P(subtitle, style={'textAlign': 'center', 'color': '#666'}),
@@ -16233,6 +16387,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             lead_hist_component,
             html.H4("Bandas Percentílicas Exatas (Lead Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
             lead_band_table_component,
+            html.Hr(),
+            html.H3("Lead Time por Produto e Tipo de Item", style={'textAlign': 'center', 'marginTop': '20px'}),
+            breakdown_by_produto_section,
+            breakdown_by_tipo_section,
         ])
 
     if tab == PORTFOLIO_TAB_VALUE:

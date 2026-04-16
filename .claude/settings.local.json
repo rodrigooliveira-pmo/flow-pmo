@@ -58,7 +58,8 @@
       "Bash(python -c \"from dashboards.core import _download_four_ps_kanban_csv_from_url; print\\('OK'\\)\")",
       "Bash(pip show *)",
       "Bash(python -c \"import aiobotocore; print\\(aiobotocore.__version__\\)\")",
-      "Bash(pip --version)"
+      "Bash(pip --version)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('dashboard_full.py', doraise=True\\)\")"
     ]
   }
 }
