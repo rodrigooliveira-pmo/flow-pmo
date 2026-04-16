@@ -309,6 +309,7 @@ SERVICE_TABS = [
     ('Produtividade Dev', 'tab-produtividade-dev'),
     ('Estatística Descritiva', 'tab-estatistica'),
     ('Capacidade de Fila', 'tab-fila-capacidade'),
+    ('Indicadores Corporativos', 'tab-corporativo'),
 ]
 SERVICE_TAB_VALUES = {value for _, value in SERVICE_TABS}
 INTERNAL_SERVICE_TAB_VALUES = SERVICE_TAB_VALUES | {
@@ -27140,6 +27141,177 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             ),
 
         ], style={'padding': '20px', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
+
+    if tab == 'tab-corporativo':
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+
+        def _corp_card(label, value, subtitle='', color='#2F80ED'):
+            return html.Div([
+                html.Div(label, style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569'}),
+                html.Div(value, style={'fontSize': '30px', 'fontWeight': '800', 'lineHeight': '1.1', 'color': color, 'marginTop': '6px'}),
+                html.Div(subtitle, style={'fontSize': '12px', 'color': '#64748b', 'marginTop': '6px'}),
+            ], style={'backgroundColor': '#f8fafc', 'border': f'1px solid {color}44', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
+
+        # --- Lead Time de Features ---
+        df_corp = df.copy()
+        if 'IsFeature' not in df_corp.columns:
+            if 'TipoNorm' not in df_corp.columns and 'Tipo' in df_corp.columns:
+                df_corp['TipoNorm'] = df_corp['Tipo'].map(normalize_text)
+            df_corp['IsFeature'] = df_corp.get('TipoNorm', pd.Series(dtype=str)).isin({'feature', 'funcionalidade'})
+
+        eligible_mask = done_time_eligible_mask(df_corp)
+        feature_mask = df_corp['IsFeature'].fillna(False)
+        df_feat = df_corp[eligible_mask & feature_mask].copy()
+
+        lt_col = 'LeadTime_Selected_Dias'
+        if lt_col in df_feat.columns:
+            df_feat[lt_col] = pd.to_numeric(df_feat[lt_col], errors='coerce')
+            df_feat['DataDone'] = pd.to_datetime(df_feat['DataDone'], errors='coerce')
+            df_feat = df_feat.dropna(subset=[lt_col, 'DataDone'])
+            df_feat = df_feat[df_feat[lt_col] >= 0]
+        else:
+            df_feat = pd.DataFrame()
+
+        if df_feat.empty:
+            lt_section = html.P(
+                'Sem dados de Lead Time de Features para o período e filtros selecionados.',
+                style={'color': '#888', 'padding': '12px 0'}
+            )
+        else:
+            lt_series = df_feat[lt_col]
+            n_feat = len(lt_series)
+            p50_total = exact_empirical_percentile(lt_series, 0.50)
+            p85_total = exact_empirical_percentile(lt_series, 0.85)
+            mean_total = lt_series.mean()
+
+            # Monthly breakdown
+            df_feat['_AnoMes'] = df_feat['DataDone'].dt.to_period('M')
+            monthly = (
+                df_feat.groupby('_AnoMes')[lt_col]
+                .agg(
+                    P50=lambda s: exact_empirical_percentile(s, 0.50),
+                    P85=lambda s: exact_empirical_percentile(s, 0.85),
+                    N='count',
+                )
+                .reset_index()
+                .sort_values('_AnoMes')
+            )
+            monthly['_AnoMes_str'] = monthly['_AnoMes'].astype(str)
+
+            # Annual breakdown
+            df_feat['_Ano'] = df_feat['DataDone'].dt.year
+            annual = (
+                df_feat.groupby('_Ano')[lt_col]
+                .agg(
+                    P50=lambda s: exact_empirical_percentile(s, 0.50),
+                    P85=lambda s: exact_empirical_percentile(s, 0.85),
+                    N='count',
+                )
+                .reset_index()
+                .sort_values('_Ano')
+            )
+            annual.columns = ['Ano', 'P50 (dias)', 'P85 (dias)', 'Qtd Features']
+            annual['P50 (dias)'] = annual['P50 (dias)'].round(1)
+            annual['P85 (dias)'] = annual['P85 (dias)'].round(1)
+
+            # Monthly trend chart
+            fig_lt_monthly = go.Figure()
+            fig_lt_monthly.add_trace(go.Scatter(
+                x=monthly['_AnoMes_str'], y=monthly['P50'].round(1),
+                mode='lines+markers+text',
+                name='P50 (mediana)',
+                line=dict(color='#27AE60', width=2),
+                marker=dict(size=8),
+                text=monthly['P50'].round(1).astype(str) + 'd',
+                textposition='top center',
+                hovertemplate='%{x}<br>P50: %{y:.1f} dias (n=%{customdata})<extra></extra>',
+                customdata=monthly['N'],
+            ))
+            fig_lt_monthly.add_trace(go.Scatter(
+                x=monthly['_AnoMes_str'], y=monthly['P85'].round(1),
+                mode='lines+markers+text',
+                name='P85',
+                line=dict(color='#9B51E0', width=2),
+                marker=dict(size=8),
+                text=monthly['P85'].round(1).astype(str) + 'd',
+                textposition='bottom center',
+                hovertemplate='%{x}<br>P85: %{y:.1f} dias (n=%{customdata})<extra></extra>',
+                customdata=monthly['N'],
+            ))
+            fig_lt_monthly.add_hline(
+                y=p50_total, line_dash='dot', line_color='#27AE60',
+                annotation_text=f'P50 período: {p50_total:.1f}d',
+                annotation_position='top right',
+            )
+            fig_lt_monthly.add_hline(
+                y=p85_total, line_dash='dot', line_color='#9B51E0',
+                annotation_text=f'P85 período: {p85_total:.1f}d',
+                annotation_position='bottom right',
+            )
+            fig_lt_monthly.update_layout(
+                title='Lead Time de Features — Evolução Mensal (P50 e P85)',
+                template='plotly_white',
+                hovermode='x unified',
+                height=460,
+                legend=dict(orientation='h', y=-0.18, x=0.5, xanchor='center'),
+                margin=dict(t=60, b=100, l=60, r=180),
+                xaxis=dict(title='Mês', tickangle=-45),
+                yaxis=dict(title='Lead Time (dias)', rangemode='nonnegative'),
+            )
+
+            period_label = f"{start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}"
+            lt_section = html.Div([
+                html.Div([
+                    _corp_card('P50 — Mediana', f'{p50_total:.1f} dias', '50% das features entregues em até X dias', '#27AE60'),
+                    _corp_card('P85 — SLA Prático', f'{p85_total:.1f} dias', '85% das features entregues em até X dias', '#9B51E0'),
+                    _corp_card('Média', f'{mean_total:.1f} dias', 'Referência complementar', '#2F80ED'),
+                    _corp_card('Features concluídas', str(n_feat), period_label, '#F2994A'),
+                ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(4, 1fr)', 'gap': '14px', 'marginBottom': '24px'}),
+                dcc.Graph(figure=fig_lt_monthly, config={'displayModeBar': False}),
+                html.Div([
+                    html.H5('Resumo Anual', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#1e3a5f', 'marginBottom': '8px', 'marginTop': '20px'}),
+                    dash_table.DataTable(
+                        columns=[{'name': c, 'id': c} for c in annual.columns],
+                        data=annual.to_dict('records'),
+                        style_cell={'textAlign': 'center', 'padding': '8px', 'fontFamily': 'inherit', 'fontSize': '13px'},
+                        style_header={'backgroundColor': '#1e3a5f', 'color': 'white', 'fontWeight': '700'},
+                        style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
+                    ),
+                ]),
+            ])
+
+        return html.Div([
+            html.Div([
+                html.H3('Indicadores Corporativos', style={
+                    'fontSize': '20px', 'fontWeight': '800', 'color': '#0f172a',
+                    'marginBottom': '4px',
+                }),
+                html.P(
+                    f"Projeto: {projeto or 'Todos'} | Período: {start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}",
+                    style={'fontSize': '12px', 'color': '#64748b', 'margin': '0'},
+                ),
+            ], style={'padding': '20px 20px 12px', 'borderBottom': '2px solid #dbeafe', 'marginBottom': '0'}),
+
+            html.Div([
+                html.Div([
+                    html.Span('05', style={
+                        'display': 'inline-block', 'backgroundColor': '#1e3a5f', 'color': 'white',
+                        'borderRadius': '50%', 'width': '28px', 'height': '28px', 'lineHeight': '28px',
+                        'textAlign': 'center', 'fontSize': '12px', 'fontWeight': '800', 'marginRight': '10px',
+                    }),
+                    html.Span('Lead Time de Features', style={'fontSize': '15px', 'fontWeight': '700', 'color': '#1e3a5f'}),
+                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '4px'}),
+                html.P(
+                    'Objetivo: garantir agilidade de entregas  |  Fórmula: Data de aprovação no backlog → Data de conclusão (produção)  |  Periodicidade: Mensal / Anual',
+                    style={'fontSize': '12px', 'color': '#64748b', 'marginBottom': '16px'},
+                ),
+                lt_section,
+            ], style={
+                'backgroundColor': 'white', 'borderRadius': '10px', 'border': '1px solid #e2e8f0',
+                'padding': '20px', 'margin': '16px 20px',
+            }),
+        ], style={'padding': '0', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
 
     return html.Div('Aba não encontrada')
 
