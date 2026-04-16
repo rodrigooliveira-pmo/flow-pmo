@@ -1,0 +1,104 @@
+definitions:
+  services:
+    docker:
+      memory: 3072
+
+pipelines:
+  branches:
+    main:
+      - step:
+          name: Build & Push Docker Image
+          image: atlassian/default-image:3
+          oidc: true
+          services:
+            - docker
+          script:
+            - docker build -t "$ECR_REPOSITORY:$BITBUCKET_COMMIT" -t "$ECR_REPOSITORY:latest" .
+            - pipe: atlassian/aws-ecr-push-image:2.6.0
+              variables:
+                AWS_OIDC_ROLE_ARN: $AWS_OIDC_ROLE_ARN
+                AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+                IMAGE_NAME: $ECR_REPOSITORY
+                TAGS: "$BITBUCKET_COMMIT latest"
+
+      - step:
+          name: Deploy to AWS App Runner
+          image: amazon/aws-cli:2.15.0
+          oidc: true
+          script:
+            - export AWS_ROLE_ARN="$AWS_OIDC_ROLE_ARN"
+            - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
+            - export AWS_REGION="$AWS_DEFAULT_REGION"
+            - printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > "$AWS_WEB_IDENTITY_TOKEN_FILE"
+            - export IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPOSITORY}:${BITBUCKET_COMMIT}"
+            - |
+              cat > /tmp/source-config.json <<EOF
+              {
+                "ImageRepository": {
+                  "ImageIdentifier": "${IMAGE_URI}",
+                  "ImageRepositoryType": "ECR",
+                  "ImageConfiguration": {
+                    "Port": "8080",
+                    "RuntimeEnvironmentVariables": {
+                      "FLOW_PMO_DASH_MODULE": "dashboard_full",
+                      "FLOW_PMO_DASH_ATTR": "app",
+                      "FLOW_PMO_MODEL_URL": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/PowerBI_Model_latest.xlsx",
+                      "FLOW_PMO_PORTFOLIO_CSV_URL": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/portfolio-bt-ns-latest-data.csv",
+                      "FLOW_PMO_PROCESS_MINING_REPORT_URL": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner-process-mining-latest.xlsx",
+                      "FLOW_PMO_BOTTLENECK_CSV_URL_MAP": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/bottlenecks_consolidado_latest.xlsx",
+                      "FLOW_PMO_DOWNSTREAM_CSV_URL_MAP": "{\"W1NNER\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner-downstream-latest-data_bottlenecks.csv\",\"S1NC\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc-downstream-latest-data_bottlenecks.csv\",\"BEFINANCE\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance-downstream-latest-data_bottlenecks.csv\",\"DATA&ANALYTICS\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics-downstream-latest-data_bottlenecks.csv\"}",
+                      "FLOW_PMO_BITBUCKET_CSV_URL_MAP": "{\"w1nner_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner_commits.csv\",\"w1nner_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner_pullrequests.csv\",\"s1nc_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc_commits.csv\",\"s1nc_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc_pullrequests.csv\",\"befinance_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance_commits.csv\",\"befinance_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance_pullrequests.csv\",\"dataanalytics_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics_commits.csv\",\"dataanalytics_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics_pullrequests.csv\"}",
+                      "FLOW_PMO_REMOTE_CACHE_TTL_SECONDS": "0",
+                      "FLOW_PMO_ONE_PAGE_SLA_DAYS": "5",
+                      "FLOW_PMO_PM_COST_PER_HOUR_MAP": "{\"BF\":212,\"DT\":182,\"S1NC\":167,\"W1NNER\":174}",
+                      "FLOW_PMO_ALLOWED_DOMAIN": "w1.com.br",
+                      "FLOW_PMO_ALLOWED_GROUP": "sso-dashboardfluxoprodutividade-viewer@w1.com.br",
+                      "FLOW_PMO_ALLOWED_EMAILS": "${FLOW_PMO_ALLOWED_EMAILS}",
+                      "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+                      "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
+                      "FLASK_SECRET_KEY": "${FLASK_SECRET_KEY}"
+                    }
+                  }
+                }
+              }
+              EOF
+            - echo "Imagem:\ ${IMAGE_URI}"
+            - cat /tmp/source-config.json
+            - >
+              aws apprunner update-service
+              --service-arn "$APP_RUNNER_SERVICE_ARN"
+              --source-configuration file:///tmp/source-config.json
+              --region "$AWS_DEFAULT_REGION"
+
+      - step:
+          name: Verify Deployment
+          image: amazon/aws-cli:2.15.0
+          oidc: true
+          script:
+            - export AWS_ROLE_ARN="$AWS_OIDC_ROLE_ARN"
+            - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
+            - export AWS_REGION="$AWS_DEFAULT_REGION"
+            - printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > "$AWS_WEB_IDENTITY_TOKEN_FILE"
+            - echo "Aguardando App Runner iniciar deploy..."
+            - sleep 30
+            - |
+              for i in $(seq 1 20); do
+                STATUS=$(aws apprunner describe-service \
+                  --service-arn "$APP_RUNNER_SERVICE_ARN" \
+                  --region "$AWS_DEFAULT_REGION" \
+                  --query "Service.Status" --output text)
+                echo "Tentativa $i/20 — Status: $STATUS"
+                if [ "$STATUS" = "RUNNING" ]; then
+                  echo "Deploy concluido com sucesso!"
+                  aws apprunner describe-service \
+                    --service-arn "$APP_RUNNER_SERVICE_ARN" \
+                    --region "$AWS_DEFAULT_REGION" \
+                    --query "Service.{Status:Status,Url:ServiceUrl}" \
+                    --output table
+                  exit 0
+                fi
+                sleep 15
+              done
+              echo "WARN: Timeout aguardando RUNNING (status atual: $STATUS)"
+              exit 1
+  
