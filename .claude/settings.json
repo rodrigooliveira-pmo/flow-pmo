@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python -c \"from dashboard_full import app; print\\('OK'\\)\")",
-      "Bash(ls /Users/rodrigoalmeidadeoliveira/Documents/dados/latest/PowerBI_Model_*.xlsx)"
+      "Bash(ls /Users/rodrigoalmeidadeoliveira/Documents/dados/latest/PowerBI_Model_*.xlsx)",
+      "Bash(python -c ' *)"
     ]
   }
 }

@@ -27154,14 +27154,19 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             ], style={'backgroundColor': '#f8fafc', 'border': f'1px solid {color}44', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
 
         # --- Lead Time de Features ---
+        # WorkItemSubType ('Feature') é a coluna correta no fato de serviços.
+        # Tipo/TipoNorm neste df contém categorias amplas (Desenvolvimento, Defeitos…), não o subtipo.
         df_corp = df.copy()
-        if 'IsFeature' not in df_corp.columns:
-            if 'TipoNorm' not in df_corp.columns and 'Tipo' in df_corp.columns:
-                df_corp['TipoNorm'] = df_corp['Tipo'].map(normalize_text)
-            df_corp['IsFeature'] = df_corp.get('TipoNorm', pd.Series(dtype=str)).isin({'feature', 'funcionalidade'})
+        if 'WorkItemSubType' in df_corp.columns:
+            feature_mask = df_corp['WorkItemSubType'].fillna('').str.lower().isin({'feature', 'funcionalidade'})
+        elif 'IsFeature' in df_corp.columns:
+            feature_mask = df_corp['IsFeature'].fillna(False)
+        elif 'TipoNorm' in df_corp.columns:
+            feature_mask = df_corp['TipoNorm'].isin({'feature', 'funcionalidade'})
+        else:
+            feature_mask = pd.Series(False, index=df_corp.index)
 
         eligible_mask = done_time_eligible_mask(df_corp)
-        feature_mask = df_corp['IsFeature'].fillna(False)
         df_feat = df_corp[eligible_mask & feature_mask].copy()
 
         lt_col = 'LeadTime_Selected_Dias'
@@ -27281,6 +27286,114 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 ]),
             ])
 
+        # --- Execução One-Page: compute section ---
+        # Deliveries: Features from fato with DataDone in period
+        df_op = df.copy()
+        if 'WorkItemSubType' in df_op.columns:
+            df_op_feat = df_op[
+                df_op['WorkItemSubType'].fillna('').str.lower().isin({'feature', 'funcionalidade'})
+            ].copy()
+        elif 'IsFeature' in df_op.columns:
+            df_op_feat = df_op[df_op['IsFeature'].fillna(False)].copy()
+        else:
+            df_op_feat = df_op[done_time_eligible_mask(df_op)].copy()
+
+        df_op_feat['DataDone'] = pd.to_datetime(df_op_feat['DataDone'], errors='coerce')
+        df_op_done = df_op_feat[
+            (df_op_feat['Concluido'].fillna(0) == 1) &
+            df_op_feat['DataDone'].notna()
+        ].copy()
+
+        # Planned: portfolio epics with DueDate in period (snapshot)
+        try:
+            _, df_portfolio_op, _pf_err = get_portfolio_snapshot()
+        except Exception:
+            df_portfolio_op = pd.DataFrame()
+
+        planned_in_period = 0
+        if df_portfolio_op is not None and not df_portfolio_op.empty and 'DueDate' in df_portfolio_op.columns:
+            df_portfolio_op = df_portfolio_op.copy()
+            df_portfolio_op['DueDate'] = pd.to_datetime(df_portfolio_op['DueDate'], errors='coerce')
+            is_epic = df_portfolio_op.get('Tipo', pd.Series(dtype=str)).fillna('').str.lower().str.contains('pico|epic')
+            epics_op = df_portfolio_op[is_epic & df_portfolio_op['DueDate'].notna()].copy()
+            planned_in_period = int(len(epics_op[
+                (epics_op['DueDate'] >= start_ts) & (epics_op['DueDate'] <= end_ts)
+            ]))
+
+        n_delivered = len(df_op_done)
+        ratio_str = f'{n_delivered} / {planned_in_period}' if planned_in_period > 0 else f'{n_delivered} / —'
+        pct_str = f'{n_delivered / planned_in_period * 100:.0f}%' if planned_in_period > 0 else '—'
+
+        if df_op_done.empty:
+            exec_onepage_section = html.P(
+                'Sem features concluídas para o período e filtros selecionados.',
+                style={'color': '#888', 'padding': '12px 0'},
+            )
+        else:
+            # Monthly deliveries bar chart
+            df_op_done['_AnoMes'] = df_op_done['DataDone'].dt.to_period('M')
+            monthly_op = (
+                df_op_done.groupby('_AnoMes').size()
+                .reset_index(name='Entregues')
+                .sort_values('_AnoMes')
+            )
+            monthly_op['_AnoMes_str'] = monthly_op['_AnoMes'].astype(str)
+
+            fig_op = go.Figure()
+            fig_op.add_trace(go.Bar(
+                x=monthly_op['_AnoMes_str'], y=monthly_op['Entregues'],
+                name='Features entregues',
+                marker_color='#2F80ED',
+                text=monthly_op['Entregues'],
+                textposition='outside',
+            ))
+            fig_op.update_layout(
+                title='Execução One-Page — Features Entregues por Mês',
+                template='plotly_white',
+                height=380,
+                margin=dict(t=60, b=80, l=60, r=40),
+                xaxis=dict(title='Mês', tickangle=-45),
+                yaxis=dict(title='Qtd features entregues', rangemode='nonnegative'),
+            )
+
+            # Annual table
+            df_op_done['_Ano'] = df_op_done['DataDone'].dt.year
+            annual_op = df_op_done.groupby('_Ano').size().reset_index(name='Features Entregues')
+            annual_op.columns = ['Ano', 'Features Entregues']
+
+            exec_onepage_section = html.Div([
+                html.Div([
+                    _corp_card(
+                        'Features Entregues', str(n_delivered),
+                        f"{start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}",
+                        '#2F80ED',
+                    ),
+                    _corp_card(
+                        'Épicos Planejados (DueDate)',
+                        str(planned_in_period) if planned_in_period > 0 else '—',
+                        'Épicos com DueDate no período (snapshot portfólio)',
+                        '#F2994A',
+                    ),
+                    _corp_card(
+                        'Execução (proxy)',
+                        ratio_str,
+                        f'{pct_str} — sem aceite formal (a implementar)',
+                        '#27AE60' if planned_in_period > 0 else '#94a3b8',
+                    ),
+                ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(3, 1fr)', 'gap': '14px', 'marginBottom': '24px'}),
+                dcc.Graph(figure=fig_op, config={'displayModeBar': False}),
+                html.Div([
+                    html.H5('Resumo Anual', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#1e3a5f', 'marginBottom': '8px', 'marginTop': '20px'}),
+                    dash_table.DataTable(
+                        columns=[{'name': c, 'id': c} for c in annual_op.columns],
+                        data=annual_op.to_dict('records'),
+                        style_cell={'textAlign': 'center', 'padding': '8px', 'fontFamily': 'inherit', 'fontSize': '13px'},
+                        style_header={'backgroundColor': '#1e3a5f', 'color': 'white', 'fontWeight': '700'},
+                        style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
+                    ),
+                ]),
+            ])
+
         return html.Div([
             html.Div([
                 html.H3('Indicadores Corporativos', style={
@@ -27310,6 +27423,53 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             ], style={
                 'backgroundColor': 'white', 'borderRadius': '10px', 'border': '1px solid #e2e8f0',
                 'padding': '20px', 'margin': '16px 20px',
+            }),
+
+            # --- Execução One-Page Tech/Dados ---
+            html.Div([
+                html.Div([
+                    html.Span('04', style={
+                        'display': 'inline-block', 'backgroundColor': '#1e3a5f', 'color': 'white',
+                        'borderRadius': '50%', 'width': '28px', 'height': '28px', 'lineHeight': '28px',
+                        'textAlign': 'center', 'fontSize': '12px', 'fontWeight': '800', 'marginRight': '10px',
+                    }),
+                    html.Span('Execução One-Page Tech / Dados', style={'fontSize': '15px', 'fontWeight': '700', 'color': '#1e3a5f'}),
+                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '4px'}),
+                html.P(
+                    'Objetivo: garantir cumprimento do roadmap  |  '
+                    'Fórmula: Entregas concluídas / Entregas planejadas no período  |  Periodicidade: Mensal / Anual',
+                    style={'fontSize': '12px', 'color': '#64748b', 'marginBottom': '12px'},
+                ),
+                # Limitation notices
+                html.Div([
+                    html.Div([
+                        html.Span('⚠', style={'marginRight': '6px', 'fontSize': '14px'}),
+                        html.Span(
+                            'Aceite formal não rastreado: o numerador exibe Features concluídas (DataDone). '
+                            'Registro de aceite formal será implementado quando o campo estiver disponível no Jira.',
+                            style={'fontSize': '12px'},
+                        ),
+                    ], style={
+                        'backgroundColor': '#fffbeb', 'border': '1px solid #fbbf24', 'borderRadius': '6px',
+                        'padding': '8px 12px', 'marginBottom': '6px', 'color': '#92400e',
+                    }),
+                    html.Div([
+                        html.Span('⚠', style={'marginRight': '6px', 'fontSize': '14px'}),
+                        html.Span(
+                            'Planejado via DueDate do portfólio (snapshot): épicos já entregues e removidos '
+                            'do backlog podem não constar no denominador. Histórico de planejamento será habilitado '
+                            'com snapshots periódicos do portfólio.',
+                            style={'fontSize': '12px'},
+                        ),
+                    ], style={
+                        'backgroundColor': '#fffbeb', 'border': '1px solid #fbbf24', 'borderRadius': '6px',
+                        'padding': '8px 12px', 'marginBottom': '16px', 'color': '#92400e',
+                    }),
+                ]),
+                exec_onepage_section,
+            ], style={
+                'backgroundColor': 'white', 'borderRadius': '10px', 'border': '1px solid #e2e8f0',
+                'padding': '20px', 'margin': '0 20px 16px 20px',
             }),
         ], style={'padding': '0', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
 
