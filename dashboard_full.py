@@ -16065,6 +16065,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     (items_scope['ReferenceDate'] <= end_ts)
                 ].copy()
 
+            if not df.empty and 'ItemID' in df.columns:
+                df_urg = df[['ItemID', 'ClasseServico', 'Prioridade']].drop_duplicates(subset=['ItemID']).fillna('')
+                items_scope = items_scope.merge(df_urg, left_on='ItemKey', right_on='ItemID', how='left')
+            else:
+                items_scope['ClasseServico'] = ''
+                items_scope['Prioridade'] = ''
+            
+            items_scope['ClassificacaoUrgencia'] = items_scope.apply(classify_urgency_label, axis=1)
+            items_scope['TipoUrgencia'] = items_scope['ClassificacaoUrgencia'].apply(lambda x: 'Emergencial' if x == 'Highest' else 'Normal')
+
         weekly_scope = gmud_weekly_df.copy()
         if not weekly_scope.empty:
             if 'Semana' in weekly_scope.columns:
@@ -16364,6 +16374,48 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     .sort_values(['Itens Cobertos', 'CHG'], ascending=[False, True], ignore_index=True)
                 )
 
+        fig_urgency_total = go.Figure()
+        fig_urgency_weekly = go.Figure()
+
+        if not items_scope.empty:
+            gmud_done_scope = items_scope[items_scope['HasGMUD'] == True].copy()
+            if not gmud_done_scope.empty:
+                gmud_done_scope['ServiceTeam'] = gmud_done_scope['ServiceTeam'].fillna('Indefinido')
+                
+                urgency_summary = (
+                    gmud_done_scope.groupby(['ServiceTeam', 'TipoUrgencia'], dropna=False)
+                    .size().reset_index(name='Quantidade')
+                )
+                fig_urgency_total = px.bar(
+                    urgency_summary,
+                    x='ServiceTeam',
+                    y='Quantidade',
+                    color='TipoUrgencia',
+                    title='Total de GMUDs por Produto e Urgência',
+                    barmode='stack',
+                    color_discrete_map={'Emergencial': '#d32f2f', 'Normal': '#1976d2'},
+                    labels={'ServiceTeam': 'Produto', 'TipoUrgencia': 'Urgência'}
+                )
+                fig_urgency_total.update_layout(height=360, margin=dict(t=40, b=40))
+
+                if 'ReferenceDate' in gmud_done_scope.columns:
+                    gmud_done_scope['Semana'] = weekly_bucket_start(gmud_done_scope['ReferenceDate'])
+                    weekly_urgency_summary = (
+                        gmud_done_scope.groupby(['Semana', 'ServiceTeam', 'TipoUrgencia'], dropna=False)
+                        .size().reset_index(name='Quantidade')
+                    )
+                    weekly_urgency_summary['Produto_Tipo'] = weekly_urgency_summary['ServiceTeam'].astype(str) + ' (' + weekly_urgency_summary['TipoUrgencia'] + ')'
+                    fig_urgency_weekly = px.bar(
+                        weekly_urgency_summary.sort_values('Semana'),
+                        x='Semana',
+                        y='Quantidade',
+                        color='Produto_Tipo',
+                        title='Evolução Semanal de GMUDs',
+                        barmode='stack',
+                        labels={'Semana': 'Semana', 'Produto_Tipo': 'Produto/Urgência'}
+                    )
+                    fig_urgency_weekly.update_layout(height=400, margin=dict(t=40, b=40))
+
         title_suffix = f' - {canonical_project}' if canonical_project else ''
         filter_note = 'A aba usa principalmente período e Time. Os filtros de Responsável, Classe e Tipo ainda não restringem diretamente a base GMUD nesta versão.'
 
@@ -16404,6 +16456,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             html.Div([
                 html.Div([dcc.Graph(figure=fig_category)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '360px', 'flex': '1 1 420px'}),
                 html.Div([dcc.Graph(figure=fig_team)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '360px', 'flex': '1 1 420px'}) if not team_summary.empty else html.Div(),
+            ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '14px'}),
+            html.Div([
+                html.Div([dcc.Graph(figure=fig_urgency_total)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '320px', 'flex': '1 1 350px'}),
+                html.Div([dcc.Graph(figure=fig_urgency_weekly)], style={'backgroundColor': '#fff', 'border': '1px solid #e2e8f0', 'borderRadius': '12px', 'padding': '10px', 'minWidth': '420px', 'flex': '2 1 500px'}),
             ], style={'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap', 'marginBottom': '14px'}),
             html.Div([
                 gmud_table_card(
