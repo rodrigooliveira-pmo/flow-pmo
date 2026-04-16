@@ -52,6 +52,8 @@ CSV_COLUMNS = [
     "UpdatedAt",
     "StatusChangedAt",
     "DueDate",
+    "CreatedAt",
+    "ResolvedAt",
 ]
 
 ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
@@ -411,6 +413,8 @@ def build_output_row(
         "UpdatedAt": str(fields.get("updated") or ""),
         "StatusChangedAt": str(fields.get("statuscategorychangedate") or ""),
         "DueDate": str(fields.get("duedate") or ""),
+        "CreatedAt": str(fields.get("created") or ""),
+        "ResolvedAt": str(fields.get("resolutiondate") or ""),
     }
 
 
@@ -474,7 +478,7 @@ def main() -> int:
     fields = [
         "summary", "issuetype", "project", "parent", "status", "priority",
         "updated", "statuscategorychangedate", "duedate", "components", "labels",
-        "issuelinks", "resolution",
+        "issuelinks", "resolution", "created", "resolutiondate",
     ]
     for custom_key in ["principal", "epic_name"]:
         custom_field = str(field_map.get(custom_key) or "").strip()

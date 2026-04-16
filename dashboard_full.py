@@ -1099,6 +1099,412 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alia
     }
 
 
+def compute_bitbucket_temporal_metrics(bitbucket_logs, start_ts, end_ts, alias_index=None, freq='M'):
+    """Computes per-person per-period Bitbucket metrics.
+
+    Returns a DataFrame with columns:
+        Pessoa | Período | Commits | PRs Abertos | PRs Merged | PRs Declinados | Aprovações | Reprovações
+
+    freq: 'M' = monthly (first day of month), 'W' = weekly (Monday start)
+    """
+    commits_raw = bitbucket_logs.get('commits', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+    prs_raw = bitbucket_logs.get('pullrequests', pd.DataFrame()) if isinstance(bitbucket_logs, dict) else pd.DataFrame()
+
+    def _period_start(dt):
+        if pd.isna(dt):
+            return None
+        ts = pd.Timestamp(dt)
+        if freq == 'M':
+            return pd.Timestamp(year=ts.year, month=ts.month, day=1)
+        else:
+            monday = ts - pd.Timedelta(days=ts.weekday())
+            return pd.Timestamp(year=monday.year, month=monday.month, day=monday.day)
+
+    data = {}  # (pessoa_lower, period) -> metric dict
+
+    def _rec(pessoa, period):
+        if not pessoa or period is None:
+            return None
+        key = (pessoa.lower(), period)
+        if key not in data:
+            data[key] = {
+                'Pessoa': pessoa, 'Período': period,
+                'Commits': 0, 'PRs Abertos': 0, 'PRs Merged': 0,
+                'PRs Declinados': 0, 'Aprovações': 0, 'Reprovações': 0,
+            }
+        return data[key]
+
+    # ── Commits ──────────────────────────────────────────────────────────────
+    if not commits_raw.empty and {'author', 'date'}.issubset(commits_raw.columns):
+        c = commits_raw[(commits_raw['date'] >= start_ts) & (commits_raw['date'] < end_ts)].copy()
+        c['_pessoa'] = c['author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+        c['_period'] = c['date'].apply(_period_start)
+        for _, row in c[c['_pessoa'].notna() & (c['_pessoa'] != '') & c['_period'].notna()].iterrows():
+            rec = _rec(row['_pessoa'], row['_period'])
+            if rec is not None:
+                rec['Commits'] += 1
+
+    # ── Pull Requests ─────────────────────────────────────────────────────────
+    if not prs_raw.empty:
+        prs = prs_raw.copy()
+        date_col = 'created_on' if 'created_on' in prs.columns else None
+        update_col = 'updated_on' if 'updated_on' in prs.columns else None
+
+        # PRs Abertos — by created_on
+        if date_col:
+            pr_open = prs[(prs[date_col] >= start_ts) & (prs[date_col] < end_ts)].copy()
+            pr_open['_pessoa'] = pr_open['author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+            pr_open['_period'] = pr_open[date_col].apply(_period_start)
+            for _, row in pr_open[pr_open['_pessoa'].notna() & (pr_open['_pessoa'] != '')].iterrows():
+                rec = _rec(row['_pessoa'], row['_period'])
+                if rec is not None:
+                    rec['PRs Abertos'] += 1
+
+        # PRs Merged / Declined — by updated_on
+        if update_col and 'state_norm' in prs.columns:
+            pr_closed = prs[(prs[update_col] >= start_ts) & (prs[update_col] < end_ts)].copy()
+            pr_closed['_pessoa'] = pr_closed['author'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
+            pr_closed['_period'] = pr_closed[update_col].apply(_period_start)
+            for _, row in pr_closed[pr_closed['_pessoa'].notna() & (pr_closed['_pessoa'] != '')].iterrows():
+                state = str(row.get('state_norm', '')).lower()
+                rec = _rec(row['_pessoa'], row['_period'])
+                if rec is None:
+                    continue
+                if state == 'merged':
+                    rec['PRs Merged'] += 1
+                elif state == 'declined':
+                    rec['PRs Declinados'] += 1
+
+        # Aprovações / Reprovações — iterate reviewer columns
+        review_col = update_col or date_col
+        if review_col:
+            pr_rev = prs[(prs[review_col] >= start_ts) & (prs[review_col] < end_ts)].copy()
+            pr_rev['_period'] = pr_rev[review_col].apply(_period_start)
+            for _, row in pr_rev.iterrows():
+                period = row['_period']
+                if period is None:
+                    continue
+                for approver in _split_people_field(row.get('approved_by')):
+                    pessoa = _canonical_person_name(approver, alias_index=alias_index)
+                    rec = _rec(pessoa, period)
+                    if rec is not None:
+                        rec['Aprovações'] += 1
+                for rejector in _split_people_field(row.get('changes_requested_by')):
+                    pessoa = _canonical_person_name(rejector, alias_index=alias_index)
+                    rec = _rec(pessoa, period)
+                    if rec is not None:
+                        rec['Reprovações'] += 1
+
+    if not data:
+        return pd.DataFrame()
+    return pd.DataFrame(list(data.values())).sort_values(['Pessoa', 'Período']).reset_index(drop=True)
+
+
+def build_bitbucket_temporal_section(projects, start_ts, end_ts, alias_index=None):
+    """Returns an HTML block with monthly + weekly analytical breakdown of Bitbucket metrics per developer."""
+    # Load and merge raw logs (dedup by Bitbucket prefix to avoid double-counting W1NNER/S1NC)
+    env_map = _load_bitbucket_prefix_map()
+    loaded_prefixes = set()
+    raw_logs = {'commits': [], 'pullrequests': []}
+    for proj in projects:
+        proj_key = str(proj).strip().upper()
+        prefix = env_map.get(proj_key) or PROJECT_BITBUCKET_PREFIX.get(proj_key, '')
+        if prefix and prefix in loaded_prefixes:
+            continue
+        if prefix:
+            loaded_prefixes.add(prefix)
+        logs = load_project_bitbucket_logs(proj)
+        if not isinstance(logs, dict):
+            continue
+        for log_name in ('commits', 'pullrequests'):
+            df_log = logs.get(log_name, pd.DataFrame())
+            if df_log is not None and not df_log.empty:
+                raw_logs[log_name].append(df_log.copy())
+    merged = {k: pd.concat(v, ignore_index=True) if v else pd.DataFrame() for k, v in raw_logs.items()}
+
+    monthly_df = compute_bitbucket_temporal_metrics(merged, start_ts, end_ts, alias_index, freq='M')
+    weekly_df = compute_bitbucket_temporal_metrics(merged, start_ts, end_ts, alias_index, freq='W')
+
+    if monthly_df.empty and weekly_df.empty:
+        return html.Div(
+            'Sem dados Bitbucket suficientes para gerar breakdown temporal.',
+            style={'color': '#aaa', 'fontStyle': 'italic'},
+        )
+
+    METRICS = ['Commits', 'PRs Abertos', 'PRs Merged', 'Aprovações', 'Reprovações']
+    COLOR_MAP = {
+        'Commits': '#1565c0', 'PRs Abertos': '#0288d1', 'PRs Merged': '#2e7d32',
+        'PRs Declinados': '#c62828', 'Aprovações': '#6a1b9a', 'Reprovações': '#e65100',
+    }
+    children = []
+
+    # ── Monthly ──────────────────────────────────────────────────────────────
+    if not monthly_df.empty:
+        mdf = monthly_df.copy()
+        mdf['Período Label'] = mdf['Período'].apply(lambda d: d.strftime('%b/%y').capitalize())
+        periods_sorted = sorted(mdf['Período'].unique())
+        period_labels = [p.strftime('%b/%y').capitalize() for p in periods_sorted]
+
+        # Top 20 persons by total commits
+        person_order = (
+            mdf.groupby('Pessoa')['Commits'].sum()
+            .sort_values(ascending=False).head(20).index.tolist()
+        )
+
+        # Heatmap — commits
+        heat_data = mdf[mdf['Pessoa'].isin(person_order)].copy()
+        heat_pivot = heat_data.pivot_table(index='Pessoa', columns='Período Label', values='Commits', fill_value=0)
+        cols_ord = [lbl for lbl in period_labels if lbl in heat_pivot.columns]
+        heat_pivot = heat_pivot[cols_ord]
+        heat_pivot = heat_pivot.loc[[p for p in person_order if p in heat_pivot.index]]
+        if not heat_pivot.empty:
+            fig_heat = go.Figure(go.Heatmap(
+                z=heat_pivot.values.tolist(),
+                x=heat_pivot.columns.tolist(),
+                y=heat_pivot.index.tolist(),
+                colorscale='Blues',
+                text=[[str(v) if v > 0 else '' for v in row] for row in heat_pivot.values.tolist()],
+                texttemplate='%{text}',
+                showscale=True,
+                hovertemplate='%{y} | %{x}: %{z} commits<extra></extra>',
+            ))
+            fig_heat.update_layout(
+                title='Commits por Desenvolvedor × Mês',
+                height=max(300, 34 * len(heat_pivot) + 80),
+                margin={'t': 50, 'b': 30, 'l': 10, 'r': 10},
+                xaxis={'side': 'top'},
+                yaxis={'autorange': 'reversed'},
+                paper_bgcolor='white', plot_bgcolor='white',
+            )
+            children.append(dcc.Graph(figure=fig_heat, config={'displayModeBar': False}))
+
+        # Stacked bar — PRs (Abertos + Merged) per month, top 10 authors
+        pr_plot = mdf[mdf['Pessoa'].isin(person_order[:10])].copy()
+        pr_long_rows = []
+        for _, row in pr_plot.iterrows():
+            for metric in ['PRs Abertos', 'PRs Merged', 'PRs Declinados']:
+                if row.get(metric, 0) > 0:
+                    pr_long_rows.append({'Pessoa': row['Pessoa'], 'Período Label': row['Período Label'], 'Tipo': metric, 'Qtd': row[metric]})
+        if pr_long_rows:
+            pr_long = pd.DataFrame(pr_long_rows)
+            fig_prs = px.bar(
+                pr_long,
+                x='Período Label', y='Qtd', color='Pessoa', facet_col='Tipo',
+                barmode='stack',
+                title='PRs por Mês (top 10 devs)',
+                category_orders={'Período Label': period_labels, 'Tipo': ['PRs Abertos', 'PRs Merged', 'PRs Declinados']},
+                height=320,
+            )
+            fig_prs.update_layout(margin={'t': 60, 'b': 40}, paper_bgcolor='white', plot_bgcolor='white')
+            fig_prs.for_each_annotation(lambda a: a.update(text=a.text.split('=')[-1]))
+            children.append(dcc.Graph(figure=fig_prs, config={'displayModeBar': False}))
+
+        # Monthly pivot DataTable
+        table_frames = {}
+        for metric in METRICS:
+            piv = mdf.pivot_table(index='Pessoa', columns='Período Label', values=metric, fill_value=0)
+            for col in piv.columns:
+                table_frames[f'{col} — {metric}'] = piv[col]
+
+        if table_frames:
+            wide = pd.DataFrame(table_frames).reset_index().fillna(0)
+            wide.rename(columns={'index': 'Pessoa'}, inplace=True)
+            # Ordered columns: all labels × metrics interleaved by time
+            ordered_cols = ['Pessoa']
+            for lbl in period_labels:
+                for metric in METRICS:
+                    col = f'{lbl} — {metric}'
+                    if col in wide.columns:
+                        ordered_cols.append(col)
+            # Totals per metric
+            total_cols = []
+            for metric in METRICS:
+                metric_cols = [c for c in wide.columns if c.endswith(f'— {metric}')]
+                if metric_cols:
+                    wide[f'TOTAL {metric}'] = wide[metric_cols].sum(axis=1)
+                    total_cols.append(f'TOTAL {metric}')
+            final_cols = ordered_cols + total_cols
+            wide = wide[[c for c in final_cols if c in wide.columns]]
+            if 'TOTAL Commits' in wide.columns:
+                wide = wide.sort_values('TOTAL Commits', ascending=False)
+
+            tbl_cols = []
+            for c in wide.columns:
+                if c == 'Pessoa':
+                    tbl_cols.append({'name': 'Desenvolvedor', 'id': c})
+                elif c.startswith('TOTAL '):
+                    tbl_cols.append({'name': c, 'id': c, 'type': 'numeric'})
+                else:
+                    tbl_cols.append({'name': c, 'id': c, 'type': 'numeric'})
+
+            monthly_table = dash_table.DataTable(
+                data=wide.to_dict('records'),
+                columns=tbl_cols,
+                style_cell={
+                    'fontSize': '12px', 'padding': '5px 9px',
+                    'fontFamily': 'monospace', 'textAlign': 'center',
+                    'whiteSpace': 'nowrap',
+                },
+                style_cell_conditional=[
+                    {'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'minWidth': '160px', 'fontFamily': 'sans-serif'},
+                ],
+                style_header={
+                    'fontWeight': '700', 'backgroundColor': '#e8f0fe',
+                    'fontSize': '11px', 'whiteSpace': 'normal', 'textAlign': 'center',
+                },
+                style_data_conditional=[
+                    {'if': {'column_id': [c for c in wide.columns if c.startswith('TOTAL')]},
+                     'backgroundColor': '#f0f4ff', 'fontWeight': '600'},
+                ],
+                sort_action='native',
+                filter_action='native',
+                page_size=25,
+                style_table={'overflowX': 'auto', 'minWidth': '100%'},
+            )
+            children.append(html.Div([
+                html.H5('Mensal — Tabela Detalhada por Desenvolvedor',
+                        style={'marginTop': '16px', 'marginBottom': '8px', 'color': '#1a237e', 'fontWeight': '600'}),
+                html.P(
+                    'Cada célula = soma de eventos no mês. Colunas "TOTAL" somam todo o período filtrado.',
+                    style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '8px'},
+                ),
+                monthly_table,
+            ]))
+
+    # ── Weekly ───────────────────────────────────────────────────────────────
+    if not weekly_df.empty:
+        wdf = weekly_df.copy()
+        wdf['Período Label'] = wdf['Período'].apply(lambda d: d.strftime('%d/%b'))
+        periods_sorted_w = sorted(wdf['Período'].unique())
+        period_labels_w = [p.strftime('%d/%b') for p in periods_sorted_w]
+
+        # Top 15 by commit count
+        person_order_w = (
+            wdf.groupby('Pessoa')['Commits'].sum()
+            .sort_values(ascending=False).head(15).index.tolist()
+        )
+
+        # Line chart — commits per person per week
+        weekly_commits = wdf[wdf['Pessoa'].isin(person_order_w) & (wdf['Commits'] > 0)].copy()
+        if not weekly_commits.empty:
+            fig_wk = px.line(
+                weekly_commits,
+                x='Período Label', y='Commits', color='Pessoa', markers=True,
+                title='Commits por Desenvolvedor × Semana',
+                category_orders={'Período Label': period_labels_w},
+                height=400,
+            )
+            fig_wk.update_layout(
+                margin={'t': 50, 'b': 50}, paper_bgcolor='white', plot_bgcolor='white',
+                xaxis_title='Semana (início segunda-feira)', yaxis_title='Commits',
+                legend={'orientation': 'h', 'y': -0.2},
+            )
+            children.append(html.Div([
+                html.H5('Semanal — Commits por Desenvolvedor',
+                        style={'marginTop': '24px', 'marginBottom': '8px', 'color': '#1a237e', 'fontWeight': '600'}),
+                dcc.Graph(figure=fig_wk, config={'displayModeBar': False}),
+            ]))
+
+        # Weekly heatmap — commits
+        heat_w_data = wdf[wdf['Pessoa'].isin(person_order_w)].pivot_table(
+            index='Pessoa', columns='Período Label', values='Commits', fill_value=0
+        )
+        cols_w_ord = [lbl for lbl in period_labels_w if lbl in heat_w_data.columns]
+        heat_w_data = heat_w_data[cols_w_ord]
+        heat_w_data = heat_w_data.loc[[p for p in person_order_w if p in heat_w_data.index]]
+        if not heat_w_data.empty:
+            fig_heat_w = go.Figure(go.Heatmap(
+                z=heat_w_data.values.tolist(),
+                x=heat_w_data.columns.tolist(),
+                y=heat_w_data.index.tolist(),
+                colorscale='Greens',
+                text=[[str(v) if v > 0 else '' for v in row] for row in heat_w_data.values.tolist()],
+                texttemplate='%{text}',
+                showscale=True,
+                hovertemplate='%{y} | semana %{x}: %{z} commits<extra></extra>',
+            ))
+            fig_heat_w.update_layout(
+                title='Heatmap de Commits — Semana × Desenvolvedor',
+                height=max(300, 34 * len(heat_w_data) + 80),
+                margin={'t': 50, 'b': 30, 'l': 10, 'r': 10},
+                xaxis={'side': 'top', 'tickangle': -45},
+                yaxis={'autorange': 'reversed'},
+                paper_bgcolor='white', plot_bgcolor='white',
+            )
+            children.append(dcc.Graph(figure=fig_heat_w, config={'displayModeBar': False}))
+
+        # Weekly DataTable
+        METRICS_W = ['Commits', 'PRs Abertos', 'PRs Merged', 'Aprovações']
+        table_frames_w = {}
+        for metric in METRICS_W:
+            piv_w = wdf.pivot_table(index='Pessoa', columns='Período Label', values=metric, fill_value=0)
+            for col in piv_w.columns:
+                table_frames_w[f'{col} — {metric}'] = piv_w[col]
+
+        if table_frames_w:
+            wide_w = pd.DataFrame(table_frames_w).reset_index().fillna(0)
+            wide_w.rename(columns={'index': 'Pessoa'}, inplace=True)
+            ordered_cols_w = ['Pessoa']
+            for lbl in period_labels_w:
+                for metric in METRICS_W:
+                    col = f'{lbl} — {metric}'
+                    if col in wide_w.columns:
+                        ordered_cols_w.append(col)
+            total_cols_w = []
+            for metric in METRICS_W:
+                mc = [c for c in wide_w.columns if c.endswith(f'— {metric}')]
+                if mc:
+                    wide_w[f'TOTAL {metric}'] = wide_w[mc].sum(axis=1)
+                    total_cols_w.append(f'TOTAL {metric}')
+            final_cols_w = ordered_cols_w + total_cols_w
+            wide_w = wide_w[[c for c in final_cols_w if c in wide_w.columns]]
+            if 'TOTAL Commits' in wide_w.columns:
+                wide_w = wide_w.sort_values('TOTAL Commits', ascending=False)
+
+            tbl_cols_w = []
+            for c in wide_w.columns:
+                if c == 'Pessoa':
+                    tbl_cols_w.append({'name': 'Desenvolvedor', 'id': c})
+                else:
+                    tbl_cols_w.append({'name': c, 'id': c, 'type': 'numeric'})
+
+            weekly_table = dash_table.DataTable(
+                data=wide_w.to_dict('records'),
+                columns=tbl_cols_w,
+                style_cell={
+                    'fontSize': '11px', 'padding': '4px 8px',
+                    'fontFamily': 'monospace', 'textAlign': 'center',
+                    'whiteSpace': 'nowrap',
+                },
+                style_cell_conditional=[
+                    {'if': {'column_id': 'Pessoa'}, 'textAlign': 'left', 'minWidth': '160px', 'fontFamily': 'sans-serif'},
+                ],
+                style_header={
+                    'fontWeight': '700', 'backgroundColor': '#e8f5e9',
+                    'fontSize': '10px', 'whiteSpace': 'normal', 'textAlign': 'center',
+                },
+                style_data_conditional=[
+                    {'if': {'column_id': [c for c in wide_w.columns if c.startswith('TOTAL')]},
+                     'backgroundColor': '#f1f8f2', 'fontWeight': '600'},
+                ],
+                sort_action='native',
+                filter_action='native',
+                page_size=20,
+                style_table={'overflowX': 'auto', 'minWidth': '100%'},
+            )
+            children.append(html.Div([
+                html.H5('Semanal — Tabela Detalhada por Desenvolvedor',
+                        style={'marginTop': '16px', 'marginBottom': '8px', 'color': '#1a237e', 'fontWeight': '600'}),
+                html.P(
+                    'Cada célula = soma de eventos na semana (início segunda-feira). Colunas "TOTAL" somam todo o período.',
+                    style={'fontSize': '12px', 'color': '#6c757d', 'marginBottom': '8px'},
+                ),
+                weekly_table,
+            ]))
+
+    return html.Div(children)
+
+
 def compute_jira_person_capacity_metrics(jira_df, start_ts, end_ts, alias_index=None):
     if jira_df is None or jira_df.empty:
         return pd.DataFrame(), {}
@@ -27140,6 +27546,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 ],
             ),
 
+            # ── Breakdown Temporal Bitbucket ──────────────────────────────────
+            _section(
+                'Breakdown Temporal Bitbucket — Mensal e Semanal',
+                'Visão analítica de commits, PRs e aprovações por desenvolvedor, quebrada por mês e por semana. '
+                'Heatmaps e tabelas pivô permitem identificar ritmo de contribuição e variações ao longo do período.',
+                [build_bitbucket_temporal_section(bb_projects, start_ts_prod, end_ts_prod, alias_index_prod)],
+            ),
+
         ], style={'padding': '20px', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
 
     if tab == 'tab-corporativo':
@@ -27154,29 +27568,79 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             ], style={'backgroundColor': '#f8fafc', 'border': f'1px solid {color}44', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
 
         # --- Lead Time de Features ---
-        # WorkItemSubType ('Feature') é a coluna correta no fato de serviços.
-        # Tipo/TipoNorm neste df contém categorias amplas (Desenvolvimento, Defeitos…), não o subtipo.
-        df_corp = df.copy()
-        if 'WorkItemSubType' in df_corp.columns:
-            feature_mask = df_corp['WorkItemSubType'].fillna('').str.lower().isin({'feature', 'funcionalidade'})
-        elif 'IsFeature' in df_corp.columns:
-            feature_mask = df_corp['IsFeature'].fillna(False)
-        elif 'TipoNorm' in df_corp.columns:
-            feature_mask = df_corp['TipoNorm'].isin({'feature', 'funcionalidade'})
-        else:
-            feature_mask = pd.Series(False, index=df_corp.index)
+        # Fonte primária: portfolio CSV (features BT/NS) com CreatedAt e ResolvedAt.
+        # Fonte secundária (fallback): Fato_Items com TempoExecucao_Dias (InProgress→Done).
+        lt_col = 'LeadTime_Portfolio_Dias'
+        lt_label_note = ''
 
-        eligible_mask = done_time_eligible_mask(df_corp)
-        df_feat = df_corp[eligible_mask & feature_mask].copy()
+        try:
+            _, df_pf_lt, _pf_lt_err = get_portfolio_snapshot()
+        except Exception:
+            df_pf_lt = pd.DataFrame()
 
-        lt_col = 'LeadTime_Selected_Dias'
-        if lt_col in df_feat.columns:
-            df_feat[lt_col] = pd.to_numeric(df_feat[lt_col], errors='coerce')
-            df_feat['DataDone'] = pd.to_datetime(df_feat['DataDone'], errors='coerce')
-            df_feat = df_feat.dropna(subset=[lt_col, 'DataDone'])
-            df_feat = df_feat[df_feat[lt_col] >= 0]
-        else:
-            df_feat = pd.DataFrame()
+        df_feat = pd.DataFrame()
+        if df_pf_lt is not None and not df_pf_lt.empty:
+            _feat_types = {'feature', 'funcionalidade'}
+            _tipo_col = next((c for c in ['Tipo', 'tipo'] if c in df_pf_lt.columns), None)
+            if _tipo_col:
+                _pf_feat = df_pf_lt[
+                    df_pf_lt[_tipo_col].fillna('').str.lower().isin(_feat_types)
+                ].copy()
+            else:
+                _pf_feat = pd.DataFrame()
+
+            if not _pf_feat.empty and 'CreatedAt' in _pf_feat.columns and 'ResolvedAt' in _pf_feat.columns:
+                _pf_feat['CreatedAt'] = pd.to_datetime(_pf_feat['CreatedAt'], errors='coerce', utc=True).dt.tz_localize(None)
+                _pf_feat['ResolvedAt'] = pd.to_datetime(_pf_feat['ResolvedAt'], errors='coerce', utc=True).dt.tz_localize(None)
+                _pf_feat = _pf_feat.dropna(subset=['CreatedAt', 'ResolvedAt'])
+                _pf_feat[lt_col] = (_pf_feat['ResolvedAt'] - _pf_feat['CreatedAt']).dt.days
+                _pf_feat = _pf_feat[_pf_feat[lt_col] >= 0]
+                # Filtra pelo período selecionado usando ResolvedAt como DataDone
+                _pf_feat['DataDone'] = _pf_feat['ResolvedAt']
+                _in_period = (
+                    (_pf_feat['DataDone'] >= start_ts) & (_pf_feat['DataDone'] <= end_ts)
+                )
+                # Filtra por projeto se selecionado
+                if projeto:
+                    _proj_col = next((c for c in ['Projeto', 'projeto'] if c in _pf_feat.columns), None)
+                    if _proj_col:
+                        _in_period = _in_period & (
+                            _pf_feat[_proj_col].fillna('').str.upper() == str(projeto).upper()
+                        )
+                df_feat = _pf_feat[_in_period].copy()
+                if not df_feat.empty:
+                    lt_label_note = 'Fonte: portfólio Jira (BT/NS) — Lead Time = CreatedAt → ResolvedAt.'
+
+        # Fallback: Fato_Items (TempoExecucao_Dias = InProgress→Done)
+        if df_feat.empty:
+            df_corp = df.copy()
+            if 'WorkItemSubType' in df_corp.columns:
+                _feat_mask = df_corp['WorkItemSubType'].fillna('').str.lower().isin({'feature', 'funcionalidade'})
+            elif 'IsFeature' in df_corp.columns:
+                _feat_mask = df_corp['IsFeature'].fillna(False)
+            else:
+                _feat_mask = pd.Series(False, index=df_corp.index)
+
+            _elig_mask = done_time_eligible_mask(df_corp)
+            _df_fb = df_corp[_elig_mask & _feat_mask].copy()
+
+            _fallback_candidates = ['LeadTime_Selected_Dias', 'LeadTime_Dias', 'TempoExecucao_Dias']
+            _fb_col = next(
+                (c for c in _fallback_candidates
+                 if c in _df_fb.columns and pd.to_numeric(_df_fb[c], errors='coerce').dropna().shape[0] > 0),
+                None,
+            )
+            if _fb_col:
+                _df_fb[lt_col] = pd.to_numeric(_df_fb[_fb_col], errors='coerce')
+                _df_fb['DataDone'] = pd.to_datetime(_df_fb['DataDone'], errors='coerce')
+                _df_fb = _df_fb.dropna(subset=[lt_col, 'DataDone'])
+                _df_fb = _df_fb[_df_fb[lt_col] >= 0]
+                df_feat = _df_fb
+                if _fb_col == 'TempoExecucao_Dias':
+                    lt_label_note = (
+                        'Fallback: Fato_Items — Tempo de Execução (InProgress → Done). '
+                        'Para dados completos (CreatedAt → ResolvedAt), reexporte o portfólio com jira_portfolio_to_csv.py.'
+                    )
 
         if df_feat.empty:
             lt_section = html.P(
@@ -27272,7 +27736,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     _corp_card('P85 — SLA Prático', f'{p85_total:.1f} dias', '85% das features entregues em até X dias', '#9B51E0'),
                     _corp_card('Média', f'{mean_total:.1f} dias', 'Referência complementar', '#2F80ED'),
                     _corp_card('Features concluídas', str(n_feat), period_label, '#F2994A'),
-                ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(4, 1fr)', 'gap': '14px', 'marginBottom': '24px'}),
+                ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(4, 1fr)', 'gap': '14px', 'marginBottom': '12px'}),
+                html.Div(
+                    [html.Span('ℹ', style={'marginRight': '6px'}), html.Span(lt_label_note)],
+                    style={
+                        'backgroundColor': '#eff6ff', 'border': '1px solid #bfdbfe', 'borderRadius': '6px',
+                        'padding': '7px 12px', 'fontSize': '12px', 'color': '#1e40af', 'marginBottom': '16px',
+                    },
+                ) if lt_label_note else html.Div(),
                 dcc.Graph(figure=fig_lt_monthly, config={'displayModeBar': False}),
                 html.Div([
                     html.H5('Resumo Anual', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#1e3a5f', 'marginBottom': '8px', 'marginTop': '20px'}),

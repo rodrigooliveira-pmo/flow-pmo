@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python -c \"from dashboard_full import app; print\\('OK'\\)\")",
       "Bash(ls /Users/rodrigoalmeidadeoliveira/Documents/dados/latest/PowerBI_Model_*.xlsx)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(grep -n \"WorkItemCategory\\\\|Composição de Demanda por Dev\\\\|], style={'padding': '20px'\" \"c:/Users/W1 TI/OneDrive - W1/Documentos/Python/dashboard_full.py\")"
     ]
   }
 }
