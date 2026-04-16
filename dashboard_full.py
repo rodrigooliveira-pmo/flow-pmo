@@ -9873,6 +9873,8 @@ _TYPE_NORM_TO_CATEGORY = {
     'bug': 'bug', 'bugs': 'bug', 'defeito': 'bug', 'defeitos': 'bug',
     'issue': 'bug', 'issues': 'bug', 'problema': 'bug', 'problemas': 'bug',
     'suporte': 'bug', 'support': 'bug',
+    # WorkItemSubType composto gerado pelo pipeline (Issues/Defeitos/Problemas)
+    'issues/defeitos/problemas': 'bug',
     'historia': 'historia', 'historias': 'historia', 'story': 'historia',
     'us': 'historia', 'user story': 'historia', 'userstory': 'historia',
     'user_story': 'historia', 'tarefa': 'historia', 'task': 'historia',
@@ -15325,7 +15327,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             if 'TipoNorm' not in df_done_period_eligible.columns and 'Tipo' in df_done_period_eligible.columns:
                 df_done_period_eligible['TipoNorm'] = df_done_period_eligible['Tipo'].apply(normalize_text)
             _tipo_norm_col = df_done_period_eligible['TipoNorm'] if 'TipoNorm' in df_done_period_eligible.columns else pd.Series('', index=df_done_period_eligible.index)
-            df_done_period_eligible['SLARef_Dias'] = _tipo_norm_col.apply(get_type_sla_days)
+            # WorkItemSubType é mais granular (Feature/História/Tarefa) que Tipo (Desenvolvimento/Defeitos).
+            # Prefere WorkItemSubType para o lookup de SLA quando disponível.
+            _sla_lookup_col = (
+                df_done_period_eligible['WorkItemSubType'].fillna('').astype(str).map(normalize_text)
+                if 'WorkItemSubType' in df_done_period_eligible.columns
+                else _tipo_norm_col
+            )
+            df_done_period_eligible['SLARef_Dias'] = _sla_lookup_col.apply(get_type_sla_days)
 
         active_wip = build_live_wip_snapshot(
             df_wip_base,
@@ -15352,10 +15361,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
 
         # % dentro do SLA por categoria de tipo
         sla_share_by_type = []
-        if not df_done_period_eligible.empty and 'TipoNorm' in df_done_period_eligible.columns:
+        _has_subtype = 'WorkItemSubType' in df_done_period_eligible.columns
+        if not df_done_period_eligible.empty and (_has_subtype or 'TipoNorm' in df_done_period_eligible.columns):
             _elt_all = pd.to_numeric(df_done_period_eligible.get('LeadTime_Selected_Dias'), errors='coerce')
             _esla_all = pd.to_numeric(df_done_period_eligible.get('SLARef_Dias', pd.Series(dtype=float)), errors='coerce')
-            _tnorm = df_done_period_eligible['TipoNorm'].fillna('').astype(str).str.strip().str.lower()
+            # WorkItemSubType (ex: Feature, História, Tarefa) é mais granular que TipoNorm (Desenvolvimento, Defeitos).
+            if _has_subtype:
+                _tnorm = df_done_period_eligible['WorkItemSubType'].fillna('').astype(str).map(normalize_text)
+            else:
+                _tnorm = df_done_period_eligible['TipoNorm'].fillna('').astype(str).str.strip().str.lower()
             for _cat in _TYPE_CATEGORY_ORDER:
                 _label = _TYPE_SLA_DISPLAY_LABELS[_cat]
                 _cat_norms = {k for k, v in _TYPE_NORM_TO_CATEGORY.items() if v == _cat}
