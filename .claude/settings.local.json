@@ -55,7 +55,10 @@
       "Bash(python jira/four_ps_kanban_export.py --verbose)",
       "Bash(python jira/four_ps_kanban_export.py)",
       "Bash(python -m py_compile run_all_projects.py)",
-      "Bash(python -c \"from dashboards.core import _download_four_ps_kanban_csv_from_url; print\\('OK'\\)\")"
+      "Bash(python -c \"from dashboards.core import _download_four_ps_kanban_csv_from_url; print\\('OK'\\)\")",
+      "Bash(pip show *)",
+      "Bash(python -c \"import aiobotocore; print\\(aiobotocore.__version__\\)\")",
+      "Bash(pip --version)"
     ]
   }
 }

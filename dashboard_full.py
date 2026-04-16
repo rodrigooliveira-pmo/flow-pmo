@@ -13975,7 +13975,7 @@ def _coerce_datetime_flexible(series):
     dt = pd.to_datetime(raw.where(~ddmmyyyy_mask), errors='coerce', utc=True).dt.tz_localize(None)
     if ddmmyyyy_mask.any():
         dt_ddmmyyyy = pd.to_datetime(raw.where(ddmmyyyy_mask), dayfirst=True, errors='coerce', utc=True).dt.tz_localize(None)
-        dt.loc[dt_ddmmyyyy.index] = dt_ddmmyyyy
+        dt = dt.combine_first(dt_ddmmyyyy)
 
     num = pd.to_numeric(raw, errors='coerce')
     if num.notna().any():
@@ -13983,7 +13983,7 @@ def _coerce_datetime_flexible(series):
         looks_yyyymmdd = num_int.str.fullmatch(r'\d{8}')
         if looks_yyyymmdd.any():
             parsed = pd.to_datetime(num_int.where(looks_yyyymmdd), format='%Y%m%d', errors='coerce')
-            dt.loc[parsed.index] = parsed
+            dt = dt.combine_first(parsed)
     return dt
 
 
