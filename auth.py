@@ -468,7 +468,7 @@ def init_app(flask_server) -> None:
     flask_server.register_blueprint(auth_bp)
 
     # --- Protect all non-auth routes ---------------------------------------
-    _PUBLIC_PREFIXES = ("/login", "/auth/google", "/callback", "/logout", "/_dash-", "/favicon")
+    _PUBLIC_PREFIXES = ("/login", "/auth/google", "/callback", "/logout", "/_dash-", "/favicon", "/_version", "/_healthz")
 
     @flask_server.before_request
     def _require_login():
