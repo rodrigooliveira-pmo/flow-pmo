@@ -33,12 +33,11 @@ pipelines:
             - export IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPOSITORY}:${BITBUCKET_COMMIT}"
             - export ACCESS_ROLE_ARN=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN" --region "$AWS_DEFAULT_REGION" --query "Service.SourceConfiguration.AuthenticationConfiguration.AccessRoleArn" --output text)
             - |
-              python3 - <<'PYEOF'
-              import json, os
-              cfg = {
-                "AuthenticationConfiguration": {"AccessRoleArn": os.environ["ACCESS_ROLE_ARN"]},
+              cat > /tmp/source-config.json << ENDJSON
+              {
+                "AuthenticationConfiguration": {"AccessRoleArn": "${ACCESS_ROLE_ARN}"},
                 "ImageRepository": {
-                  "ImageIdentifier": os.environ["IMAGE_URI"],
+                  "ImageIdentifier": "${IMAGE_URI}",
                   "ImageRepositoryType": "ECR",
                   "ImageConfiguration": {
                     "Port": "8080",
@@ -49,34 +48,31 @@ pipelines:
                       "FLOW_PMO_PORTFOLIO_CSV_URL": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/portfolio-bt-ns-latest-data.csv",
                       "FLOW_PMO_BOTTLENECK_CSV_URL_MAP": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/bottlenecks_consolidado_latest.xlsx",
                       "FLOW_PMO_FOUR_PS_KANBAN_CSV_URL": "https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/four_ps_kanban.csv",
-                      "FLOW_PMO_DOWNSTREAM_CSV_URL_MAP": json.dumps({"W1NNER":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner-downstream-latest-data.csv","S1NC":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc-downstream-latest-data.csv","BEFINANCE":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance-downstream-latest-data.csv","DATA&ANALYTICS":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics-downstream-latest-data.csv"}),
-                      "FLOW_PMO_PROCESS_MINING_REPORT_URL": json.dumps({"w1nner":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner-process-mining-latest.xlsx","s1nc":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc-process-mining-latest.xlsx","befinance":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance-process-mining-latest.xlsx","dataanalytics":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics-process-mining-latest.xlsx"}),
-                      "FLOW_PMO_BITBUCKET_CSV_URL_MAP": json.dumps({"w1nner_commits":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner_commits.csv","w1nner_pullrequests":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner_pullrequests.csv","s1nc_commits":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc_commits.csv","s1nc_pullrequests":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc_pullrequests.csv","befinance_commits":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance_commits.csv","befinance_pullrequests":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance_pullrequests.csv","dataanalytics_commits":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics_commits.csv","dataanalytics_pullrequests":"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics_pullrequests.csv"}),
+                      "FLOW_PMO_DOWNSTREAM_CSV_URL_MAP": "{\"W1NNER\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner-downstream-latest-data.csv\",\"S1NC\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc-downstream-latest-data.csv\",\"BEFINANCE\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance-downstream-latest-data.csv\",\"DATA&ANALYTICS\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics-downstream-latest-data.csv\"}",
+                      "FLOW_PMO_PROCESS_MINING_REPORT_URL": "{\"w1nner\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner-process-mining-latest.xlsx\",\"s1nc\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc-process-mining-latest.xlsx\",\"befinance\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance-process-mining-latest.xlsx\",\"dataanalytics\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics-process-mining-latest.xlsx\"}",
+                      "FLOW_PMO_BITBUCKET_CSV_URL_MAP": "{\"w1nner_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner_commits.csv\",\"w1nner_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/w1nner_pullrequests.csv\",\"s1nc_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc_commits.csv\",\"s1nc_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/s1nc_pullrequests.csv\",\"befinance_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance_commits.csv\",\"befinance_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/befinance_pullrequests.csv\",\"dataanalytics_commits\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics_commits.csv\",\"dataanalytics_pullrequests\":\"https://w1-flow-pmo-dashboards.s3.us-east-1.amazonaws.com/dataanalytics_pullrequests.csv\"}",
                       "FLOW_PMO_REMOTE_CACHE_TTL_SECONDS": "300",
                       "FLOW_PMO_ONE_PAGE_SLA_DAYS": "5",
-                      "FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP": json.dumps({"W1NNER":5,"S1NC":5,"BEFINANCE":5,"DATA&ANALYTICS":5}),
-                      "FLOW_PMO_PM_COST_PER_HOUR_MAP": json.dumps({"BF":212,"DT":182,"S1NC":167,"W1NNER":174}),
-                      "FLOW_PMO_PORTFOLIO_BU_SALARY_MAP": json.dumps({"BeFinance":14000,"Dados":12000,"Sistemas - S1NC":11000,"Sistemas - W1NNER":11500,"Arquitetura":18000,"Cross":13000,"Cyber":13000,"Governanca":16000,"Infra":11500}),
-                      "FLOW_PMO_PORTFOLIO_COST_MODEL": json.dumps({"fl_mensal":50000000,"budget_ti_pct":0.10,"fator_encargos":2.0,"custo_ferramentas_infra_mensal":35000,"dias_uteis_mes":22,"horas_dia":8,"fator_produtividade":0.75,"salario_medio_bruto":12000}),
-                      "FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP": json.dumps({"Dev":10000,"Tech Lead":18000}),
+                      "FLOW_PMO_ONE_PAGE_SLA_DAYS_MAP": "{\"W1NNER\":5,\"S1NC\":5,\"BEFINANCE\":5,\"DATA&ANALYTICS\":5}",
+                      "FLOW_PMO_PM_COST_PER_HOUR_MAP": "{\"BF\":212,\"DT\":182,\"S1NC\":167,\"W1NNER\":174}",
+                      "FLOW_PMO_PORTFOLIO_BU_SALARY_MAP": "{\"BeFinance\":14000,\"Dados\":12000,\"Sistemas - S1NC\":11000,\"Sistemas - W1NNER\":11500,\"Arquitetura\":18000,\"Cross\":13000,\"Cyber\":13000,\"Governanca\":16000,\"Infra\":11500}",
+                      "FLOW_PMO_PORTFOLIO_COST_MODEL": "{\"fl_mensal\":50000000,\"budget_ti_pct\":0.10,\"fator_encargos\":2.0,\"custo_ferramentas_infra_mensal\":35000,\"dias_uteis_mes\":22,\"horas_dia\":8,\"fator_produtividade\":0.75,\"salario_medio_bruto\":12000}",
+                      "FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP": "{\"Dev\":10000,\"Tech Lead\":18000}",
                       "FLOW_PMO_ALLOWED_DOMAIN": "w1.com.br",
                       "FLOW_PMO_ALLOWED_GROUP": "sso-dashboardfluxoprodutividade-viewer@w1.com.br",
-                      "FLOW_PMO_ALLOWED_EMAILS": os.environ.get("FLOW_PMO_ALLOWED_EMAILS", ""),
-                      "GOOGLE_CLIENT_ID": os.environ.get("GOOGLE_CLIENT_ID", ""),
-                      "GOOGLE_CLIENT_SECRET": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
-                      "FLASK_SECRET_KEY": os.environ.get("FLASK_SECRET_KEY", ""),
-                      "BLOB_READ_WRITE_TOKEN": os.environ.get("BLOB_READ_WRITE_TOKEN", ""),
-                      "FLOWMETRICS_READ_WRITE_TOKEN": os.environ.get("FLOWMETRICS_READ_WRITE_TOKEN", ""),
-                      "VERCEL_OIDC_TOKEN": os.environ.get("VERCEL_OIDC_TOKEN", ""),
-                      "BITBUCKET_COMMIT": os.environ.get("BITBUCKET_COMMIT", "")
+                      "FLOW_PMO_ALLOWED_EMAILS": "${FLOW_PMO_ALLOWED_EMAILS}",
+                      "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+                      "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
+                      "FLASK_SECRET_KEY": "${FLASK_SECRET_KEY}",
+                      "BLOB_READ_WRITE_TOKEN": "${BLOB_READ_WRITE_TOKEN}",
+                      "FLOWMETRICS_READ_WRITE_TOKEN": "${FLOWMETRICS_READ_WRITE_TOKEN}",
+                      "VERCEL_OIDC_TOKEN": "${VERCEL_OIDC_TOKEN}",
+                      "BITBUCKET_COMMIT": "${BITBUCKET_COMMIT}"
                     }
                   }
                 }
               }
-              with open("/tmp/source-config.json", "w") as f:
-                  json.dump(cfg, f, indent=2)
-              print("source-config.json gerado")
-              PYEOF
+              ENDJSON
             - cat /tmp/source-config.json
             - |
               aws apprunner update-service \
