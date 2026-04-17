@@ -26,47 +26,21 @@ def calc_lead_time_features(df, df_portfolio, start_ts, end_ts, periodicity='M',
     
     feature_types_lower = [t.lower() for t in feature_types]
 
-    df_feat = pd.DataFrame()
-    lt_col = 'LeadTime_Portfolio_Dias'
+    df_feat_list = []
     
-    # Tentativa primária: usar portfólio para Epics/Features (CreatedAt -> ResolvedAt)
-    if df_portfolio is not None and not df_portfolio.empty:
-        _tipo_col = next((c for c in ['Tipo', 'tipo'] if c in df_portfolio.columns), None)
-        if _tipo_col:
-            # Filtra os tipos desejados
-            mask_type = df_portfolio[_tipo_col].fillna('').str.lower().isin(feature_types_lower)
-            # Para histórias ou caso falte no portfolio, talvez não encontremos tudo aqui, mas vamos usar o que der.
-            # Mapeamento adicional para 'funcionalidade' caso 'feature' esteja selecionado
-            if 'feature' in feature_types_lower:
-                mask_type = mask_type | df_portfolio[_tipo_col].fillna('').str.lower().isin(['funcionalidade'])
-                
-            _pf_feat = df_portfolio[mask_type].copy()
-            
-            if not _pf_feat.empty and 'CreatedAt' in _pf_feat.columns and 'ResolvedAt' in _pf_feat.columns:
-                _pf_feat['CreatedAt'] = pd.to_datetime(_pf_feat['CreatedAt'], errors='coerce', utc=True).dt.tz_localize(None)
-                _pf_feat['ResolvedAt'] = pd.to_datetime(_pf_feat['ResolvedAt'], errors='coerce', utc=True).dt.tz_localize(None)
-                _pf_feat = _pf_feat.dropna(subset=['CreatedAt', 'ResolvedAt'])
-                _pf_feat[lt_col] = (_pf_feat['ResolvedAt'] - _pf_feat['CreatedAt']).dt.days
-                _pf_feat = _pf_feat[_pf_feat[lt_col] >= 0]
-                
-                _pf_feat['DataDone'] = _pf_feat['ResolvedAt']
-                _in_period = (_pf_feat['DataDone'] >= start_ts) & (_pf_feat['DataDone'] <= end_ts)
-                df_feat = _pf_feat[_in_period].copy()
-
-    # Fallback ou complemento: Fato_Items
-    # Se não temos dados ou queremos complementar com histórias que não vêm no portfolio:
-    if df_feat.empty:
+    # 1. Obter dados do Fato_Items (Features e Histórias usam LeadTime_Dias nativo para bater com aba Lead Time)
+    if not df.empty:
         if 'WorkItemSubType' in df.columns:
             mask_type = df['WorkItemSubType'].fillna('').str.lower().isin(feature_types_lower)
             if 'feature' in feature_types_lower:
                 mask_type = mask_type | df['WorkItemSubType'].fillna('').str.lower().isin(['funcionalidade'])
-        elif 'IsFeature' in df.columns and 'feature' in feature_types_lower:
-            mask_type = df['IsFeature'].fillna(False)
+            if 'story' in feature_types_lower or 'história' in feature_types_lower:
+                mask_type = mask_type | df['WorkItemSubType'].fillna('').str.lower().str.contains('stor|hist|ad-hoc')
+        elif 'Tipo' in df.columns:
+            mask_type = df['Tipo'].fillna('').str.lower().isin(feature_types_lower)
         else:
             mask_type = pd.Series(False, index=df.index)
 
-        # Usar os mesmos critérios de eligibilidade de done_time_eligible_mask do dashboard_full
-        # Mas vamos simplificar checando Concluido == 1 e DataDone dentro do periodo
         df_fb = df.copy()
         df_fb['DataDone'] = pd.to_datetime(df_fb['DataDone'], errors='coerce')
         _in_period = (df_fb['DataDone'] >= start_ts) & (df_fb['DataDone'] <= end_ts)
@@ -74,14 +48,51 @@ def calc_lead_time_features(df, df_portfolio, start_ts, end_ts, periodicity='M',
         
         _df_fb = df_fb[_done & _in_period & mask_type].copy()
         
-        _fallback_candidates = ['LeadTime_Selected_Dias', 'LeadTime_Dias', 'TempoExecucao_Dias']
+        _fallback_candidates = ['LeadTime_Dias', 'LeadTime_Selected_Dias', 'TempoExecucao_Dias']
         _fb_col = next((c for c in _fallback_candidates if c in _df_fb.columns and pd.to_numeric(_df_fb[c], errors='coerce').dropna().shape[0] > 0), None)
         
         if _fb_col:
-            _df_fb[lt_col] = pd.to_numeric(_df_fb[_fb_col], errors='coerce')
-            _df_fb = _df_fb.dropna(subset=[lt_col])
-            _df_fb = _df_fb[_df_fb[lt_col] >= 0]
-            df_feat = _df_fb
+            _df_fb['LeadTime_Calculado'] = pd.to_numeric(_df_fb[_fb_col], errors='coerce')
+            _df_fb = _df_fb.dropna(subset=['LeadTime_Calculado'])
+            _df_fb = _df_fb[_df_fb['LeadTime_Calculado'] >= 0]
+            df_feat_list.append(_df_fb)
+
+    # 2. Obter dados do Portfolio (Épicos não existem no Fato_Items, então calculamos ResolvedAt - CreatedAt)
+    if df_portfolio is not None and not df_portfolio.empty and ('epic' in feature_types_lower or 'épico' in feature_types_lower):
+        _tipo_col = next((c for c in ['Tipo', 'tipo'] if c in df_portfolio.columns), None)
+        if _tipo_col:
+            mask_type = df_portfolio[_tipo_col].fillna('').str.lower().str.contains('pico|epic')
+            _pf_feat = df_portfolio[mask_type].copy()
+            
+            if not _pf_feat.empty and 'CreatedAt' in _pf_feat.columns:
+                if 'ResolvedAt' not in _pf_feat.columns:
+                    _pf_feat['ResolvedAt'] = pd.NaT
+                
+                # Fill missing ResolvedAt for Done items with StatusChangedAt
+                if 'Status' in _pf_feat.columns:
+                    is_done = _pf_feat['Status'].fillna('').str.lower().isin(['done', 'concluído', 'concluido'])
+                    if 'StatusChangedAt' in _pf_feat.columns:
+                        _pf_feat.loc[is_done & _pf_feat['ResolvedAt'].isna(), 'ResolvedAt'] = _pf_feat.loc[is_done & _pf_feat['ResolvedAt'].isna(), 'StatusChangedAt']
+                    elif 'UpdatedAt' in _pf_feat.columns:
+                        _pf_feat.loc[is_done & _pf_feat['ResolvedAt'].isna(), 'ResolvedAt'] = _pf_feat.loc[is_done & _pf_feat['ResolvedAt'].isna(), 'UpdatedAt']
+
+                _pf_feat['CreatedAt'] = pd.to_datetime(_pf_feat['CreatedAt'], errors='coerce', utc=True).dt.tz_localize(None)
+                _pf_feat['ResolvedAt'] = pd.to_datetime(_pf_feat['ResolvedAt'], errors='coerce', utc=True).dt.tz_localize(None)
+                _pf_feat = _pf_feat.dropna(subset=['CreatedAt', 'ResolvedAt'])
+                _pf_feat['LeadTime_Calculado'] = (_pf_feat['ResolvedAt'] - _pf_feat['CreatedAt']).dt.days
+                _pf_feat = _pf_feat[_pf_feat['LeadTime_Calculado'] >= 0]
+                
+                _pf_feat['DataDone'] = _pf_feat['ResolvedAt']
+                _in_period = (_pf_feat['DataDone'] >= start_ts) & (_pf_feat['DataDone'] <= end_ts)
+                df_feat_list.append(_pf_feat[_in_period].copy())
+
+    # 3. Concatenar resultados
+    if df_feat_list:
+        df_feat = pd.concat(df_feat_list, ignore_index=True)
+        lt_col = 'LeadTime_Calculado'
+    else:
+        df_feat = pd.DataFrame()
+        lt_col = 'LeadTime_Calculado'
 
     if df_feat.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -146,6 +157,14 @@ def calc_execucao_onepage(df, df_portfolio, start_ts, end_ts, periodicity='M', g
         df_base['ResolvedAt'] = pd.to_datetime(df_base['ResolvedAt'], errors='coerce', utc=True).dt.tz_localize(None)
     else:
         df_base['ResolvedAt'] = pd.NaT
+
+    # Fill missing ResolvedAt for Done items with StatusChangedAt
+    if 'Status' in df_base.columns:
+        is_done = df_base['Status'].fillna('').str.lower().isin(['done', 'concluído', 'concluido'])
+        if 'StatusChangedAt' in df_base.columns:
+            df_base.loc[is_done & df_base['ResolvedAt'].isna(), 'ResolvedAt'] = pd.to_datetime(df_base.loc[is_done & df_base['ResolvedAt'].isna(), 'StatusChangedAt'], errors='coerce', utc=True).dt.tz_localize(None)
+        elif 'UpdatedAt' in df_base.columns:
+            df_base.loc[is_done & df_base['ResolvedAt'].isna(), 'ResolvedAt'] = pd.to_datetime(df_base.loc[is_done & df_base['ResolvedAt'].isna(), 'UpdatedAt'], errors='coerce', utc=True).dt.tz_localize(None)
         
     if 'DueDate' in df_base.columns:
         df_base['DueDate'] = pd.to_datetime(df_base['DueDate'], errors='coerce')
