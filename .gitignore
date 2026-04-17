@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 jira_env.txt
 output.log
-jira_env.txt
 .vercel
 .env*.local
 .env
@@ -11,6 +10,12 @@ jira_env.txt
 *.xlsx
 *.png
 tmp/jira_env_no_bb.txt
+
+# Backups e logs gerados localmente
+*.bak
+*.bak.*
+gunicorn*.log
+dashboard_output.csv
 
 # Process mining artifacts generated locally
 artifacts/process_mining/*.csv

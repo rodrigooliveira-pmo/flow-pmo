@@ -1,60 +1,54 @@
-"""
-People module - Re-exports functions from dashboard_full.py
+"""People module — identity, aliases, BU, roles and capacity metrics.
 
-Phase 2A: Modular boundary/wrapper layer
-Phase 2B: Actual function extraction (pending)
-
-This module provides clean imports for people/team management functions.
-Currently re-exports the 7 people-related functions that were successfully
-extracted from dashboard_full.py during Phase 2A.
+All person-identity functions live in people/config.py.
+Capacity metrics live in people/functions.py (Jira-based).
+Dev productivity metrics live in people/dev_metrics.py (Bitbucket-based).
 """
 
-try:
-    from dashboard_full import (
-        _canonical_person_name,
-        _load_person_bu_map,
-        _load_person_team_map,
-        _person_role_options,
-        _person_seniority_label,
-        _resolve_person_bu,
-        _resolve_person_team,
-        compute_jira_person_capacity_metrics,
-    )
-except ImportError:
-    def __getattr__(name):
-        from dashboard_full import __dict__ as dashboard
-        if name in dashboard:
-            return dashboard[name]
-        raise AttributeError(f"people: no attribute {name}")
+from .config import (
+    _load_people_config,
+    _load_person_bu_map,
+    _load_person_role_map,
+    _load_person_alias_index,
+    _load_person_seniority_index,
+    _person_match_key,
+    _person_email_key,
+    _person_tokens_for_match,
+    _normalize_person_name,
+    _person_names_compatible,
+    _canonical_person_name,
+    _person_bu,
+    _person_role,
+    _normalize_seniority_bucket,
+    _normalize_multiselect_value,
+    _normalize_responsavel_filter_values,
+    _format_responsavel_filter_label,
+    _split_people_field,
+    _project_team_bu,
+    _project_team_seed_df,
+    _ensure_dev_productivity_columns,
+)
 
 __all__ = [
-    '_canonical_person_name',
-    '_load_person_bu_map',
-    '_load_person_team_map',
-    '_person_role_options',
-    '_person_seniority_label',
-    '_resolve_person_bu',
-    '_resolve_person_team',
-    'compute_jira_person_capacity_metrics',
-]
-
-
-__all__ = [
-    "_canonical_person_name",
-    "_load_person_aliases_map",
+    "_load_people_config",
     "_load_person_bu_map",
-    "_load_person_team_map",
-    "_load_seniority_map",
-    "_person_aliases",
-    "_person_display_name",
-    "_person_full_name",
-    "_person_role_options",
-    "_person_seniority_label",
-    "_person_team_label",
-    "_resolve_person_bu",
-    "_resolve_person_team",
-    "build_people_capacity_view",
-    "build_people_tab",
-    "build_people_team_capacity",
-    "compute_jira_person_capacity_metrics",
+    "_load_person_role_map",
+    "_load_person_alias_index",
+    "_load_person_seniority_index",
+    "_person_match_key",
+    "_person_email_key",
+    "_person_tokens_for_match",
+    "_normalize_person_name",
+    "_person_names_compatible",
+    "_canonical_person_name",
+    "_person_bu",
+    "_person_role",
+    "_normalize_seniority_bucket",
+    "_normalize_multiselect_value",
+    "_normalize_responsavel_filter_values",
+    "_format_responsavel_filter_label",
+    "_split_people_field",
+    "_project_team_bu",
+    "_project_team_seed_df",
+    "_ensure_dev_productivity_columns",
 ]
