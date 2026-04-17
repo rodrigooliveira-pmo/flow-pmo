@@ -49,7 +49,7 @@ try:
         warnings.warn(f"Auth não inicializada: {_auth_exc}", stacklevel=1)
 
     # Health/version endpoint — usado para confirmar qual commit está rodando
-    @app.get("/_version")
+    @app.route("/_version", methods=["GET"])
     def _version():
         return jsonify({"commit": _COMMIT, "status": "ok"})
 

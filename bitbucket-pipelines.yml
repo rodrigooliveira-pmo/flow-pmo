@@ -95,6 +95,7 @@ pipelines:
               echo "Aguardando App Runner finalizar deploy do commit ${BITBUCKET_COMMIT}..."
               echo "Imagem esperada: ${EXPECTED_IMAGE}"
               sleep 60
+              ROLLBACK_COUNT=0
               for i in $(seq 1 40); do
                 STATUS=$(aws apprunner describe-service \
                   --service-arn "$APP_RUNNER_SERVICE_ARN" \
@@ -120,7 +121,21 @@ pipelines:
                   exit 1
                 fi
                 if [ "$STATUS" = "RUNNING" ] && [ "$ACTIVE_IMAGE" != "$EXPECTED_IMAGE" ]; then
-                  echo "AVISO: RUNNING com imagem anterior (aguardando transicao...)"
+                  ROLLBACK_COUNT=$((ROLLBACK_COUNT + 1))
+                  echo "ROLLBACK DETECTADO ($ROLLBACK_COUNT/3): App Runner reverteu para imagem anterior."
+                  if [ "$ROLLBACK_COUNT" -ge 3 ]; then
+                    echo "--- LOGS DO APP RUNNER (ultimos 5 min) ---"
+                    LOG_GROUP="/aws/apprunner/flow-pmo/94e15617551a4ccf8005f012a43cd4df/application"
+                    START_TIME=$(date -d '5 minutes ago' +%s000 2>/dev/null || date -v-5M +%s000)
+                    aws logs filter-log-events \
+                      --log-group-name "$LOG_GROUP" \
+                      --start-time "$START_TIME" \
+                      --region "$AWS_DEFAULT_REGION" \
+                      --query "events[*].message" \
+                      --output text 2>/dev/null | tail -50 || echo "(logs nao disponiveis)"
+                    echo "--- FIM DOS LOGS ---"
+                    exit 1
+                  fi
                 fi
                 sleep 15
               done
