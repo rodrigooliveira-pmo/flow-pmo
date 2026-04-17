@@ -101,6 +101,70 @@ When moving a function to a module:
 
 ---
 
+## Deploy — AWS App Runner (CI/CD)
+
+> Documentação completa: `PIPELINE_AWS_APP_RUNNER.md`
+
+### Ambiente de Produção
+
+- **Plataforma:** AWS App Runner (ECR + Bitbucket Pipelines)
+- **URL:** `https://k5ipb3jmhj.us-east-1.awsapprunner.com`
+- **Service ARN:** `arn:aws:apprunner:us-east-1:919934977141:service/flow-pmo/94e15617551a4ccf8005f012a43cd4df`
+- **Log Group CloudWatch:** `/aws/apprunner/flow-pmo/94e15617551a4ccf8005f012a43cd4df/application`
+
+### Regras críticas para o Dockerfile / requirements
+
+- `gunicorn` **obrigatoriamente** em `requirements.txt` (não em `requirements-vercel.txt`)
+- `requirements-vercel.txt` é para o ambiente serverless da Vercel — **não inclui gunicorn**
+- Ao alterar dependências do container, verificar que o `CMD` do Dockerfile tem seus executáveis instalados
+- CMD atual: `gunicorn api.index:app --bind 0.0.0.0:8080 --workers 1 --timeout 300`
+
+### Como verificar o commit em produção
+
+```bash
+curl https://k5ipb3jmhj.us-east-1.awsapprunner.com/_version
+# {"commit": "abc123...", "status": "ok"}
+```
+
+### Diagnóstico de rollback silencioso
+
+O App Runner reverte para a versão anterior quando o container falha, mas mantém `Status: RUNNING`.
+Para verificar se há rollback:
+
+```bash
+aws apprunner describe-service \
+  --service-arn "$APP_RUNNER_SERVICE_ARN" \
+  --region us-east-1 \
+  --query "Service.SourceConfiguration.ImageRepository.ImageIdentifier" \
+  --output text
+# Comparar com o commit atual — se diferente, houve rollback
+```
+
+Para ver o erro do container:
+```bash
+aws logs filter-log-events \
+  --log-group-name "/aws/apprunner/flow-pmo/94e15617551a4ccf8005f012a43cd4df/application" \
+  --start-time $(date -d '10 minutes ago' +%s000) \
+  --region us-east-1 \
+  --query "events[*].message" --output text | tail -50
+```
+
+### Causas conhecidas de rollback
+
+| Erro | Causa | Solução |
+|------|-------|---------|
+| `exec: "gunicorn": not found` | gunicorn ausente do requirements.txt | Adicionar `gunicorn>=21.2,<24` |
+| Health check timeout | dashboard_full.py demora para importar | UnhealthyThreshold=10 (100s tolerância) |
+| OOM kill | Múltiplos workers consumindo >2GB | `--workers 1` no gunicorn |
+
+### Rotas públicas (sem autenticação)
+
+As rotas abaixo estão em `auth.py` → `_PUBLIC_PREFIXES` e não exigem login:
+- `/_version` — retorna commit hash em produção (usado pelo pipeline para verificação)
+- `/_healthz` — health check alternativo
+
+---
+
 ## Core Principles
 - Simplicity first: solve with minimal complexity and minimal surface area.
 - No laziness: find root causes, avoid temporary patches.

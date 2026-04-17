@@ -596,3 +596,10 @@ Use this file after any user correction.
 - Root cause: Eu mantive o cálculo legado baseado em `TipoDemanda`, que não refletia a semântica do filtro novo nem excluía `Task` do denominador.
 - Prevention rule: Quando um novo filtro introduzir uma taxonomia mais granular, revisar imediatamente KPIs derivados que ainda dependem da classificação agregada anterior.
 - Action added to workflow: Em toda mudança de taxonomia/filtro, auditar explicitamente métricas percentuais e breakdowns que usam buckets de classificação antes de encerrar.
+
+- Date: 2026-04-17
+- Context: Pipeline CI/CD Bitbucket para AWS App Runner reportava sucesso mas o site não atualizava.
+- User correction: N/A — diagnóstico autônomo via CloudWatch logs adicionados ao Verify step.
+- Root cause: Causa raiz era **gunicorn ausente do requirements.txt**. O `requirements.txt` incluía apenas `-r requirements-vercel.txt`, criado para o ambiente serverless da Vercel (sem gunicorn). O `CMD` do Dockerfile chamava `gunicorn`, mas ele nunca era instalado na imagem Docker. Erro: `exec: "gunicorn": executable file not found in $PATH`. Rollbacks silenciosos ocorriam porque o Verify step só verificava se o status era `RUNNING` (que retornava com a imagem antiga após o rollback).
+- Prevention rule: Sempre verificar que `requirements.txt` (para Docker/App Runner) inclui dependências de runtime de servidor como `gunicorn`, `uvicorn`, etc. — não apenas dependências da aplicação. Ao ter requirements separados por ambiente (Vercel vs Docker), criar checklist explícito de dependências de servidor para cada ambiente.
+- Action added to workflow: Em novos ambientes de deploy (Docker/ECS/App Runner), validar que `CMD` e `ENTRYPOINT` do Dockerfile têm seus executáveis explicitamente no requirements.txt antes do primeiro deploy. Adicionar dump de CloudWatch ao Verify step para capturar erros de startup com diagnóstico real.
