@@ -64,7 +64,8 @@ pipelines:
                       "FLASK_SECRET_KEY": "${FLASK_SECRET_KEY}",
                       "BLOB_READ_WRITE_TOKEN": "${BLOB_READ_WRITE_TOKEN}",
                       "FLOWMETRICS_READ_WRITE_TOKEN": "${FLOWMETRICS_READ_WRITE_TOKEN}",
-                      "VERCEL_OIDC_TOKEN": "${VERCEL_OIDC_TOKEN}"
+                      "VERCEL_OIDC_TOKEN": "${VERCEL_OIDC_TOKEN}",
+                      "BITBUCKET_COMMIT": "${BITBUCKET_COMMIT}"
                     }
                   }
                 }
