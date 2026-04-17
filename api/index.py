@@ -26,10 +26,11 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from flask import Flask, Response
+from flask import Flask, Response, jsonify
 
 DASH_MODULE = os.getenv("FLOW_PMO_DASH_MODULE", "dashboard_full")
 DASH_ATTR = os.getenv("FLOW_PMO_DASH_ATTR", "app")
+_COMMIT = os.getenv("BITBUCKET_COMMIT", "unknown")
 
 app = None  # defined at top-level so Vercel can detect the entrypoint
 
@@ -46,6 +47,11 @@ try:
     except RuntimeError as _auth_exc:
         import warnings
         warnings.warn(f"Auth não inicializada: {_auth_exc}", stacklevel=1)
+
+    # Health/version endpoint — usado para confirmar qual commit está rodando
+    @app.get("/_version")
+    def _version():
+        return jsonify({"commit": _COMMIT, "status": "ok"})
 
 except Exception as exc:  # pragma: no cover - runtime safeguard
     error_message = str(exc)

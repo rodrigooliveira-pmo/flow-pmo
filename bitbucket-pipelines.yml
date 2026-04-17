@@ -92,26 +92,41 @@ pipelines:
             - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
             - export AWS_REGION="$AWS_DEFAULT_REGION"
             - printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > "$AWS_WEB_IDENTITY_TOKEN_FILE"
-            - echo "Aguardando App Runner iniciar deploy..."
+            - echo "Aguardando App Runner sair de OPERATION_IN_PROGRESS..."
             - sleep 30
             - |
-              for i in $(seq 1 20); do
+              for i in $(seq 1 30); do
                 STATUS=$(aws apprunner describe-service \
                   --service-arn "$APP_RUNNER_SERVICE_ARN" \
                   --region "$AWS_DEFAULT_REGION" \
                   --query "Service.Status" --output text)
-                echo "Tentativa $i/20 — Status: $STATUS"
+                echo "Tentativa $i/30 — Status: $STATUS"
                 if [ "$STATUS" = "RUNNING" ]; then
-                  echo "Deploy concluido com sucesso!"
-                  aws apprunner describe-service \
+                  echo "App Runner RUNNING. Verificando commit ativo..."
+                  SERVICE_URL=$(aws apprunner describe-service \
                     --service-arn "$APP_RUNNER_SERVICE_ARN" \
                     --region "$AWS_DEFAULT_REGION" \
-                    --query "Service.{Status:Status,Url:ServiceUrl}" \
-                    --output table
-                  exit 0
+                    --query "Service.ServiceUrl" --output text)
+                  # Aguarda até 60s para o novo container responder
+                  for j in $(seq 1 12); do
+                    VERSION_RESPONSE=$(curl -sf --max-time 10 "https://${SERVICE_URL}/_version" 2>/dev/null || echo "")
+                    if echo "$VERSION_RESPONSE" | grep -q "$BITBUCKET_COMMIT"; then
+                      echo "✅ Deploy confirmado! Commit $BITBUCKET_COMMIT está rodando."
+                      echo "$VERSION_RESPONSE"
+                      exit 0
+                    fi
+                    echo "  Aguardando novo container responder (tentativa $j/12)... resposta: $VERSION_RESPONSE"
+                    sleep 5
+                  done
+                  echo "⚠️  WARN: App Runner RUNNING mas commit ativo não é $BITBUCKET_COMMIT"
+                  echo "  Resposta atual: $VERSION_RESPONSE"
+                  exit 1
+                fi
+                if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+                  echo "❌ ERRO: App Runner está em estado de falha: $STATUS"
+                  exit 1
                 fi
                 sleep 15
               done
-              echo "WARN: Timeout aguardando RUNNING (status atual: $STATUS)"
+              echo "❌ ERRO: Timeout aguardando RUNNING (status atual: $STATUS)"
               exit 1
-  

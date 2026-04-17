@@ -32,4 +32,10 @@ ENV FLOW_PMO_DASH_ATTR=app
 EXPOSE 8080
 
 # Comando de start para produção (App Runner/Gunicorn)
-CMD ["gunicorn", "api.index:app", "--bind", "0.0.0.0:8080", "--timeout", "120"]
+CMD ["gunicorn", "api.index:app", \
+     "--bind", "0.0.0.0:8080", \
+     "--workers", "1", \
+     "--timeout", "300", \
+     "--graceful-timeout", "60", \
+     "--keep-alive", "5", \
+     "--log-level", "info"]
