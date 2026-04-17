@@ -31,9 +31,13 @@ pipelines:
             - export AWS_REGION="$AWS_DEFAULT_REGION"
             - printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > "$AWS_WEB_IDENTITY_TOKEN_FILE"
             - export IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPOSITORY}:${BITBUCKET_COMMIT}"
+            - export ACCESS_ROLE_ARN=$(aws apprunner describe-service --service-arn "$APP_RUNNER_SERVICE_ARN" --region "$AWS_DEFAULT_REGION" --query "Service.SourceConfiguration.AuthenticationConfiguration.AccessRoleArn" --output text)
             - |
               cat > /tmp/source-config.json <<EOF
               {
+                "AuthenticationConfiguration": {
+                  "AccessRoleArn": "${ACCESS_ROLE_ARN}"
+                },
                 "ImageRepository": {
                   "ImageIdentifier": "${IMAGE_URI}",
                   "ImageRepositoryType": "ECR",
