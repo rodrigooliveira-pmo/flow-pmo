@@ -13645,9 +13645,14 @@ def build_portfolio_cross_delivery_integration(start_ts, end_ts, portfolio_scope
     else:
         cost_assets = pd.DataFrame(columns=['AssetID', 'Horas Reais Apontadas', 'Custo Real Apontado (R$)', 'Horas PM Elegíveis', 'Custo PM Estimado'])
 
-    asset_delivery_df = asset_scope[[
+    asset_delivery_cols = [
         'AssetID', 'Projeto PM', 'Produto', 'Tipo', 'TeamPortfolio', 'Titulo', 'Status Portfolio', 'DueDate', 'Link'
-    ]].copy().rename(columns={'TeamPortfolio': 'Team'})
+    ]
+    if 'ResolvedAt' in asset_scope.columns:
+        asset_delivery_cols.append('ResolvedAt')
+    if 'StatusChangedAt' in asset_scope.columns:
+        asset_delivery_cols.append('StatusChangedAt')
+    asset_delivery_df = asset_scope[asset_delivery_cols].copy().rename(columns={'TeamPortfolio': 'Team'})
     merge_frames = [ds_agg.copy(), pm_agg.copy(), cost_assets.copy()]
     if merge_frames[0] is not None:
         merge_frames[0] = merge_frames[0].drop(columns=[col for col in ['Projeto PM', 'Produto'] if col in merge_frames[0].columns])
@@ -13690,6 +13695,13 @@ def build_portfolio_cross_delivery_integration(start_ts, end_ts, portfolio_scope
     asset_delivery_df['DataEntregaReal'] = pd.to_datetime(asset_delivery_df.get('DownstreamReadyProdMax'), errors='coerce')
     asset_delivery_df['DataEntregaReal'] = asset_delivery_df['DataEntregaReal'].combine_first(pd.to_datetime(asset_delivery_df.get('DownstreamDoneMax'), errors='coerce'))
     asset_delivery_df['DataEntregaReal'] = asset_delivery_df['DataEntregaReal'].combine_first(pd.to_datetime(asset_delivery_df.get('PMDoneMax'), errors='coerce'))
+    
+    portfolio_done_mask = asset_delivery_df['Status Portfolio'].fillna('').astype(str).str.lower().isin({'done', 'concluido', 'concluído', 'closed', 'resolved'})
+    if 'ResolvedAt' in asset_delivery_df.columns:
+        asset_delivery_df.loc[portfolio_done_mask, 'DataEntregaReal'] = asset_delivery_df.loc[portfolio_done_mask, 'DataEntregaReal'].combine_first(pd.to_datetime(asset_delivery_df.loc[portfolio_done_mask, 'ResolvedAt'], errors='coerce', utc=True).dt.tz_localize(None))
+    if 'StatusChangedAt' in asset_delivery_df.columns:
+        asset_delivery_df.loc[portfolio_done_mask, 'DataEntregaReal'] = asset_delivery_df.loc[portfolio_done_mask, 'DataEntregaReal'].combine_first(pd.to_datetime(asset_delivery_df.loc[portfolio_done_mask, 'StatusChangedAt'], errors='coerce', utc=True).dt.tz_localize(None))
+
     today_ts = pd.Timestamp.now().normalize()
     asset_delivery_df['DeltaPrazoDias'] = np.where(
         asset_delivery_df['DueDate'].notna() & asset_delivery_df['DataEntregaReal'].notna(),
