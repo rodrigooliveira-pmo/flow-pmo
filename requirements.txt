@@ -1,1 +1,2 @@
 -r requirements-vercel.txt
+gunicorn>=21.2,<24
