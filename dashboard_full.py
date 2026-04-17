@@ -97,6 +97,8 @@ from dashboards.metrics.time_metrics import (
     exact_percentile_band_summary,
     add_statistical_lines,
     compute_process_capability_metrics,
+    build_monthly_throughput_percentage_by_type,
+    build_monthly_leadtime_sla_percentage_by_type,
 )
 
 from dashboards.components.cards import (
@@ -110,6 +112,7 @@ from dashboards.components.tables import (
 )
 
 from dashboards.four_ps import build_four_ps_payload, render_four_ps_tab
+from dashboards.pages.corporativo import layout_corporativo
 
 
 # Load model
@@ -15596,12 +15599,16 @@ def update_main_navigation_layout(main_view):
     Input('filter-date-mode', 'value'),
     optional_input('estatistica-lsl', 'value'),
     optional_input('estatistica-usl', 'value'),
+    optional_input('corp-periodicity', 'value'),
+    optional_input('corp-groupby-product', 'value'),
+    optional_input('corp-feature-types', 'value'),
 )
 def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_original_jira, classe_servico, responsavel, leadtime_stages, etapa_fluxo=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
                criadores=None, date_filter_mode=None,
-               estatistica_lsl=None, estatistica_usl=None):
+               estatistica_lsl=None, estatistica_usl=None,
+               corp_periodicity='M', corp_groupby_product='False', corp_feature_types=None):
     if main_view in (None, 'home'):
         return html.Div(
             'Selecione "Portfólio" ou "Serviços (Value Stream)" na tela principal para continuar.',
@@ -15835,6 +15842,15 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         tp_by_urgency = build_service_throughput_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', start_ts, end_ts, bucket_freq=bucket_freq)
         wip_by_type = build_service_wip_breakdown(active_wip, end_ts, 'TipoDemanda', 'Tipo de Demanda')
         wip_by_urgency = build_service_wip_breakdown(active_wip, end_ts, 'ClassificacaoUrgencia', 'Urgência')
+        
+        monthly_tp_pct_by_type = build_monthly_throughput_percentage_by_type(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda')
+        monthly_lt_sla_pct_by_type = build_monthly_leadtime_sla_percentage_by_type(
+            df_done_period_eligible, 
+            'TipoDemanda', 
+            'Tipo de Demanda', 
+            sla_days=sla_days, 
+            sla_col='SLARef_Dias' if 'SLARef_Dias' in df_done_period_eligible.columns else None
+        )
 
         def service_table(title, df_table, empty_message, table_id):
             if df_table is None or df_table.empty:
@@ -16017,6 +16033,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             html.Div([
                 dcc.Graph(figure=fig_tp_urgency),
                 service_table(f'Vazão por Urgência ({bucket_label.lower()})', tp_by_urgency, 'Sem dados de vazão por urgência no período.', 'service-tp-urgency'),
+            ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
+            html.Div([
+                service_table('% Vazão por Tipo de Demanda (Mensal)', monthly_tp_pct_by_type, 'Sem dados de vazão no período.', 'service-monthly-tp-pct-type'),
+                service_table('% Lead Time por Tipo de Demanda (Mensal)', monthly_lt_sla_pct_by_type, 'Sem dados de lead time no período.', 'service-monthly-lt-pct-type'),
             ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(420px, 1fr))', 'gap': '12px', 'marginBottom': '14px'}),
             html.Div([
                 service_table('WIP Atual por Tipo de Demanda', wip_by_type, 'Sem itens em progresso no recorte atual.', 'service-wip-type'),
@@ -27616,392 +27636,21 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         ], style={'padding': '20px', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
 
     if tab == 'tab-corporativo':
-        start_ts = pd.to_datetime(start_date)
-        end_ts = pd.to_datetime(end_date)
-
-        def _corp_card(label, value, subtitle='', color='#2F80ED'):
-            return html.Div([
-                html.Div(label, style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569'}),
-                html.Div(value, style={'fontSize': '30px', 'fontWeight': '800', 'lineHeight': '1.1', 'color': color, 'marginTop': '6px'}),
-                html.Div(subtitle, style={'fontSize': '12px', 'color': '#64748b', 'marginTop': '6px'}),
-            ], style={'backgroundColor': '#f8fafc', 'border': f'1px solid {color}44', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'})
-
-        # --- Lead Time de Features ---
-        # Fonte primária: portfolio CSV (features BT/NS) com CreatedAt e ResolvedAt.
-        # Fonte secundária (fallback): Fato_Items com TempoExecucao_Dias (InProgress→Done).
-        lt_col = 'LeadTime_Portfolio_Dias'
-        lt_label_note = ''
-
         try:
-            _, df_pf_lt, _pf_lt_err = get_portfolio_snapshot()
+            _, df_portfolio, _pf_err = get_portfolio_snapshot()
         except Exception:
-            df_pf_lt = pd.DataFrame()
-
-        df_feat = pd.DataFrame()
-        if df_pf_lt is not None and not df_pf_lt.empty:
-            _feat_types = {'feature', 'funcionalidade'}
-            _tipo_col = next((c for c in ['Tipo', 'tipo'] if c in df_pf_lt.columns), None)
-            if _tipo_col:
-                _pf_feat = df_pf_lt[
-                    df_pf_lt[_tipo_col].fillna('').str.lower().isin(_feat_types)
-                ].copy()
-            else:
-                _pf_feat = pd.DataFrame()
-
-            if not _pf_feat.empty and 'CreatedAt' in _pf_feat.columns and 'ResolvedAt' in _pf_feat.columns:
-                _pf_feat['CreatedAt'] = pd.to_datetime(_pf_feat['CreatedAt'], errors='coerce', utc=True).dt.tz_localize(None)
-                _pf_feat['ResolvedAt'] = pd.to_datetime(_pf_feat['ResolvedAt'], errors='coerce', utc=True).dt.tz_localize(None)
-                _pf_feat = _pf_feat.dropna(subset=['CreatedAt', 'ResolvedAt'])
-                _pf_feat[lt_col] = (_pf_feat['ResolvedAt'] - _pf_feat['CreatedAt']).dt.days
-                _pf_feat = _pf_feat[_pf_feat[lt_col] >= 0]
-                # Filtra pelo período selecionado usando ResolvedAt como DataDone
-                _pf_feat['DataDone'] = _pf_feat['ResolvedAt']
-                _in_period = (
-                    (_pf_feat['DataDone'] >= start_ts) & (_pf_feat['DataDone'] <= end_ts)
-                )
-                # Filtra por projeto se selecionado
-                if projeto:
-                    _proj_col = next((c for c in ['Projeto', 'projeto'] if c in _pf_feat.columns), None)
-                    if _proj_col:
-                        _in_period = _in_period & (
-                            _pf_feat[_proj_col].fillna('').str.upper() == str(projeto).upper()
-                        )
-                df_feat = _pf_feat[_in_period].copy()
-                if not df_feat.empty:
-                    lt_label_note = 'Fonte: portfólio Jira (BT/NS) — Lead Time = CreatedAt → ResolvedAt.'
-
-        # Fallback: Fato_Items (TempoExecucao_Dias = InProgress→Done)
-        if df_feat.empty:
-            df_corp = df.copy()
-            if 'WorkItemSubType' in df_corp.columns:
-                _feat_mask = df_corp['WorkItemSubType'].fillna('').str.lower().isin({'feature', 'funcionalidade'})
-            elif 'IsFeature' in df_corp.columns:
-                _feat_mask = df_corp['IsFeature'].fillna(False)
-            else:
-                _feat_mask = pd.Series(False, index=df_corp.index)
-
-            _elig_mask = done_time_eligible_mask(df_corp)
-            _df_fb = df_corp[_elig_mask & _feat_mask].copy()
-
-            _fallback_candidates = ['LeadTime_Selected_Dias', 'LeadTime_Dias', 'TempoExecucao_Dias']
-            _fb_col = next(
-                (c for c in _fallback_candidates
-                 if c in _df_fb.columns and pd.to_numeric(_df_fb[c], errors='coerce').dropna().shape[0] > 0),
-                None,
-            )
-            if _fb_col:
-                _df_fb[lt_col] = pd.to_numeric(_df_fb[_fb_col], errors='coerce')
-                _df_fb['DataDone'] = pd.to_datetime(_df_fb['DataDone'], errors='coerce')
-                _df_fb = _df_fb.dropna(subset=[lt_col, 'DataDone'])
-                _df_fb = _df_fb[_df_fb[lt_col] >= 0]
-                df_feat = _df_fb
-                if _fb_col == 'TempoExecucao_Dias':
-                    lt_label_note = (
-                        'Fallback: Fato_Items — Tempo de Execução (InProgress → Done). '
-                        'Para dados completos (CreatedAt → ResolvedAt), reexporte o portfólio com jira_portfolio_to_csv.py.'
-                    )
-
-        if df_feat.empty:
-            lt_section = html.P(
-                'Sem dados de Lead Time de Features para o período e filtros selecionados.',
-                style={'color': '#888', 'padding': '12px 0'}
-            )
-        else:
-            lt_series = df_feat[lt_col]
-            n_feat = len(lt_series)
-            p50_total = exact_empirical_percentile(lt_series, 0.50)
-            p85_total = exact_empirical_percentile(lt_series, 0.85)
-            mean_total = lt_series.mean()
-
-            # Monthly breakdown
-            df_feat['_AnoMes'] = df_feat['DataDone'].dt.to_period('M')
-            monthly = (
-                df_feat.groupby('_AnoMes')[lt_col]
-                .agg(
-                    P50=lambda s: exact_empirical_percentile(s, 0.50),
-                    P85=lambda s: exact_empirical_percentile(s, 0.85),
-                    N='count',
-                )
-                .reset_index()
-                .sort_values('_AnoMes')
-            )
-            monthly['_AnoMes_str'] = monthly['_AnoMes'].astype(str)
-
-            # Annual breakdown
-            df_feat['_Ano'] = df_feat['DataDone'].dt.year
-            annual = (
-                df_feat.groupby('_Ano')[lt_col]
-                .agg(
-                    P50=lambda s: exact_empirical_percentile(s, 0.50),
-                    P85=lambda s: exact_empirical_percentile(s, 0.85),
-                    N='count',
-                )
-                .reset_index()
-                .sort_values('_Ano')
-            )
-            annual.columns = ['Ano', 'P50 (dias)', 'P85 (dias)', 'Qtd Features']
-            annual['P50 (dias)'] = annual['P50 (dias)'].round(1)
-            annual['P85 (dias)'] = annual['P85 (dias)'].round(1)
-
-            # Monthly trend chart
-            fig_lt_monthly = go.Figure()
-            fig_lt_monthly.add_trace(go.Scatter(
-                x=monthly['_AnoMes_str'], y=monthly['P50'].round(1),
-                mode='lines+markers+text',
-                name='P50 (mediana)',
-                line=dict(color='#27AE60', width=2),
-                marker=dict(size=8),
-                text=monthly['P50'].round(1).astype(str) + 'd',
-                textposition='top center',
-                hovertemplate='%{x}<br>P50: %{y:.1f} dias (n=%{customdata})<extra></extra>',
-                customdata=monthly['N'],
-            ))
-            fig_lt_monthly.add_trace(go.Scatter(
-                x=monthly['_AnoMes_str'], y=monthly['P85'].round(1),
-                mode='lines+markers+text',
-                name='P85',
-                line=dict(color='#9B51E0', width=2),
-                marker=dict(size=8),
-                text=monthly['P85'].round(1).astype(str) + 'd',
-                textposition='bottom center',
-                hovertemplate='%{x}<br>P85: %{y:.1f} dias (n=%{customdata})<extra></extra>',
-                customdata=monthly['N'],
-            ))
-            fig_lt_monthly.add_hline(
-                y=p50_total, line_dash='dot', line_color='#27AE60',
-                annotation_text=f'P50 período: {p50_total:.1f}d',
-                annotation_position='top right',
-            )
-            fig_lt_monthly.add_hline(
-                y=p85_total, line_dash='dot', line_color='#9B51E0',
-                annotation_text=f'P85 período: {p85_total:.1f}d',
-                annotation_position='bottom right',
-            )
-            fig_lt_monthly.update_layout(
-                title='Lead Time de Features — Evolução Mensal (P50 e P85)',
-                template='plotly_white',
-                hovermode='x unified',
-                height=460,
-                legend=dict(orientation='h', y=-0.18, x=0.5, xanchor='center'),
-                margin=dict(t=60, b=100, l=60, r=180),
-                xaxis=dict(title='Mês', tickangle=-45),
-                yaxis=dict(title='Lead Time (dias)', rangemode='nonnegative'),
-            )
-
-            period_label = f"{start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}"
-            lt_section = html.Div([
-                html.Div([
-                    _corp_card('P50 — Mediana', f'{p50_total:.1f} dias', '50% das features entregues em até X dias', '#27AE60'),
-                    _corp_card('P85 — SLA Prático', f'{p85_total:.1f} dias', '85% das features entregues em até X dias', '#9B51E0'),
-                    _corp_card('Média', f'{mean_total:.1f} dias', 'Referência complementar', '#2F80ED'),
-                    _corp_card('Features concluídas', str(n_feat), period_label, '#F2994A'),
-                ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(4, 1fr)', 'gap': '14px', 'marginBottom': '12px'}),
-                html.Div(
-                    [html.Span('ℹ', style={'marginRight': '6px'}), html.Span(lt_label_note)],
-                    style={
-                        'backgroundColor': '#eff6ff', 'border': '1px solid #bfdbfe', 'borderRadius': '6px',
-                        'padding': '7px 12px', 'fontSize': '12px', 'color': '#1e40af', 'marginBottom': '16px',
-                    },
-                ) if lt_label_note else html.Div(),
-                dcc.Graph(figure=fig_lt_monthly, config={'displayModeBar': False}),
-                html.Div([
-                    html.H5('Resumo Anual', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#1e3a5f', 'marginBottom': '8px', 'marginTop': '20px'}),
-                    dash_table.DataTable(
-                        columns=[{'name': c, 'id': c} for c in annual.columns],
-                        data=annual.to_dict('records'),
-                        style_cell={'textAlign': 'center', 'padding': '8px', 'fontFamily': 'inherit', 'fontSize': '13px'},
-                        style_header={'backgroundColor': '#1e3a5f', 'color': 'white', 'fontWeight': '700'},
-                        style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
-                    ),
-                ]),
-            ])
-
-        # --- Execução One-Page: compute section ---
-        # Deliveries: Features from fato with DataDone in period
-        df_op = df.copy()
-        if 'WorkItemSubType' in df_op.columns:
-            df_op_feat = df_op[
-                df_op['WorkItemSubType'].fillna('').str.lower().isin({'feature', 'funcionalidade'})
-            ].copy()
-        elif 'IsFeature' in df_op.columns:
-            df_op_feat = df_op[df_op['IsFeature'].fillna(False)].copy()
-        else:
-            df_op_feat = df_op[done_time_eligible_mask(df_op)].copy()
-
-        df_op_feat['DataDone'] = pd.to_datetime(df_op_feat['DataDone'], errors='coerce')
-        df_op_done = df_op_feat[
-            (df_op_feat['Concluido'].fillna(0) == 1) &
-            df_op_feat['DataDone'].notna()
-        ].copy()
-
-        # Planned: portfolio epics with DueDate in period (snapshot)
-        try:
-            _, df_portfolio_op, _pf_err = get_portfolio_snapshot()
-        except Exception:
-            df_portfolio_op = pd.DataFrame()
-
-        planned_in_period = 0
-        if df_portfolio_op is not None and not df_portfolio_op.empty and 'DueDate' in df_portfolio_op.columns:
-            df_portfolio_op = df_portfolio_op.copy()
-            df_portfolio_op['DueDate'] = pd.to_datetime(df_portfolio_op['DueDate'], errors='coerce')
-            is_epic = df_portfolio_op.get('Tipo', pd.Series(dtype=str)).fillna('').str.lower().str.contains('pico|epic')
-            epics_op = df_portfolio_op[is_epic & df_portfolio_op['DueDate'].notna()].copy()
-            planned_in_period = int(len(epics_op[
-                (epics_op['DueDate'] >= start_ts) & (epics_op['DueDate'] <= end_ts)
-            ]))
-
-        n_delivered = len(df_op_done)
-        ratio_str = f'{n_delivered} / {planned_in_period}' if planned_in_period > 0 else f'{n_delivered} / —'
-        pct_str = f'{n_delivered / planned_in_period * 100:.0f}%' if planned_in_period > 0 else '—'
-
-        if df_op_done.empty:
-            exec_onepage_section = html.P(
-                'Sem features concluídas para o período e filtros selecionados.',
-                style={'color': '#888', 'padding': '12px 0'},
-            )
-        else:
-            # Monthly deliveries bar chart
-            df_op_done['_AnoMes'] = df_op_done['DataDone'].dt.to_period('M')
-            monthly_op = (
-                df_op_done.groupby('_AnoMes').size()
-                .reset_index(name='Entregues')
-                .sort_values('_AnoMes')
-            )
-            monthly_op['_AnoMes_str'] = monthly_op['_AnoMes'].astype(str)
-
-            fig_op = go.Figure()
-            fig_op.add_trace(go.Bar(
-                x=monthly_op['_AnoMes_str'], y=monthly_op['Entregues'],
-                name='Features entregues',
-                marker_color='#2F80ED',
-                text=monthly_op['Entregues'],
-                textposition='outside',
-            ))
-            fig_op.update_layout(
-                title='Execução One-Page — Features Entregues por Mês',
-                template='plotly_white',
-                height=380,
-                margin=dict(t=60, b=80, l=60, r=40),
-                xaxis=dict(title='Mês', tickangle=-45),
-                yaxis=dict(title='Qtd features entregues', rangemode='nonnegative'),
-            )
-
-            # Annual table
-            df_op_done['_Ano'] = df_op_done['DataDone'].dt.year
-            annual_op = df_op_done.groupby('_Ano').size().reset_index(name='Features Entregues')
-            annual_op.columns = ['Ano', 'Features Entregues']
-
-            exec_onepage_section = html.Div([
-                html.Div([
-                    _corp_card(
-                        'Features Entregues', str(n_delivered),
-                        f"{start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}",
-                        '#2F80ED',
-                    ),
-                    _corp_card(
-                        'Épicos Planejados (DueDate)',
-                        str(planned_in_period) if planned_in_period > 0 else '—',
-                        'Épicos com DueDate no período (snapshot portfólio)',
-                        '#F2994A',
-                    ),
-                    _corp_card(
-                        'Execução (proxy)',
-                        ratio_str,
-                        f'{pct_str} — sem aceite formal (a implementar)',
-                        '#27AE60' if planned_in_period > 0 else '#94a3b8',
-                    ),
-                ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(3, 1fr)', 'gap': '14px', 'marginBottom': '24px'}),
-                dcc.Graph(figure=fig_op, config={'displayModeBar': False}),
-                html.Div([
-                    html.H5('Resumo Anual', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#1e3a5f', 'marginBottom': '8px', 'marginTop': '20px'}),
-                    dash_table.DataTable(
-                        columns=[{'name': c, 'id': c} for c in annual_op.columns],
-                        data=annual_op.to_dict('records'),
-                        style_cell={'textAlign': 'center', 'padding': '8px', 'fontFamily': 'inherit', 'fontSize': '13px'},
-                        style_header={'backgroundColor': '#1e3a5f', 'color': 'white', 'fontWeight': '700'},
-                        style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8fafc'}],
-                    ),
-                ]),
-            ])
-
-        return html.Div([
-            html.Div([
-                html.H3('Indicadores Corporativos', style={
-                    'fontSize': '20px', 'fontWeight': '800', 'color': '#0f172a',
-                    'marginBottom': '4px',
-                }),
-                html.P(
-                    f"Projeto: {projeto or 'Todos'} | Período: {start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}",
-                    style={'fontSize': '12px', 'color': '#64748b', 'margin': '0'},
-                ),
-            ], style={'padding': '20px 20px 12px', 'borderBottom': '2px solid #dbeafe', 'marginBottom': '0'}),
-
-            html.Div([
-                html.Div([
-                    html.Span('05', style={
-                        'display': 'inline-block', 'backgroundColor': '#1e3a5f', 'color': 'white',
-                        'borderRadius': '50%', 'width': '28px', 'height': '28px', 'lineHeight': '28px',
-                        'textAlign': 'center', 'fontSize': '12px', 'fontWeight': '800', 'marginRight': '10px',
-                    }),
-                    html.Span('Lead Time de Features', style={'fontSize': '15px', 'fontWeight': '700', 'color': '#1e3a5f'}),
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '4px'}),
-                html.P(
-                    'Objetivo: garantir agilidade de entregas  |  Fórmula: Data de aprovação no backlog → Data de conclusão (produção)  |  Periodicidade: Mensal / Anual',
-                    style={'fontSize': '12px', 'color': '#64748b', 'marginBottom': '16px'},
-                ),
-                lt_section,
-            ], style={
-                'backgroundColor': 'white', 'borderRadius': '10px', 'border': '1px solid #e2e8f0',
-                'padding': '20px', 'margin': '16px 20px',
-            }),
-
-            # --- Execução One-Page Tech/Dados ---
-            html.Div([
-                html.Div([
-                    html.Span('04', style={
-                        'display': 'inline-block', 'backgroundColor': '#1e3a5f', 'color': 'white',
-                        'borderRadius': '50%', 'width': '28px', 'height': '28px', 'lineHeight': '28px',
-                        'textAlign': 'center', 'fontSize': '12px', 'fontWeight': '800', 'marginRight': '10px',
-                    }),
-                    html.Span('Execução One-Page Tech / Dados', style={'fontSize': '15px', 'fontWeight': '700', 'color': '#1e3a5f'}),
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '4px'}),
-                html.P(
-                    'Objetivo: garantir cumprimento do roadmap  |  '
-                    'Fórmula: Entregas concluídas / Entregas planejadas no período  |  Periodicidade: Mensal / Anual',
-                    style={'fontSize': '12px', 'color': '#64748b', 'marginBottom': '12px'},
-                ),
-                # Limitation notices
-                html.Div([
-                    html.Div([
-                        html.Span('⚠', style={'marginRight': '6px', 'fontSize': '14px'}),
-                        html.Span(
-                            'Aceite formal não rastreado: o numerador exibe Features concluídas (DataDone). '
-                            'Registro de aceite formal será implementado quando o campo estiver disponível no Jira.',
-                            style={'fontSize': '12px'},
-                        ),
-                    ], style={
-                        'backgroundColor': '#fffbeb', 'border': '1px solid #fbbf24', 'borderRadius': '6px',
-                        'padding': '8px 12px', 'marginBottom': '6px', 'color': '#92400e',
-                    }),
-                    html.Div([
-                        html.Span('⚠', style={'marginRight': '6px', 'fontSize': '14px'}),
-                        html.Span(
-                            'Planejado via DueDate do portfólio (snapshot): épicos já entregues e removidos '
-                            'do backlog podem não constar no denominador. Histórico de planejamento será habilitado '
-                            'com snapshots periódicos do portfólio.',
-                            style={'fontSize': '12px'},
-                        ),
-                    ], style={
-                        'backgroundColor': '#fffbeb', 'border': '1px solid #fbbf24', 'borderRadius': '6px',
-                        'padding': '8px 12px', 'marginBottom': '16px', 'color': '#92400e',
-                    }),
-                ]),
-                exec_onepage_section,
-            ], style={
-                'backgroundColor': 'white', 'borderRadius': '10px', 'border': '1px solid #e2e8f0',
-                'padding': '20px', 'margin': '0 20px 16px 20px',
-            }),
-        ], style={'padding': '0', 'backgroundColor': '#f4f6f8', 'minHeight': '100vh'})
+            df_portfolio = pd.DataFrame()
+            
+        return layout_corporativo(
+            df=df,
+            df_portfolio=df_portfolio,
+            start_ts=start_date,
+            end_ts=end_date,
+            projeto=projeto,
+            periodicity=corp_periodicity or 'M',
+            group_by_product=corp_groupby_product,
+            feature_types=corp_feature_types
+        )
 
     return html.Div('Aba não encontrada')
 

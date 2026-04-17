@@ -318,3 +318,87 @@ def add_statistical_lines(fig, x_values, y_values, name_prefix='', secondary_y=N
     fig.add_trace(go.Scatter(x=x_list, y=list(ma5), mode='lines', name=f'{name_prefix}MM(5)',
                              line=dict(dash='solid', width=2, color='purple')), **kwargs)
     return fig
+
+
+def build_monthly_throughput_percentage_by_type(done_df, dimension_col, dimension_label):
+    """
+    Calcula a vazão mensal por dimensão (ex: Tipo de Demanda) e a representa 
+    como um percentual do total de itens entregues naquele mês.
+    """
+    if done_df is None or done_df.empty or dimension_col not in done_df.columns:
+        return pd.DataFrame()
+
+    base = done_df.copy()
+    base['DataDone'] = pd.to_datetime(base.get('DataDone'), errors='coerce')
+    base = base.dropna(subset=['DataDone'])
+    if base.empty:
+        return pd.DataFrame()
+
+    base[dimension_label] = base[dimension_col].fillna('').astype(str).str.strip().replace('', 'Sem classificação')
+    # Guarda o Period para ordenação posterior
+    base['MonthPeriod'] = base['DataDone'].dt.to_period('M')
+
+    # Agrupa por Mês e Dimensão
+    counts = base.groupby(['MonthPeriod', dimension_label]).size().reset_index(name='Count')
+
+    # Calcula os totais mensais
+    monthly_totals = counts.groupby('MonthPeriod')['Count'].transform('sum')
+    counts['% Vazão'] = (counts['Count'] / monthly_totals * 100).round(1)
+
+    # Pivota mantendo o Period como coluna (para ordenação)
+    pivot_df = counts.pivot(index=dimension_label, columns='MonthPeriod', values='% Vazão').fillna(0)
+
+    # Ordena colunas cronologicamente e converte para string (ex: Jan-26)
+    pivot_df = pivot_df.sort_index(axis=1)
+    pivot_df.columns = [p.strftime('%b-%y').capitalize() for p in pivot_df.columns]
+    pivot_df.columns.name = None
+
+    # Adiciona símbolo %
+    for col in pivot_df.columns:
+        pivot_df[col] = pivot_df[col].astype(str) + '%'
+        pivot_df[col] = pivot_df[col].replace('0.0%', '-')
+
+    return pivot_df.reset_index()
+
+
+def build_monthly_leadtime_sla_percentage_by_type(done_df, dimension_col, dimension_label, lead_col='LeadTime_Selected_Dias', sla_days=None, sla_col=None):
+    """
+    Calcula a participação percentual mensal de cada tipo de item
+    no total de itens com lead time elegível. As colunas de cada mês somam 100%.
+    """
+    if done_df is None or done_df.empty or dimension_col not in done_df.columns:
+        return pd.DataFrame()
+
+    base = done_df.copy()
+    base['DataDone'] = pd.to_datetime(base.get('DataDone'), errors='coerce')
+    base['LeadMetric'] = pd.to_numeric(base.get(lead_col), errors='coerce')
+    base = base.dropna(subset=['DataDone', 'LeadMetric'])
+    base = base[base['LeadMetric'] >= 0]
+    if base.empty:
+        return pd.DataFrame()
+
+    base[dimension_label] = base[dimension_col].fillna('').astype(str).str.strip().replace('', 'Sem classificação')
+    # Guarda o Period para ordenação posterior
+    base['MonthPeriod'] = base['DataDone'].dt.to_period('M')
+
+    # Agrupa por Mês e Dimensão
+    counts = base.groupby(['MonthPeriod', dimension_label]).size().reset_index(name='Count')
+
+    # Calcula os totais mensais e a participação percentual (colunas somam 100%)
+    monthly_totals = counts.groupby('MonthPeriod')['Count'].transform('sum')
+    counts['% Lead Time'] = (counts['Count'] / monthly_totals * 100).round(1)
+
+    # Pivota mantendo o Period como coluna (para ordenação)
+    pivot_df = counts.pivot(index=dimension_label, columns='MonthPeriod', values='% Lead Time').fillna(0)
+
+    # Ordena colunas cronologicamente e converte para string (ex: Jan-26)
+    pivot_df = pivot_df.sort_index(axis=1)
+    pivot_df.columns = [p.strftime('%b-%y').capitalize() for p in pivot_df.columns]
+    pivot_df.columns.name = None
+
+    # Adiciona símbolo %
+    for col in pivot_df.columns:
+        pivot_df[col] = pivot_df[col].astype(str) + '%'
+        pivot_df[col] = pivot_df[col].replace('0.0%', '-')
+
+    return pivot_df.reset_index()
