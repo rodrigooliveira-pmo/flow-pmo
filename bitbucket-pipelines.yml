@@ -75,14 +75,14 @@ pipelines:
                 }
               }
               EOF
-            - echo "Imagem:\ ${IMAGE_URI}"
+            - echo "Imagem: ${IMAGE_URI}"
             - cat /tmp/source-config.json
-            - >
-              aws apprunner update-service
-              --service-arn "$APP_RUNNER_SERVICE_ARN"
-              --source-configuration file:///tmp/source-config.json
-              --health-check-configuration "Protocol=TCP,Interval=10,Timeout=10,HealthyThreshold=1,UnhealthyThreshold=10"
-              --region "$AWS_DEFAULT_REGION"
+            - |
+              aws apprunner update-service \
+                --service-arn "$APP_RUNNER_SERVICE_ARN" \
+                --source-configuration file:///tmp/source-config.json \
+                --health-check-configuration "Protocol=TCP,Interval=10,Timeout=10,HealthyThreshold=1,UnhealthyThreshold=10" \
+                --region "$AWS_DEFAULT_REGION"
 
       - step:
           name: Verify Deployment
@@ -94,7 +94,7 @@ pipelines:
             - export AWS_REGION="$AWS_DEFAULT_REGION"
             - printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > "$AWS_WEB_IDENTITY_TOKEN_FILE"
             - export EXPECTED_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPOSITORY}:${BITBUCKET_COMMIT}"
-            - echo "Aguardando App Runner finalizar o deploy do commit ${BITBUCKET_COMMIT}..."
+            - echo "Aguardando App Runner finalizar deploy do commit ${BITBUCKET_COMMIT}..."
             - echo "Imagem esperada: ${EXPECTED_IMAGE}"
             - sleep 60
             - |
@@ -109,27 +109,24 @@ pipelines:
                   --query "Service.SourceConfiguration.ImageRepository.ImageIdentifier" --output text)
                 echo "Tentativa $i/40 — Status: $STATUS | Imagem ativa: $ACTIVE_IMAGE"
                 if [ "$STATUS" = "RUNNING" ] && [ "$ACTIVE_IMAGE" = "$EXPECTED_IMAGE" ]; then
-                  echo "✅ Deploy confirmado! Commit ${BITBUCKET_COMMIT} está rodando."
-                  # Verificação adicional via endpoint (se disponível)
+                  echo "Deploy confirmado! Commit ${BITBUCKET_COMMIT} esta rodando."
                   SERVICE_URL=$(aws apprunner describe-service \
                     --service-arn "$APP_RUNNER_SERVICE_ARN" \
                     --region "$AWS_DEFAULT_REGION" \
                     --query "Service.ServiceUrl" --output text)
-                  echo "URL do serviço: https://${SERVICE_URL}"
-                  curl -sf --max-time 15 "https://${SERVICE_URL}/_version" 2>/dev/null && echo "" || echo "(endpoint /_version não respondeu — OK se container ainda aquecendo)"
+                  echo "URL do servico: https://${SERVICE_URL}"
+                  curl -sf --max-time 15 "https://${SERVICE_URL}/_version" 2>/dev/null && echo "" || echo "(/_version nao respondeu ainda - OK)"
                   exit 0
                 fi
                 if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
-                  echo "❌ ERRO: App Runner falhou com status: $STATUS"
+                  echo "ERRO: App Runner falhou com status: $STATUS"
                   exit 1
                 fi
-                # Se RUNNING mas com imagem errada: rollback aconteceu
                 if [ "$STATUS" = "RUNNING" ] && [ "$ACTIVE_IMAGE" != "$EXPECTED_IMAGE" ]; then
-                  echo "⚠️  App Runner em RUNNING mas com imagem ANTERIOR: $ACTIVE_IMAGE"
-                  echo "    Aguardando próximo ciclo (pode ser transição)..."
+                  echo "AVISO: App Runner RUNNING com imagem ANTERIOR: $ACTIVE_IMAGE (aguardando transicao...)"
                 fi
                 sleep 15
               done
-              echo "❌ ERRO: Timeout (10min) aguardando RUNNING com commit ${BITBUCKET_COMMIT}."
-              echo "   Status final: $STATUS | Imagem final: $ACTIVE_IMAGE"
+              echo "ERRO: Timeout 10min aguardando RUNNING com commit ${BITBUCKET_COMMIT}."
+              echo "Status final: $STATUS | Imagem final: $ACTIVE_IMAGE"
               exit 1
