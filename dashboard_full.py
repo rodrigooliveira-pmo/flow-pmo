@@ -520,9 +520,116 @@ def _load_bitbucket_prefix_map():
 
 # ---------------------------------------------------------------------------
 # People/identity functions — imported from dashboards.people.config
-# (removed ~500 lines of local definitions; see dashboards/people/config.py)
+# (see dashboards/people/config.py)
 # ---------------------------------------------------------------------------
 
+
+def _coerce_story_points_value(raw_value):
+    if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+        return np.nan
+    if isinstance(raw_value, (int, float)):
+        return float(raw_value)
+    text = str(raw_value).strip()
+    if not text:
+        return np.nan
+    text = text.replace(',', '.')
+    match = re.search(r'-?\d+(?:\.\d+)?', text)
+    if not match:
+        return np.nan
+    try:
+        return float(match.group(0))
+    except Exception:
+        return np.nan
+
+
+def _story_points_band(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return 'Sem estimativa'
+    v = float(value)
+    if v <= 0:
+        return '0'
+    if v <= 1:
+        return '1'
+    if v <= 3:
+        return '2-3'
+    if v <= 5:
+        return '5'
+    if v <= 8:
+        return '8'
+    return '13+'
+
+
+def _load_project_bitbucket_csv(project_prefix, suffix):
+    if not project_prefix:
+        return pd.DataFrame()
+    # Chave no mapa de URLs: ex. "w1nner_commits", "befinance_pullrequests"
+    url_map = _load_bitbucket_csv_url_map()
+    type_name = suffix.lstrip('_').replace('.csv', '')  # "_commits.csv" → "commits"
+    map_key = f'{project_prefix.lower()}_{type_name}'
+    url = url_map.get(map_key)
+    if url:
+        try:
+            local_path = _download_bitbucket_csv_from_url(url, map_key)
+            return pd.read_csv(local_path)
+        except Exception:
+            pass
+    candidates = []
+    for folder in _iter_local_data_folders(include_process_mining_artifacts=True):
+        try:
+            entries = os.listdir(folder)
+        except Exception:
+            continue
+        for name in entries:
+            low = name.lower()
+            if low.startswith(project_prefix.lower()) and low.endswith(suffix):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    candidates.append(path)
+    if not candidates:
+        return pd.DataFrame()
+    latest = max(candidates, key=os.path.getctime)
+    try:
+        return pd.read_csv(latest)
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_project_bitbucket_logs(projeto):
+    project_key = str(projeto or '').strip().upper()
+    if not project_key:
+        return {'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()}
+
+    env_map = _load_bitbucket_prefix_map()
+    prefix = env_map.get(project_key) or PROJECT_BITBUCKET_PREFIX.get(project_key)
+    if not prefix:
+        return {'commits': pd.DataFrame(), 'pullrequests': pd.DataFrame(), 'pipelines': pd.DataFrame()}
+
+    commits = _load_project_bitbucket_csv(prefix, '_commits.csv')
+    pullrequests = _load_project_bitbucket_csv(prefix, '_pullrequests.csv')
+    pipelines = _load_project_bitbucket_csv(prefix, '_pipelines.csv')
+
+    if not commits.empty and 'date' in commits.columns:
+        commits['date'] = pd.to_datetime(commits['date'], errors='coerce', utc=True).dt.tz_localize(None)
+    if not pullrequests.empty:
+        if 'created_on' in pullrequests.columns:
+            pullrequests['created_on'] = pd.to_datetime(pullrequests['created_on'], errors='coerce', utc=True).dt.tz_localize(None)
+        if 'updated_on' in pullrequests.columns:
+            pullrequests['updated_on'] = pd.to_datetime(pullrequests['updated_on'], errors='coerce', utc=True).dt.tz_localize(None)
+        if 'state' in pullrequests.columns:
+            pullrequests['state_norm'] = pullrequests['state'].astype(str).str.strip().str.lower()
+    if not pipelines.empty:
+        if 'created_on' in pipelines.columns:
+            pipelines['created_on'] = pd.to_datetime(pipelines['created_on'], errors='coerce', utc=True).dt.tz_localize(None)
+        if 'completed_on' in pipelines.columns:
+            pipelines['completed_on'] = pd.to_datetime(pipelines['completed_on'], errors='coerce', utc=True).dt.tz_localize(None)
+        if 'state_result' in pipelines.columns and pipelines['state_result'].astype(str).str.strip().ne('').any():
+            pipelines['state_norm'] = pipelines['state_result'].astype(str).str.strip().str.lower()
+        elif 'state' in pipelines.columns:
+            pipelines['state_norm'] = pipelines['state'].astype(str).str.strip().str.lower()
+        if 'commit_hash' in pipelines.columns:
+            pipelines['commit_hash'] = pipelines['commit_hash'].astype(str).str.strip()
+
+    return {'commits': commits, 'pullrequests': pullrequests, 'pipelines': pipelines}
 
 
 def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alias_index=None):

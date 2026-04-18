@@ -11,6 +11,14 @@ Use this file after any user correction.
 - Action added to workflow:
 
 ## Entries
+
+- Date: 2026-04-17
+- Context: Refatoração do bloco de funções de pessoas em dashboard_full.py (Opção B). O bloco monolítico continha funções de pessoas (linhas 500–993) MAS também continha funções não relacionadas (`_coerce_story_points_value`, `_story_points_band`, `_load_project_bitbucket_csv`, `load_project_bitbucket_logs`) intercaladas no mesmo trecho.
+- User correction: NameError em `load_project_bitbucket_logs` ao rodar o dashboard após a refatoração.
+- Root cause: Ao identificar o bloco para remoção pela posição no arquivo (start_marker/end_marker de texto), funções não relacionadas que estavam fisicamente entre `_load_people_config` e `compute_bitbucket_contributor_metrics` foram removidas colateralmente.
+- Prevention rule: **Antes de remover qualquer bloco de código por posição/range, fazer `grep -n "^def "` no intervalo a ser removido e verificar NOME A NOME se cada função é mesmo candidata à remoção.** Nunca remover por range de linha sem checar todas as definições dentro do range.
+- Action added to workflow: Adicionar etapa de auditoria pré-remoção: `grep -n "^def " dashboard_full.py | awk -F: '$1 >= START && $1 <= END'` para listar todas as funções no intervalo antes de deletar.
+
 - Date: 2026-04-13
 - Context: Validação manual da pasta `latest-upload` após o usuário questionar a contagem do log.
 - User correction: Apontou que a captura do Finder mostrava 17 arquivos visíveis, então eu não deveria ter tratado isso imediatamente como se a divergência estivesse resolvida.
