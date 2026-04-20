@@ -49,7 +49,8 @@
     "Rafael Christopher de Souza": "Tech Lead",
     "Carlos Henrique dos Santos": "Tech Lead",
     "Marielle de Bastos Freire": "Tech Lead",
-    "Henrique Rocha Menezes Alves": "Tech Lead"
+    "Henrique Rocha Menezes Alves": "Tech Lead",
+    "Lara Junqueira Alvarenga": "Tech Lead"
   },
   "_aliases_comment": "Aliases para cobrir variações de nome entre Jira e Bitbucket. Chave = nome canônico acima; valor = lista de variações conhecidas.",
   "aliases": {
