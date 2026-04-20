@@ -1893,6 +1893,17 @@ def _recompute_itens_entregues_from_dev_flow(
             result.loc[_mask_zero, 'Pessoa'].map(original_itens).fillna(0).astype(int)
         )
 
+    # Sincroniza Score Complexidade para devs que ganharam itens via eventos mas não
+    # têm DataDone no período (Score Complexidade = 0 da done_window). Usa contagem de
+    # itens como proxy — mesmo comportamento do else-branch em build_dev_productivity_metrics.
+    if 'Score Complexidade' in result.columns:
+        _gain_mask = (result['Itens Entregues'] > 0) & (
+            pd.to_numeric(result['Score Complexidade'], errors='coerce').fillna(0) == 0
+        )
+        result.loc[_gain_mask, 'Score Complexidade'] = (
+            result.loc[_gain_mask, 'Itens Entregues'].astype(float)
+        )
+
     return result
 
 
