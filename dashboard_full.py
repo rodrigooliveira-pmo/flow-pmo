@@ -727,6 +727,62 @@ def compute_bitbucket_contributor_metrics(bitbucket_logs, start_ts, end_ts, alia
         df_metrics['PRs Declinados (Autor)'] +
         df_metrics['Commits']
     )
+
+    # ── PR Cycle Time e PR Size por autor ─────────────────────────────────────
+    # PR Cycle Time: mediana de horas entre created_on → updated_on para PRs merged no período.
+    # PR Size Mediana (LOC): mediana de lines_changed_total para PRs merged por autor.
+    # Ambos calculados apenas para PRs com state merged para evitar PRs abertos/declined
+    # que naturalmente têm duração de ciclo inflada ou tamanho incompleto.
+    if not pullrequests.empty and 'created_on' in pullrequests.columns and 'updated_on' in pullrequests.columns:
+        _pr_merged = pullrequests.copy()
+        if 'state_norm' in _pr_merged.columns:
+            _pr_merged = _pr_merged[_pr_merged['state_norm'] == 'merged']
+        elif 'state' in _pr_merged.columns:
+            _pr_merged = _pr_merged[_pr_merged['state'].astype(str).str.lower() == 'merged']
+        # Filtra por janela de tempo (merged_on = updated_on para PRs merged)
+        _pr_merged = _pr_merged[
+            (_pr_merged['updated_on'] >= start_ts) & (_pr_merged['updated_on'] < end_ts)
+        ] if not _pr_merged.empty else _pr_merged
+
+        if not _pr_merged.empty and 'author' in _pr_merged.columns:
+            _pr_merged = _pr_merged.copy()
+            _pr_merged['_cycle_h'] = (
+                pd.to_datetime(_pr_merged['updated_on'], errors='coerce') -
+                pd.to_datetime(_pr_merged['created_on'], errors='coerce')
+            ).dt.total_seconds() / 3600.0
+            _pr_merged['_cycle_h'] = _pr_merged['_cycle_h'].clip(lower=0)
+
+            _pr_merged['_author_norm'] = _pr_merged['author'].apply(
+                lambda x: _canonical_person_name(x, alias_index=alias_index)
+            )
+            _pr_merged = _pr_merged[_pr_merged['_author_norm'].notna() & (_pr_merged['_author_norm'] != '')]
+
+            _cycle_median = _pr_merged.groupby('_author_norm')['_cycle_h'].median().round(1)
+            _person_map = df_metrics.set_index('Pessoa')
+
+            def _lookup_cycle(pessoa):
+                canonical = _canonical_person_name(pessoa, alias_index=alias_index)
+                return float(_cycle_median.get(canonical, np.nan))
+
+            df_metrics['PR Cycle Time Mediano (h)'] = df_metrics['Pessoa'].apply(_lookup_cycle)
+
+            if 'lines_changed_total' in _pr_merged.columns:
+                _pr_merged['lines_changed_total'] = pd.to_numeric(
+                    _pr_merged['lines_changed_total'], errors='coerce'
+                )
+                _size_median = _pr_merged.groupby('_author_norm')['lines_changed_total'].median().round(0)
+                df_metrics['PR Size Mediana (LOC)'] = df_metrics['Pessoa'].apply(
+                    lambda p: float(_size_median.get(_canonical_person_name(p, alias_index=alias_index), np.nan))
+                )
+            else:
+                df_metrics['PR Size Mediana (LOC)'] = np.nan
+        else:
+            df_metrics['PR Cycle Time Mediano (h)'] = np.nan
+            df_metrics['PR Size Mediana (LOC)'] = np.nan
+    else:
+        df_metrics['PR Cycle Time Mediano (h)'] = np.nan
+        df_metrics['PR Size Mediana (LOC)'] = np.nan
+
     df_metrics = df_metrics.sort_values(
         ['PRs Abertos', 'Aprovacoes', 'Commits', 'Reprovacoes', 'PRs Declinados (Autor)', 'Pessoa'],
         ascending=[False, False, False, False, False, True]
@@ -1948,32 +2004,38 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     return per_dev, complexity_df, category_df
 
 
-def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
+def _compute_ied(per_dev: pd.DataFrame, nds_p75_anchor: dict = None) -> pd.DataFrame:
     """Calcula o Índice de Entrega do Desenvolvedor (IED) — 0 a 100.
 
     Fórmula (baseada em Maspupah et al. 2023 + Kitchenham & Mendes 2004 + SPACE Forsgren 2021):
 
-        IED = 0.40 × NDS + 0.30 × EEE + 0.20 × VEL + 0.10 × QUA
+        IED = 0.35 × NDS + 0.30 × EEE + 0.15 × VEL + 0.20 × QUA
 
     Componentes
     -----------
-    NDS — Normalized Delivery Score (40 %)
+    NDS — Normalized Delivery Score (35 %)
         Score_Complexidade_Entregue / P75(grupo) × 100.
         Volume de entregas ponderado por complexidade em relação ao grupo.
+        Quando nds_p75_anchor é fornecido, usa esses valores como referência estável
+        (ex: P75 rolling 3 meses) em vez do P75 do período atual — evita instabilidade
+        em grupos pequenos ou períodos curtos.
         Fonte: Jørgensen (IST 2023) — P75 como referência de entrega.
 
     EEE — Eficiência Estimativa→Entrega (30 %)
-        Score_Complexidade_Entregue / Score_Complexidade_Puxado × 100.
+        Score_Complexidade_Entregue / Score_Complexidade_Puxado × 100, capped em 100.
         "De todo o trabalho estimado que o dev comprometeu (puxou), quanto foi entregue?"
+        Cap em 100: entrega acima do comprometido é positivo mas não deve compensar NDS baixo.
         Fallback: Flow Efficiency (%) quando Score Complexidade Puxado = 0.
         Fonte: Kitchenham & Mendes (TSE 2004) — AdjustedSize/Esforço.
 
-    VEL — Velocidade relativa (20 %)
+    VEL — Velocidade relativa (15 %)
         Mediana_LT_grupo / LT_dev × 100 — menor lead time = maior velocidade.
+        Peso reduzido para não penalizar devs em itens intrinsecamente complexos.
         Fonte: Flournoy et al. (EMSE 2025) — cycle time como proxy de produtividade.
 
-    QUA — Qualidade (10 %)
-        100 − % Demanda Falha — penaliza alto volume de defeitos no output.
+    QUA — Qualidade (20 %)
+        100 − % Demanda Falha (com suavização Bayesiana) — penaliza defeitos no output.
+        Peso aumentado para 20%: defeitos têm custo real de retrabalho e confiabilidade.
         Fonte: Forsgren et al. (SPACE, ACM Queue 2021).
 
     Classificação
@@ -1983,15 +2045,31 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
     50–69  : Regular
     30–49  : Abaixo do Esperado
     0–29   : Crítico
+
+    Parâmetros
+    ----------
+    nds_p75_anchor : dict, optional
+        Mapa {papel: p75_value} com valores de P75 de referência estável (ex: rolling 3 meses).
+        Quando fornecido, substitui o cálculo de P75 do período atual para o NDS.
     """
     df = per_dev.copy()
 
     # ── NDS: Volume ajustado por complexidade vs P75 do grupo por papel ───────
     # P75 calculado separadamente para Dev e Tech Lead evita penalização sistemática
     # de TLs que entregam menos itens que devs de linha (papel estruturalmente distinto).
+    # Quando nds_p75_anchor é fornecido (ex: P75 rolling de 3 meses), usa esses valores
+    # como referência estável — evita distorção em períodos curtos ou grupos pequenos.
     _cx_col = 'Score Complexidade'
     _cx_vals = pd.to_numeric(df.get(_cx_col, 0), errors='coerce').fillna(0)
-    if 'Papel' in df.columns and _cx_col in df.columns and df['Papel'].nunique() > 1:
+    if nds_p75_anchor and isinstance(nds_p75_anchor, dict):
+        # Usa P75 anchorado (rolling) fornecido pelo caller
+        _cx_p75_arr = df['Papel'].map(nds_p75_anchor).fillna(
+            max(nds_p75_anchor.values()) if nds_p75_anchor else 1.0
+        ).clip(lower=0.1) if 'Papel' in df.columns else pd.Series(
+            max(nds_p75_anchor.values()), index=df.index
+        )
+        df['_ied_nds'] = (_cx_vals / _cx_p75_arr * 100).clip(0, 100).round(1)
+    elif 'Papel' in df.columns and _cx_col in df.columns and df['Papel'].nunique() > 1:
         _cx_p75_map = df.groupby('Papel')[_cx_col].quantile(0.75).clip(lower=0.1)
         _cx_p75_arr = df['Papel'].map(_cx_p75_map).fillna(1.0).clip(lower=0.1)
         df['_ied_nds'] = (_cx_vals / _cx_p75_arr * 100).clip(0, 100).round(1)
@@ -2055,10 +2133,10 @@ def _compute_ied(per_dev: pd.DataFrame) -> pd.DataFrame:
 
     # ── IED Final ──────────────────────────────────────────────────────────────
     df['IED'] = (
-        df['_ied_nds'] * 0.40 +
+        df['_ied_nds'] * 0.35 +
         df['_ied_eee'] * 0.30 +
-        df['_ied_vel'] * 0.20 +
-        df['_ied_qua'] * 0.10
+        df['_ied_vel'] * 0.15 +
+        df['_ied_qua'] * 0.20
     ).round(1)
 
     # Devs sem nenhuma entrega ficam com IED = 0 (sem base de cálculo válida)
@@ -2121,12 +2199,25 @@ def _compute_monthly_ied_series(df_base, start_ts, end_ts, alias_index=None, min
     if len(months) < 2:
         return result
 
+    # Computa P75 estável do período completo para usar como âncora do NDS em cada mês.
+    # Evita distorção quando um mês tem apenas 2-3 devs ativos (P75 ponto a ponto é ruidoso).
+    _p75_anchor = None
+    try:
+        _pd_full, _, _ = build_dev_productivity_metrics(df_base, start_ts, end_ts)
+        if not _pd_full.empty and 'Score Complexidade' in _pd_full.columns and 'Papel' in _pd_full.columns:
+            _p75_anchor = _pd_full.groupby('Papel')['Score Complexidade'].quantile(0.75).clip(lower=0.1).to_dict()
+        elif not _pd_full.empty and 'Score Complexidade' in _pd_full.columns:
+            _p75_global = max(float(_pd_full['Score Complexidade'].quantile(0.75)), 0.1)
+            _p75_anchor = {'Dev': _p75_global, 'Tech Lead': _p75_global}
+    except Exception:
+        pass
+
     for m_start, m_end, m_label in months:
         try:
             _pd_m, _, _ = build_dev_productivity_metrics(df_base, m_start, m_end)
             if _pd_m.empty or 'Pessoa' not in _pd_m.columns:
                 continue
-            _pd_m = _compute_ied(_pd_m)
+            _pd_m = _compute_ied(_pd_m, nds_p75_anchor=_p75_anchor)
             for _, row in _pd_m.iterrows():
                 pessoa = str(row.get('Pessoa', ''))
                 ied = float(row.get('IED', 0) or 0)
@@ -24797,16 +24888,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             0.0,
         )
 
-        # Score Integrado: usa Score Complexidade (entrega ponderada por SP) em vez de itens brutos
-        _score_base = per_dev['Score Complexidade'] if 'Score Complexidade' in per_dev.columns else per_dev['Itens Entregues'].astype(float)
-        per_dev['Score Integrado'] = (
-            _score_base +
-            per_dev['PRs Merged'] +
-            per_dev['Aprovacoes'] +
-            (per_dev['Commits'] / 5.0)
-        ).round(1)
-
-        per_dev = per_dev.sort_values('Score Integrado', ascending=False).reset_index(drop=True)
+        per_dev = per_dev.sort_values(
+            ['Itens Entregues', 'Score Complexidade', 'Pessoa'],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
 
         # ── Índice de Entrega do Desenvolvedor (IED) ──────────────────────────
         # Computa após todos os enriquecimentos; usa Score Complexidade Puxado
@@ -24816,10 +24901,11 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         # ── Índice de Entrega Focado (IEF = 0.70×NDS + 0.30×EEE) ─────────────
         # Foco exclusivo em volume de entrega ajustado por complexidade e taxa de
         # conclusão do trabalho comprometido — sem penalização de velocidade ou qualidade.
+        # EEE é capped em 100: entrega acima do comprometido não infla o índice.
         if '_ied_nds' in per_dev.columns and '_ied_eee' in per_dev.columns:
             per_dev['IEF'] = (
                 per_dev['_ied_nds'] * 0.70 +
-                per_dev['_ied_eee'] * 0.30
+                per_dev['_ied_eee'].clip(0, 100) * 0.30
             ).round(1)
             per_dev.loc[per_dev['Itens Entregues'] == 0, 'IEF'] = 0.0
         else:
@@ -24832,6 +24918,22 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             if v >= 30: return 'Abaixo do Esperado'
             return 'Crítico'
         per_dev['IEF Classe'] = per_dev['IEF'].apply(_ief_classe)
+
+        # ── IEF Ajustado — fator de confiança via ECR ─────────────────────────
+        # Quando estimativas são majoritariamente inferidas (ECR baixo), o IEF é baseado
+        # em pesos de complexidade não confiáveis. O fator (0.5 + 0.5×ECR) aplica um
+        # desconto suave: ECR=100% → sem desconto; ECR=50% → IEF×0.75; ECR=0% → IEF×0.50.
+        # Fonte: Kitchenham & Mendes (TSE 2004) — estimativa como pré-requisito de comparabilidade.
+        if 'ECR' in per_dev.columns:
+            _ecr_norm = pd.to_numeric(per_dev['ECR'], errors='coerce').fillna(100.0).clip(0, 100) / 100.0
+            _ief_conf_factor = (0.5 + 0.5 * _ecr_norm)
+            per_dev['IEF Ajustado'] = (per_dev['IEF'] * _ief_conf_factor).round(1)
+            per_dev['IEF Confiança (%)'] = (_ief_conf_factor * 100).round(0).astype(int)
+        else:
+            per_dev['IEF Ajustado'] = per_dev['IEF']
+            per_dev['IEF Confiança (%)'] = 100
+
+        per_dev['IEF Ajustado Classe'] = per_dev['IEF Ajustado'].apply(_ief_classe)
 
         # ── Divergência IEF–IED: sinal diagnóstico ────────────────────────────
         # IEF captura só volume+conclusão; IED penaliza também VEL e QUA.
@@ -24963,6 +25065,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 return round(pts[-1][1] - pts[0][1], 1)
             return np.nan
         per_dev['Δ IED Trend'] = per_dev['Pessoa'].apply(_ied_trend_delta)
+
+        # ── IED Seta — tendência visual ↑↓→ ──────────────────────────────────
+        # Δ > 5 = melhora significativa ↑ | Δ < -5 = queda significativa ↓ | |Δ| ≤ 5 = estável →
+        def _ied_seta(delta):
+            if pd.isna(delta):
+                return '—'
+            if delta > 5:
+                return '↑'
+            if delta < -5:
+                return '↓'
+            return '→'
+        per_dev['IED Seta'] = per_dev['Δ IED Trend'].apply(_ied_seta)
 
         # ── Tendência mensal do ECR — confiabilidade de estimativa ───────────
         # ECR = % de itens puxados com estimativa real (não inferida).
@@ -25689,6 +25803,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             'Lead Time Mediano (dias)',
             # Código / CI
             'Commits', 'PRs Abertos', 'PRs Merged',
+            'PR Cycle Time Mediano (h)', 'PR Size Mediana (LOC)',
             'Pipelines Total', 'Pipeline Success Rate (%)',
             # Revisão
             'Aprovacoes', 'Total Revisoes', 'Qualidade Revisao', 'Devs Revisados',
@@ -25702,12 +25817,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             'Horas em Gargalo', '% Horas em Gargalo',
             # Benchmark multidimensional
             'Score Benchmark', 'Distancia ao Ideal',
-            # Score
-            'Score Integrado',
             # Índice de Entrega do Desenvolvedor
             'IED', 'IED Classe', 'Confiança IED',
             # Índice de Entrega Focado (volume + conclusão, sem VEL/QUA)
-            'IEF', 'IEF Classe',
+            'IEF', 'IEF Ajustado', 'IEF Confiança (%)', 'IEF Classe',
             # Divergência IEF–IED: sinal diagnóstico (alto Δ indica penalização por VEL ou QUA)
             'Δ IEF–IED',
             # Componentes do IED (detalhamento)
@@ -25720,7 +25833,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             # WIP médio (Little's Law)
             'WIP Medio',
             # IED trend mensal
-            'Δ IED Trend',
+            'Δ IED Trend', 'IED Seta',
             # Aging rates
             'Aging Rescue Rate (%)',
             'Aging Pull Rate (%)',
@@ -25778,72 +25891,166 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             prod_display['Aging Pull Rate (%)'] = prod_display['Aging Pull Rate (%)'].apply(
                 lambda v: f'{float(v):.1f}%' if pd.notna(v) else '—'
             )
+        for _pr_num_col in ['PR Cycle Time Mediano (h)', 'PR Size Mediana (LOC)',
+                             'IEF Ajustado', 'IEF Confiança (%)']:
+            if _pr_num_col in prod_display.columns:
+                prod_display[_pr_num_col] = prod_display[_pr_num_col].apply(
+                    lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+                )
+        # IED: marca com * quando ECR < 50% para sinalizar baixa confiabilidade
+        if 'IED' in prod_display.columns and 'Confiança IED' in prod_display.columns:
+            _ied_raw = per_dev.set_index('Pessoa')['IED'] if 'Pessoa' in per_dev.columns else pd.Series(dtype=float)
+            _conf_raw = per_dev.set_index('Pessoa')['Confiança IED'] if 'Confiança IED' in per_dev.columns else pd.Series(dtype=str)
+            prod_display['IED'] = prod_display.apply(
+                lambda row: f"{row['IED']}*" if str(row.get('Confiança IED', '')).startswith('⚠') else str(row['IED']),
+                axis=1,
+            )
 
-        prod_table = dash_table.DataTable(
-            columns=[{"name": c, "id": c} for c in table_cols_prod],
-            data=prod_display.to_dict('records'),
-            style_table={'overflowX': 'auto'},
-            style_cell={
-                'textAlign': 'left', 'padding': '8px 12px',
-                'fontSize': '13px', 'whiteSpace': 'nowrap',
-                'overflow': 'hidden', 'textOverflow': 'ellipsis',
-                'maxWidth': '180px',
-            },
-            style_cell_conditional=[
-                {'if': {'column_id': 'Pessoa'}, 'minWidth': '150px', 'maxWidth': '200px'},
-                {'if': {'column_id': 'BU'}, 'minWidth': '120px'},
-            ],
-            style_header={
-                'backgroundColor': '#343a40', 'color': 'white',
-                'fontWeight': '600', 'fontSize': '12px',
-                'textTransform': 'uppercase', 'letterSpacing': '0.4px',
-                'padding': '10px 12px',
-            },
-            sort_action='native',
-            filter_action='native',
-            page_size=20,
-            style_data_conditional=[
-                {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
-                {'if': {'filter_query': '{Itens Entregues} >= 10'}, 'borderLeft': '3px solid #27ae60'},
-                {'if': {'filter_query': '{BU} = "Sistemas - W1NNER"'}, 'borderLeft': '3px solid #3498db'},
-                {'if': {'filter_query': '{BU} = "Sistemas - S1NC"'}, 'borderLeft': '3px solid #9b59b6'},
-                {'if': {'filter_query': '{BU} = "BeFinance"'}, 'borderLeft': '3px solid #e67e22'},
-                {'if': {'filter_query': '{BU} = "Dados"'}, 'borderLeft': '3px solid #1abc9c'},
-                # IED Classe — cor de fundo para facilitar leitura rápida
-                {'if': {'filter_query': '{IED Classe} = "Excelente"', 'column_id': 'IED'},
-                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
-                {'if': {'filter_query': '{IED Classe} = "Bom"', 'column_id': 'IED'},
-                 'backgroundColor': '#d1ecf1', 'color': '#0c5460', 'fontWeight': '700'},
-                {'if': {'filter_query': '{IED Classe} = "Regular"', 'column_id': 'IED'},
-                 'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
-                {'if': {'filter_query': '{IED Classe} = "Abaixo do Esperado"', 'column_id': 'IED'},
-                 'backgroundColor': '#ffe5b4', 'color': '#7d4500', 'fontWeight': '700'},
-                {'if': {'filter_query': '{IED Classe} = "Crítico"', 'column_id': 'IED'},
-                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
-                # Previsibilidade LT — colorização da coluna Razão P85/P50
-                {'if': {'filter_query': '{Previsibilidade LT} = "Previsível"', 'column_id': 'Razão P85/P50'},
-                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
-                {'if': {'filter_query': '{Previsibilidade LT} = "Moderado"', 'column_id': 'Razão P85/P50'},
-                 'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
-                {'if': {'filter_query': '{Previsibilidade LT} = "Imprevisível"', 'column_id': 'Razão P85/P50'},
-                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
-                # Δ IED Trend — verde para subida, vermelho para queda
-                {'if': {'filter_query': '{Δ IED Trend} contains "+"', 'column_id': 'Δ IED Trend'},
-                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
-                {'if': {'filter_query': '{Δ IED Trend} contains "-"', 'column_id': 'Δ IED Trend'},
-                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
-                # Δ ECR — melhoria ou deterioração da confiabilidade de estimativa
-                {'if': {'filter_query': '{Δ ECR (p.p.)} contains "+"', 'column_id': 'Δ ECR (p.p.)'},
-                 'backgroundColor': '#d1ecf1', 'color': '#0c5460', 'fontWeight': '700'},
-                {'if': {'filter_query': '{Δ ECR (p.p.)} contains "-"', 'column_id': 'Δ ECR (p.p.)'},
-                 'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
-                # Maturidade de estimativa
-                {'if': {'filter_query': '{Maturidade Estimativa} = "Maduro em Estimativa"', 'column_id': 'Maturidade Estimativa'},
-                 'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
-                {'if': {'filter_query': '{Maturidade Estimativa} = "Em evolução"', 'column_id': 'Maturidade Estimativa'},
-                 'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
-                {'if': {'filter_query': '{Maturidade Estimativa} = "Sem base"', 'column_id': 'Maturidade Estimativa'},
-                 'backgroundColor': '#f1f3f5', 'color': '#495057', 'fontWeight': '600'},
+        # ── Tabela com tabs internas por grupo de indicadores ────────────────
+        # Colunas de identificação presentes em todas as abas
+        _ID_COLS = [c for c in ['BU', 'Papel', 'Pessoa'] if c in prod_display.columns]
+
+        def _make_tab_table(extra_cols, conditional_styles=None):
+            _cols = [c for c in _ID_COLS + extra_cols if c in prod_display.columns]
+            return dash_table.DataTable(
+                columns=[{"name": c, "id": c} for c in _cols],
+                data=prod_display[_cols].to_dict('records'),
+                style_table={'overflowX': 'auto'},
+                style_cell={
+                    'textAlign': 'left', 'padding': '8px 12px',
+                    'fontSize': '13px', 'whiteSpace': 'nowrap',
+                    'overflow': 'hidden', 'textOverflow': 'ellipsis',
+                    'maxWidth': '180px',
+                },
+                style_cell_conditional=[
+                    {'if': {'column_id': 'Pessoa'}, 'minWidth': '150px', 'maxWidth': '200px'},
+                    {'if': {'column_id': 'BU'}, 'minWidth': '120px'},
+                ],
+                style_header={
+                    'backgroundColor': '#343a40', 'color': 'white',
+                    'fontWeight': '600', 'fontSize': '12px',
+                    'textTransform': 'uppercase', 'letterSpacing': '0.4px',
+                    'padding': '10px 12px',
+                },
+                sort_action='native',
+                filter_action='native',
+                page_size=20,
+                style_data_conditional=[
+                    {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                    {'if': {'filter_query': '{BU} = "Sistemas - W1NNER"'}, 'borderLeft': '3px solid #3498db'},
+                    {'if': {'filter_query': '{BU} = "Sistemas - S1NC"'}, 'borderLeft': '3px solid #9b59b6'},
+                    {'if': {'filter_query': '{BU} = "BeFinance"'}, 'borderLeft': '3px solid #e67e22'},
+                    {'if': {'filter_query': '{BU} = "Dados"'}, 'borderLeft': '3px solid #1abc9c'},
+                ] + (conditional_styles or []),
+            )
+
+        _tab_style = {'padding': '4px 12px', 'fontSize': '13px', 'fontWeight': '600'}
+        _tab_sel_style = {**_tab_style, 'borderTop': '3px solid #2980b9', 'color': '#2980b9'}
+
+        prod_table = dcc.Tabs(
+            value='tab-flow',
+            style={'marginBottom': '0'},
+            children=[
+                dcc.Tab(
+                    label='Flow',
+                    value='tab-flow',
+                    style=_tab_style,
+                    selected_style=_tab_sel_style,
+                    children=[_make_tab_table([
+                        'Itens Puxados', 'Itens Entregues', 'WIP Residual', 'WIP Inicio Periodo',
+                        'FE Ajustada (%)', 'SP Entregues', 'Score Complexidade', 'Score Complexidade Puxado',
+                        'Lead Time Mediano (dias)', 'Lead Time P50 (dias)', 'Lead Time P85 (dias)',
+                        'Razão P85/P50', 'Previsibilidade LT', 'WIP Medio',
+                        'Defeitos Puxados', 'Defeitos Entregues', '% Demanda Falha',
+                    ], [
+                        {'if': {'filter_query': '{Itens Entregues} >= 10'}, 'borderLeft': '3px solid #27ae60'},
+                        {'if': {'filter_query': '{Previsibilidade LT} = "Previsível"', 'column_id': 'Razão P85/P50'},
+                         'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Previsibilidade LT} = "Moderado"', 'column_id': 'Razão P85/P50'},
+                         'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Previsibilidade LT} = "Imprevisível"', 'column_id': 'Razão P85/P50'},
+                         'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                    ])],
+                ),
+                dcc.Tab(
+                    label='Código / CI',
+                    value='tab-codigo',
+                    style=_tab_style,
+                    selected_style=_tab_sel_style,
+                    children=[_make_tab_table([
+                        'Commits', 'PRs Abertos', 'PRs Merged',
+                        'PR Cycle Time Mediano (h)', 'PR Size Mediana (LOC)',
+                        'Pipelines Total', 'Pipeline Success Rate (%)',
+                        'KCR', 'DD_FP', 'Estabilidade_Throughput',
+                    ])],
+                ),
+                dcc.Tab(
+                    label='Revisão',
+                    value='tab-revisao',
+                    style=_tab_style,
+                    selected_style=_tab_sel_style,
+                    children=[_make_tab_table([
+                        'Aprovacoes', 'Reprovacoes', 'Total Revisoes',
+                        'Qualidade Revisao', 'Devs Revisados',
+                        'PRs Declinados (Autor)',
+                    ])],
+                ),
+                dcc.Tab(
+                    label='Processo',
+                    value='tab-processo',
+                    style=_tab_style,
+                    selected_style=_tab_sel_style,
+                    children=[_make_tab_table([
+                        'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
+                        'Complexidade Variante',
+                        'Cycle Time Dev Mediano (dias)', 'Cycle Time Dev Médio (dias)',
+                        'Retornos QA->Dev', 'Cards com Retorno QA->Dev',
+                        '% Cards com Retorno QA->Dev', 'Tempo Retorno QA->Dev Mediano (dias)',
+                        'Horas em Gargalo', '% Horas em Gargalo',
+                    ])],
+                ),
+                dcc.Tab(
+                    label='Índices',
+                    value='tab-indices',
+                    style=_tab_style,
+                    selected_style=_tab_sel_style,
+                    children=[_make_tab_table([
+                        'IED', 'IED Classe', 'Confiança IED',
+                        'IEF', 'IEF Ajustado', 'IEF Confiança (%)', 'IEF Classe',
+                        'Δ IEF–IED',
+                        'ECR', 'Δ ECR (p.p.)', 'Maturidade Estimativa',
+                        'Δ IED Trend', 'IED Seta',
+                        'Aging Rescue Rate (%)', 'Aging Pull Rate (%)',
+                        'Score Benchmark', 'Distancia ao Ideal',
+                    ], [
+                        {'if': {'filter_query': '{IED Classe} = "Excelente"', 'column_id': 'IED'},
+                         'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{IED Classe} = "Bom"', 'column_id': 'IED'},
+                         'backgroundColor': '#d1ecf1', 'color': '#0c5460', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{IED Classe} = "Regular"', 'column_id': 'IED'},
+                         'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{IED Classe} = "Abaixo do Esperado"', 'column_id': 'IED'},
+                         'backgroundColor': '#ffe5b4', 'color': '#7d4500', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{IED Classe} = "Crítico"', 'column_id': 'IED'},
+                         'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Δ IED Trend} contains "+"', 'column_id': 'Δ IED Trend'},
+                         'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Δ IED Trend} contains "-"', 'column_id': 'Δ IED Trend'},
+                         'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{IED Seta} = "↑"', 'column_id': 'IED Seta'},
+                         'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700', 'fontSize': '16px'},
+                        {'if': {'filter_query': '{IED Seta} = "↓"', 'column_id': 'IED Seta'},
+                         'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700', 'fontSize': '16px'},
+                        {'if': {'filter_query': '{Δ ECR (p.p.)} contains "+"', 'column_id': 'Δ ECR (p.p.)'},
+                         'backgroundColor': '#d1ecf1', 'color': '#0c5460', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Δ ECR (p.p.)} contains "-"', 'column_id': 'Δ ECR (p.p.)'},
+                         'backgroundColor': '#f8d7da', 'color': '#721c24', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Maturidade Estimativa} = "Maduro em Estimativa"', 'column_id': 'Maturidade Estimativa'},
+                         'backgroundColor': '#d4edda', 'color': '#155724', 'fontWeight': '700'},
+                        {'if': {'filter_query': '{Maturidade Estimativa} = "Em evolução"', 'column_id': 'Maturidade Estimativa'},
+                         'backgroundColor': '#fff3cd', 'color': '#856404', 'fontWeight': '700'},
+                    ])],
+                ),
             ],
         )
 
@@ -26206,7 +26413,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     'Defeitos Entregues': ':.0f',
                     '% Demanda Falha': ':.1f',
                     'PRs Merged': ':.0f',
-                    'Score Integrado': ':.1f',
+                    'IED': ':.1f',
                 },
                 title='Commits (Bitbucket) × Itens Entregues (Jira) por Dev',
                 labels={
@@ -26242,7 +26449,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             # Top 20 devs por Itens Entregues
             _top_devs_cat = per_dev.head(20)['Pessoa'].tolist()
             _cat_filtered = category_df[category_df['Pessoa'].isin(_top_devs_cat)].copy()
-            # Ordenar devs pelo ranking de Score Integrado
+            # Ordenar devs pelo ranking de IED (mesma ordem do per_dev)
             _pessoa_order = per_dev[per_dev['Pessoa'].isin(_top_devs_cat)]['Pessoa'].tolist()
             _all_cats = sorted(_cat_filtered['WorkItemCategory'].dropna().unique())
             for _cat in _all_cats:
@@ -26363,7 +26570,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             per_dev.loc[_idx, 'Distancia ao Ideal'] = round(_dist, 1)
             per_dev.loc[_idx, 'Score Benchmark']    = round(100 - _dist, 1)
 
-        # Constrói o radar com os top 10 por Score Integrado
+        # Constrói o radar com os top 10 por IED
         fig_radar = go.Figure()
         _radar_top = per_dev.head(10).copy()
         if not _radar_top.empty:
@@ -26425,7 +26632,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 showlegend=True,
                 height=640,
                 title=(
-                    'Perfil Multidimensional com Benchmarks Absolutos — Top 10 por Score Integrado<br>'
+                    'Perfil Multidimensional com Benchmarks Absolutos — Top 10 por IED<br>'
                     '<sup>'
                     'SB = Score Benchmark (0-100; maior = mais próximo do ideal) | '
                     'Entrega: P75 grupo (Jørgensen, IST 2023) | '
@@ -26761,6 +26968,144 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             plot_bgcolor='#fafafa',
         )
 
+        # ── Fig: Heatmap Mensal IED ────────────────────────────────────────────
+        # Visualização matricial: devs como linhas, meses como colunas, cor = classe IED.
+        # Permite identificar padrões de melhora/queda consistentes ao longo do tempo.
+        _ied_class_color = {
+            'Excelente': '#27ae60', 'Bom': '#2980b9',
+            'Regular': '#f39c12', 'Abaixo do Esperado': '#e67e22', 'Crítico': '#e74c3c',
+        }
+        fig_ied_heatmap = go.Figure()
+        if _monthly_ied_data:
+            _all_months_ordered = []
+            _seen_months = set()
+            for _pts in _monthly_ied_data.values():
+                for _ml, _ in _pts:
+                    if _ml not in _seen_months:
+                        _all_months_ordered.append(_ml)
+                        _seen_months.add(_ml)
+
+            _heatmap_devs = sorted(
+                _monthly_ied_data.keys(),
+                key=lambda p: -max((v for _, v in _monthly_ied_data[p]), default=0),
+            )[:30]
+
+            _heatmap_z = []
+            _heatmap_text = []
+            for _dev in _heatmap_devs:
+                _pts_map = dict(_monthly_ied_data[_dev])
+                _row_z = [_pts_map.get(_m, None) for _m in _all_months_ordered]
+                _row_text = [
+                    f'{v:.0f}' if v is not None else '' for v in _row_z
+                ]
+                _heatmap_z.append(_row_z)
+                _heatmap_text.append(_row_text)
+
+            fig_ied_heatmap.add_trace(go.Heatmap(
+                z=_heatmap_z,
+                x=_all_months_ordered,
+                y=_heatmap_devs,
+                text=_heatmap_text,
+                texttemplate='%{text}',
+                colorscale=[
+                    [0.0,  '#e74c3c'],   # Crítico (<30)
+                    [0.30, '#e67e22'],   # Abaixo do Esperado (30-49)
+                    [0.50, '#f39c12'],   # Regular (50-69)
+                    [0.70, '#2980b9'],   # Bom (70-84)
+                    [0.85, '#27ae60'],   # Excelente (≥85)
+                    [1.0,  '#1a7a45'],
+                ],
+                zmin=0, zmax=100,
+                colorbar=dict(
+                    title='IED', tickvals=[0, 30, 50, 70, 85, 100],
+                    ticktext=['0', '30 Crítico', '50 Regular', '70 Bom', '85 Excel.', '100'],
+                    len=0.7,
+                ),
+                hovertemplate='<b>%{y}</b><br>%{x}<br>IED: <b>%{z:.1f}</b><extra></extra>',
+            ))
+            fig_ied_heatmap.update_layout(
+                title=dict(
+                    text='Heatmap Mensal IED — Top 30 Devs<br>'
+                         '<sup>Verde = Excelente | Azul = Bom | Laranja = Regular | Vermelho = Crítico. Branco = sem dados.</sup>',
+                    font=dict(size=13),
+                ),
+                xaxis=dict(title='', side='top', tickangle=-30),
+                yaxis=dict(title='', automargin=True, autorange='reversed'),
+                template='plotly_white',
+                height=max(350, 28 * len(_heatmap_devs) + 120),
+                margin=dict(t=100, b=30, l=180, r=60),
+            )
+
+        # ── Fig: Review Reciprocity Matrix ────────────────────────────────────
+        # Matriz de calor: linhas = revisor, colunas = autor revisado.
+        # Detecta silos de revisão (TL revisa tudo, devs não revisam entre si).
+        fig_review_reciprocity = go.Figure()
+        _reciprocity_df = pd.DataFrame()
+        for _bb_proj_key in bb_projects:
+            _bb_logs = load_project_bitbucket_logs(_bb_proj_key)
+            if not isinstance(_bb_logs, dict):
+                continue
+            _prs_raw = _bb_logs.get('pullrequests', pd.DataFrame())
+            if _prs_raw.empty or 'author' not in _prs_raw.columns:
+                continue
+            if 'created_on' in _prs_raw.columns:
+                _prs_win = _prs_raw[
+                    (_prs_raw['created_on'] >= start_ts_prod) & (_prs_raw['created_on'] < end_ts_prod)
+                ].copy()
+            else:
+                _prs_win = _prs_raw.copy()
+
+            _recip_rows = []
+            for _, _pr_row in _prs_win.iterrows():
+                _pr_author = _canonical_person_name(_pr_row.get('author'), alias_index=alias_index_prod)
+                if not _pr_author:
+                    continue
+                for _rev_name in _split_people_field(_pr_row.get('approved_by', '')):
+                    _rev = _canonical_person_name(_rev_name, alias_index=alias_index_prod)
+                    if _rev and _rev != _pr_author:
+                        _recip_rows.append({'Revisor': _rev, 'Autor': _pr_author})
+                for _rev_name in _split_people_field(_pr_row.get('changes_requested_by', '')):
+                    _rev = _canonical_person_name(_rev_name, alias_index=alias_index_prod)
+                    if _rev and _rev != _pr_author:
+                        _recip_rows.append({'Revisor': _rev, 'Autor': _pr_author})
+
+            if _recip_rows:
+                _reciprocity_df = pd.concat(
+                    [_reciprocity_df, pd.DataFrame(_recip_rows)], ignore_index=True
+                ) if not _reciprocity_df.empty else pd.DataFrame(_recip_rows)
+
+        if not _reciprocity_df.empty:
+            _recip_pivot = _reciprocity_df.groupby(['Revisor', 'Autor']).size().reset_index(name='Revisões')
+            _pivot_matrix = _recip_pivot.pivot(index='Revisor', columns='Autor', values='Revisões').fillna(0)
+            # Ordena por total de revisões dadas (revisor mais ativo no topo)
+            _pivot_matrix = _pivot_matrix.loc[
+                _pivot_matrix.sum(axis=1).sort_values(ascending=False).index
+            ]
+            _rev_z = _pivot_matrix.values.tolist()
+            _rev_text = [[str(int(v)) if v > 0 else '' for v in row] for row in _rev_z]
+            fig_review_reciprocity.add_trace(go.Heatmap(
+                z=_rev_z,
+                x=list(_pivot_matrix.columns),
+                y=list(_pivot_matrix.index),
+                text=_rev_text,
+                texttemplate='%{text}',
+                colorscale='Blues',
+                hovertemplate='<b>%{y}</b> revisou <b>%{x}</b><br>Revisões: <b>%{z:.0f}</b><extra></extra>',
+                colorbar=dict(title='Revisões'),
+            ))
+            fig_review_reciprocity.update_layout(
+                title=dict(
+                    text='Review Reciprocity — Matriz de Revisões (Revisor × Autor)<br>'
+                         '<sup>Linhas = quem revisa | Colunas = quem tem seu código revisado | Valor = nº de revisões no período.</sup>',
+                    font=dict(size=13),
+                ),
+                xaxis=dict(title='Autor do PR', side='top', tickangle=-30),
+                yaxis=dict(title='Revisor', automargin=True, autorange='reversed'),
+                template='plotly_white',
+                height=max(350, 28 * len(_pivot_matrix) + 120),
+                margin=dict(t=110, b=30, l=180, r=60),
+            )
+
         # ── Fig: Aging Rescue Rate — % de entregues envelhecidos resgatados ──
         _arr_df = per_dev[
             per_dev['Aging Rescue Rate (%)'].notna() &
@@ -26876,15 +27221,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 [
                     html.Span('Régua simplificada de entrega pura: '),
                     html.Span('IEF = 0.70×NDS + 0.30×EEE', style={'fontWeight': '700', 'fontFamily': 'monospace'}),
+                    html.Span(' · '),
+                    html.Span('IEF Ajustado = IEF × (0.5 + 0.5×ECR)', style={'fontFamily': 'monospace', 'color': '#8e44ad'}),
                     html.Br(),
                     html.Span('NDS (70%)', style={'color': '#2980b9', 'fontWeight': '600'}),
-                    html.Span(' — volume de entregas ponderado por complexidade (SP ou T-shirt) vs P75 do grupo. '),
+                    html.Span(' — volume de entregas ponderado por complexidade vs P75 rolling do grupo. '),
                     html.Span('EEE (30%)', style={'color': '#8e44ad', 'fontWeight': '600'}),
-                    html.Span(' — taxa de conclusão do trabalho comprometido: Score Complexidade Entregue / Score Complexidade Puxado. '),
+                    html.Span(' — taxa de conclusão do trabalho comprometido, capped em 100%. '),
+                    html.Span('Exclui velocidade e qualidade — foco em volume × conclusão (Kitchenham & Mendes, TSE 2004). ', style={'color': '#6c757d'}),
                     html.Span(
-                        'Exclui velocidade e qualidade — foco exclusivo em quanto foi entregue vs quanto foi comprometido, '
-                        'ajustado pela complexidade estimada (Kitchenham & Mendes, TSE 2004).',
-                        style={'color': '#6c757d'},
+                        'IEF Ajustado aplica fator de confiança via ECR: ECR=100% → sem desconto | ECR=50% → ×0.75 | ECR=0% → ×0.50.',
+                        style={'color': '#e67e22'},
                     ),
                 ],
                 [
@@ -26904,18 +27251,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 'Índice de Entrega do Desenvolvedor (IED)',
                 [
                     html.Span('Régua unificada de produtividade: '),
-                    html.Span('IED = 0.40×NDS + 0.30×EEE + 0.20×VEL + 0.10×QUA', style={'fontWeight': '700', 'fontFamily': 'monospace'}),
+                    html.Span('IED = 0.35×NDS + 0.30×EEE + 0.15×VEL + 0.20×QUA', style={'fontWeight': '700', 'fontFamily': 'monospace'}),
                     html.Br(),
-                    html.Span('NDS', style={'color': '#2980b9', 'fontWeight': '600'}),
-                    html.Span(' — Volume de entregas ajustado por complexidade (SP ou T-shirt) vs P75 do grupo. '),
-                    html.Span('EEE', style={'color': '#8e44ad', 'fontWeight': '600'}),
-                    html.Span(' — Taxa de conclusão do trabalho comprometido (entregas / puxados ponderados por complexidade). '),
-                    html.Span('VEL', style={'color': '#16a085', 'fontWeight': '600'}),
-                    html.Span(' — Velocidade relativa ao grupo (mediana Lead Time do grupo / Lead Time do dev). '),
-                    html.Span('QUA', style={'color': '#e74c3c', 'fontWeight': '600'}),
-                    html.Span(' — Qualidade (100 − % Demanda Falha). '),
+                    html.Span('NDS (35%)', style={'color': '#2980b9', 'fontWeight': '600'}),
+                    html.Span(' — Volume de entregas ajustado por complexidade vs P75 rolling (3 meses) do grupo por papel. '),
+                    html.Span('EEE (30%)', style={'color': '#8e44ad', 'fontWeight': '600'}),
+                    html.Span(' — Taxa de conclusão do trabalho comprometido, capped em 100% (entregas / puxados ponderados). '),
+                    html.Span('VEL (15%)', style={'color': '#16a085', 'fontWeight': '600'}),
+                    html.Span(' — Velocidade relativa ao grupo. Peso reduzido para não penalizar itens intrinsecamente complexos. '),
+                    html.Span('QUA (20%)', style={'color': '#e74c3c', 'fontWeight': '600'}),
+                    html.Span(' — Qualidade com suavização Bayesiana (100 − % Demanda Falha). Peso aumentado: defeitos têm custo real. '),
                     html.Span(
-                        'SP e T-shirt equalizados via peso funcional (Kitchenham & Mendes, TSE 2004). '
+                        'IED* = score de baixa confiança (ECR < 50%). '
                         'Faixas: Excelente ≥85 | Bom ≥70 | Regular ≥50 | Abaixo ≥30 | Crítico <30.',
                         style={'color': '#6c757d'},
                     ),
@@ -27018,6 +27365,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     dcc.Graph(figure=fig_delta_ied, config={'displayModeBar': False})
                     if not _trend_df.empty else html.P(
                         'Período sem dados mensais suficientes para calcular Δ IED Trend.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── Heatmap Mensal IED ────────────────────────────────────────────
+            _section(
+                'Heatmap Mensal IED — Evolução Matricial por Desenvolvedor',
+                [
+                    html.Span('Cada célula = IED do dev no mês. '),
+                    html.Span('Verde = Excelente | Azul = Bom | Laranja = Regular | Vermelho = Crítico. ', style={'fontWeight': '600'}),
+                    html.Span('Branco = dev sem dados suficientes naquele mês (< 2 entregas). ', style={'color': '#6c757d'}),
+                    html.Span('Identifica padrões de queda ou melhora consistentes ao longo do período.',
+                              style={'color': '#2980b9'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_ied_heatmap, config={'displayModeBar': False})
+                    if fig_ied_heatmap.data else html.P(
+                        'Período selecionado menor que 2 meses — selecione um intervalo mais amplo para ver o heatmap mensal.',
                         style={'color': '#aaa', 'fontStyle': 'italic'},
                     ),
                 ],
@@ -27130,8 +27496,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             # ── Tabela de devs ─────────────────────────────────────────────────
             _section(
                 'Ranking de Desenvolvedores',
-                'Ordenado por Score Integrado. Colunas de Process Mining (Conformance Quality, Rework Rate PM, QA Return Rate, '
-                'Cycle Time Dev e retornos QA->Dev) provêm dos arquivos *-process-mining-latest.xlsx. Filtre por BU ou Papel.',
+                'Ordenado por Itens Entregues e Score Complexidade. Use as abas (Flow | Código | Revisão | Processo | Índices) '
+                'para navegar entre grupos de indicadores. Filtre por BU ou Papel.',
                 [prod_table],
             ),
 
@@ -27146,7 +27512,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             _section(
                 'Perfil Multidimensional com Benchmarks Absolutos',
                 [
-                    html.Span('Top 10 por Score Integrado. '),
+                    html.Span('Top 10 por IED.'),
                     html.Span('100 = atingiu o benchmark da dimensão. ', style={'fontWeight': '600'}),
                     html.Span('Score Benchmark (SB) = 100 − distância euclidiana ao perfil ideal [100,100,100,100,100]. '),
                     html.Span('Referências: '),
@@ -27204,7 +27570,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             # ── Gráfico puxados vs entregues ───────────────────────────────────
             _section(
                 'Cartões Puxados vs Entregues',
-                'Top 30 por Score Integrado. Puxados = itens movidos para WIP; Entregues = itens concluídos.',
+                'Top 30 por Itens Entregues. Puxados = itens movidos para WIP; Entregues = itens concluídos.',
                 [dcc.Graph(figure=fig_pulled_vs_done, config={'displayModeBar': False})],
             ),
 
@@ -27269,7 +27635,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             _section(
                 'Composição de Demanda por Dev (WorkItemCategory)',
                 [
-                    html.Span('Top 20 devs por Score Integrado. '),
+                    html.Span('Top 20 devs por IED.'),
                     html.Span('Cada barra = 100% dos itens entregues, particionados por tipo. '),
                     html.Span(
                         'Idealmente devs de produto concentram em Melhorias/Features; '
@@ -27289,6 +27655,29 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                         'WorkItemCategory não disponível nos dados — campo necessário nos cards do Jira.',
                         style={'color': '#aaa', 'fontStyle': 'italic'},
                     )
+                ],
+            ),
+
+            # ── Review Reciprocity Matrix ─────────────────────────────────────
+            _section(
+                'Review Reciprocity — Quem Revisa Quem',
+                [
+                    html.Span('Matriz de revisões: '),
+                    html.Span('linhas = revisor', style={'fontWeight': '600', 'color': '#2980b9'}),
+                    html.Span(' | '),
+                    html.Span('colunas = autor do PR revisado', style={'fontWeight': '600', 'color': '#8e44ad'}),
+                    html.Span('. Valor = nº de revisões (aprovações + change requests) no período. '),
+                    html.Span(
+                        'Silos de revisão: TL concentra toda coluna → devs não revisam entre si → risco de bus factor.',
+                        style={'color': '#e74c3c'},
+                    ),
+                ],
+                [
+                    dcc.Graph(figure=fig_review_reciprocity, config={'displayModeBar': False})
+                    if fig_review_reciprocity.data else html.P(
+                        'Sem dados de revisão no período ou sem dados Bitbucket disponíveis.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
                 ],
             ),
 
