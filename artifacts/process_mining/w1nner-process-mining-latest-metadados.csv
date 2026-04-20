@@ -1,19 +1,19 @@
 ﻿Metrica,Valor
 pm4py_available,True
-pm4py_events,7935
-pm4py_cases,1075
+pm4py_events,7997
+pm4py_cases,1080
 pm4py_activities,38
 pm4py_dfg_edges,146
 pm4py_start_activities,19
 pm4py_end_activities,11
 graphviz_dot_available,True
 graphviz_dot_path,/opt/homebrew/bin/dot
-pm4py_dfg_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-dfg.png
-pm4py_dfg_performance_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-dfg-performance.png
-pm4py_heuristics_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-heuristics.png
-pm4py_inductive_tree_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-inductive-tree.png
-pm4py_petri_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-petri.png
-pm4py_petri_token_freq_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-petri-token-freq.png
-pm4py_petri_token_perf_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260415_170928-pm4py-petri-token-perf.png
+pm4py_dfg_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-dfg.png
+pm4py_dfg_performance_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-dfg-performance.png
+pm4py_heuristics_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-heuristics.png
+pm4py_inductive_tree_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-inductive-tree.png
+pm4py_petri_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-petri.png
+pm4py_petri_token_freq_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-petri-token-freq.png
+pm4py_petri_token_perf_png,/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo/artifacts/process_mining/w1nner-process-mining-20260420_101339-pm4py-petri-token-perf.png
 pm4py_alignments_max_cases,0
 pm4py_alignments_skipped,disabled_by_limit

@@ -5,7 +5,16 @@
       "Bash(ls /Users/rodrigoalmeidadeoliveira/Documents/dados/latest/PowerBI_Model_*.xlsx)",
       "Bash(python -c ' *)",
       "Bash(grep -n \"WorkItemCategory\\\\|Composição de Demanda por Dev\\\\|], style={'padding': '20px'\" \"c:/Users/W1 TI/OneDrive - W1/Documentos/Python/dashboard_full.py\")",
-      "WebSearch"
+      "WebSearch",
+      "Bash(ls -la data/)",
+      "Bash(ls -la cache/)",
+      "Bash(ls -la .cache/)",
+      "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" log --oneline --follow run_process_mining_projects_macos.sh)",
+      "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" log --oneline --follow bitbucket_export.py)",
+      "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" show 6ccb53d --stat)"
+    ],
+    "additionalDirectories": [
+      "/Users/rodrigoalmeidadeoliveira/Documents/dados"
     ]
   }
 }

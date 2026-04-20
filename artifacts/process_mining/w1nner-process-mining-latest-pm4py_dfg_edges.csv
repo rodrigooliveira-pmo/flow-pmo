@@ -1,6 +1,6 @@
 ﻿From,To,Count
 Ready for Production,Done,782
-Ready To Staging,Staging,702
+Ready To Staging,Staging,705
 Staging,QA Approved Staging,563
 QA Approved Staging,Ready for Production,536
 QA Approved Hml,Ready To Staging,527
@@ -8,18 +8,18 @@ In Progress,Ready to Homolog,495
 Homolog,QA Approved Hml,495
 Ready to Homolog,Homolog,494
 In Progress,Ready To Staging,152
+In Progess,Ready for code review,138
 in analytics,In Development,127
-In Progess,Ready for code review,126
-Ready for code review,CODE REVIEW,115
-READY FOR DEVELOPMENT,In Progess,111
-Staging,Ready for Production,106
+Ready for code review,CODE REVIEW,123
+READY FOR DEVELOPMENT,In Progess,121
+Staging,Ready for Production,109
+CODE REVIEW,READY FOR TESTING/QA,108
 Staging,QA Approved,103
-CODE REVIEW,READY FOR TESTING/QA,102
+Backlog,READY FOR DEVELOPMENT,101
 Cancelled,Done,97
-Backlog,READY FOR DEVELOPMENT,93
 QA Approved,Ready for Production,90
-READY FOR TESTING/QA,Testing / QA,87
-Testing / QA,Ready To Staging,78
+READY FOR TESTING/QA,Testing / QA,90
+Testing / QA,Ready To Staging,81
 In Development,Staging,67
 In Staging,Ready for Production,58
 Backlog,In Progress,56
@@ -51,9 +51,9 @@ Ready To Staging,Homologation,10
 Ready To Staging,Done,10
 Staging,In Staging,9
 QA Approved,QA Approved Hml,8
+Ready for code review,In Progess,8
 Testing / QA,In Progess,7
 Staging,Done,7
-Ready for code review,In Progess,7
 Approval,Backlog,7
 Ready To Staging,Ready to Homologation,6
 In Progress,In Staging,6
