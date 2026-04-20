@@ -1777,7 +1777,7 @@ def _recompute_itens_entregues_from_dev_flow(
         and {'Issue Key', 'Author', 'History Date', 'From Status Norm', 'To Status Norm'}.issubset(events_df.columns)
     ):
         ev = events_df.copy()
-        ev['_date'] = pd.to_datetime(ev['History Date'], errors='coerce')
+        ev['_date'] = pd.to_datetime(ev['History Date'], dayfirst=True, errors='coerce')
         if ev['_date'].dt.tz is not None:
             ev['_date'] = ev['_date'].dt.tz_convert(None)
         ev['From Status Norm'] = ev['From Status Norm'].fillna('').astype(str)
