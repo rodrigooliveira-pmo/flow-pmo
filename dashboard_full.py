@@ -1715,6 +1715,187 @@ def _build_dev_item_person_map(df: pd.DataFrame, alias_index=None) -> dict[str, 
     return tmp.drop_duplicates(subset=['ItemID'], keep='first').set_index('ItemID')['Pessoa'].to_dict()
 
 
+def _recompute_itens_entregues_from_dev_flow(
+    per_dev: pd.DataFrame,
+    dev_flow_items_df: pd.DataFrame,
+    df_prod_base: pd.DataFrame,
+    alias_index: dict,
+    start_ts,
+    end_ts,
+    events_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """
+    Atualiza 'Itens Entregues' em per_dev usando a saída do dev stage (In Progress →
+    Code Review / QA) como fonte primária, com fallback hierárquico:
+
+      1. EventosFiltrados (fonte primária): conta itens únicos por dev/autor onde
+         houve uma transição FROM dev stage TO code review/QA no período.
+         Cobre variantes de nome do status (incluindo typos como "In Progess").
+      2. DevFlowItens (fonte secundária): para devs não cobertos pelos eventos,
+         usa o mapa Issue Key → pessoa via df_prod_base e filtra por data.
+      3. Fallback: mantém 'Itens Entregues' original (Done Final Author) para
+         devs não encontrados nas fontes 1 e 2.
+
+    A abordagem via EventosFiltrados é mais robusta porque:
+    - Não depende do DEV_HINTS do process mining (que pode não cobrir typos de status)
+    - Usa o Author da transição (quem efetivamente moveu o card)
+    - Filtra pela data da transição diretamente
+    """
+    # ── Salva Itens Entregues original como fallback final ───────────────────
+    original_itens: dict[str, int] = (
+        per_dev.set_index('Pessoa')['Itens Entregues'].fillna(0).astype(int).to_dict()
+        if 'Itens Entregues' in per_dev.columns else {}
+    )
+
+    # Hints de status que indicam saída do estágio de desenvolvimento
+    _DEV_STAGE_HINTS = (
+        'in progress', 'in progess',  # typo comum no Jira
+        'development', 'developing',
+        'doing', 'wip',
+        'em desenvolvimento', 'em andamento', 'in development',
+    )
+    _EXIT_TARGET_HINTS = (
+        'code review', 'ready for code', 'ready code',
+        'testing', 'qa', 'quality',
+        'ready for test', 'ready test',
+        'homolog', 'staging', 'ready to staging',
+        'ready for production', 'ready to homolog',
+    )
+
+    def _naive(ts):
+        t = pd.to_datetime(ts, errors='coerce')
+        return t.tz_convert(None) if getattr(t, 'tzinfo', None) else t
+
+    _start = _naive(start_ts)
+    _end   = _naive(end_ts)
+
+    # ── FONTE 1: EventosFiltrados — transições Dev → Code Review/QA ─────────
+    dev_count_events: pd.Series = pd.Series(dtype=int)
+    if (
+        events_df is not None
+        and not events_df.empty
+        and {'Issue Key', 'Author', 'History Date', 'From Status Norm', 'To Status Norm'}.issubset(events_df.columns)
+    ):
+        ev = events_df.copy()
+        ev['_date'] = pd.to_datetime(ev['History Date'], errors='coerce')
+        if ev['_date'].dt.tz is not None:
+            ev['_date'] = ev['_date'].dt.tz_convert(None)
+        ev['From Status Norm'] = ev['From Status Norm'].fillna('').astype(str)
+        ev['To Status Norm']   = ev['To Status Norm'].fillna('').astype(str)
+
+        # Transições que saem de um dev stage e entram em review/QA no período
+        _from_dev = ev['From Status Norm'].apply(
+            lambda s: any(h in s for h in _DEV_STAGE_HINTS)
+        )
+        _to_review = ev['To Status Norm'].apply(
+            lambda s: any(h in s for h in _EXIT_TARGET_HINTS)
+        )
+        _in_period = ev['_date'].notna() & (ev['_date'] >= _start) & (ev['_date'] < _end)
+
+        transitions = ev[_from_dev & _to_review & _in_period].copy()
+
+        if not transitions.empty:
+            transitions['_Author'] = transitions['Author'].astype(str).str.strip()
+            # Resolve alias: Author pode ser email ou nome variante
+            transitions['_Pessoa'] = transitions['_Author'].apply(
+                lambda a: _canonical_person_name(a, alias_index=alias_index)
+            )
+            transitions = transitions[
+                transitions['_Pessoa'].astype(str).str.strip().ne('')
+                & transitions['_Pessoa'].str.lower().ne('sem autor')
+            ]
+            if not transitions.empty:
+                # Conta Issue Keys únicas por pessoa (evita double-count por retrabalho)
+                dev_count_events = (
+                    transitions.groupby('_Pessoa')['Issue Key'].nunique()
+                )
+
+    # ── FONTE 2: DevFlowItens — fallback por mapeamento Item → Pessoa ───────
+    dev_count_items: pd.Series = pd.Series(dtype=int)
+    if (
+        dev_flow_items_df is not None
+        and not dev_flow_items_df.empty
+        and 'Issue Key' in dev_flow_items_df.columns
+        and df_prod_base is not None
+        and not df_prod_base.empty
+        and 'ItemID' in df_prod_base.columns
+    ):
+        # Mapa ItemID → pessoa canônica
+        _tmp = df_prod_base[
+            ['ItemID', 'Responsavel']
+            + (['DevExecutor'] if 'DevExecutor' in df_prod_base.columns else [])
+        ].copy()
+        _tmp['_Pessoa'] = _resolve_dev_person_series(_tmp, alias_index=alias_index)
+        _tmp['ItemID'] = _tmp['ItemID'].astype(str).str.strip().str.upper()
+        _tmp = _tmp[_tmp['ItemID'].ne('') & _tmp['_Pessoa'].astype(str).str.strip().ne('')]
+        if not _tmp.empty:
+            item_to_person = (
+                _tmp.drop_duplicates(subset=['ItemID'], keep='first')
+                .set_index('ItemID')['_Pessoa'].to_dict()
+            )
+            dfi = dev_flow_items_df.copy()
+            dfi['Issue Key'] = dfi['Issue Key'].astype(str).str.strip().str.upper()
+
+            for col in ['Primeira Entrada Dev', 'Ultima Entrada Dev']:
+                if col in dfi.columns:
+                    dfi[col] = pd.to_datetime(dfi[col], errors='coerce')
+                    if dfi[col].dt.tz is not None:
+                        dfi[col] = dfi[col].dt.tz_convert(None)
+
+            # Filtra itens com segmento de dev sobreposto ao período
+            if 'Primeira Entrada Dev' in dfi.columns and 'Ultima Entrada Dev' in dfi.columns:
+                _mask = (
+                    dfi['Primeira Entrada Dev'].notna()
+                    & dfi['Ultima Entrada Dev'].notna()
+                    & (dfi['Primeira Entrada Dev'] < _end)
+                    & (dfi['Ultima Entrada Dev'] >= _start)
+                )
+                dfi = dfi[_mask].copy()
+
+            dfi['_Pessoa'] = dfi['Issue Key'].map(item_to_person)
+            # Heurística: tenta prefixo alternativo (W1NNR ↔ W1NNER)
+            _unmapped = dfi['_Pessoa'].isna()
+            if _unmapped.any():
+                _alt = {
+                    k.replace('W1NNER', 'W1NNR').replace('W1NNR', 'W1NNER'): v
+                    for k, v in item_to_person.items()
+                }
+                dfi.loc[_unmapped, '_Pessoa'] = dfi.loc[_unmapped, 'Issue Key'].map(_alt)
+
+            dfi = dfi[
+                dfi['_Pessoa'].notna()
+                & dfi['_Pessoa'].astype(str).str.strip().ne('')
+                & dfi['_Pessoa'].str.lower().ne('sem autor')
+            ]
+            if not dfi.empty:
+                dev_count_items = dfi.groupby('_Pessoa')['Issue Key'].nunique()
+
+    # ── Mescla fontes e aplica fallback ─────────────────────────────────────
+    result = per_dev.copy()
+
+    # Fonte primária: EventosFiltrados
+    if not dev_count_events.empty:
+        result['Itens Entregues'] = result['Pessoa'].map(dev_count_events).fillna(0).astype(int)
+    else:
+        result['Itens Entregues'] = 0
+
+    # Fonte secundária: DevFlowItens para quem não apareceu nos eventos
+    if not dev_count_items.empty:
+        _mask_zero = result['Itens Entregues'] == 0
+        result.loc[_mask_zero, 'Itens Entregues'] = (
+            result.loc[_mask_zero, 'Pessoa'].map(dev_count_items).fillna(0).astype(int)
+        )
+
+    # Fallback final: done_window (comportamento original) para quem ainda tem 0
+    if original_itens:
+        _mask_zero = result['Itens Entregues'] == 0
+        result.loc[_mask_zero, 'Itens Entregues'] = (
+            result.loc[_mask_zero, 'Pessoa'].map(original_itens).fillna(0).astype(int)
+        )
+
+    return result
+
+
 def build_dev_productivity_metrics(df, start_ts, end_ts):
     """
     Calcula métricas de produtividade individual por desenvolvedor.
@@ -24849,6 +25030,23 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         )
         if not pm_flow_metrics.empty and 'Pessoa' in pm_flow_metrics.columns:
             per_dev = pd.merge(per_dev, pm_flow_metrics, on='Pessoa', how='left')
+
+        # ── Recomputa Itens Entregues usando saída de In Progress como fonte ──
+        # Substitui a contagem baseada em Done Final Author pela contagem de quando
+        # o dev moveu o card de In Progress → Code Review / QA, refletindo a entrega
+        # real do desenvolvedor independente de quem faz o deploy/done final.
+        # Fallback automático para done_window quando DevFlowItens não cobre o dev.
+        if not pm_flow_item_combined.empty or not pm_event_combined.empty:
+            per_dev = _recompute_itens_entregues_from_dev_flow(
+                per_dev,
+                pm_flow_item_combined,
+                df_prod_base,
+                alias_index_prod,
+                start_ts_prod,
+                end_ts_prod,
+                events_df=pm_event_combined if not pm_event_combined.empty else None,
+            )
+
         pm_dev_return_report = build_pm_dev_return_report(
             pm_flow_item_combined,
             pm_flow_return_combined,
