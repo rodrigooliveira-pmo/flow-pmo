@@ -10998,10 +10998,18 @@ def filter_items_by_current_stage(df_source, projeto=None, selected_stages=None,
 def _find_latest_w1nner_process_mining_excel():
     report_url = os.getenv('FLOW_PMO_PROCESS_MINING_REPORT_URL', '').strip()
     if report_url:
-        try:
-            return _download_process_mining_report_from_url(report_url)
-        except Exception:
-            pass
+        resolved_url = report_url
+        if report_url.startswith('{'):
+            try:
+                url_map = json.loads(report_url)
+                resolved_url = url_map.get('w1nner') or url_map.get('W1NNER') or ''
+            except Exception:
+                resolved_url = ''
+        if resolved_url:
+            try:
+                return _download_process_mining_report_from_url(resolved_url)
+            except Exception:
+                pass
 
     preferred_name = 'w1nner-process-mining-latest.xlsx'
     required_sheets = {'ResumoConformidade', 'ConformidadeCasos', 'EventosFiltrados'}
