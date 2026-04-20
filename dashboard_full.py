@@ -2139,6 +2139,10 @@ def build_dev_productivity_metrics(df, start_ts, end_ts):
     bu_index = _load_person_bu_map()
     per_dev['BU'] = per_dev['Pessoa'].apply(lambda p: _person_bu(p, bu_index=bu_index))
 
+    # Exclui BUs de gestão/não-dev do dashboard de produtividade individual.
+    _NON_DEV_BUS = {'Governanca'}
+    per_dev = per_dev[~per_dev['BU'].isin(_NON_DEV_BUS)].reset_index(drop=True)
+
     # Papel por pessoa: 'Tech Lead' ou 'Dev' (via people_config.json)
     role_index = _load_person_role_map()
     per_dev['Papel'] = per_dev['Pessoa'].apply(lambda p: _person_role(p, role_index=role_index))

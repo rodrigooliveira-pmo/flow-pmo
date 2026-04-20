@@ -11,7 +11,8 @@
       "Bash(ls -la .cache/)",
       "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" log --oneline --follow run_process_mining_projects_macos.sh)",
       "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" log --oneline --follow bitbucket_export.py)",
-      "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" show 6ccb53d --stat)"
+      "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" show 6ccb53d --stat)",
+      "Bash(grep -v \"^[0-9]\\\\{1,4\\\\}:\")"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados"
