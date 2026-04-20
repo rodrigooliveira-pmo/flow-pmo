@@ -10049,12 +10049,44 @@ def build_service_lead_time_breakdown(done_df, dimension_col, dimension_label, l
     return summary
 
 
-def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, start_ts, end_ts, bucket_freq='W-MON'):
+def build_throughput_series(
+    df,
+    dimension_col,
+    dimension_label,
+    temporal=False,
+    start_ts=None,
+    end_ts=None,
+    bucket_freq='W-MON',
+):
+    """Breakdown de throughput por dimensão.
+
+    temporal=False (padrão): contagem simples, retorna
+        [dimension_col, 'Throughput', 'Percentual', 'Barra'].
+    temporal=True: distribuição por bucket (requer start_ts/end_ts), retorna
+        [dimension_label, 'Itens Entregues', 'Média/Bucket', 'P15', 'P50', 'P85', 'Máx Bucket'].
+    """
+    if not temporal:
+        if df is None or getattr(df, 'empty', True) or dimension_col not in df.columns:
+            return pd.DataFrame(columns=[dimension_col, 'Throughput', 'Percentual', 'Barra'])
+        breakdown = (
+            df[dimension_col]
+            .fillna('Não classificado')
+            .astype(str)
+            .value_counts()
+            .reset_index()
+            .rename(columns={'index': dimension_col, 'count': 'Throughput'})
+        )
+        total = breakdown['Throughput'].sum()
+        breakdown['Percentual'] = (breakdown['Throughput'] / total * 100) if total > 0 else 0.0
+        breakdown['Barra'] = dimension_label
+        return breakdown
+
+    # temporal=True
     empty = pd.DataFrame(columns=[dimension_label, 'Itens Entregues', 'Média/Bucket', 'P15', 'P50', 'P85', 'Máx Bucket'])
-    if done_df is None or done_df.empty or dimension_col not in done_df.columns:
+    if df is None or getattr(df, 'empty', True) or dimension_col not in df.columns:
         return empty
 
-    base = done_df.copy()
+    base = df.copy()
     base['DataDone'] = pd.to_datetime(base.get('DataDone'), errors='coerce')
     base = base.dropna(subset=['DataDone'])
     if base.empty:
@@ -10105,6 +10137,9 @@ def build_service_throughput_breakdown(done_df, dimension_col, dimension_label, 
     summary['Itens Entregues'] = pd.to_numeric(summary['Itens Entregues'], errors='coerce').fillna(0).astype(int)
     summary['Máx Bucket'] = pd.to_numeric(summary['Máx Bucket'], errors='coerce').fillna(0).astype(int)
     return summary
+
+
+build_service_throughput_breakdown = lambda done_df, dimension_col, dimension_label, start_ts, end_ts, bucket_freq='W-MON': build_throughput_series(done_df, dimension_col, dimension_label, temporal=True, start_ts=start_ts, end_ts=end_ts, bucket_freq=bucket_freq)
 
 
 def build_live_wip_snapshot(df_source, end_ts, projeto=None, selected_stages=None, stage_map=None):
@@ -10172,26 +10207,7 @@ def build_service_wip_breakdown(df_scope, end_ts, dimension_col, dimension_label
     return summary
 
 
-def build_throughput_breakdown(df, dimension_col, dimension_label):
-    """Monta DataFrame com contagem e percentual para breakdown de throughput."""
-    if df.empty or dimension_col not in df.columns:
-        return pd.DataFrame(columns=[dimension_col, 'Throughput', 'Percentual', 'Barra'])
-
-    breakdown = (
-        df[dimension_col]
-        .fillna('Não classificado')
-        .astype(str)
-        .value_counts()
-        .reset_index()
-        .rename(columns={'index': dimension_col, 'count': 'Throughput'})
-    )
-    total = breakdown['Throughput'].sum()
-    if total > 0:
-        breakdown['Percentual'] = (breakdown['Throughput'] / total) * 100
-    else:
-        breakdown['Percentual'] = 0.0
-    breakdown['Barra'] = dimension_label
-    return breakdown
+build_throughput_breakdown = lambda df, dimension_col, dimension_label: build_throughput_series(df, dimension_col, dimension_label)
 
 
 def _format_pct_br(value):
@@ -10277,7 +10293,7 @@ def build_evolution_sustainability_breakdown(tp_done):
     base = tp_done.copy()
     base['CategoriaEntrega'] = base.get('TipoDemanda', pd.Series(TYPE_OTHER, index=base.index)).apply(canonicalize_demand_type)
     base['CategoriaEntrega'] = np.where(base['CategoriaEntrega'].eq(TYPE_DEV), 'Evolução', 'Sustentação')
-    breakdown = build_throughput_breakdown(base, 'CategoriaEntrega', 'Throughput por Categoria de Entrega')
+    breakdown = build_throughput_series(base, 'CategoriaEntrega', 'Throughput por Categoria de Entrega')
     if not breakdown.empty:
         desired_order = ['Evolução', 'Sustentação']
         breakdown['_ord'] = breakdown['CategoriaEntrega'].apply(
@@ -15489,8 +15505,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
 
         lead_by_type = build_service_lead_time_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', sla_days=sla_days, sla_col='SLARef_Dias' if 'SLARef_Dias' in df_done_period_eligible.columns else None)
         lead_by_urgency = build_service_lead_time_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', sla_days=sla_days)
-        tp_by_type = build_service_throughput_breakdown(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', start_ts, end_ts, bucket_freq=bucket_freq)
-        tp_by_urgency = build_service_throughput_breakdown(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', start_ts, end_ts, bucket_freq=bucket_freq)
+        tp_by_type = build_throughput_series(df_done_period_eligible, 'TipoDemanda', 'Tipo de Demanda', temporal=True, start_ts=start_ts, end_ts=end_ts, bucket_freq=bucket_freq)
+        tp_by_urgency = build_throughput_series(df_done_period_eligible, 'ClassificacaoUrgencia', 'Urgência', temporal=True, start_ts=start_ts, end_ts=end_ts, bucket_freq=bucket_freq)
         wip_by_type = build_service_wip_breakdown(active_wip, end_ts, 'TipoDemanda', 'Tipo de Demanda')
         wip_by_urgency = build_service_wip_breakdown(active_wip, end_ts, 'ClassificacaoUrgencia', 'Urgência')
         
@@ -21247,7 +21263,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         )
 
         tp_done['ClassificacaoUrgencia'] = tp_done.apply(classify_urgency_label, axis=1)
-        urgency_breakdown = build_throughput_breakdown(
+        urgency_breakdown = build_throughput_series(
             tp_done,
             'ClassificacaoUrgencia',
             'Throughput por Classificação de Urgência'
