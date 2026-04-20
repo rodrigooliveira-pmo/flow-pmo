@@ -13794,12 +13794,16 @@ def compute_pm_dev_metrics(
         total = len(g)
         conform_avg = g['Conformance Score'].mean() * 100 if 'Conformance Score' in g.columns else 0.0
         rework_pct = (g['Rework Score'] > 0).sum() / total * 100 if 'Rework Score' in g.columns else 0.0
+        rework_total = float(g['Rework Score'].sum()) if 'Rework Score' in g.columns else 0.0
+        rework_medio = round(rework_total / total, 2) if total > 0 else 0.0
         qa_pct = (g['QA Returns'] > 0).sum() / total * 100 if 'QA Returns' in g.columns else 0.0
         variant_len_avg = g['Variant'].apply(lambda v: len(str(v).split(' > ')) if pd.notna(v) else 0).mean() if 'Variant' in g.columns else 0.0
         rows.append({
             'Pessoa': pessoa,
             'Conformance Quality (%)': round(float(conform_avg), 1),
             'Rework Rate PM (%)': round(float(rework_pct), 1),
+            'Rework Score Total': round(rework_total, 2),
+            'Rework Score Médio': rework_medio,
             'QA Return Rate (%)': round(float(qa_pct), 1),
             'Complexidade Variante': round(float(variant_len_avg), 1),
         })
@@ -14014,7 +14018,7 @@ def compute_pm_bottleneck_contribution(
     Gargalo = statuses com Tempo Mediano > P75 de todos os statuses (excluindo terminais).
     Fonte: HorasPessoaStatus + TemposPorStatus dos Excels de process mining.
 
-    Retorna DataFrame: Pessoa, Horas em Gargalo, % Horas em Gargalo, Statuses Gargalo
+    Retorna DataFrame: Pessoa, HorasNoFluxo Total, Média H/Evento, Horas em Gargalo, % Horas em Gargalo
     """
     if alias_index is None:
         alias_index = _load_person_alias_index()
@@ -14037,6 +14041,10 @@ def compute_pm_bottleneck_contribution(
         return pd.DataFrame()
 
     horas_df['HorasNoFluxo'] = pd.to_numeric(horas_df['HorasNoFluxo'], errors='coerce').fillna(0)
+    if 'Eventos' in horas_df.columns:
+        horas_df['Eventos'] = pd.to_numeric(horas_df['Eventos'], errors='coerce').fillna(0)
+    else:
+        horas_df['Eventos'] = 0
     horas_df['Pessoa'] = horas_df['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index))
     horas_df = horas_df[horas_df['Pessoa'].astype(str).str.strip().ne('')]
     if horas_df.empty:
@@ -14067,8 +14075,9 @@ def compute_pm_bottleneck_contribution(
 
     gargalo_label = ', '.join(sorted(gargalo_statuses)[:5])  # máx 5 nomes no label
 
-    # Total de horas por pessoa
+    # Total de horas e eventos por pessoa
     total_horas = horas_df.groupby('Pessoa')['HorasNoFluxo'].sum()
+    total_eventos = horas_df.groupby('Pessoa')['Eventos'].sum()
     # Horas em status gargalo por pessoa
     horas_gargalo = (
         horas_df[horas_df['Status'].isin(gargalo_statuses)]
@@ -14078,10 +14087,14 @@ def compute_pm_bottleneck_contribution(
     rows = []
     for pessoa in total_horas.index:
         total = float(total_horas.get(pessoa, 0))
+        eventos = float(total_eventos.get(pessoa, 0))
         gargalo = float(horas_gargalo.get(pessoa, 0))
         pct = round(gargalo / total * 100, 1) if total > 0 else 0.0
+        media_h_evento = round(total / eventos, 2) if eventos > 0 else 0.0
         rows.append({
             'Pessoa': pessoa,
+            'HorasNoFluxo Total': round(total, 1),
+            'Média H/Evento': media_h_evento,
             'Horas em Gargalo': round(gargalo, 1),
             '% Horas em Gargalo': pct,
         })
@@ -23251,9 +23264,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             _pm_metric_card('Horas Execução', f"{horas_execucao_periodo:,.1f}", 'horas inferidas pelas permanências por status', '#2cb3ad'),
             _pm_metric_card('Horas no Fluxo', f"{horas_fluxo_total:,.1f}", 'proxy agregado das transições observadas', '#2cb3ad'),
             _pm_metric_card('Média h/Evento', f"{horas_fluxo_media_evento:.2f}" if pd.notna(horas_fluxo_media_evento) else '—', 'tempo médio associado a cada evento do fluxo', '#2cb3ad'),
-            _pm_metric_card('Commits', str(int(bb_totals.get('Commits', 0))), 'commits associados ao período e filtros ativos', '#176ea4'),
-            _pm_metric_card('PRs Abertos', str(int(bb_totals.get('PRs Abertos', 0))), 'pull requests abertas no Bitbucket', '#176ea4'),
-            _pm_metric_card('PRs Declinados', str(int(bb_totals.get('PRs Declinados (Autor)', 0))), 'PRs declinados do autor no recorte', '#c62828'),
             _pm_metric_card('Itens c/ Evidência Técnica', str(int(itens_com_evidencia)), 'interseção entre itens concluídos e chaves vistas no Bitbucket', '#176ea4'),
         ], style={
             'display': 'grid',
@@ -23633,15 +23643,20 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 'Vazão, entrada em desenvolvimento e concentração de retrabalho',
                 'Este bloco aproxima a leitura operacional do time: quem conclui mais, quem recebe mais entrada e onde o retrabalho está concentrado.',
                 html.Div([
-                    html.Div([
-                        _pm_graph_card('Vazão por Pessoa', 'Top responsáveis por itens concluídos no recorte, com cor refletindo taxa de retrabalho.', fig_vazao_pessoa),
-                        _pm_graph_card('Retrabalho por Pessoa', 'Volume de itens concluídos com retrabalho por responsável.', fig_retrabalho_pessoa),
-                    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px', 'marginBottom': '14px'}),
-                    _pm_graph_card('Entrada em Desenvolvimento por Story Points', 'Cards puxados para desenvolvimento quebrados por faixa de story points, preservando leitura de carga por pessoa.', fig_pull_dev_overlay, min_width='100%', flex='1 1 100%'),
+                    html.Details([
+                        html.Summary('Vazão por Pessoa (detalhamento)', style={
+                            'cursor': 'pointer', 'fontWeight': '600', 'fontSize': '13px',
+                            'color': '#2980b9', 'marginBottom': '8px',
+                        }),
+                        html.Div([
+                            _pm_graph_card('Vazão por Pessoa', 'Top responsáveis por itens concluídos no recorte, com cor refletindo taxa de retrabalho.', fig_vazao_pessoa),
+                            _pm_graph_card('Retrabalho por Pessoa', 'Volume de itens concluídos com retrabalho por responsável.', fig_retrabalho_pessoa),
+                        ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px'}),
+                    ], style={'marginBottom': '14px'}),
                     html.Div([
                         _pm_graph_card('Vazão Semanal', 'Evolução semanal da conclusão por pessoa, priorizando os principais nomes do período.', fig_vazao_semanal),
                         _pm_graph_card('Tempo por Status', 'Mediana de permanência por status para localizar pontos de espera mais caros.', fig_tempo_status),
-                    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px', 'marginTop': '14px'}),
+                    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px'}),
                 ]),
                 '#ffffff',
                 '#d9e2ec',
@@ -23676,22 +23691,6 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 ]),
                 '#fffaf2',
                 '#f1d7a8',
-            ),
-            _pm_section_shell(
-                'Rastreabilidade Técnica',
-                'Cruzamento Jira x Bitbucket',
-                'Este bloco preserva a análise de evidência técnica existente, agora dentro do mesmo envelope visual do restante da aba.',
-                html.Div([
-                    html.Div(jira_bitbucket_traceability_section, style={
-                        'backgroundColor': 'white',
-                        'border': '1px solid #d9e2ec',
-                        'borderRadius': '18px',
-                        'padding': '14px',
-                        'boxShadow': '0 2px 10px rgba(15, 23, 32, 0.05)',
-                    })
-                ]),
-                '#ffffff',
-                '#d9e2ec',
             ),
             _pm_section_shell(
                 'Bases Analíticas',
@@ -24857,7 +24856,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             events_df=pm_event_combined if not pm_event_combined.empty else None,
         )
 
-        for col in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)', 'Complexidade Variante',
+        for col in ['Conformance Quality (%)', 'Rework Rate PM (%)', 'Rework Score Total', 'Rework Score Médio',
+                    'QA Return Rate (%)', 'Complexidade Variante',
                     'Cycle Time Dev Mediano (dias)', 'Cycle Time Dev Médio (dias)',
                     'Tempo Retorno QA->Dev Mediano (dias)', 'Tempo Retorno QA->Dev Total (dias)',
                     '% Cards com Retorno QA->Dev']:
@@ -24882,8 +24882,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         _bnk_df = compute_pm_bottleneck_contribution(bb_projects, alias_index=alias_index_prod)
         _gargalo_label = _bnk_df.attrs.get('gargalo_label', '') if not _bnk_df.empty else ''
         if not _bnk_df.empty and 'Pessoa' in _bnk_df.columns:
-            per_dev = pd.merge(per_dev, _bnk_df[['Pessoa', 'Horas em Gargalo', '% Horas em Gargalo']], on='Pessoa', how='left')
-        for col in ['Horas em Gargalo', '% Horas em Gargalo']:
+            _bnk_merge_cols = ['Pessoa'] + [c for c in ['HorasNoFluxo Total', 'Média H/Evento', 'Horas em Gargalo', '% Horas em Gargalo'] if c in _bnk_df.columns]
+            per_dev = pd.merge(per_dev, _bnk_df[_bnk_merge_cols], on='Pessoa', how='left')
+        for col in ['HorasNoFluxo Total', 'Média H/Evento', 'Horas em Gargalo', '% Horas em Gargalo']:
             if col not in per_dev.columns:
                 per_dev[col] = np.nan
             per_dev[col] = pd.to_numeric(per_dev[col], errors='coerce')
@@ -26009,12 +26010,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     style=_tab_style,
                     selected_style=_tab_sel_style,
                     children=[_make_tab_table([
-                        'Conformance Quality (%)', 'Rework Rate PM (%)', 'QA Return Rate (%)',
-                        'Complexidade Variante',
+                        'HorasNoFluxo Total', 'Média H/Evento',
+                        'Horas em Gargalo', '% Horas em Gargalo',
+                        'Conformance Quality (%)', 'Rework Rate PM (%)',
+                        'Rework Score Total', 'Rework Score Médio',
+                        'QA Return Rate (%)', 'Complexidade Variante',
                         'Cycle Time Dev Mediano (dias)', 'Cycle Time Dev Médio (dias)',
                         'Retornos QA->Dev', 'Cards com Retorno QA->Dev',
                         '% Cards com Retorno QA->Dev', 'Tempo Retorno QA->Dev Mediano (dias)',
-                        'Horas em Gargalo', '% Horas em Gargalo',
                     ])],
                 ),
                 dcc.Tab(
@@ -27044,6 +27047,57 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 margin=dict(t=100, b=30, l=180, r=60),
             )
 
+        # ── Fig: Vazão Semanal por Pessoa (Produtividade Dev) ─────────────────
+        fig_vazao_semanal_dev = go.Figure()
+        _vzs_top_n = 10
+        if not df_prod_base.empty and 'Responsavel' in df_prod_base.columns and 'DataDone' in df_prod_base.columns:
+            _vzs_df = df_prod_base.copy()
+            _vzs_df['DataDone'] = pd.to_datetime(_vzs_df['DataDone'], errors='coerce')
+            _vzs_df = _vzs_df[
+                _vzs_df['DataDone'].notna() &
+                (_vzs_df['DataDone'] >= start_ts_prod) &
+                (_vzs_df['DataDone'] < end_ts_prod)
+            ].copy()
+            _vzs_df['Pessoa'] = _vzs_df['Responsavel'].apply(lambda x: _canonical_person_name(x, alias_index=alias_index_prod))
+            _vzs_df = _vzs_df[_vzs_df['Pessoa'].astype(str).str.strip().ne('')]
+            _vzs_df['Semana'] = _vzs_df['DataDone'].dt.to_period('W').apply(lambda p: p.start_time)
+            _vzs_weekly = _vzs_df.groupby(['Pessoa', 'Semana']).size().reset_index(name='Itens')
+
+            # Top N devs por total de itens no período
+            _vzs_top_devs = (
+                _vzs_weekly.groupby('Pessoa')['Itens'].sum()
+                .nlargest(_vzs_top_n).index.tolist()
+            )
+            _vzs_palette = [
+                '#2980b9', '#27ae60', '#e74c3c', '#f39c12', '#8e44ad',
+                '#16a085', '#d35400', '#2c3e50', '#c0392b', '#1abc9c',
+            ]
+            for _vzs_i, _vzs_dev in enumerate(_vzs_top_devs):
+                _vzs_sub = _vzs_weekly[_vzs_weekly['Pessoa'] == _vzs_dev].sort_values('Semana')
+                fig_vazao_semanal_dev.add_trace(go.Scatter(
+                    x=_vzs_sub['Semana'],
+                    y=_vzs_sub['Itens'],
+                    mode='lines+markers',
+                    name=_vzs_dev,
+                    line=dict(color=_vzs_palette[_vzs_i % len(_vzs_palette)], width=2),
+                    marker=dict(size=5),
+                    hovertemplate='<b>%{fullData.name}</b><br>Semana: %{x|%d/%m/%Y}<br>Itens: <b>%{y}</b><extra></extra>',
+                ))
+            if fig_vazao_semanal_dev.data:
+                fig_vazao_semanal_dev.update_layout(
+                    title=dict(
+                        text=f'Vazão Semanal por Pessoa — Top {_vzs_top_n} Devs<br>'
+                             '<sup>Itens entregues (DataDone) por semana. Cada linha = um desenvolvedor.</sup>',
+                        font=dict(size=13),
+                    ),
+                    xaxis=dict(title='Semana', tickformat='%d/%m/%Y', tickangle=-30),
+                    yaxis=dict(title='Itens Entregues'),
+                    legend=dict(orientation='v', x=1.01, y=1),
+                    template='plotly_white',
+                    height=420,
+                    margin=dict(t=90, b=60, l=60, r=200),
+                )
+
         # ── Fig: Review Reciprocity Matrix ────────────────────────────────────
         # Matriz de calor: linhas = revisor, colunas = autor revisado.
         # Detecta silos de revisão (TL revisa tudo, devs não revisam entre si).
@@ -27392,6 +27446,25 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     dcc.Graph(figure=fig_ied_heatmap, config={'displayModeBar': False})
                     if fig_ied_heatmap.data else html.P(
                         'Período selecionado menor que 2 meses — selecione um intervalo mais amplo para ver o heatmap mensal.',
+                        style={'color': '#aaa', 'fontStyle': 'italic'},
+                    ),
+                ],
+            ),
+
+            # ── Vazão Semanal por Pessoa ──────────────────────────────────────
+            _section(
+                'Vazão Semanal por Pessoa — Evolução Temporal',
+                [
+                    html.Span('Itens entregues (DataDone) por semana para os '),
+                    html.Span(f'top {_vzs_top_n} devs', style={'fontWeight': '600'}),
+                    html.Span(' do período. Complementa o heatmap mensal com granularidade semanal — '),
+                    html.Span('identifica semanas de pico, queda de produção e variabilidade intra-mês.',
+                              style={'color': '#2980b9'}),
+                ],
+                [
+                    dcc.Graph(figure=fig_vazao_semanal_dev, config={'displayModeBar': False})
+                    if fig_vazao_semanal_dev.data else html.P(
+                        'Sem dados suficientes para construir a série semanal no período selecionado.',
                         style={'color': '#aaa', 'fontStyle': 'italic'},
                     ),
                 ],
