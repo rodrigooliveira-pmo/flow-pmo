@@ -545,6 +545,21 @@ if ($LASTEXITCODE -ne 0) {
     throw "Falha ao atualizar a pasta latest-upload."
 }
 
+$awsS3Bucket = if ($env:AWS_S3_BUCKET) { $env:AWS_S3_BUCKET } else { 'w1-flow-pmo-dashboards' }
+$awsRegion   = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { 'us-east-1' }
+$uploadDir   = Join-Path $LatestDir 'latest-upload'
+if (Get-Command aws -ErrorAction SilentlyContinue) {
+    Write-Host "`nIniciando upload para S3 (bucket: $awsS3Bucket, regiao: $awsRegion)..." -ForegroundColor Cyan
+    & aws s3 cp "$uploadDir/" "s3://$awsS3Bucket/" --recursive --region $awsRegion
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Upload S3 falhou (exit $LASTEXITCODE)."
+    } else {
+        Write-Host "Upload S3 concluido." -ForegroundColor Green
+    }
+} else {
+    Write-Warning "aws CLI nao encontrado. Upload S3 pulado."
+}
+
 Write-Host "`nExportação dedicada de process mining concluída." -ForegroundColor Green
 if ($jiraFailures.Count -gt 0) {
     Write-Warning ("Avisos Jira/Downstream: " + ($jiraFailures -join ", "))

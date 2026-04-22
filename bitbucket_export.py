@@ -28,6 +28,7 @@ LAST_REQUEST_AT = 0.0
 MIN_REQUEST_INTERVAL_SECONDS = 0.35
 MAX_REQUEST_INTERVAL_SECONDS = 3.0
 CURRENT_REQUEST_INTERVAL_SECONDS = 0.35
+EXPORT_REPLACE_MAX_ATTEMPTS = 5
 
 PROJECT_BITBUCKET_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "W1NNER": {
@@ -66,7 +67,37 @@ def _line_count(path: Path) -> int:
         return sum(1 for _ in fp)
 
 
-def _safe_export(output_path: Path, exporter_fn, rows: Iterable[Dict[str, Any]]) -> int:
+def _build_locked_fallback_path(output_path: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return output_path.with_name(f"{output_path.stem}.locked-{stamp}{output_path.suffix}")
+
+
+def _promote_tmp_file(tmp_path: Path, output_path: Path) -> Path:
+    last_error: Optional[PermissionError] = None
+    for attempt in range(1, EXPORT_REPLACE_MAX_ATTEMPTS + 1):
+        try:
+            tmp_path.replace(output_path)
+            return output_path
+        except PermissionError as exc:
+            last_error = exc
+            if attempt >= EXPORT_REPLACE_MAX_ATTEMPTS:
+                break
+            time.sleep(min(0.4 * attempt, 2.0))
+
+    fallback_path = _build_locked_fallback_path(output_path)
+    tmp_path.replace(fallback_path)
+    print(
+        (
+            f"Aviso: arquivo final bloqueado e não pôde ser atualizado: '{output_path}'. "
+            f"Nova exportação salva em '{fallback_path}'. "
+            "Feche planilha/preview/sincronização do OneDrive e renomeie o arquivo quando liberar."
+        ),
+        file=sys.stderr,
+    )
+    return fallback_path
+
+
+def _safe_export(output_path: Path, exporter_fn, rows: Iterable[Dict[str, Any]]) -> tuple[int, Path]:
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     count = exporter_fn(rows, tmp_path)
     existing_lines = _line_count(output_path)
@@ -74,9 +105,9 @@ def _safe_export(output_path: Path, exporter_fn, rows: Iterable[Dict[str, Any]])
     # Evita perder histórico válido se uma execução falhar/parcial e gerar só cabeçalho.
     if tmp_lines <= 1 and existing_lines > 1:
         tmp_path.unlink(missing_ok=True)
-        return existing_lines - 1
-    tmp_path.replace(output_path)
-    return count
+        return existing_lines - 1, output_path
+    final_path = _promote_tmp_file(tmp_path, output_path)
+    return count, final_path
 
 
 def require_env(name: str) -> str:
@@ -919,6 +950,9 @@ def main() -> int:
     try:
         workers = min(max(args.workers, 1), 3)
         commit_count = pr_count = pipeline_count = 0
+        commit_output_path = commits_csv
+        pr_output_path = prs_csv
+        pipeline_output_path = pipelines_csv
         jobs = {
             "commits": run_commits,
             "pullrequests": run_pullrequests,
@@ -926,21 +960,24 @@ def main() -> int:
         }
 
         if workers == 1:
-            commit_count = run_commits()
-            pr_count = run_pullrequests()
-            pipeline_count = run_pipelines()
+            commit_count, commit_output_path = run_commits()
+            pr_count, pr_output_path = run_pullrequests()
+            pipeline_count, pipeline_output_path = run_pipelines()
         else:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 future_map = {executor.submit(fn): name for name, fn in jobs.items()}
                 for future in as_completed(future_map):
                     name = future_map[future]
-                    count = future.result()
+                    count, final_path = future.result()
                     if name == "commits":
                         commit_count = count
+                        commit_output_path = final_path
                     elif name == "pullrequests":
                         pr_count = count
+                        pr_output_path = final_path
                     elif name == "pipelines":
                         pipeline_count = count
+                        pipeline_output_path = final_path
     except requests.HTTPError as exc:
         body = ""
         if exc.response is not None:
@@ -958,9 +995,9 @@ def main() -> int:
 
     repos_label = ", ".join(repos_list)
     print(f"Repos consultados: {repos_label}")
-    print(f"Commits exportados: {commit_count} -> {commits_csv}")
-    print(f"Pull requests exportados: {pr_count} -> {prs_csv}")
-    print(f"Pipelines exportados: {pipeline_count} -> {pipelines_csv}")
+    print(f"Commits exportados: {commit_count} -> {commit_output_path}")
+    print(f"Pull requests exportados: {pr_count} -> {pr_output_path}")
+    print(f"Pipelines exportados: {pipeline_count} -> {pipeline_output_path}")
     return 0
 
 

@@ -13,21 +13,6 @@ import webbrowser
 from contextlib import contextmanager
 from pathlib import Path
 
-# R2 upload requires boto3 — imported lazily inside upload_to_r2() so the rest
-# of the pipeline runs even when boto3 is not installed.
-_BOTO3_AVAILABLE: bool | None = None
-
-
-def _check_boto3() -> bool:
-    global _BOTO3_AVAILABLE
-    if _BOTO3_AVAILABLE is None:
-        try:
-            import boto3  # noqa: F401
-            _BOTO3_AVAILABLE = True
-        except ImportError:
-            _BOTO3_AVAILABLE = False
-    return bool(_BOTO3_AVAILABLE)
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 IS_WINDOWS = platform.system() == "Windows"
@@ -149,16 +134,18 @@ def parse_args() -> argparse.Namespace:
         help="Pula o process mining.",
     )
     parser.add_argument(
+        "--run-s3-upload",
         "--run-r2-upload",
-        dest="r2_upload",
+        dest="s3_upload",
         action="store_true",
-        help="Faz upload dos artefatos latest-upload para o Cloudflare R2 (requer boto3 e vars CLOUDFLARE_R2_*).",
+        help="Faz upload dos artefatos latest-upload para AWS S3 (requer aws CLI e credenciais AWS).",
     )
     parser.add_argument(
+        "--no-run-s3-upload",
         "--no-run-r2-upload",
-        dest="r2_upload",
+        dest="s3_upload",
         action="store_false",
-        help="Pula o upload para R2.",
+        help="Pula o upload para S3.",
     )
     parser.add_argument(
         "--run-open-dashboard",
@@ -179,7 +166,7 @@ def parse_args() -> argparse.Namespace:
         metrics=True,
         four_ps_kanban=True,
         process_mining=False,
-        r2_upload=True,
+        s3_upload=True,
         open_dashboard=True,
     )
     return parser.parse_args()
@@ -671,111 +658,40 @@ def run_process_mining(out_dir: Path, latest_dir: Path) -> None:
             print(f"Aviso: {pm_latest_xlsx.name} não encontrado após execução.")
 
 
-def upload_to_r2(upload_dir: Path) -> None:
-    """Upload all files in *upload_dir* to Cloudflare R2 (S3-compatible).
+def upload_to_s3(upload_dir: Path) -> None:
+    """Upload all files in *upload_dir* to AWS S3 using the aws CLI.
 
-    Required env vars
-    -----------------
-    CLOUDFLARE_R2_ENDPOINT_URL      https://<account_id>.r2.cloudflarestorage.com
-    CLOUDFLARE_R2_BUCKET            bucket name
-    CLOUDFLARE_R2_ACCESS_KEY_ID     R2 access key ID
-    CLOUDFLARE_R2_SECRET_ACCESS_KEY R2 secret access key
+    Credentials are resolved by the AWS credential chain:
+      - env vars: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+      - ~/.aws/credentials
+      - IAM instance role
 
     Optional env vars
     -----------------
-    CLOUDFLARE_R2_PUBLIC_BASE_URL   public base URL (e.g. https://pub-xxx.r2.dev or custom domain)
-                                    — printed after upload so you can copy to Vercel env vars
+    AWS_S3_BUCKET       target bucket (default: w1-flow-pmo-dashboards)
+    AWS_DEFAULT_REGION  bucket region  (default: us-east-1)
     """
-    if not _check_boto3():
-        print(
-            "Aviso: boto3 nao encontrado. Instale com: pip install boto3\n"
-            "O upload para R2 sera pulado."
-        )
-        return
-
-    endpoint_url = os.environ.get("CLOUDFLARE_R2_ENDPOINT_URL", "").strip()
-    bucket = os.environ.get("CLOUDFLARE_R2_BUCKET", "").strip()
-    access_key = os.environ.get("CLOUDFLARE_R2_ACCESS_KEY_ID", "").strip()
-    secret_key = os.environ.get("CLOUDFLARE_R2_SECRET_ACCESS_KEY", "").strip()
-
-    if not all([endpoint_url, bucket, access_key, secret_key]):
-        missing = [
-            name
-            for name, val in {
-                "CLOUDFLARE_R2_ENDPOINT_URL": endpoint_url,
-                "CLOUDFLARE_R2_BUCKET": bucket,
-                "CLOUDFLARE_R2_ACCESS_KEY_ID": access_key,
-                "CLOUDFLARE_R2_SECRET_ACCESS_KEY": secret_key,
-            }.items()
-            if not val
-        ]
-        print(
-            f"Aviso: variaveis R2 nao configuradas ({', '.join(missing)}). "
-            "O upload para R2 sera pulado."
-        )
+    if not shutil.which("aws"):
+        print("Aviso: aws CLI nao encontrado. Instale em https://aws.amazon.com/cli/. Upload S3 pulado.")
         return
 
     if not upload_dir.is_dir():
-        print(f"Aviso: diretorio de upload nao encontrado: {upload_dir}. Pulando R2.")
+        print(f"Aviso: diretorio de upload nao encontrado: {upload_dir}. Pulando S3.")
         return
 
-    import boto3
-    from botocore.config import Config as BotocoreConfig
-
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=endpoint_url,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        config=BotocoreConfig(signature_version="s3v4"),
-        region_name="auto",
-    )
-
-    public_base = os.environ.get("CLOUDFLARE_R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
-
-    files = sorted(f for f in upload_dir.iterdir() if f.is_file())
-    if not files:
-        print(f"Nenhum arquivo encontrado em {upload_dir} para upload.")
-        return
+    bucket = os.environ.get("AWS_S3_BUCKET", "w1-flow-pmo-dashboards").strip()
+    region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1").strip()
 
     print()
-    print(f"Iniciando upload para R2 (bucket: {bucket}, endpoint: {endpoint_url})...")
-    print(f"Total de arquivos: {len(files)}")
-
-    uploaded: list[str] = []
-    failed: list[str] = []
-    for file_path in files:
-        key = file_path.name
-        try:
-            s3.upload_file(
-                str(file_path),
-                bucket,
-                key,
-                ExtraArgs={"ContentType": _content_type_for(key)},
-            )
-            size_kb = file_path.stat().st_size / 1024
-            print(f"  OK  {key} ({size_kb:.1f} KB)")
-            uploaded.append(key)
-        except Exception as exc:
-            print(f"  ERRO  {key}: {exc}")
-            failed.append(key)
-
-    print(f"\nUpload concluido: {len(uploaded)} OK, {len(failed)} falhou.")
-
-    if public_base and uploaded:
-        print("\n--- URLs publicas (configure no Vercel) ---")
-        for key in uploaded:
-            print(f"  {public_base}/{key}")
-        print("-------------------------------------------")
-
-
-def _content_type_for(filename: str) -> str:
-    ext = os.path.splitext(filename)[1].lower()
-    return {
-        ".csv": "text/csv",
-        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ".json": "application/json",
-    }.get(ext, "application/octet-stream")
+    print(f"Iniciando upload para S3 (bucket: {bucket}, regiao: {region})...")
+    result = subprocess.run(
+        ["aws", "s3", "cp", str(upload_dir) + "/", f"s3://{bucket}/", "--recursive", "--region", region],
+        cwd=str(SCRIPT_DIR),
+    )
+    if result.returncode != 0:
+        print(f"Aviso: upload S3 falhou (exit {result.returncode}).")
+    else:
+        print("Upload S3 concluido.")
 
 
 def update_latest_upload_package(latest_dir: Path) -> None:
@@ -870,8 +786,8 @@ def main() -> int:
 
     update_latest_upload_package(latest_dir)
 
-    if args.r2_upload:
-        upload_to_r2(latest_dir / "latest-upload")
+    if args.s3_upload:
+        upload_to_s3(latest_dir / "latest-upload")
 
     if args.open_dashboard:
         open_dashboard()

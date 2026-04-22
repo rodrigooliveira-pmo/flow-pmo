@@ -1,3 +1,40 @@
+## Current Task (Corrigir promoção de CSV do Bitbucket no Windows)
+- [x] Revisar falha `[WinError 5] Acesso negado` na etapa final do `bitbucket_export.py`
+- [x] Ajustar promoção do arquivo `.tmp` para tolerar destino bloqueado por Excel/OneDrive sem abortar a exportação
+- [x] Validar diff e tentar verificação automática da nova rotina de escrita
+
+## Specification (Corrigir promoção de CSV do Bitbucket no Windows)
+- Objetivo: impedir que o `bitbucket_export.py` quebre ao finalizar a escrita de `*_pipelines.csv` quando o arquivo final estiver temporariamente bloqueado no Windows/OneDrive.
+- Escopo:
+  - `bitbucket_export.py`
+  - `tasks/todo.md`
+- Estratégia:
+  - manter escrita em `.tmp` para preservar atomicidade quando possível
+  - adicionar retry curto na promoção do `.tmp` para o arquivo final
+  - se o destino continuar bloqueado, preservar a nova exportação em arquivo alternativo e emitir aviso claro, sem derrubar o script inteiro
+- Critério de aceite:
+  - `bitbucket_export.py` não aborta mais com `[WinError 5]` ao substituir CSV final bloqueado
+  - o operador recebe aviso explícito quando a exportação precisar ficar em arquivo alternativo
+  - o script continua válido sintaticamente
+
+## Review (Corrigir promoção de CSV do Bitbucket no Windows)
+- Resultado:
+  - `bitbucket_export.py` agora faz retry na promoção do `.tmp` e, se o arquivo final continuar bloqueado, salva a nova exportação em `*.locked-YYYYMMDD-HHMMSS.csv` com aviso claro em vez de abortar o processo
+- Mudanças aplicadas:
+  - extraí `_promote_tmp_file(...)` com retry curto para `PermissionError`
+  - adicionei `_build_locked_fallback_path(...)` para preservar export novo quando `replace()` no destino falhar
+  - `_safe_export(...)` passou a retornar também o caminho final realmente gravado
+  - o resumo final do script agora imprime o caminho real de saída de commits, PRs e pipelines
+- Evidências:
+  - revisão do diff em `bitbucket_export.py`
+  - busca dirigida confirmou inclusão de `EXPORT_REPLACE_MAX_ATTEMPTS`, `_promote_tmp_file(...)` e dos novos caminhos finais nos logs
+  - tentativa de `py_compile`/smoke test automatizado ficou bloqueada por problema do ambiente local: `python.exe` e `venv\\Scripts\\python.exe` apontam para launchers inválidos neste Windows, e `uv run` não conseguiu baixar Python por restrição de acesso ao socket
+- Risco residual:
+  - se o CSV final permanecer bloqueado, o pipeline seguirá com sucesso mas o arquivo padrão continuará antigo até o operador liberar o lock e substituir pelo `*.locked-...csv`
+  - os avisos `404` do repo `api-resumo-e-insights` continuam não bloqueantes; isso sugere slug de repositório desatualizado na configuração padrão ou necessidade de override por env
+- Suggested commit message:
+  - `fix(bitbucket): tolerate locked csv targets during atomic export`
+
 ## Current Task (Planejar integração BusinessMap para extração compatível com Flow-PMO)
 - [x] Revisar arquitetura atual do projeto e scripts já existentes de Jira/BusinessMap
 - [x] Ler a OpenAPI real da instância `https://w1consultoria.businessmap.io/openapi/json`
