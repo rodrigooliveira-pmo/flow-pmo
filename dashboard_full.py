@@ -190,6 +190,8 @@ if not dim_prioridade.empty:
     fato = fato.merge(dim_prioridade, how='left', left_on='PrioridadeID', right_on='PrioridadeID')
 if not dim_classe_servico.empty and 'ClasseServicoID' in fato.columns:
     fato = fato.merge(dim_classe_servico, how='left', left_on='ClasseServicoID', right_on='ClasseServicoID')
+if 'Responsavel' not in fato.columns:
+    fato['Responsavel'] = ''
 print(f"[dashboard_full] fato cols after merge: {list(fato.columns)}", flush=True)
 
 

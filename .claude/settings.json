@@ -18,10 +18,15 @@
       "Bash(python -m py_compile jira_portfolio_to_csv.py)",
       "Bash(grep -n \"return html.Div.*resumo_exec_section\\\\|return dcc.Tabs\\\\|return html.Div.*\\\\[\\\\s*$\" \"c:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Python/dashboard_full.py\")",
       "Bash(awk '/if tab == PORTFOLIO_TAB_VALUE:/,/^        else:/ {print NR\": \"$0}' \"c:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Python/dashboard_full.py\")",
-      "Bash(awk -F: '$1 >= 19000 && $1 <= 20000 {print}')"
+      "Bash(awk -F: '$1 >= 19000 && $1 <= 20000 {print}')",
+      "PowerShell(python -m awscli --version)",
+      "PowerShell(& \"C:\\\\ProgramData\\\\anaconda3\\\\python.exe\" -m pip install awscli 2>&1)",
+      "PowerShell(& \"C:\\\\ProgramData\\\\anaconda3\\\\python.exe\" -m awscli --version)",
+      "Read(//c/Users/W1 TI/AppData/Roaming/Python/Python313/Scripts/**)"
     ],
     "additionalDirectories": [
-      "/Users/rodrigoalmeidadeoliveira/Documents/dados"
+      "/Users/rodrigoalmeidadeoliveira/Documents/dados",
+      "C:\\Users\\W1 TI\\AppData\\Roaming\\Python\\Python313\\Scripts"
     ]
   },
   "hooks": {

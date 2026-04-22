@@ -45,5 +45,13 @@ BB_REPO=w1nner
 # Pasta principal onde os scripts procuram artefatos auxiliares/latest.
 # FLOW_PMO_DATA_DIR=/caminho/para/dados/latest
 
+# AWS S3 — credenciais para upload dos artefatos latest-upload
+# Gere uma access key para o IAM user em:
+#   AWS Console > IAM > Users > rodrigo_oliveira_w1 > Security credentials > Create access key
+AWS_ACCESS_KEY_ID=AKIA_SEU_ACCESS_KEY_AQUI
+AWS_SECRET_ACCESS_KEY=sua_secret_access_key_aqui
+AWS_DEFAULT_REGION=us-east-1
+# AWS_S3_BUCKET=w1-flow-pmo-dashboards  # já é o padrão dos scripts
+
 # Opcional: mapeia projeto Jira -> repositório(s) Bitbucket.
 # FLOW_PMO_BITBUCKET_REPO_MAP={"DATA&ANALYTICS":{"repo":"d-a-analysis","repos":["d-a-analysis","w1-data-toolbox","automacao-rfv"]}}
