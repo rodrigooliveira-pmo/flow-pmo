@@ -3809,6 +3809,15 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'pct_features_com_filhos': 0.0,
                 'pct_epicos_com_itens_fluxo': 0.0,
                 'pct_storytask_orfaos': 0.0,
+                'lead_time_p50': None,
+                'lead_time_p85': None,
+                'lead_time_count': 0,
+                'throughput_weekly_avg': 0.0,
+                'throughput_monthly_avg': 0.0,
+                'itens_com_tema_estrategico': 0,
+                'pct_com_tema_estrategico': 0.0,
+                'itens_com_risco': 0,
+                'pct_com_risco': 0.0,
             },
             'groups': {
                 'epicos_por_team_status': pd.DataFrame(),
@@ -3876,6 +3885,18 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'portfolio_technical_readiness_notes': pd.DataFrame(),
                 'portfolio_technical_epic_summary': pd.DataFrame(),
                 'portfolio_technical_items_catalog': pd.DataFrame(),
+                'lead_time_por_tipo': pd.DataFrame(),
+                'lead_time_por_team': pd.DataFrame(),
+                'lead_time_distribution': pd.DataFrame(),
+                'throughput_semanal': pd.DataFrame(),
+                'throughput_mensal': pd.DataFrame(),
+                'tema_distribuicao': pd.DataFrame(),
+                'tema_team_heatmap': pd.DataFrame(),
+                'tema_status_dist': pd.DataFrame(),
+                'risk_distribuicao': pd.DataFrame(),
+                'risk_por_tipo': pd.DataFrame(),
+                'risk_por_team': pd.DataFrame(),
+                'risk_aging': pd.DataFrame(),
             },
         }
 
@@ -3892,6 +3913,19 @@ def compute_portfolio_snapshot(df, updated_at_label):
         df['DueDate'] = pd.to_datetime(df['DueDate'], errors='coerce', utc=True).dt.tz_localize(None)
     else:
         df['DueDate'] = pd.NaT
+    if 'CreatedAt' in df.columns:
+        df['CreatedAt'] = pd.to_datetime(df['CreatedAt'], errors='coerce', utc=True)
+    else:
+        df['CreatedAt'] = pd.NaT
+    if 'ResolvedAt' in df.columns:
+        df['ResolvedAt'] = pd.to_datetime(df['ResolvedAt'], errors='coerce', utc=True)
+    else:
+        df['ResolvedAt'] = pd.NaT
+    for _col_f2 in ['StrategicTheme', 'Owner', 'Sponsor', 'Risk', 'TargetDate']:
+        if _col_f2 not in df.columns:
+            df[_col_f2] = ''
+        else:
+            df[_col_f2] = df[_col_f2].fillna('').astype(str).str.strip()
     if 'Team' not in df.columns:
         df['Team'] = ''
     for col in ['ParentTitle', 'HierarchyLinkSource', 'FeatureLinkID', 'FeatureLinkTipo', 'EpicLinkID', 'EpicLinkTipo', 'EpicLinkName', 'Componentes', 'ETIQUETA', 'Etiquetas', 'IssueLinkKeys', 'IssueLinkTypes', 'IssueLinkDetails']:
@@ -5264,6 +5298,123 @@ def compute_portfolio_snapshot(df, updated_at_label):
     else:
         tipo_balanceamento = pd.DataFrame(columns=['Tipo', 'WorkItems', '% Atual', '% Alvo', 'Desvio (pp)', 'Desvio Abs (pp)'])
 
+    # ── Fase 3: Lead Time ──────────────────────────────────────────────────
+    _df_resolved = df[(df['ResolvedAt'].notna()) & (df['CreatedAt'].notna())].copy()
+    if not _df_resolved.empty:
+        _df_resolved['LeadTimeDias'] = (
+            (_df_resolved['ResolvedAt'] - _df_resolved['CreatedAt'])
+            .dt.total_seconds() / 86400
+        ).round(1)
+        _df_resolved = _df_resolved[_df_resolved['LeadTimeDias'] >= 0]
+    if not _df_resolved.empty:
+        _lt = _df_resolved['LeadTimeDias']
+        lead_time_p50 = round(float(_lt.quantile(0.50)), 1)
+        lead_time_p85 = round(float(_lt.quantile(0.85)), 1)
+        lead_time_count = len(_df_resolved)
+        lead_time_por_tipo = (
+            _df_resolved.groupby('Tipo', dropna=False)['LeadTimeDias']
+            .agg(Count='count',
+                 P50=lambda x: round(float(x.quantile(0.50)), 1),
+                 P85=lambda x: round(float(x.quantile(0.85)), 1))
+            .reset_index()
+            .sort_values('P50', ignore_index=True)
+        )
+        lead_time_por_team = (
+            _df_resolved.groupby('TeamDisplay', dropna=False)['LeadTimeDias']
+            .agg(Count='count',
+                 P50=lambda x: round(float(x.quantile(0.50)), 1),
+                 P85=lambda x: round(float(x.quantile(0.85)), 1))
+            .reset_index()
+            .sort_values('P50', ignore_index=True)
+        )
+        _lt_cols = ['ID', 'Titulo', 'Tipo', 'TeamDisplay', 'Status', 'LeadTimeDias']
+        lead_time_distribution = _df_resolved[[c for c in _lt_cols if c in _df_resolved.columns]].copy()
+    else:
+        lead_time_p50 = None
+        lead_time_p85 = None
+        lead_time_count = 0
+        lead_time_por_tipo = pd.DataFrame(columns=['Tipo', 'Count', 'P50', 'P85'])
+        lead_time_por_team = pd.DataFrame(columns=['TeamDisplay', 'Count', 'P50', 'P85'])
+        lead_time_distribution = pd.DataFrame()
+
+    # ── Fase 3: Throughput ─────────────────────────────────────────────────
+    if not _df_resolved.empty:
+        _df_tp = _df_resolved.copy()
+        _df_tp['SemanaResolucao'] = _df_tp['ResolvedAt'].dt.to_period('W').apply(lambda p: p.start_time)
+        throughput_semanal = (
+            _df_tp.groupby('SemanaResolucao', dropna=True).size().reset_index(name='Itens')
+            .sort_values('SemanaResolucao', ignore_index=True)
+        )
+        throughput_semanal['SemanaResolucao'] = throughput_semanal['SemanaResolucao'].astype(str)
+        throughput_weekly_avg = round(float(throughput_semanal['Itens'].mean()), 1) if not throughput_semanal.empty else 0.0
+        _df_tp['MesResolucao'] = _df_tp['ResolvedAt'].dt.to_period('M').apply(lambda p: p.start_time)
+        throughput_mensal = (
+            _df_tp.groupby('MesResolucao', dropna=True).size().reset_index(name='Itens')
+            .sort_values('MesResolucao', ignore_index=True)
+        )
+        throughput_mensal['MesResolucao'] = throughput_mensal['MesResolucao'].astype(str)
+        throughput_monthly_avg = round(float(throughput_mensal['Itens'].mean()), 1) if not throughput_mensal.empty else 0.0
+    else:
+        throughput_semanal = pd.DataFrame(columns=['SemanaResolucao', 'Itens'])
+        throughput_mensal = pd.DataFrame(columns=['MesResolucao', 'Itens'])
+        throughput_weekly_avg = 0.0
+        throughput_monthly_avg = 0.0
+
+    # ── Fase 3: Alinhamento Estratégico ────────────────────────────────────
+    _has_tema = df['StrategicTheme'].ne('').any()
+    if _has_tema:
+        itens_com_tema = int(df['StrategicTheme'].ne('').sum())
+        pct_com_tema = round(itens_com_tema / len(df) * 100, 1) if len(df) else 0.0
+        _df_tema = df[df['StrategicTheme'].ne('')].copy()
+        tema_distribuicao = (
+            _df_tema.groupby('StrategicTheme', dropna=False).size().reset_index(name='Itens')
+            .sort_values('Itens', ascending=False, ignore_index=True)
+        )
+        tema_team_heatmap = (
+            _df_tema.groupby(['TeamDisplay', 'StrategicTheme'], dropna=False)
+            .size().reset_index(name='Itens')
+        ) if 'TeamDisplay' in _df_tema.columns else pd.DataFrame(columns=['TeamDisplay', 'StrategicTheme', 'Itens'])
+        tema_status_dist = (
+            _df_tema.groupby(['StrategicTheme', 'StatusCategoria'], dropna=False)
+            .size().reset_index(name='Itens')
+        ) if 'StatusCategoria' in _df_tema.columns else pd.DataFrame(columns=['StrategicTheme', 'StatusCategoria', 'Itens'])
+    else:
+        itens_com_tema = 0
+        pct_com_tema = 0.0
+        tema_distribuicao = pd.DataFrame(columns=['StrategicTheme', 'Itens'])
+        tema_team_heatmap = pd.DataFrame(columns=['TeamDisplay', 'StrategicTheme', 'Itens'])
+        tema_status_dist = pd.DataFrame(columns=['StrategicTheme', 'StatusCategoria', 'Itens'])
+
+    # ── Fase 3: Riscos ─────────────────────────────────────────────────────
+    _has_risk = df['Risk'].ne('').any()
+    if _has_risk:
+        itens_com_risco = int(df['Risk'].ne('').sum())
+        pct_com_risco = round(itens_com_risco / len(df) * 100, 1) if len(df) else 0.0
+        _df_rsk = df[df['Risk'].ne('')].copy()
+        risk_distribuicao = (
+            _df_rsk.groupby('Risk', dropna=False).size().reset_index(name='Itens')
+            .sort_values('Itens', ascending=False, ignore_index=True)
+        )
+        risk_por_tipo = (
+            _df_rsk.groupby(['Risk', 'Tipo'], dropna=False).size().reset_index(name='Itens')
+        )
+        risk_por_team = (
+            _df_rsk.groupby(['TeamDisplay', 'Risk'], dropna=False).size().reset_index(name='Itens')
+        ) if 'TeamDisplay' in _df_rsk.columns else pd.DataFrame(columns=['TeamDisplay', 'Risk', 'Itens'])
+        risk_aging = (
+            _df_rsk.groupby('Risk', dropna=False)['AgingDiasSemAlteracao']
+            .agg(Itens='count', AgingMediano=lambda x: int(round(x.median(), 0)))
+            .reset_index()
+            .sort_values('AgingMediano', ascending=False, ignore_index=True)
+        ) if 'AgingDiasSemAlteracao' in _df_rsk.columns else pd.DataFrame(columns=['Risk', 'Itens', 'AgingMediano'])
+    else:
+        itens_com_risco = 0
+        pct_com_risco = 0.0
+        risk_distribuicao = pd.DataFrame(columns=['Risk', 'Itens'])
+        risk_por_tipo = pd.DataFrame(columns=['Risk', 'Tipo', 'Itens'])
+        risk_por_team = pd.DataFrame(columns=['TeamDisplay', 'Risk', 'Itens'])
+        risk_aging = pd.DataFrame(columns=['Risk', 'Itens', 'AgingMediano'])
+
     items_base_cols = [
         'ID', 'Projeto', 'TeamOriginal', 'TeamDisplay', 'Tipo', 'TipoNorm', 'Status', 'StatusNorm',
         'StatusCategoria', 'AgingDiasSemAlteracao', 'IsOpen', 'IsBacklog', 'IsInProgress', 'IsFeature',
@@ -5296,6 +5447,15 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'pct_epicos_com_itens_fluxo': round((len(epics_com_itens_fluxo) / len(epics) * 100), 1) if len(epics) else 0.0,
             'pct_storytask_sem_feature_tatico': float(storytask_sem_feature_tatico_metric.get('Percentual', 0.0)),
             'pct_storytask_orfaos': float(storytask_orfaos_metric.get('Percentual', 0.0)),
+            'lead_time_p50': lead_time_p50,
+            'lead_time_p85': lead_time_p85,
+            'lead_time_count': lead_time_count,
+            'throughput_weekly_avg': throughput_weekly_avg,
+            'throughput_monthly_avg': throughput_monthly_avg,
+            'itens_com_tema_estrategico': itens_com_tema,
+            'pct_com_tema_estrategico': pct_com_tema,
+            'itens_com_risco': itens_com_risco,
+            'pct_com_risco': pct_com_risco,
         },
         'groups': {
             'epicos_por_team_status': epicos_por_team_status,
@@ -5364,6 +5524,18 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'portfolio_technical_epic_summary': portfolio_technical_epic_summary,
             'portfolio_technical_items_catalog': technical_items_catalog,
             'has_us_items': has_us_items,
+            'lead_time_por_tipo': lead_time_por_tipo,
+            'lead_time_por_team': lead_time_por_team,
+            'lead_time_distribution': lead_time_distribution,
+            'throughput_semanal': throughput_semanal,
+            'throughput_mensal': throughput_mensal,
+            'tema_distribuicao': tema_distribuicao,
+            'tema_team_heatmap': tema_team_heatmap,
+            'tema_status_dist': tema_status_dist,
+            'risk_distribuicao': risk_distribuicao,
+            'risk_por_tipo': risk_por_tipo,
+            'risk_por_team': risk_por_team,
+            'risk_aging': risk_aging,
         },
     }
 
@@ -17032,6 +17204,27 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         portfolio_technical_items_catalog = groups.get('portfolio_technical_items_catalog', pd.DataFrame())
         has_us_items = bool(groups.get('has_us_items', False))
 
+        lead_time_por_tipo = groups.get('lead_time_por_tipo', pd.DataFrame())
+        lead_time_por_team = groups.get('lead_time_por_team', pd.DataFrame())
+        lead_time_distribution = groups.get('lead_time_distribution', pd.DataFrame())
+        throughput_semanal = groups.get('throughput_semanal', pd.DataFrame())
+        throughput_mensal = groups.get('throughput_mensal', pd.DataFrame())
+        tema_distribuicao = groups.get('tema_distribuicao', pd.DataFrame())
+        tema_team_heatmap = groups.get('tema_team_heatmap', pd.DataFrame())
+        tema_status_dist = groups.get('tema_status_dist', pd.DataFrame())
+        risk_distribuicao = groups.get('risk_distribuicao', pd.DataFrame())
+        risk_por_tipo = groups.get('risk_por_tipo', pd.DataFrame())
+        risk_por_team = groups.get('risk_por_team', pd.DataFrame())
+        risk_aging = groups.get('risk_aging', pd.DataFrame())
+        _p3_metrics = snapshot.get('metrics', {})
+        lead_time_p50 = _p3_metrics.get('lead_time_p50')
+        lead_time_p85 = _p3_metrics.get('lead_time_p85')
+        lead_time_count = int(_p3_metrics.get('lead_time_count', 0))
+        throughput_weekly_avg = _p3_metrics.get('throughput_weekly_avg', 0.0)
+        throughput_monthly_avg = _p3_metrics.get('throughput_monthly_avg', 0.0)
+        pct_com_tema = _p3_metrics.get('pct_com_tema_estrategico', 0.0)
+        pct_com_risco = _p3_metrics.get('pct_com_risco', 0.0)
+
         selected_team = '__ALL__'
         df_portfolio_full_scope = df_portfolio_filtered.copy() if df_portfolio_filtered is not None else pd.DataFrame()
 
@@ -17090,6 +17283,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 )
         portfolio_technical_epic_summary = filter_by_team(portfolio_technical_epic_summary)
         portfolio_technical_items_catalog = filter_by_team(portfolio_technical_items_catalog)
+        lead_time_por_team = filter_by_team(lead_time_por_team, team_col='TeamDisplay')
+        lead_time_distribution = filter_by_team(lead_time_distribution, team_col='TeamDisplay')
+        tema_team_heatmap = filter_by_team(tema_team_heatmap, team_col='TeamDisplay')
+        risk_por_team = filter_by_team(risk_por_team, team_col='TeamDisplay')
         if items_base is None or items_base.empty:
             items_base_scope = pd.DataFrame()
         else:
@@ -19250,6 +19447,142 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                        style={'color': '#b22222', 'padding': '20px'}),
             )
 
+        # ── Fase 3: Métricas Avançadas ─────────────────────────────────────
+        def _p3_kpi(title, value, color='#1565C0'):
+            return html.Div([
+                html.Div(title, style={'fontSize': '11px', 'color': '#555', 'marginBottom': '4px'}),
+                html.Div(str(value), style={'fontSize': '22px', 'fontWeight': 'bold', 'color': color}),
+            ], style={
+                'background': '#f5f8ff', 'border': f'1px solid {color}',
+                'borderRadius': '8px', 'padding': '12px 16px', 'minWidth': '140px',
+            })
+
+        def _p3_bar(df_src, x, y, title, color=None, orientation='v', height=320):
+            if df_src is None or df_src.empty:
+                return html.Div(html.P(f'{title}: sem dados.', style={'color': '#888'}))
+            kwargs = dict(x=x, y=y, title=title, template='plotly_white',
+                          color=color, orientation=orientation)
+            fig = px.bar(df_src, **{k: v for k, v in kwargs.items() if v is not None})
+            fig.update_layout(height=height, margin=dict(t=45, b=60, l=60, r=20))
+            return dcc.Graph(figure=fig, config={'displayModeBar': False})
+
+        def _p3_line(df_src, x, y, title, height=280):
+            if df_src is None or df_src.empty:
+                return html.Div(html.P(f'{title}: sem dados.', style={'color': '#888'}))
+            fig = px.line(df_src, x=x, y=y, title=title, template='plotly_white', markers=True)
+            fig.update_layout(height=height, margin=dict(t=45, b=60, l=60, r=20))
+            return dcc.Graph(figure=fig, config={'displayModeBar': False})
+
+        def _p3_hist(df_src, x, title, height=300):
+            if df_src is None or df_src.empty:
+                return html.Div(html.P(f'{title}: sem dados.', style={'color': '#888'}))
+            fig = px.histogram(df_src, x=x, title=title, template='plotly_white', nbins=20)
+            fig.update_layout(height=height, margin=dict(t=45, b=60, l=60, r=20))
+            return dcc.Graph(figure=fig, config={'displayModeBar': False})
+
+        _kpi_grid_style = {
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fill, minmax(160px, 1fr))',
+            'gap': '10px', 'marginBottom': '16px',
+        }
+        _two_col = {'display': 'grid', 'gridTemplateColumns': '1fr 1fr', 'gap': '16px', 'marginBottom': '16px'}
+        _section_title_style = {'borderLeft': '4px solid #1565C0', 'paddingLeft': '10px', 'marginTop': '24px', 'marginBottom': '10px'}
+
+        # KPIs Fase 3
+        _lt_p50_txt = f"{lead_time_p50}d" if lead_time_p50 is not None else '—'
+        _lt_p85_txt = f"{lead_time_p85}d" if lead_time_p85 is not None else '—'
+        _tp_w_txt = f"{throughput_weekly_avg}/sem" if throughput_weekly_avg else '—'
+        _tp_m_txt = f"{throughput_monthly_avg}/mês" if throughput_monthly_avg else '—'
+
+        _avancado_kpis = html.Div([
+            _p3_kpi('Lead Time P50', _lt_p50_txt),
+            _p3_kpi('Lead Time P85', _lt_p85_txt, '#6A1B9A'),
+            _p3_kpi('Itens com lead time', lead_time_count, '#00695C'),
+            _p3_kpi('Throughput médio/sem', _tp_w_txt, '#E65100'),
+            _p3_kpi('Throughput médio/mês', _tp_m_txt, '#E65100'),
+            _p3_kpi('Tema estratégico (%)', f"{pct_com_tema}%", '#1B5E20' if pct_com_tema >= 50 else '#BF360C'),
+            _p3_kpi('Risco preenchido (%)', f"{pct_com_risco}%", '#1B5E20' if pct_com_risco >= 50 else '#BF360C'),
+        ], style=_kpi_grid_style)
+
+        # Lead Time
+        _lt_bloqueio_note = html.Div(
+            '⚠ Lead time requer CreatedAt e ResolvedAt preenchidos no CSV. Execute jira_portfolio_to_csv.py atualizado.',
+            style={'color': '#7B3F00', 'background': '#FFF8E1', 'border': '1px solid #FFD54F',
+                   'padding': '8px 12px', 'borderRadius': '6px', 'marginBottom': '10px',
+                   'display': 'block' if lead_time_count == 0 else 'none'}
+        )
+        _lt_section = html.Div([
+            html.H4('Lead Time de Portfólio', style=_section_title_style),
+            _lt_bloqueio_note,
+            html.Div([
+                _p3_hist(lead_time_distribution, 'LeadTimeDias', 'Distribuição de Lead Time (dias)'),
+                _p3_bar(lead_time_por_tipo, 'Tipo', 'P50', 'Lead Time P50 por Tipo (dias)', color='Tipo'),
+            ], style=_two_col),
+            html.Div([
+                _p3_bar(lead_time_por_team.sort_values('P50', ascending=True) if not lead_time_por_team.empty else lead_time_por_team,
+                        'P50', 'TeamDisplay', 'Lead Time P50 por Team (dias)', orientation='h'),
+                _p3_bar(lead_time_por_tipo, 'Tipo', 'P85', 'Lead Time P85 por Tipo (dias)', color='Tipo'),
+            ], style=_two_col),
+        ])
+
+        # Throughput
+        _tp_section = html.Div([
+            html.H4('Throughput de Portfólio', style=_section_title_style),
+            html.Div([
+                _p3_line(throughput_semanal, 'SemanaResolucao', 'Itens', 'Throughput Semanal (itens concluídos)'),
+                _p3_line(throughput_mensal, 'MesResolucao', 'Itens', 'Throughput Mensal (itens concluídos)'),
+            ], style=_two_col),
+        ])
+
+        # Alinhamento Estratégico
+        _tema_bloqueio_note = html.Div(
+            '⚠ Alinhamento estratégico requer campo StrategicTheme exportado. Configure strategic_theme em JIRA_FIELD_MAP.',
+            style={'color': '#7B3F00', 'background': '#FFF8E1', 'border': '1px solid #FFD54F',
+                   'padding': '8px 12px', 'borderRadius': '6px', 'marginBottom': '10px',
+                   'display': 'block' if tema_distribuicao.empty else 'none'}
+        )
+        _tema_section = html.Div([
+            html.H4('Alinhamento Estratégico', style=_section_title_style),
+            _tema_bloqueio_note,
+            html.Div([
+                _p3_bar(tema_distribuicao, 'StrategicTheme', 'Itens', 'Distribuição por Tema Estratégico', color='StrategicTheme'),
+                _p3_bar(tema_status_dist, 'StrategicTheme', 'Itens', 'Tema × Categoria de Status', color='StatusCategoria'),
+            ], style=_two_col),
+        ] + ([
+            portfolio_table_component(
+                tema_team_heatmap.pivot_table(index='TeamDisplay', columns='StrategicTheme', values='Itens', aggfunc='sum', fill_value=0).reset_index()
+                if not tema_team_heatmap.empty else pd.DataFrame(),
+                'Heatmap Team × Tema Estratégico',
+                'table-portfolio-tema-heatmap'
+            )
+        ] if not tema_team_heatmap.empty else []))
+
+        # Riscos
+        _risk_bloqueio_note = html.Div(
+            '⚠ Análise de riscos requer campo Risk exportado. Configure risk em JIRA_FIELD_MAP.',
+            style={'color': '#7B3F00', 'background': '#FFF8E1', 'border': '1px solid #FFD54F',
+                   'padding': '8px 12px', 'borderRadius': '6px', 'marginBottom': '10px',
+                   'display': 'block' if risk_distribuicao.empty else 'none'}
+        )
+        _risk_section = html.Div([
+            html.H4('Análise de Riscos', style=_section_title_style),
+            _risk_bloqueio_note,
+            html.Div([
+                _p3_bar(risk_distribuicao, 'Risk', 'Itens', 'Distribuição por Nível de Risco', color='Risk'),
+                _p3_bar(risk_aging, 'Risk', 'AgingMediano', 'Aging Mediano por Nível de Risco (dias)', color='Risk'),
+            ], style=_two_col),
+            _p3_bar(risk_por_tipo, 'Tipo', 'Itens', 'Risco × Tipo de Item', color='Risk', height=280),
+        ])
+
+        avancado_section = html.Div([
+            _avancado_kpis,
+            _lt_section,
+            _tp_section,
+            _tema_section,
+            _risk_section,
+        ], style={'paddingTop': '10px'})
+        # ── /Fase 3 ────────────────────────────────────────────────────────
+
         return html.Div([
             html.H3('Painel de Portfólio', style={'textAlign': 'center'}),
             html.P(
@@ -19271,6 +19604,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     dcc.Tab(label='Effort & Concentração', value='portfolio-effort-concentracao', children=[effort_concentracao_section]),
                     dcc.Tab(label='Portfólio x Delivery', value='portfolio-cross-delivery', children=[cross_delivery_section]),
                     dcc.Tab(label='Custos & Fluxo', value='portfolio-process-mining-capex', children=[pm_portfolio_section]),
+                    dcc.Tab(label='Métricas Avançadas', value='portfolio-avancado', children=[avancado_section]),
                 ]
             ),
             not_started_section,
