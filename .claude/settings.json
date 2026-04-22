@@ -12,10 +12,40 @@
       "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" log --oneline --follow run_process_mining_projects_macos.sh)",
       "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" log --oneline --follow bitbucket_export.py)",
       "Bash(git -C \"/Users/rodrigoalmeidadeoliveira/Library/CloudStorage/GoogleDrive-rodrigoalmeidadeoliveira@gmail.com/Outros computadores/Notebook/Python/Projetos/flow-pmo/flow-pmo\" show 6ccb53d --stat)",
-      "Bash(grep -v \"^[0-9]\\\\{1,4\\\\}:\")"
+      "Bash(grep -v \"^[0-9]\\\\{1,4\\\\}:\")",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(python -m py_compile jira_portfolio_to_csv.py)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CAVEMAN MODE ACTIVE. Drop articles/filler/hedging. Fragments OK. Pattern: [thing] [action] [reason]. Switch: /caveman lite|full|ultra. Stop: stop caveman.'",
+            "timeout": 5,
+            "statusMessage": "Loading caveman mode..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "/caveman",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const d=require('fs').readFileSync(0,'utf8');const p=(JSON.parse(d).prompt||'').trim();const m=p.match(/^\\/caveman\\s*(lite|full|ultra)?$/i);if(m){const l=(m[1]||'full').toUpperCase();process.stdout.write(JSON.stringify({system_prompt_suffix:'[CAVEMAN MODE SWITCHED TO: '+l+']'}));}\"",
+            "timeout": 5,
+            "statusMessage": "Switching caveman mode..."
+          }
+        ]
+      }
     ]
   }
 }

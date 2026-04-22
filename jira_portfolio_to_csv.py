@@ -54,6 +54,12 @@ CSV_COLUMNS = [
     "DueDate",
     "CreatedAt",
     "ResolvedAt",
+    # Fase 2: campos estratégicos/governança
+    "StrategicTheme",
+    "Owner",
+    "Sponsor",
+    "Risk",
+    "TargetDate",
 ]
 
 ISSUE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
@@ -152,6 +158,31 @@ def discover_effort_tshirt_field_id(base_url: str, email: str, token: str) -> st
         if "tshirt" in schema_custom or "t-shirt" in schema_custom:
             return fid
 
+    return ""
+
+
+def discover_field_by_names(
+    base_url: str, email: str, token: str, *name_candidates: str
+) -> str:
+    try:
+        resp = requests.get(
+            f"{base_url}/rest/api/3/field",
+            auth=(email, token),
+            headers={"Accept": "application/json"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        field_defs = resp.json()
+    except Exception:
+        return ""
+    if not isinstance(field_defs, list):
+        return ""
+    targets = {c.strip().lower() for c in name_candidates if c.strip()}
+    for f in field_defs:
+        name = str((f or {}).get("name") or "").strip().lower()
+        fid = str((f or {}).get("id") or "").strip()
+        if name in targets and fid:
+            return fid
     return ""
 
 
@@ -363,6 +394,7 @@ def build_output_row(
     field_map: Dict[str, Any],
     team_field: str,
     effort_tshirt_field: str,
+    custom_fields: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
     fields = issue.get("fields", {}) or {}
     parent = fields.get("parent") or {}
@@ -385,7 +417,7 @@ def build_output_row(
         parent_summary=str(parent_fields.get("summary") or ""),
     )
     issue_links_summary = build_issue_links_summary(fields.get("issuelinks"))
-    return {
+    row = {
         "ID": key,
         "Titulo": str(fields.get("summary") or ""),
         "Projeto": str((fields.get("project") or {}).get("key") or ""),
@@ -415,7 +447,17 @@ def build_output_row(
         "DueDate": str(fields.get("duedate") or ""),
         "CreatedAt": str(fields.get("created") or ""),
         "ResolvedAt": str(fields.get("resolutiondate") or ""),
+        # Fase 2: defaults — substituídos abaixo se field IDs configurados
+        "StrategicTheme": "",
+        "Owner": "",
+        "Sponsor": "",
+        "Risk": "",
+        "TargetDate": "",
     }
+    for col_name, field_id in (custom_fields or {}).items():
+        if col_name in row and field_id:
+            row[col_name] = custom_field_as_text(fields, field_id)
+    return row
 
 
 def default_out_path(projects: List[str]) -> str:
@@ -475,6 +517,24 @@ def main() -> int:
         if effort_tshirt_field:
             print(f"Campo Effort T-shirt size autodetectado: {effort_tshirt_field}")
 
+    # Fase 2: campos estratégicos/governança configuráveis via JIRA_FIELD_MAP
+    _PHASE2_FIELD_SPECS: List[tuple] = [
+        ("strategic_theme", "StrategicTheme", ["Strategic Theme", "Tema Estratégico", "Objetivo Estratégico", "Strategic Objective"]),
+        ("owner",           "Owner",          ["Owner", "Business Owner", "Product Owner", "Responsável"]),
+        ("sponsor",         "Sponsor",        ["Sponsor", "Executive Sponsor", "Patrocinador"]),
+        ("risk",            "Risk",           ["Risk", "Risco", "Risk Level", "Nível de Risco"]),
+        ("target_date",     "TargetDate",     ["Target Date", "Data Alvo", "Target", "Data Meta"]),
+    ]
+    custom_fields: Dict[str, str] = {}  # col_name -> jira field id
+    for map_key, col_name, discovery_names in _PHASE2_FIELD_SPECS:
+        fid = str(field_map.get(map_key) or "").strip()
+        if not fid:
+            fid = discover_field_by_names(base_url, email, token, *discovery_names)
+            if fid:
+                print(f"Campo {col_name} autodetectado: {fid}")
+        if fid:
+            custom_fields[col_name] = fid
+
     fields = [
         "summary", "issuetype", "project", "parent", "status", "priority",
         "updated", "statuscategorychangedate", "duedate", "components", "labels",
@@ -488,6 +548,9 @@ def main() -> int:
         fields.append(team_field)
     if effort_tshirt_field and effort_tshirt_field not in fields:
         fields.append(effort_tshirt_field)
+    for _fid in custom_fields.values():
+        if _fid and _fid not in fields:
+            fields.append(_fid)
 
     print(f"Consultando Jira com JQL: {jql}")
     issues = client.search_issues(jql=jql, fields=fields, page_size=100)
@@ -555,6 +618,7 @@ def main() -> int:
             field_map=field_map,
             team_field=team_field,
             effort_tshirt_field=effort_tshirt_field,
+            custom_fields=custom_fields,
         )
         for issue in issues
     ]
@@ -566,6 +630,12 @@ def main() -> int:
             if str(row.get("EffortTShirtSize") or "").strip():
                 effort_scope_with_effort += 1
     print(f"Épicos/Features com Effort T-shirt size preenchido: {effort_scope_with_effort}/{effort_scope_total}")
+    total_rows = len(rows)
+    for col_name in ("StrategicTheme", "Owner", "Sponsor", "Risk", "TargetDate"):
+        if col_name in custom_fields:
+            filled = sum(1 for r in rows if str(r.get(col_name) or "").strip())
+            pct = f"{filled * 100 // total_rows}%" if total_rows else "0%"
+            print(f"Cobertura {col_name}: {filled}/{total_rows} ({pct})")
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8-sig") as fp:
         writer = csv.DictWriter(fp, fieldnames=CSV_COLUMNS)
