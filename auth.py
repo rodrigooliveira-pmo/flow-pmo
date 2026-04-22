@@ -417,9 +417,9 @@ def init_app(flask_server) -> None:
                 logout_url=url_for("auth.logout"),
             ), 403
 
-        # Static allowlist (active when group check vars are not configured)
-        if access_mode == "allowlist" and email not in allowed_emails:
-            logger.info("Acesso negado por allowlist estática para %s.", email)
+        # Allowlist enforced in both allowlist and group modes when configured
+        if allowed_emails and email not in allowed_emails:
+            logger.info("Acesso negado por allowlist para %s.", email)
             logout_user()
             return render_template_string(
                 _FORBIDDEN_HTML,
@@ -429,7 +429,7 @@ def init_app(flask_server) -> None:
                 logout_url=url_for("auth.logout"),
             ), 403
 
-        # Google Workspace Group membership check (takes priority over allowlist)
+        # Google Workspace Group membership check (AND with allowlist when both configured)
         if use_group_check:
             try:
                 member = _is_group_member(email, allowed_group, sa_info, impersonate)
@@ -477,4 +477,9 @@ def init_app(flask_server) -> None:
         if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
             return
         if not current_user.is_authenticated:
+            return redirect(url_for("auth.login"))
+        # Revalidate email on every request — catches sessions created before allowlist was configured
+        if allowed_emails and current_user.email not in allowed_emails:
+            logger.warning("Sessão invalidada por allowlist para %s.", current_user.email)
+            logout_user()
             return redirect(url_for("auth.login"))

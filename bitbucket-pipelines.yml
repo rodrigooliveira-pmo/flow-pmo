@@ -59,7 +59,6 @@ pipelines:
                       "FLOW_PMO_PORTFOLIO_COST_MODEL": "{\"fl_mensal\":50000000,\"budget_ti_pct\":0.10,\"fator_encargos\":2.0,\"custo_ferramentas_infra_mensal\":35000,\"dias_uteis_mes\":22,\"horas_dia\":8,\"fator_produtividade\":0.75,\"salario_medio_bruto\":12000}",
                       "FLOW_PMO_PORTFOLIO_ROLE_SALARY_MAP": "{\"Dev\":10000,\"Tech Lead\":18000}",
                       "FLOW_PMO_ALLOWED_DOMAIN": "w1.com.br",
-                      "FLOW_PMO_ALLOWED_GROUP": "sso-dashboardfluxoprodutividade-viewer@w1.com.br",
                       "FLOW_PMO_ALLOWED_EMAILS": "${FLOW_PMO_ALLOWED_EMAILS}",
                       "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
                       "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
