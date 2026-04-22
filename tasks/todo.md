@@ -1,3 +1,102 @@
+## Current Task (Planejar integração BusinessMap para extração compatível com Flow-PMO)
+- [x] Revisar arquitetura atual do projeto e scripts já existentes de Jira/BusinessMap
+- [x] Ler a OpenAPI real da instância `https://w1consultoria.businessmap.io/openapi/json`
+- [x] Mapear endpoints mínimos para extração, reconciliação de estrutura e histórico
+- [x] Definir plano de integração compatível com o pipeline atual sem acoplar BusinessMap ao dashboard antes da normalização
+
+## Specification (Planejar integração BusinessMap para extração compatível com Flow-PMO)
+- Objetivo: definir um plano de integração com BusinessMap para extração de dados e compatibilização com a estrutura analítica atual do projeto (`jira_to_pipeline_csv.py` -> `dash_board_metricas.py` -> `PowerBI_Model`/dashboards), preservando a arquitetura modular e minimizando risco de regressão.
+- Escopo:
+  - `tasks/todo.md`
+  - análise de arquitetura existente
+  - análise da OpenAPI `Businessmap API v2` da instância `w1consultoria.businessmap.io`
+- Restrições e decisões-base:
+  - não substituir o pipeline Jira existente de imediato; BusinessMap deve entrar primeiro como fonte adicional/alternativa atrás de um adaptador canônico
+  - manter `jira_to_businessmap_xlsx.py` como utilitário standalone de migração one-shot; ele não vira base do pipeline analítico
+  - preservar convenção atual do projeto: extração em script próprio, normalização em camada separada, consumo final pelo hub de métricas e dashboards
+- Endpoints validados na OpenAPI:
+  - autenticação por header com API key; base server `https://w1consultoria.businessmap.io/api/v2`
+  - leitura estrutural: `GET /boards`, `GET /boards/{board_id}`, `GET /boards/{board_id}/currentStructure`, `GET /boards/{board_id}/customFields`, `GET /boards/{board_id}/teams`, `GET /boards/{board_id}/userRoles`
+  - leitura operacional: `GET /cards` com filtros por `board_ids`, `workflow_ids`, `column_ids`, `lane_ids`, `state`, datas, paginação, `fields` e `expand`
+  - busca avançada: `POST /openSearch/cards`
+  - histórico/reconstrução temporal: `GET /cards/{card_id}/revisions`, `GET /cards/{card_id}/revisions/{revision}`, `GET /archivedCardVersions`
+  - complementos: `GET /cards/{card_id}/comments`, `GET /cards/{card_id}/linkedCards`, `GET /loggedTime`, `GET /loggedTime/history`, `GET /teams`, `GET /users`, `GET /workspaces`
+- Compatibilidade alvo com estrutura atual:
+  - camada `downstream`: produzir CSV compatível com colunas-base atuais do fluxo (`ID`, `Link`, `Title`, datas por estágio, `Responsável`, `Criador`, `Prioridade`, `Blocked Days`, `ParentID`, `IssueLinkKeys`, etc.)
+  - camada `portfolio`: produzir snapshot compatível com `jira_portfolio_to_csv.py` (`ID`, `Titulo`, `Projeto`, `Team`, `Tipo`, `Status`, `ParentID`, `FeatureLinkID`, `EpicLinkID`, `UpdatedAt`, `StatusChangedAt`, `DueDate`, etc.)
+  - BusinessMap snapshot atual sozinho não basta para métricas de lead/cycle/backlog; para aderência real ao `dash_board_metricas.py` será necessário reconstruir datas de entrada por estágio usando `card revisions`
+- Arquitetura proposta:
+  - `businessmap/client.py`
+    - cliente compartilhado com autenticação por `X-API-Key`, retry/backoff em `429/5xx`, paginação (`page`/`per_page`) e helpers para `fields`/`expand`
+  - `businessmap/schema.py`
+    - modelos/helpers para board, structure, card, revision, custom field e enums locais
+  - `businessmap/extract_structure.py`
+    - exporta catálogo de boards, workflows, columns, lanes, teams, users e custom fields
+  - `businessmap_to_pipeline_csv.py`
+    - extrator principal para gerar CSV downstream compatível com `jira_to_pipeline_csv.py`
+  - `businessmap_to_portfolio_csv.py`
+    - extrator de épicos/features/cards estratégicos para CSV compatível com `jira_portfolio_to_csv.py`
+  - `shared/businessmap_stage_mapper.py`
+    - mapeia `(board, lane, column, section)` -> estágio canônico do Flow-PMO
+  - configuração externa:
+    - `businessmap_env.txt` ou variáveis `BUSINESSMAP_BASE_URL`, `BUSINESSMAP_API_KEY`, `BUSINESSMAP_BOARD_IDS`, `BUSINESSMAP_PORTFOLIO_BOARD_IDS`
+    - `businessmap_config.yaml` com mapeamento de boards, colunas, lanes, tipos, custom fields e regras de hierarquia
+- Plano de entrega por fases:
+  - Fase 0: Descoberta estrutural
+    - inventariar boards reais, times, user roles, custom fields e estrutura atual via `currentStructure`
+    - congelar um dicionário de mapeamento `board/column/lane -> estágio Flow-PMO`
+  - Fase 1: Snapshot operacional mínimo
+    - implementar `GET /cards` paginado por board
+    - gerar CSV bruto com IDs, board, workflow, lane, column, owner, blocked, deadline, custom fields e linked cards
+    - objetivo: auditoria e validação sem ainda alimentar métricas finais
+  - Fase 2: Normalização canônica de fluxo
+    - traduzir card atual para schema próximo ao downstream Jira
+    - mapear owner/co-owners/teams/prioridade/tipo/links/pais
+    - converter custom fields relevantes para colunas já conhecidas do pipeline
+  - Fase 3: Reconstrução temporal
+    - usar `GET /cards/{card_id}/revisions` para detectar primeira/última entrada em cada estágio canônico
+    - derivar datas equivalentes a `Backlog`, `In Progress`, `Ready QA`, `Done`, etc.
+    - calcular `Blocked Days` a partir de bloqueios/histórico quando necessário
+  - Fase 4: Snapshot de portfólio
+    - extrair boards/camadas estratégicas do BusinessMap para CSV espelho do portfólio atual
+    - preservar hierarquia via linked cards/parent cards/selected cards/custom fields conforme modelagem real do board
+  - Fase 5: Integração controlada com pipeline
+    - permitir que `dash_board_metricas.py` rode sobre arquivos BusinessMap-normalized sem alterar dashboards
+    - comparar métricas BusinessMap vs Jira em período idêntico
+  - Fase 6: Operação
+    - criar runner/orquestrador análogo aos scripts Jira
+    - publicar aliases `latest` e smoke tests de schema
+- Estratégia de compatibilidade de dados:
+  - `ID`: usar `card_id`; manter `custom_id` em coluna auxiliar e usar como chave externa quando existir
+  - `Projeto`: derivar de board/workspace mapeado; não inferir ad hoc no dashboard
+  - `Tipo`: mapear `type_id`/card type para taxonomia atual (`Bug`, `Story`, `Support`, `Task`, `Epic`, `Feature`, etc.)
+  - `Status`: armazenar valor bruto `lane/column/section` e também estágio canônico Flow-PMO
+  - `ParentID`/`FeatureLinkID`/`EpicLinkID`: resolver por linked cards, parent cards, selected cards e custom fields configurados
+  - `Responsável`: priorizar `owner_user_id`; complementar com co-owners em coluna auxiliar
+  - `Blocked Days`: derivar de block reason + revisions, não só do estado atual `is_blocked`
+  - datas de throughput/lead time: sempre derivadas do histórico de revisões, nunca apenas do snapshot corrente
+- Verificações planejadas:
+  - `python -m py_compile businessmap\\client.py businessmap_to_pipeline_csv.py businessmap_to_portfolio_csv.py`
+  - smoke test de autenticação e paginação contra `GET /boards` e `GET /cards`
+  - validação de schema: colunas obrigatórias compatíveis com `dash_board_metricas.py` e loaders de `dashboard_full.py`
+  - reconciliação paralela Jira x BusinessMap em amostra conhecida por time/board/período
+  - teste de volumetria respeitando limites da API: default documentado `600/hora` e `30/minuto`
+- Critério de aceite do plano:
+  - existe rota clara de extração BusinessMap -> CSV canônico -> pipeline atual
+  - fica explícito que histórico de revisões é pré-requisito para compatibilidade real de métricas
+  - arquitetura proposta reutiliza `shared/` e evita acoplamento direto dos dashboards à API BusinessMap
+
+## Review (Planejar integração BusinessMap para extração compatível com Flow-PMO)
+- Resultado:
+  - plano de integração definido com base na OpenAPI real da instância e na arquitetura atual do repositório
+- Principais conclusões:
+  - BusinessMap já oferece endpoints suficientes para extração estrutural, snapshot operacional e histórico de revisões
+  - a integração correta não é ligar dashboard direto no BusinessMap; é criar adaptadores que emitam o mesmo contrato CSV hoje esperado pelo pipeline
+  - para manter métricas de fluxo comparáveis ao Jira atual, a integração precisa obrigatoriamente reconstruir datas de estágio via `card revisions`
+- Risco residual:
+  - ainda falta validar, com amostra real dos boards, como a conta modela hierarquia (`linked cards`, parent cards, custom fields, selected cards) e quais custom fields representam Owner/Team/portfolio
+- Suggested commit message: `docs(integration): add businessmap extraction compatibility plan`
+
 ## Current Task (Integrar repositório com o Bitbucket para usar o pipeline já configurado da AWS)
 - [x] Adicionar o Bitbucket como remote do git local
 - [x] Identificar e diagnosticar a falha de push por incompatibilidade de históricos (arquivos antigos de pipeline da AWS)
