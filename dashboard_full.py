@@ -19360,18 +19360,50 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             render_portfolio_health_scorecard(portfolio_health_scorecard, portfolio_health_dimension_summary),
             render_portfolio_due_date_performance(due_date_performance),
             html.Div([
-                create_kpi_card('Total de épicos', f"{total_epicos_visao}", class_name='', **portfolio_kpi_style(kpi_color_epic)),
-                create_kpi_card('Total de features', f"{total_features_visao}", class_name='', **portfolio_kpi_style(kpi_color_feature)),
-                create_kpi_card('Épicos sem features', f"{epicos_sem_features_visao}", class_name='', **portfolio_kpi_style(kpi_color_epic)),
-                create_kpi_card('Features sem épico', f"{features_sem_epico_visao}", class_name='', **portfolio_kpi_style(kpi_color_feature)),
-                create_kpi_card('Features sem filhos', f"{features_sem_filhos_visao}", class_name='', **portfolio_kpi_style(kpi_color_feature)),
-                create_kpi_card('Histórias/Tasks sem feature', f"{hist_tasks_sem_feature_visao}", class_name='', **portfolio_kpi_style(kpi_color_story)),
-                create_kpi_card('Sem movimento 15d / 30d', f"{features_sem_mov_15_visao} / {features_sem_mov_30_visao}", class_name='', **portfolio_kpi_style(kpi_neutral)),
-            ], style={
-                'display': 'grid',
-                'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
-                'gap': '10px',
-            }),
+                html.Div([
+                    html.Div('Escopo', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#334155', 'marginBottom': '8px'}),
+                    html.Div([
+                        html.Div([
+                            html.Div('TOTAL DE ÉPICOS', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#bf360c', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{total_epicos_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#bf360c', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#fff3e0', 'border': '1px solid #e65100', 'minHeight': '90px'}),
+                        html.Div([
+                            html.Div('TOTAL DE FEATURES', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#4a148c', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{total_features_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#4a148c', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#f3e5f5', 'border': '1px solid #7b1fa2', 'minHeight': '90px'}),
+                    ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(150px, 1fr))', 'gap': '8px'}),
+                ], style={'marginBottom': '16px'}),
+                html.Div([
+                    html.Div('Hierarquia', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#334155', 'marginBottom': '8px'}),
+                    html.Div([
+                        html.Div([
+                            html.Div('ÉPICOS SEM FEATURES', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#bf360c', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{epicos_sem_features_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#bf360c', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#fff3e0', 'border': '1px solid #e65100', 'minHeight': '90px'}),
+                        html.Div([
+                            html.Div('FEATURES SEM ÉPICO', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#4a148c', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{features_sem_epico_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#4a148c', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#f3e5f5', 'border': '1px solid #7b1fa2', 'minHeight': '90px'}),
+                        html.Div([
+                            html.Div('FEATURES SEM FILHOS', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#4a148c', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{features_sem_filhos_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#4a148c', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#f3e5f5', 'border': '1px solid #7b1fa2', 'minHeight': '90px'}),
+                        html.Div([
+                            html.Div('HISTÓRIAS/TASKS SEM FEATURE', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#0d47a1', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{hist_tasks_sem_feature_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#0d47a1', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#e3f2fd', 'border': '1px solid #1565c0', 'minHeight': '90px'}),
+                    ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(150px, 1fr))', 'gap': '8px'}),
+                ], style={'marginBottom': '16px'}),
+                html.Div([
+                    html.Div('Inatividade', style={'fontSize': '13px', 'fontWeight': '700', 'color': '#334155', 'marginBottom': '8px'}),
+                    html.Div([
+                        html.Div([
+                            html.Div('SEM MOVIMENTO 15D / 30D', style={'fontSize': '11px', 'fontWeight': '700', 'color': '#263238', 'letterSpacing': '0.3px'}),
+                            html.Div(f"{features_sem_mov_15_visao} / {features_sem_mov_30_visao}", style={'fontSize': '28px', 'fontWeight': '800', 'color': '#263238', 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        ], style={'padding': '10px 14px', 'borderRadius': '10px', 'backgroundColor': '#eceff1', 'border': '1px solid #455a64', 'minHeight': '90px'}),
+                    ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(150px, 1fr))', 'gap': '8px'}),
+                ], style={'marginBottom': '16px'}),
+            ]),
             render_executive_tiles(executive_tiles),
             render_quality_cards(quality_por_team, quality_summary),
         ], style={'paddingTop': '10px'})
