@@ -3904,6 +3904,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
                 'risk_por_tipo': pd.DataFrame(),
                 'risk_por_team': pd.DataFrame(),
                 'risk_aging': pd.DataFrame(),
+                'due_date_performance': pd.DataFrame(),
             },
         }
 
@@ -4800,6 +4801,104 @@ def compute_portfolio_snapshot(df, updated_at_label):
     else:
         portfolio_extra_onepage_summary = pd.DataFrame(columns=['TipoItem', 'TotalItens'])
 
+    # --- Features sem épico (abertas) ---
+    features_sem_epico_alerta = (
+        features_open[features_open['EpicID'] == ''].copy()
+        if not features_open.empty and 'EpicID' in features_open.columns
+        else pd.DataFrame(columns=features.columns)
+    )
+
+    # --- Épicos com ao menos uma feature atrasada (DueDate < hoje) ---
+    epics_com_features_atrasadas = pd.DataFrame(columns=epics.columns)
+    if not features_open.empty and 'EpicID' in features_open.columns and 'DueDate' in features_open.columns:
+        _feat_due_days = _due_days(features_open)
+        _epic_ids_feat_atrasada = set(features_open.loc[_feat_due_days < 0, 'EpicID'].dropna()) - {''}
+        if _epic_ids_feat_atrasada and not epics_open.empty:
+            epics_com_features_atrasadas = epics_open[epics_open['ID'].isin(_epic_ids_feat_atrasada)].copy()
+
+    # --- Itens bloqueados / impedidos ---
+    _blocked_mask = df['StatusNorm'].str.contains('bloqueado|blocked|impedido', na=False, regex=True)
+    itens_bloqueados = df[df['IsOpen'] & _blocked_mask].copy() if not df.empty else pd.DataFrame(columns=df.columns)
+
+    # --- Stories/Tasks com parent vinculado mas parados há >30d ---
+    _st_com_parent = df[df['IsStoryTask'] & df['HasParentFeature'] & df['IsOpen']].copy() if not df.empty else pd.DataFrame(columns=df.columns)
+    stories_tasks_parados = (
+        _st_com_parent[pd.to_numeric(_st_com_parent['AgingDiasSemAlteracao'], errors='coerce') > 30].copy()
+        if not _st_com_parent.empty else pd.DataFrame(columns=df.columns)
+    )
+
+    # --- WIP excessivo por time (KPI sintético — número de times acima do limite) ---
+    _wip_limit = int(os.environ.get('FLOW_PMO_PORTFOLIO_WIP_LIMIT', '10'))
+    _team_wip = (
+        df[df['IsOpen'] & df['IsInProgress']].groupby('TeamDisplay').size()
+        if not df.empty else pd.Series(dtype='int64')
+    )
+    _times_com_wip_excessivo = int((_team_wip > _wip_limit).sum()) if not _team_wip.empty else 0
+
+    # --- FASE 2 ---
+
+    # --- Épicos sem prazo (DueDate ausente) ---
+    epics_sem_prazo = (
+        epics_open[pd.to_datetime(epics_open.get('DueDate'), errors='coerce').isna()].copy()
+        if not epics_open.empty else pd.DataFrame(columns=epics.columns)
+    )
+
+    # --- Épicos em descoberta parados (Backlog > 45d sem movimentação) ---
+    epics_aging_descoberta = pd.DataFrame(columns=epics.columns)
+    if not epics_open.empty and 'StatusCategoria' in epics_open.columns:
+        _epics_backlog = epics_open[epics_open['StatusCategoria'] == 'Backlog']
+        epics_aging_descoberta = _epics_backlog[
+            pd.to_numeric(_epics_backlog['AgingDiasSemAlteracao'], errors='coerce') > 45
+        ].copy()
+
+    # --- Épicos em risco de prazo: vence em ≤30d e <50% dos filhos concluídos ---
+    epics_milestone_risk = pd.DataFrame(columns=epics.columns)
+    if not epics_open.empty and not children_under_epic.empty:
+        _done_by_epic = (
+            children_under_epic[children_under_epic['ID'].map(status_categoria_by_id) == 'Concluído']
+            .groupby('EpicID').size()
+            .rename('_QtdConcluidos')
+        )
+        _epics_due = epics_open[pd.to_datetime(epics_open.get('DueDate'), errors='coerce').notna()].copy()
+        if not _epics_due.empty:
+            _epics_due['_DPV'] = _due_days(_epics_due)
+            _epics_due['_QtdConcluidos'] = _epics_due['ID'].map(_done_by_epic).fillna(0).astype(int)
+            _epics_due['_PctConclusao'] = (
+                _epics_due['_QtdConcluidos'] /
+                _epics_due['QtdItensFilhos'].replace(0, np.nan) * 100
+            ).fillna(0).round(1)
+            epics_milestone_risk = _epics_due[
+                (_epics_due['_DPV'] >= 0) &
+                (_epics_due['_DPV'] <= 30) &
+                (_epics_due['_PctConclusao'] < 50) &
+                (_epics_due['QtdItensFilhos'] > 0)
+            ].copy()
+
+    # --- Itens sem prioridade (épicos e features abertos) ---
+    itens_sem_prioridade = pd.DataFrame(columns=df.columns)
+    if not df.empty and 'Prioridade' in df.columns:
+        _prio_vazia = df['Prioridade'].isna() | (df['Prioridade'].astype(str).str.strip().isin(['', 'nan', 'None']))
+        itens_sem_prioridade = df[
+            df['IsOpen'] & df['TipoNorm'].isin(epic_types | feature_types) & _prio_vazia
+        ].copy()
+
+    # --- Features em descoberta paradas (Backlog > 45d) ---
+    features_aging_descoberta = pd.DataFrame(columns=features.columns)
+    if not features_open.empty and 'StatusCategoria' in features_open.columns:
+        _features_backlog = features_open[features_open['StatusCategoria'] == 'Backlog'].copy()
+        if not _features_backlog.empty:
+            _features_backlog['AgingDiasSemAlteracao'] = _features_backlog['ID'].map(age_map_all)
+            features_aging_descoberta = _features_backlog[
+                pd.to_numeric(_features_backlog['AgingDiasSemAlteracao'], errors='coerce') > 45
+            ].copy()
+
+    # --- Gargalo de handoff (status de espera > 7d) ---
+    _handoff_mask = df['StatusNorm'].str.contains(r'aguardando|waiting|em revis|pendente|on hold', na=False, regex=True)
+    itens_handoff = (
+        df[df['IsOpen'] & _handoff_mask & (pd.to_numeric(df['AgingDiasSemAlteracao'], errors='coerce') > 7)].copy()
+        if not df.empty else pd.DataFrame(columns=df.columns)
+    )
+
     technical_items_base = df.copy()
     technical_items_base['TechnicalCategory'] = technical_items_base.apply(_detect_technical_category, axis=1)
     technical_items_catalog = technical_items_base[technical_items_base['TechnicalCategory'].ne('')].copy()
@@ -4999,6 +5098,86 @@ def compute_portfolio_snapshot(df, updated_at_label):
             lambda row: 'Item marcado com a tag EXTRA-ONEPAGE para destaque no one page executivo.',
             lambda row: 'Alerta'
         ),
+        _build_alert_frame(
+            features_sem_epico_alerta,
+            'ID',
+            'Tipo',
+            'Feature sem épico',
+            lambda row: 'Feature aberta sem épico pai vinculado.',
+            lambda row: _staleness_severity(row.get('DiasSemMovimentacao', row.get('AgingDiasSemAlteracao')))
+        ),
+        _build_alert_frame(
+            epics_com_features_atrasadas,
+            'ID',
+            'Tipo',
+            'Épico c/ feature atrasada',
+            lambda row: 'Épico com ao menos uma feature com target date vencida.',
+            lambda row: 'Critico'
+        ),
+        _build_alert_frame(
+            itens_bloqueados,
+            'ID',
+            'Tipo',
+            'Item bloqueado',
+            lambda row: f"Item em status bloqueado/impedido: {str(row.get('Status', '')).strip()}.",
+            lambda row: 'Critico'
+        ),
+        _build_alert_frame(
+            stories_tasks_parados,
+            'ID',
+            'Tipo',
+            'Story/Task parado',
+            lambda row: f"Story/Task sem movimentação há {int(pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') or 0)} dias.",
+            lambda row: _staleness_severity(row.get('AgingDiasSemAlteracao'))
+        ),
+        _build_alert_frame(
+            epics_sem_prazo,
+            'ID',
+            'Tipo',
+            'Épico sem prazo',
+            lambda row: 'Épico aberto sem target date definida.',
+            lambda row: _staleness_severity(row.get('AgingDiasSemAlteracao'))
+        ),
+        _build_alert_frame(
+            epics_aging_descoberta,
+            'ID',
+            'Tipo',
+            'Épico em descoberta parado',
+            lambda row: f"Épico em Backlog sem movimentação há {int(pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') or 0)} dias.",
+            lambda row: 'Critico' if pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') > 90 else 'Alerta'
+        ),
+        _build_alert_frame(
+            epics_milestone_risk,
+            'ID',
+            'Tipo',
+            'Épico em risco de prazo',
+            lambda row: f"Vence em {int(pd.to_numeric(row.get('_DPV', 0), errors='coerce') or 0)}d com {int(pd.to_numeric(row.get('_PctConclusao', 0), errors='coerce') or 0)}% de conclusão.",
+            lambda row: 'Critico' if pd.to_numeric(row.get('_DPV', 99), errors='coerce') <= 7 else 'Alerta'
+        ),
+        _build_alert_frame(
+            itens_sem_prioridade,
+            'ID',
+            'Tipo',
+            'Item sem prioridade',
+            lambda row: 'Épico ou Feature aberto sem prioridade definida.',
+            lambda row: 'Monitorar'
+        ),
+        _build_alert_frame(
+            features_aging_descoberta,
+            'ID',
+            'Tipo',
+            'Feature em descoberta parada',
+            lambda row: f"Feature em Backlog sem movimentação há {int(pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') or 0)} dias.",
+            lambda row: 'Critico' if pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') > 90 else 'Alerta'
+        ),
+        _build_alert_frame(
+            itens_handoff,
+            'ID',
+            'Tipo',
+            'Gargalo de handoff',
+            lambda row: f"Item parado em status de espera há {int(pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') or 0)} dias: {str(row.get('Status', '')).strip()}.",
+            lambda row: 'Critico' if pd.to_numeric(row.get('AgingDiasSemAlteracao'), errors='coerce') > 14 else 'Alerta'
+        ),
     ]
 
     technical_alerts_df = pd.DataFrame(technical_alert_rows, columns=alert_columns) if technical_alert_rows else _empty_alert_df()
@@ -5042,6 +5221,13 @@ def compute_portfolio_snapshot(df, updated_at_label):
         )
         severity_counts = portfolio_alerts_detail['Severidade'].value_counts()
         type_counts = portfolio_alerts_detail['TipoAlerta'].value_counts()
+        _critico_por_team = (
+            portfolio_alerts_by_team[portfolio_alerts_by_team['Severidade'] == 'Critico']['Ocorrencias']
+            if not portfolio_alerts_by_team.empty and 'Severidade' in portfolio_alerts_by_team.columns
+            else pd.Series(dtype='int64')
+        )
+        _avg_critico = _critico_por_team.mean() if not _critico_por_team.empty else 0
+        _times_concentracao_risco = int((_critico_por_team > max(5, _avg_critico * 1.5)).sum()) if not _critico_por_team.empty else 0
         portfolio_alert_kpis = pd.DataFrame([
             {'Indicador': 'Ocorrências críticas', 'Valor': int(severity_counts.get('Critico', 0))},
             {'Indicador': 'Ocorrências alerta', 'Valor': int(severity_counts.get('Alerta', 0))},
@@ -5055,6 +5241,22 @@ def compute_portfolio_snapshot(df, updated_at_label):
             {'Indicador': 'Épicos sem arquitetura', 'Valor': int(type_counts.get('Épico sem item técnico de arquitetura', 0))},
             {'Indicador': 'Épicos sem infra', 'Valor': int(type_counts.get('Épico sem item técnico de infra', 0))},
             {'Indicador': 'Épicos sem segurança', 'Valor': int(type_counts.get('Épico sem item técnico de seguranca', 0)) + int(type_counts.get('Épico sem item técnico de segurança', 0))},
+            {'Indicador': 'Épicos c/ features atrasadas', 'Valor': int(type_counts.get('Épico c/ feature atrasada', 0))},
+            {'Indicador': 'Features sem épico', 'Valor': int(type_counts.get('Feature sem épico', 0))},
+            {'Indicador': 'Itens bloqueados', 'Valor': int(type_counts.get('Item bloqueado', 0))},
+            {'Indicador': 'Stories/Tasks parados', 'Valor': int(type_counts.get('Story/Task parado', 0))},
+            {'Indicador': 'Times c/ WIP excessivo', 'Valor': _times_com_wip_excessivo},
+            {'Indicador': 'Épicos sem prazo', 'Valor': int(type_counts.get('Épico sem prazo', 0))},
+            {'Indicador': 'Épicos em descoberta parados', 'Valor': int(type_counts.get('Épico em descoberta parado', 0))},
+            {'Indicador': 'Épicos em risco de prazo', 'Valor': int(type_counts.get('Épico em risco de prazo', 0))},
+            {'Indicador': 'Times c/ concentração de risco', 'Valor': _times_concentracao_risco},
+            {'Indicador': 'Épicos parados', 'Valor': int(type_counts.get('Épico parado', 0))},
+            {'Indicador': 'Features paradas', 'Valor': int(type_counts.get('Feature parada', 0))},
+            {'Indicador': 'Prazo crítico sem decomposição', 'Valor': int(type_counts.get('Prazo crítico sem decomposição', 0))},
+            {'Indicador': 'Stories/Tasks órfãos', 'Valor': int(type_counts.get('Story/Task órfão', 0))},
+            {'Indicador': 'Itens sem prioridade', 'Valor': int(type_counts.get('Item sem prioridade', 0))},
+            {'Indicador': 'Features em descoberta paradas', 'Valor': int(type_counts.get('Feature em descoberta parada', 0))},
+            {'Indicador': 'Gargalos de handoff', 'Valor': int(type_counts.get('Gargalo de handoff', 0))},
         ])
     else:
         portfolio_alerts_indicator_summary = pd.DataFrame(columns=['TipoAlerta', 'Severidade', 'Ocorrencias', 'ItensUnicos'])
@@ -5136,6 +5338,44 @@ def compute_portfolio_snapshot(df, updated_at_label):
         100.0 - (upcoming_14_scope / due_scope_total * 100.0 if due_scope_total else 0.0),
         100.0 - (missing_due_scope / due_scope_total * 100.0 if due_scope_total else 0.0),
     ]))
+
+    # Due Date Performance: breakdown detalhado por tipo (épico e feature) e status de prazo.
+    def _ddp_item_status(row):
+        due = pd.to_datetime(row.get('DueDate'), errors='coerce')
+        done = pd.to_datetime(row.get('DataDone'), errors='coerce')
+        if pd.isna(due):
+            return 'Sem target'
+        if pd.notna(done):
+            return 'No prazo' if done.normalize() <= due.normalize() else 'Atrasado'
+        days_to_due = (due.normalize() - today).days
+        if days_to_due < 0:
+            return 'Vencido'
+        if days_to_due <= 14:
+            return 'Risco ≤14d'
+        if days_to_due <= 30:
+            return 'Risco 15-30d'
+        return 'Em acompanhamento'
+
+    _ddp_status_order = ['No prazo', 'Atrasado', 'Vencido', 'Risco ≤14d', 'Risco 15-30d', 'Em acompanhamento', 'Sem target']
+    if not scope_due_base.empty:
+        _ddp_df = scope_due_base.copy()
+        _ddp_df['_DDPStatus'] = _ddp_df.apply(_ddp_item_status, axis=1)
+        _ddp_df['_TipoLabel'] = _ddp_df['TipoNorm'].map(lambda t: 'Épico' if t in epic_types else 'Feature')
+        _ddp_rows = []
+        for _tipo_label in ['Épico', 'Feature']:
+            _tipo_sub = _ddp_df[_ddp_df['_TipoLabel'] == _tipo_label]
+            _total = len(_tipo_sub)
+            for _status in _ddp_status_order:
+                _n = int((_tipo_sub['_DDPStatus'] == _status).sum())
+                _ddp_rows.append({
+                    'Tipo': _tipo_label,
+                    'Status DDP': _status,
+                    'Qtd': _n,
+                    '% do Total': round(_n / _total * 100, 1) if _total > 0 else 0.0,
+                })
+        due_date_performance_df = pd.DataFrame(_ddp_rows)
+    else:
+        due_date_performance_df = pd.DataFrame(columns=['Tipo', 'Status DDP', 'Qtd', '% do Total'])
 
     pct_status_fora = round((int(df['StatusForaWorkflow'].sum()) / len(df) * 100), 1) if len(df) else 0.0
     workflow_score = _clamp_score(np.mean([
@@ -5543,6 +5783,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
             'risk_por_tipo': risk_por_tipo,
             'risk_por_team': risk_por_team,
             'risk_aging': risk_aging,
+            'due_date_performance': due_date_performance_df,
         },
     }
 
@@ -15953,6 +16194,17 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         else:
             sla_share_by_type = [(_TYPE_SLA_DISPLAY_LABELS[k], None, 0) for k in _TYPE_CATEGORY_ORDER]
 
+        # Due Date Performance: % entregues dentro do DueDate do item (DataDone ≤ DueDate).
+        _ddp_due_dt = pd.to_datetime(df_done_period_eligible.get('DueDate'), errors='coerce') if not df_done_period_eligible.empty and 'DueDate' in df_done_period_eligible.columns else pd.Series(pd.NaT, index=df_done_period_eligible.index if not df_done_period_eligible.empty else [])
+        _ddp_done_dt = pd.to_datetime(df_done_period_eligible.get('DataDone'), errors='coerce') if not df_done_period_eligible.empty and 'DataDone' in df_done_period_eligible.columns else pd.Series(pd.NaT, index=df_done_period_eligible.index if not df_done_period_eligible.empty else [])
+        _ddp_has_due = _ddp_due_dt.notna() if not _ddp_due_dt.empty else pd.Series(dtype=bool)
+        _ddp_on_time = (_ddp_has_due & (_ddp_done_dt.dt.normalize() <= _ddp_due_dt.dt.normalize())) if not _ddp_has_due.empty else pd.Series(dtype=bool)
+        ddp_with_due = int(_ddp_has_due.sum()) if not _ddp_has_due.empty else 0
+        ddp_on_time_count = int(_ddp_on_time.sum()) if not _ddp_on_time.empty else 0
+        ddp_late_count = ddp_with_due - ddp_on_time_count
+        ddp_no_target_count = int(len(df_done_period_eligible)) - ddp_with_due
+        ddp_pct = float(ddp_on_time_count / ddp_with_due * 100) if ddp_with_due > 0 else np.nan
+
         lt_weibull = fit_weibull_linearized(lead_series) if not lead_series.empty else None
         weibull_shape = float(lt_weibull['shape']) if lt_weibull else np.nan
         weibull_lambda = float(lt_weibull['lambda']) if lt_weibull else np.nan
@@ -16082,6 +16334,33 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     for label, pct, n in sla_share_by_type
                 ]),
             ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'}),
+            html.Div([
+                html.Div('Due Date Performance', style={'fontSize': '12px', 'fontWeight': '700', 'textTransform': 'uppercase', 'letterSpacing': '0.4px', 'color': '#475569', 'marginBottom': '6px'}),
+                html.Div(
+                    f"{ddp_pct:.1f}%" if pd.notna(ddp_pct) else '—',
+                    style={'fontSize': '22px', 'fontWeight': '800',
+                           'color': '#16a34a' if pd.notna(ddp_pct) and ddp_pct >= 80 else ('#dc2626' if pd.notna(ddp_pct) and ddp_pct < 50 else '#d97706'),
+                           'lineHeight': '1.1', 'marginBottom': '4px'}
+                ),
+                html.Div(
+                    f"{ddp_with_due} com target date" if ddp_with_due > 0 else 'sem DueDate no período',
+                    style={'fontSize': '10px', 'color': '#64748b', 'marginBottom': '4px'}
+                ),
+                html.Div([
+                    html.Div([
+                        html.Span('No prazo', style={'fontSize': '10px', 'color': '#64748b'}),
+                        html.Span(str(ddp_on_time_count), style={'fontSize': '11px', 'fontWeight': '700', 'color': '#16a34a', 'marginLeft': '4px'}),
+                    ], style={'display': 'flex', 'justifyContent': 'space-between', 'padding': '2px 0', 'borderBottom': '1px solid #e2e8f0'}),
+                    html.Div([
+                        html.Span('Atrasado', style={'fontSize': '10px', 'color': '#64748b'}),
+                        html.Span(str(ddp_late_count), style={'fontSize': '11px', 'fontWeight': '700', 'color': '#dc2626' if ddp_late_count > 0 else '#94a3b8', 'marginLeft': '4px'}),
+                    ], style={'display': 'flex', 'justifyContent': 'space-between', 'padding': '2px 0', 'borderBottom': '1px solid #e2e8f0'}),
+                    html.Div([
+                        html.Span('Sem target', style={'fontSize': '10px', 'color': '#64748b'}),
+                        html.Span(str(ddp_no_target_count), style={'fontSize': '11px', 'fontWeight': '700', 'color': '#94a3b8', 'marginLeft': '4px'}),
+                    ], style={'display': 'flex', 'justifyContent': 'space-between', 'padding': '2px 0'}),
+                ]),
+            ], style={'backgroundColor': '#f8fafc', 'border': '1px solid #dbeafe', 'borderRadius': '10px', 'padding': '14px', 'minHeight': '112px'}),
         ], style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))', 'gap': '10px', 'marginTop': '12px', 'marginBottom': '14px'})
 
         executive_findings = []
@@ -16099,6 +16378,14 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             executive_findings.append(f"{sla_share:.1f}% das entregas ficaram dentro do SLA do seu tipo no recorte.")
         else:
             executive_findings.append('Sem amostra suficiente para medir aderência ao SLA no recorte.')
+
+        if pd.notna(ddp_pct):
+            executive_findings.append(
+                f"Due Date Performance: {ddp_pct:.1f}% dos {ddp_with_due} itens com DueDate foram entregues no prazo "
+                f"({ddp_on_time_count} no prazo · {ddp_late_count} atrasados · {ddp_no_target_count} sem target)."
+            )
+        elif ddp_with_due == 0:
+            executive_findings.append('Due Date Performance: nenhum item entregue no período possui DueDate preenchido.')
 
         if lt_weibull and weibull_cadence:
             executive_findings.append(
@@ -17309,6 +17596,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         portfolio_technical_epic_summary = groups.get('portfolio_technical_epic_summary', pd.DataFrame())
         portfolio_technical_items_catalog = groups.get('portfolio_technical_items_catalog', pd.DataFrame())
         has_us_items = bool(groups.get('has_us_items', False))
+        due_date_performance = groups.get('due_date_performance', pd.DataFrame())
 
         lead_time_por_tipo = groups.get('lead_time_por_tipo', pd.DataFrame())
         lead_time_por_team = groups.get('lead_time_por_team', pd.DataFrame())
@@ -17654,13 +17942,16 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 for _, row in df_kpis.iterrows():
                     label = str(row.get('Indicador', '')).strip()
                     value = int(pd.to_numeric(row.get('Valor'), errors='coerce') or 0)
+                    label_lower = label.lower()
                     bg = '#455a64'
-                    if 'crítica' in label.lower() or 'critic' in label.lower() or 'vencidos' in label.lower():
+                    if any(t in label_lower for t in ('crítica', 'critic', 'vencidos', 'bloqueados', 'features atrasadas', 'risco de prazo', 'prazo crítico')):
                         bg = severity_colors['Critico']
-                    elif 'alerta' in label.lower() or 'sem feature' in label.lower() or 'sem story' in label.lower():
+                    elif any(t in label_lower for t in ('alerta', 'sem feature', 'sem story', 'sem épico', 'parad', 'sem prazo', 'em descoberta', 'concentração de risco', 'órfã', 'handoff')):
                         bg = severity_colors['Alerta']
-                    elif 'monitorar' in label.lower() or '7d' in label.lower():
+                    elif any(t in label_lower for t in ('monitorar', '7d', 'prioridade')):
                         bg = severity_colors['Monitorar']
+                    elif 'wip excessivo' in label_lower:
+                        bg = '#6a1b9a'
                     kpi_cards.append(
                         create_kpi_card(
                             label,
@@ -18100,6 +18391,62 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     'table-portfolio-qualidade-cadastro'
                 )
             ], style={'marginTop': '24px'})
+
+        def render_portfolio_due_date_performance(ddp_df):
+            if ddp_df is None or ddp_df.empty:
+                return html.Div()
+            _ddp_status_colors = {
+                'No prazo':          {'bg': '#e8f5e9', 'border': '#2e7d32', 'text': '#1b5e20'},
+                'Atrasado':          {'bg': '#ffebee', 'border': '#c62828', 'text': '#8e0000'},
+                'Vencido':           {'bg': '#ffebee', 'border': '#b71c1c', 'text': '#7f0000'},
+                'Risco ≤14d':        {'bg': '#fff3e0', 'border': '#e65100', 'text': '#bf360c'},
+                'Risco 15-30d':      {'bg': '#fff8e1', 'border': '#f9a825', 'text': '#8d6e00'},
+                'Em acompanhamento': {'bg': '#e3f2fd', 'border': '#1565c0', 'text': '#0d47a1'},
+                'Sem target':        {'bg': '#f5f5f5', 'border': '#9e9e9e', 'text': '#424242'},
+            }
+            sections = [html.H3('Due Date Performance — Épicos e Features', style={'textAlign': 'left'})]
+            sections.append(html.P(
+                'Distribuição por status de prazo para todos os épicos e features do portfólio (abertos e entregues).',
+                style={'color': '#555', 'marginBottom': '10px', 'fontSize': '13px'},
+            ))
+            for tipo_label in ['Épico', 'Feature']:
+                tipo_rows = ddp_df[ddp_df['Tipo'] == tipo_label]
+                if tipo_rows.empty:
+                    continue
+                total_tipo = int(tipo_rows['Qtd'].sum())
+                cards = []
+                for _, row in tipo_rows.iterrows():
+                    status = str(row['Status DDP'])
+                    n = int(row['Qtd'])
+                    pct = float(row['% do Total'])
+                    if n == 0:
+                        continue
+                    cfg = _ddp_status_colors.get(status, _ddp_status_colors['Sem target'])
+                    cards.append(html.Div([
+                        html.Div(status, style={'fontSize': '11px', 'fontWeight': '700', 'color': cfg['text'], 'textTransform': 'uppercase', 'letterSpacing': '0.3px'}),
+                        html.Div(str(n), style={'fontSize': '28px', 'fontWeight': '800', 'color': cfg['text'], 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        html.Div(f"{pct:.1f}%", style={'fontSize': '12px', 'color': cfg['text'], 'marginTop': '2px'}),
+                    ], style={
+                        'padding': '10px 14px',
+                        'borderRadius': '10px',
+                        'backgroundColor': cfg['bg'],
+                        'border': f"1px solid {cfg['border']}",
+                        'minHeight': '90px',
+                    }))
+                if not cards:
+                    continue
+                sections.append(html.Div([
+                    html.Div(
+                        f"{tipo_label}s ({total_tipo} no total)",
+                        style={'fontSize': '13px', 'fontWeight': '700', 'color': '#334155', 'marginBottom': '8px'},
+                    ),
+                    html.Div(cards, style={
+                        'display': 'grid',
+                        'gridTemplateColumns': 'repeat(auto-fill, minmax(150px, 1fr))',
+                        'gap': '8px',
+                    }),
+                ], style={'marginBottom': '16px'}))
+            return html.Div(sections, style={'marginTop': '24px'})
 
         def render_portfolio_health_scorecard(df_scorecard, df_dimensions):
             if df_scorecard is None or df_scorecard.empty:
@@ -18917,6 +19264,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         resumo_exec_section = html.Div([
             render_thresholds_config_summary(),
             render_portfolio_health_scorecard(portfolio_health_scorecard, portfolio_health_dimension_summary),
+            render_portfolio_due_date_performance(due_date_performance),
             html.Div([
                 create_kpi_card('Total de épicos', f"{total_epicos_visao}", class_name='', **portfolio_kpi_style(kpi_color_epic)),
                 create_kpi_card('Total de features', f"{total_features_visao}", class_name='', **portfolio_kpi_style(kpi_color_feature)),

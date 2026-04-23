@@ -135,14 +135,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--run-s3-upload",
-        "--run-r2-upload",
         dest="s3_upload",
         action="store_true",
         help="Faz upload dos artefatos latest-upload para AWS S3 (requer aws CLI e credenciais AWS).",
     )
     parser.add_argument(
         "--no-run-s3-upload",
-        "--no-run-r2-upload",
         dest="s3_upload",
         action="store_false",
         help="Pula o upload para S3.",
@@ -373,6 +371,8 @@ def export_downstream_projects(
                 shutil.copy2(bottleneck_out, bottleneck_latest)
                 print(f"Arquivo latest atualizado: {bottleneck_latest}")
                 publish_latest_artifact(bottleneck_latest, latest_dir)
+            else:
+                print(f"Aviso: {bottleneck_out.name} ausente — bottleneck nao gerado para {prefix}.")
 
             if run_detailed_changelog_export and detailed_changelog_out.is_file():
                 detailed_changelog_latest = (
@@ -684,10 +684,16 @@ def upload_to_s3(upload_dir: Path) -> None:
 
     print()
     print(f"Iniciando upload para S3 (bucket: {bucket}, regiao: {region})...")
-    result = subprocess.run(
-        ["aws", "s3", "cp", str(upload_dir) + "/", f"s3://{bucket}/", "--recursive", "--region", region],
-        cwd=str(SCRIPT_DIR),
-    )
+    cmd = ["aws", "s3", "cp", str(upload_dir) + "/", f"s3://{bucket}/", "--recursive", "--region", region]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(SCRIPT_DIR),
+            shell=(os.name == "nt"),
+        )
+    except FileNotFoundError:
+        print("Aviso: aws CLI nao executavel. Upload S3 pulado.")
+        return
     if result.returncode != 0:
         print(f"Aviso: upload S3 falhou (exit {result.returncode}).")
     else:

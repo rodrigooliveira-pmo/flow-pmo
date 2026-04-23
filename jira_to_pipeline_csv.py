@@ -1682,7 +1682,10 @@ def main() -> int:
     )
 
     if not summary:
-        print("Aviso: sem dados suficientes para calcular gargalo por etapa.")
+        print(
+            f"Aviso: bottleneck vazio — nenhum par de etapas com datas validas encontrado. "
+            f"itens={len(rows)}, stage_order={stage_order}"
+        )
         return 0
 
     bottleneck_out = args.bottleneck_out or build_default_artifact_path(args.out, "_bottlenecks.csv")

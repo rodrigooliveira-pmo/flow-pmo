@@ -851,6 +851,174 @@ def build_monthly_summary(
     }
 
 
+def _safe_date_str(val: Any) -> str:
+    """Converte valor de data (str, datetime, NaT) para YYYY-MM-DD ou ''."""
+    if val is None:
+        return ""
+    s = str(val)
+    if s in ("NaT", "nat", "nan", "None", ""):
+        return ""
+    return s[:10]
+
+
+def compute_four_ps_kpis(
+    payload: FourPsPayload,
+    summary: Dict[str, Any],
+    df_portfolio: Any = None,
+    kanban_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Computa os 8 KPIs para a faixa de resumo da página 4Ps.
+
+    Returns dict com chaves:
+        wip_total, pipeline_total, blocked_total, deliveries_period,
+        bau_count, bau_pct, epics_no_date, epics_avg_pct,
+        on_time_pct, on_time_count, on_time_denominator
+    """
+    # --- WIP, BAU, épicos running ---
+    wip_total = 0
+    bau_count = 0
+    epics_running: List[ItemDict] = []
+
+    for area_data in (payload.get("progresso") or {}).values():
+        for bucket_key in ("epics", "features", "stories", "bau"):
+            items = area_data.get(bucket_key) or []
+            wip_total += len(items)
+            if bucket_key == "bau":
+                bau_count += len(items)
+            if bucket_key == "epics":
+                epics_running.extend(items)
+
+    bau_pct = round(bau_count / wip_total * 100) if wip_total > 0 else 0
+
+    # --- Pipeline ---
+    pipeline_total = 0
+    for area_data in (payload.get("proximos_passos") or {}).values():
+        for bucket_key in ("epics", "features", "stories", "bau"):
+            pipeline_total += len(area_data.get(bucket_key) or [])
+
+    # --- Bloqueados ---
+    blocked_total = sum(
+        len(items)
+        for items in (payload.get("pontos_atencao") or {}).values()
+    )
+
+    # --- Entregas no período (via summary já calculado) ---
+    deliveries_period = sum(
+        len(items)
+        for month_data in (summary.get("done_items") or {}).values()
+        for items in month_data.values()
+    )
+
+    # --- Épicos sem data de entrega (Running com due_date vazio) ---
+    epics_no_date = sum(1 for e in epics_running if not e.get("due_date"))
+
+    # --- Progresso médio dos épicos Running ---
+    pcts = [
+        e["progress_pct"]
+        for e in epics_running
+        if e.get("progress_pct") is not None
+    ]
+    epics_avg_pct: Optional[int] = round(sum(pcts) / len(pcts)) if pcts else None
+
+    # --- Taxa de entrega no prazo ---
+    # Denominador: itens done com due_date preenchido no período selecionado.
+    # Fontes: df_portfolio (épicos/features BT/NS) + kanban_data["done"].
+    period_months: set = set(summary.get("months") or [])
+
+    def _in_period(date_str: str) -> bool:
+        if not period_months:
+            return True
+        return date_str[:7] in period_months if len(date_str) >= 7 else False
+
+    def _check_on_time(due: str, changed: str) -> Optional[bool]:
+        """None = sem dados. True = no prazo. False = atrasado."""
+        if not due or not changed:
+            return None
+        try:
+            from datetime import datetime as _dt
+            return _dt.fromisoformat(changed).date() <= _dt.fromisoformat(due).date()
+        except Exception:
+            return None
+
+    on_time_ok = 0
+    on_time_total = 0
+
+    # Fonte 1: df_portfolio
+    if pd is not None and df_portfolio is not None and not getattr(df_portfolio, "empty", True):
+        _ensure_op_status_sets()
+        df = df_portfolio.copy()
+        for col in ["Tipo", "Status", "StatusCategoria", "StatusChangedAt", "DueDate"]:
+            if col not in df.columns:
+                df[col] = ""
+        df["_tipo_norm"] = df["Tipo"].fillna("").astype(str).map(_norm_type)
+
+        for _, row in df.iterrows():
+            tipo = str(row.get("_tipo_norm") or "")
+            status = str(row.get("Status") or "")
+            status_cat = str(row.get("StatusCategoria") or "")
+            changed = _safe_date_str(row.get("StatusChangedAt"))
+            due = _safe_date_str(row.get("DueDate"))
+
+            if not changed or not _in_period(changed):
+                continue
+
+            if tipo in _EPIC_TYPES:
+                is_done = (_portfolio_status_label(status, status_cat) or "") == "Done"
+            elif tipo in (_FEATURE_TYPES | _STORY_TYPES | _DELIVERY_TYPES):
+                is_done = _is_op_done(status)
+            else:
+                continue
+
+            if not is_done:
+                continue
+
+            result = _check_on_time(due, changed)
+            if result is None:
+                continue
+
+            on_time_total += 1
+            if result:
+                on_time_ok += 1
+
+    # Fonte 2: kanban_data["done"]
+    if kanban_data:
+        for area_buckets in kanban_data.values():
+            if not isinstance(area_buckets, dict):
+                continue
+            for item in (area_buckets.get("done") or []):
+                changed = _safe_date_str(item.get("status_changed_at"))
+                due = _safe_date_str(item.get("due_date"))
+
+                if not changed or not _in_period(changed):
+                    continue
+
+                result = _check_on_time(due, changed)
+                if result is None:
+                    continue
+
+                on_time_total += 1
+                if result:
+                    on_time_ok += 1
+
+    on_time_pct: Optional[int] = (
+        round(on_time_ok / on_time_total * 100) if on_time_total > 0 else None
+    )
+
+    return {
+        "wip_total":          wip_total,
+        "pipeline_total":     pipeline_total,
+        "blocked_total":      blocked_total,
+        "deliveries_period":  deliveries_period,
+        "bau_count":          bau_count,
+        "bau_pct":            bau_pct,
+        "epics_no_date":      epics_no_date,
+        "epics_avg_pct":      epics_avg_pct,
+        "on_time_pct":        on_time_pct,
+        "on_time_count":      on_time_ok,
+        "on_time_denominator": on_time_total,
+    }
+
+
 def build_four_ps_payload(
     df_portfolio: Any,
     kanban_data: Optional[Dict[str, Dict[str, List[ItemDict]]]] = None,

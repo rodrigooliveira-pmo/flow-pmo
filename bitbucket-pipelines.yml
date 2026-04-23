@@ -41,9 +41,6 @@ pipelines:
                 --arg google_client_id "$GOOGLE_CLIENT_ID" \
                 --arg google_client_secret "$GOOGLE_CLIENT_SECRET" \
                 --arg flask_secret_key "$FLASK_SECRET_KEY" \
-                --arg blob_token "$BLOB_READ_WRITE_TOKEN" \
-                --arg flowmetrics_token "$FLOWMETRICS_READ_WRITE_TOKEN" \
-                --arg vercel_token "$VERCEL_OIDC_TOKEN" \
                 --arg commit "$BITBUCKET_COMMIT" \
                 '{
                   "AuthenticationConfiguration": {"AccessRoleArn": $access_role_arn},
@@ -74,9 +71,6 @@ pipelines:
                         "GOOGLE_CLIENT_ID": $google_client_id,
                         "GOOGLE_CLIENT_SECRET": $google_client_secret,
                         "FLASK_SECRET_KEY": $flask_secret_key,
-                        "BLOB_READ_WRITE_TOKEN": $blob_token,
-                        "FLOWMETRICS_READ_WRITE_TOKEN": $flowmetrics_token,
-                        "VERCEL_OIDC_TOKEN": $vercel_token,
                         "BITBUCKET_COMMIT": $commit
                       }
                     }

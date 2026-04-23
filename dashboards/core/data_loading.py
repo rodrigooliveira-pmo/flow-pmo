@@ -142,7 +142,6 @@ def _load_bitbucket_csv_url_map():
     raw = os.getenv('FLOW_PMO_BITBUCKET_CSV_URL_MAP', '').strip()
     if not raw:
         return {}
-    # Remove quebras de linha e espaços extras que o Vercel UI pode inserir
     cleaned = ' '.join(raw.splitlines())
     parsed = None
     for candidate in (cleaned, cleaned.strip('"').strip("'"), cleaned.replace('\\"', '"')):
