@@ -17937,7 +17937,45 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 'Monitorar': '#1565c0',
             }
 
-            kpi_cards = []
+            _ALERT_GROUPS = [
+                {
+                    'label': 'Severidade Geral',
+                    'indicators': ['Ocorrências críticas', 'Ocorrências alerta', 'Ocorrências monitorar', 'Itens únicos com alerta'],
+                    'border': '#b71c1c',
+                },
+                {
+                    'label': 'Hierarquia & Decomposição',
+                    'indicators': ['Épicos sem feature', 'Features sem story/task', 'Features sem épico', 'Stories/Tasks órfãos', 'Prazo crítico sem decomposição'],
+                    'border': '#ef6c00',
+                },
+                {
+                    'label': 'Prazos & Vencimentos',
+                    'indicators': ['Itens vencidos', 'Itens vencendo em até 7d', 'Épicos sem prazo', 'Épicos em risco de prazo', 'Épicos c/ features atrasadas'],
+                    'border': '#b71c1c',
+                },
+                {
+                    'label': 'Bloqueios & Paralisações',
+                    'indicators': ['Itens bloqueados', 'Stories/Tasks parados', 'Épicos parados', 'Features paradas', 'Épicos em descoberta parados', 'Features em descoberta paradas', 'Gargalos de handoff'],
+                    'border': '#ef6c00',
+                },
+                {
+                    'label': 'Risco & Capacidade',
+                    'indicators': ['Times c/ WIP excessivo', 'Times c/ concentração de risco', 'Itens sem prioridade'],
+                    'border': '#6a1b9a',
+                },
+                {
+                    'label': 'Cobertura Técnica',
+                    'indicators': ['Épicos sem arquitetura', 'Épicos sem infra', 'Épicos sem segurança'],
+                    'border': '#1565c0',
+                },
+                {
+                    'label': 'Tagging & Processo',
+                    'indicators': ['Itens com tag EXTRA-ONEPAGE'],
+                    'border': '#455a64',
+                },
+            ]
+
+            kpi_lookup = {}
             if df_kpis is not None and not df_kpis.empty:
                 for _, row in df_kpis.iterrows():
                     label = str(row.get('Indicador', '')).strip()
@@ -17952,14 +17990,47 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                         bg = severity_colors['Monitorar']
                     elif 'wip excessivo' in label_lower:
                         bg = '#6a1b9a'
-                    kpi_cards.append(
-                        create_kpi_card(
-                            label,
-                            f"{value}",
-                            class_name='',
-                            **portfolio_kpi_style(bg)
+                    kpi_lookup[label] = (value, bg)
+
+            grouped_kpi_sections = []
+            for _grp in _ALERT_GROUPS:
+                _cards = []
+                for _ind in _grp['indicators']:
+                    if _ind in kpi_lookup:
+                        _val, _bg = kpi_lookup[_ind]
+                        _cards.append(
+                            create_kpi_card(_ind, f"{_val}", class_name='', **portfolio_kpi_style(_bg))
                         )
-                    )
+                if not _cards:
+                    continue
+                _bc = _grp['border']
+                grouped_kpi_sections.append(
+                    html.Div([
+                        html.Div(
+                            _grp['label'],
+                            style={
+                                'fontSize': '11px',
+                                'fontWeight': '700',
+                                'textTransform': 'uppercase',
+                                'letterSpacing': '0.07em',
+                                'color': _bc,
+                                'borderLeft': f'3px solid {_bc}',
+                                'paddingLeft': '8px',
+                                'marginBottom': '8px',
+                            }
+                        ),
+                        html.Div(_cards, style={
+                            'display': 'grid',
+                            'gridTemplateColumns': 'repeat(auto-fill, minmax(160px, 1fr))',
+                            'gap': '8px',
+                        }),
+                    ], style={
+                        'background': '#f8f9fa',
+                        'border': f'1px solid {_bc}33',
+                        'borderRadius': '6px',
+                        'padding': '12px 14px',
+                    })
+                )
 
             severity_section = html.Div()
             if df_severity is not None and not df_severity.empty:
@@ -18025,9 +18096,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                     'Fase 1: alertas implementados apenas com o snapshot atual do portfólio. Custos e prontidão técnica factual ficam para evolução do contrato de dados.',
                     style={'color': '#666', 'marginBottom': '10px'}
                 ),
-                html.Div(kpi_cards, style={
-                    'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
+                html.Div(grouped_kpi_sections, style={
+                    'display': 'flex',
+                    'flexDirection': 'column',
                     'gap': '10px',
                 }),
                 severity_section,
