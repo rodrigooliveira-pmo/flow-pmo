@@ -41,11 +41,14 @@
       "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/**)",
       "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/latest/**)",
       "Read(//c/Users/W1 TI/AppData/Local/Temp/**)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Read(//c/Users/W1 TI/Downloads/**)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",
-      "C:\\Users\\W1 TI\\AppData\\Roaming\\Python\\Python313\\Scripts"
+      "C:\\Users\\W1 TI\\AppData\\Roaming\\Python\\Python313\\Scripts",
+      "C:\\Users\\W1 TI\\.claude\\skills\\solution-architect",
+      "C:\\Users\\W1 TI\\Downloads\\solution-architect-extracted\\solution-architect"
     ]
   },
   "hooks": {
