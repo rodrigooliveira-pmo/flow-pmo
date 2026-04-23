@@ -29,7 +29,8 @@
       "Bash(git filter-branch *)",
       "Bash(git stash *)",
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --tree-filter 'sed -i \"s/AKIA5MMDFYR2ZCLIX7AW/AKIA_SEU_ACCESS_KEY_AQUI/g; s/mAMmHf71RxDs90TanLICrD5DCX0lrozxe945IkOD/sua_secret_access_key_aqui/g\" jira_env.example.txt 2>/dev/null || true' origin/main..HEAD)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(xargs find *)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",

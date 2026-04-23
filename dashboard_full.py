@@ -101,6 +101,11 @@ from dashboards.metrics.time_metrics import (
     build_monthly_leadtime_sla_percentage_by_type,
 )
 
+from dashboards.metrics.efficiency_metrics import (
+    build_waste_decomposition,
+    build_scenario_simulation,
+)
+
 from dashboards.components.cards import (
     create_kpi_card,
     _portfolio_metric_card,
@@ -16992,6 +16997,103 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 )
                 lead_time_breakdown_component = dcc.Graph(figure=fig_lead_time_breakdown)
 
+        # --- Breakdown Semanal por Etapa ---
+        # Uses downstream CSV stage dates (same source as bottlenecks_df) when available,
+        # falling back to 4 aggregated columns from df_flow_done_period_eligible.
+        weekly_breakdown_component = html.Div()
+        _weekly_long = pd.DataFrame()
+        _weekly_stage_order = []
+
+        _ds_items = load_project_downstream_items_csv(projeto) if projeto else pd.DataFrame()
+        if not _ds_items.empty and 'ID' in _ds_items.columns:
+            _ds_stage_cols = _detect_stage_date_columns(_ds_items, bottlenecks_df=bottlenecks_df)
+            if len(_ds_stage_cols) >= 2:
+                _done_col_ds = get_downstream_done_stage_column(_ds_stage_cols)
+                _non_done_cols = [c for c in _ds_stage_cols if c != _done_col_ds]
+                _dates_ds = _ds_items[['ID'] + _ds_stage_cols].copy()
+                for _c in _ds_stage_cols:
+                    _dates_ds[_c] = pd.to_datetime(_dates_ds[_c], dayfirst=True, errors='coerce')
+                _frames_ds = []
+                for _i, _stage in enumerate(_non_done_cols):
+                    _next_col = _ds_stage_cols[_i + 1]
+                    _days = (_dates_ds[_next_col] - _dates_ds[_stage]).dt.days.clip(lower=0)
+                    _frames_ds.append(pd.DataFrame({
+                        'ID': _ds_items['ID'].astype(str).str.strip().values,
+                        'Etapa': _stage,
+                        'Dias': _days.values,
+                        'DataDone': _dates_ds[_done_col_ds].values,
+                    }))
+                if _frames_ds:
+                    _weekly_long = pd.concat(_frames_ds, ignore_index=True)
+                    _weekly_long['DataDone'] = pd.to_datetime(_weekly_long['DataDone'], errors='coerce')
+                    _weekly_long = _weekly_long.dropna(subset=['DataDone', 'Dias'])
+                    if 'ItemID' in df_flow_done_period_eligible.columns:
+                        _elig_ids = set(df_flow_done_period_eligible['ItemID'].astype(str).str.strip())
+                        _weekly_long = _weekly_long[_weekly_long['ID'].isin(_elig_ids)]
+                    elif not df_flow_done_period_eligible.empty and 'DataDone' in df_flow_done_period_eligible.columns:
+                        _min_d = df_flow_done_period_eligible['DataDone'].min()
+                        _max_d = df_flow_done_period_eligible['DataDone'].max()
+                        _weekly_long = _weekly_long[
+                            (_weekly_long['DataDone'] >= _min_d) & (_weekly_long['DataDone'] <= _max_d)
+                        ]
+                    _weekly_stage_order = _non_done_cols
+
+        if _weekly_long.empty and not df_flow_done_period_eligible.empty and 'DataDone' in df_flow_done_period_eligible.columns:
+            _static_stages = [
+                ('Backlog', 'TempoBacklog_Dias'),
+                ('Execução', 'TempoExecucao_Dias'),
+                ('Bloqueio', 'TempoBloqueioDias'),
+                ('Espera Intermediária', 'TempoEsperaIntermediariaDias'),
+            ]
+            _avail_static = [(n, c) for n, c in _static_stages if c in df_flow_done_period_eligible.columns]
+            if _avail_static:
+                _wdf = df_flow_done_period_eligible.copy()
+                _wdf['DataDone'] = pd.to_datetime(_wdf['DataDone'], errors='coerce')
+                _wdf = _wdf.dropna(subset=['DataDone'])
+                _static_frames = []
+                for _sname, _scol in _avail_static:
+                    _tmp = _wdf[['DataDone', _scol]].copy()
+                    _tmp[_scol] = pd.to_numeric(_tmp[_scol], errors='coerce').clip(lower=0)
+                    _tmp = _tmp.rename(columns={_scol: 'Dias'})
+                    _tmp['Etapa'] = _sname
+                    _tmp['ID'] = ''
+                    _static_frames.append(_tmp[['ID', 'Etapa', 'Dias', 'DataDone']])
+                _weekly_long = pd.concat(_static_frames, ignore_index=True)
+                _weekly_stage_order = [n for n, _ in _avail_static]
+
+        if not _weekly_long.empty and _weekly_stage_order:
+            _weekly_long['Semana'] = weekly_bucket_start(_weekly_long['DataDone'])
+            _wagg = (
+                _weekly_long.groupby(['Semana', 'Etapa'])['Dias']
+                .median()
+                .reset_index()
+            )
+            if not _wagg.empty:
+                _all_weeks = sorted(_wagg['Semana'].unique())
+                _fig_weekly = go.Figure()
+                for _stage in _weekly_stage_order:
+                    _sdf = _wagg[_wagg['Etapa'] == _stage].set_index('Semana')['Dias'].reindex(_all_weeks, fill_value=0)
+                    _color = _cfd_stage_color(_stage) or '#888888'
+                    _fig_weekly.add_trace(go.Bar(
+                        x=pd.DatetimeIndex(_all_weeks).strftime('%d/%m/%Y'),
+                        y=_sdf.values,
+                        name=_stage,
+                        marker_color=_color,
+                        hovertemplate='Semana: %{x}<br>' + _stage + ': %{y:.1f}d<extra></extra>',
+                    ))
+                _fig_weekly.update_layout(
+                    title='Lead Time Breakdown Semanal por Etapa (Mediana)',
+                    barmode='stack',
+                    template='plotly_white',
+                    xaxis_title='Semana (início)',
+                    yaxis_title='Dias (mediana)',
+                    legend_title_text='Etapa do Fluxo',
+                    height=max(380, min(520, len(_all_weeks) * 28 + 160)),
+                    margin=dict(l=60, r=40, t=70, b=80),
+                    xaxis=dict(tickangle=-45),
+                )
+                weekly_breakdown_component = dcc.Graph(figure=_fig_weekly)
+
         # --- Breakdown por Produto e Tipo de Item ---
         _df_breakdown = df_flow_done_period_eligible.copy()
         if 'Produto' not in _df_breakdown.columns and 'Projeto' in _df_breakdown.columns:
@@ -17102,6 +17204,8 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             dcc.Graph(figure=fig_bottlenecks),
             html.H4("Lead Time Breakdown", style={'textAlign': 'center', 'marginTop': '20px'}),
             lead_time_breakdown_component,
+            html.H4("Lead Time Breakdown Semanal", style={'textAlign': 'center', 'marginTop': '20px'}),
+            weekly_breakdown_component,
             lead_hist_component,
             html.H4("Bandas Percentílicas Exatas (Lead Time)", style={'textAlign': 'center', 'marginTop': '20px'}),
             lead_band_table_component,
@@ -19482,6 +19586,34 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             fig.update_layout(height=height, margin=dict(t=45, b=60, l=60, r=20))
             return dcc.Graph(figure=fig, config={'displayModeBar': False})
 
+        def _make_waste_bar(df_src, x_col, title, sort=True, height=360):
+            if df_src is None or df_src.empty:
+                return dcc.Graph(figure=go.Figure(), config={'displayModeBar': False})
+            plot_df = df_src.copy()
+            if sort:
+                plot_df = plot_df.sort_values('Desperdícios do processo', ascending=False)
+            fig = px.bar(
+                plot_df,
+                x=x_col,
+                y=['Entregas de Valor', 'Desperdícios do processo'],
+                title=title,
+                barmode='stack',
+                color_discrete_map={
+                    'Entregas de Valor': '#27ae60',
+                    'Desperdícios do processo': '#e74c3c',
+                },
+                template='plotly_white',
+                labels={'value': 'Dias (média)', 'variable': ''},
+            )
+            fig.update_layout(
+                height=height,
+                yaxis_title='Dias (média)',
+                legend_title_text='',
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                margin=dict(t=60, b=60, l=60, r=20),
+            )
+            return dcc.Graph(figure=fig, config={'displayModeBar': False})
+
         _kpi_grid_style = {
             'display': 'grid',
             'gridTemplateColumns': 'repeat(auto-fill, minmax(160px, 1fr))',
@@ -19576,12 +19708,62 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             _p3_bar(risk_por_tipo, 'Tipo', 'Itens', 'Risco × Tipo de Item', color='Risk', height=280),
         ])
 
+        # Desperdício de Fluxo
+        _waste_proj_df = build_waste_decomposition(df, 'Projeto')
+        _waste_cs_df = build_waste_decomposition(df, 'ClasseServico')
+        _waste_sim_df = build_scenario_simulation(df)
+
+        _has_creation_date = any(
+            c in df.columns for c in ['DataCriacao', 'DataCriacaoID', 'Created', 'CreatedDate', 'IssueCreated']
+        )
+        _waste_data_note = html.Div(
+            '⚠ Data de criação do item não encontrada (DataCriacao/Created). '
+            'O desperdício exibido usa LeadTime_Dias (DataBacklog→Done) como fallback, '
+            'subestimando a fila pré-sprint. Para o gráfico completo, exporte DataCriacao do Jira.',
+            style={'color': '#7B3F00', 'background': '#FFF8E1', 'border': '1px solid #FFD54F',
+                   'padding': '8px 12px', 'borderRadius': '6px', 'marginBottom': '10px',
+                   'display': 'none' if _has_creation_date else 'block'}
+        )
+
+        _waste_section = html.Div([
+            html.H4('Desperdício de Fluxo', style=_section_title_style),
+            html.P(
+                'Decomposição do Lead Time médio em valor entregue (verde) e desperdício de processo (vermelho). '
+                'Referência para priorizar intervenções de melhoria.',
+                style={'color': '#555', 'marginBottom': '12px', 'fontSize': '13px'}
+            ),
+            _waste_data_note,
+            html.Div([
+                html.Div([
+                    html.H5('Por Projeto', style={'fontSize': '13px', 'color': '#444', 'marginBottom': '4px'}),
+                    _make_waste_bar(_waste_proj_df, 'Projeto', 'Desperdício por Projeto'),
+                ], style={'flex': '1', 'minWidth': '380px'}),
+                html.Div([
+                    html.H5('Por Value Stream (Classe de Serviço)', style={'fontSize': '13px', 'color': '#444', 'marginBottom': '4px'}),
+                    _make_waste_bar(_waste_cs_df, 'ClasseServico', 'Desperdício por Value Stream'),
+                ], style={'flex': '1', 'minWidth': '380px'}),
+            ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '20px', 'marginBottom': '20px'}),
+            html.Div([
+                html.H5('Simulação: Impacto de Diferentes Intervenções', style={'fontSize': '13px', 'color': '#444', 'marginBottom': '4px'}),
+                html.P(
+                    'Projeção hipotética a partir das médias atuais. '
+                    'Contratar pessoas amplifica o desperdício; reduzir desperdícios é a alavanca mais eficiente.',
+                    style={'color': '#777', 'fontSize': '12px', 'marginBottom': '6px'}
+                ),
+                _make_waste_bar(_waste_sim_df, 'Cenário', 'Intervenções: Impacto no Lead Time Médio', sort=False, height=340),
+            ]),
+        ], style={
+            'backgroundColor': 'white', 'padding': '20px', 'borderRadius': '10px',
+            'marginBottom': '20px', 'border': '1px solid #e2e8f0',
+        })
+
         avancado_section = html.Div([
             _avancado_kpis,
             _lt_section,
             _tp_section,
             _tema_section,
             _risk_section,
+            _waste_section,
         ], style={'paddingTop': '10px'})
         # ── /Fase 3 ────────────────────────────────────────────────────────
 
