@@ -17875,33 +17875,47 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         def render_executive_tiles(df_exec):
             if df_exec is None or df_exec.empty:
                 return html.Div([html.H3('Indicador 3 - Resumo Executivo'), html.P('Sem dados para exibição.')])
-            colors = {'ok': '#2e7d32', 'alerta': '#ef6c00', 'risco': '#ad1457', 'info': '#1976d2'}
-            cards = []
-            for _, row in df_exec.iterrows():
-                bg = colors.get(str(row.get('Tipo', 'info')), '#1976d2')
-                fg = 'white'
-                cards.append(html.Div([
-                    html.Div(str(row['Indicador']), style={'fontSize': '15px', 'fontWeight': 'bold'}),
-                    html.Div(str(int(row['Valor'])), style={'fontSize': '48px', 'lineHeight': '1.1'}),
-                ], style={
-                    'backgroundColor': bg,
-                    'color': fg,
-                    'padding': '12px',
-                    'borderRadius': '4px',
-                    'minHeight': '140px',
-                }))
-            return html.Div([
-                html.H3('Indicador 3 - Resumo Executivo', style={'textAlign': 'left'}),
-                html.Div(cards, style={
-                    'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
-                    'gap': '10px',
-                }),
-                html.P(
-                    'Estado divergente = features sem épico + épicos sem features (quebra de relacionamento entre níveis).',
-                    style={'marginTop': '8px', 'color': '#555'}
-                )
-            ], style={'marginTop': '24px'})
+            _exec_colors = {
+                'ok':    {'bg': '#e8f5e9', 'border': '#2e7d32', 'text': '#1b5e20'},
+                'alerta':{'bg': '#fff3e0', 'border': '#e65100', 'text': '#bf360c'},
+                'risco': {'bg': '#fce4ec', 'border': '#ad1457', 'text': '#880e4f'},
+                'info':  {'bg': '#e3f2fd', 'border': '#1565c0', 'text': '#0d47a1'},
+            }
+            _EXEC_GROUPS = [
+                {'label': 'Escopo do Portfólio',     'indicators': ['Épicos', 'Features']},
+                {'label': 'Status de Prazo',          'indicators': ['Em dia', 'Atrasadas', 'Sem TEAM']},
+                {'label': 'Qualidade Hierárquica',    'indicators': ['Estado divergente', 'Features sem épico', 'Épicos sem features', 'Hist./Tasks sem feature tática', 'Hist./Tasks órfãos']},
+            ]
+            row_lookup = {str(r['Indicador']): r for _, r in df_exec.iterrows()}
+            sections = [html.H3('Indicador 3 - Resumo Executivo', style={'textAlign': 'left'})]
+            for group in _EXEC_GROUPS:
+                cards = []
+                for indicador in group['indicators']:
+                    row = row_lookup.get(indicador)
+                    if row is None:
+                        continue
+                    cfg = _exec_colors.get(str(row.get('Tipo', 'info')), _exec_colors['info'])
+                    cards.append(html.Div([
+                        html.Div(indicador, style={'fontSize': '11px', 'fontWeight': '700', 'color': cfg['text'], 'textTransform': 'uppercase', 'letterSpacing': '0.3px'}),
+                        html.Div(str(int(row['Valor'])), style={'fontSize': '28px', 'fontWeight': '800', 'color': cfg['text'], 'lineHeight': '1.1', 'marginTop': '4px'}),
+                    ], style={
+                        'padding': '10px 14px',
+                        'borderRadius': '10px',
+                        'backgroundColor': cfg['bg'],
+                        'border': f"1px solid {cfg['border']}",
+                        'minHeight': '90px',
+                    }))
+                if not cards:
+                    continue
+                sections.append(html.Div([
+                    html.Div(group['label'], style={'fontSize': '13px', 'fontWeight': '700', 'color': '#334155', 'marginBottom': '8px'}),
+                    html.Div(cards, style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(150px, 1fr))', 'gap': '8px'}),
+                ], style={'marginBottom': '16px'}))
+            sections.append(html.P(
+                'Estado divergente = features sem épico + épicos sem features (quebra de relacionamento entre níveis).',
+                style={'marginTop': '8px', 'color': '#555'}
+            ))
+            return html.Div(sections, style={'marginTop': '24px'})
 
         def render_portfolio_alerts(
             df_kpis,
@@ -18424,38 +18438,47 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                         return float(r.get('Percentual', 0.0) or 0.0), int(r.get('Numerador', 0) or 0), int(r.get('Denominador', 0) or 0)
                 return 0.0, 0, 0
 
-            specs = [
-                '% com TEAM',
-                '% features com épico',
-                '% features com effort',
-                '% itens com status não mapeado',
-            ]
-            cards = []
-            for indicador in specs:
-                pct, n, d = _from_scope_or_global(indicador)
+            _quality_palette = {
+                'verde':    {'bg': '#e8f5e9', 'border': '#2e7d32', 'text': '#1b5e20'},
+                'amarelo':  {'bg': '#fff8e1', 'border': '#f9a825', 'text': '#8d6e00'},
+                'vermelho': {'bg': '#ffebee', 'border': '#c62828', 'text': '#8e0000'},
+            }
+            def _quality_cfg(indicador, pct):
                 if indicador == '% itens com status não mapeado':
-                    color = '#c62828' if pct > 10 else ('#f9a825' if pct > 3 else '#2e7d32')
+                    key = 'vermelho' if pct > 10 else ('amarelo' if pct > 3 else 'verde')
                 else:
-                    color = '#2e7d32' if pct >= 90 else ('#f9a825' if pct >= 70 else '#c62828')
-                fg = '#111' if color == '#f9a825' else 'white'
-                cards.append(html.Div([
-                    html.Div(indicador, style={'fontSize': '15px', 'fontWeight': 'bold'}),
-                    html.Div(f'{pct:.1f}%', style={'fontSize': '48px', 'lineHeight': '1.1'}),
-                    html.Div(f'{n}/{d}', style={'fontSize': '13px', 'opacity': 0.9}),
-                ], style={
-                    'backgroundColor': color,
-                    'color': fg,
-                    'padding': '12px',
-                    'borderRadius': '4px',
-                    'minHeight': '140px',
-                }))
+                    key = 'verde' if pct >= 90 else ('amarelo' if pct >= 70 else 'vermelho')
+                return _quality_palette[key]
+
+            _QUALITY_GROUPS = [
+                {'label': 'Cobertura de Equipes',  'indicators': ['% com TEAM']},
+                {'label': 'Completude de Dados',   'indicators': ['% features com épico', '% features com effort', '% itens com status não mapeado']},
+            ]
+            sections = [html.H3('Qualidade de Cadastro', style={'textAlign': 'left'})]
+            for group in _QUALITY_GROUPS:
+                cards = []
+                for indicador in group['indicators']:
+                    pct, n, d = _from_scope_or_global(indicador)
+                    cfg = _quality_cfg(indicador, pct)
+                    cards.append(html.Div([
+                        html.Div(indicador, style={'fontSize': '11px', 'fontWeight': '700', 'color': cfg['text'], 'textTransform': 'uppercase', 'letterSpacing': '0.3px'}),
+                        html.Div(f'{pct:.1f}%', style={'fontSize': '28px', 'fontWeight': '800', 'color': cfg['text'], 'lineHeight': '1.1', 'marginTop': '4px'}),
+                        html.Div(f'{n}/{d}', style={'fontSize': '12px', 'color': cfg['text'], 'marginTop': '2px'}),
+                    ], style={
+                        'padding': '10px 14px',
+                        'borderRadius': '10px',
+                        'backgroundColor': cfg['bg'],
+                        'border': f"1px solid {cfg['border']}",
+                        'minHeight': '90px',
+                    }))
+                if not cards:
+                    continue
+                sections.append(html.Div([
+                    html.Div(group['label'], style={'fontSize': '13px', 'fontWeight': '700', 'color': '#334155', 'marginBottom': '8px'}),
+                    html.Div(cards, style={'display': 'grid', 'gridTemplateColumns': 'repeat(auto-fill, minmax(150px, 1fr))', 'gap': '8px'}),
+                ], style={'marginBottom': '16px'}))
             return html.Div([
-                html.H3('Qualidade de Cadastro', style={'textAlign': 'left'}),
-                html.Div(cards, style={
-                    'display': 'grid',
-                    'gridTemplateColumns': 'repeat(auto-fill, minmax(190px, 1fr))',
-                    'gap': '10px',
-                }),
+                *sections,
                 portfolio_table_component(
                     (df_quality_scope if df_quality_scope is not None and not df_quality_scope.empty else df_quality_global),
                     'Qualidade de cadastro por TEAM (ou resumo global)',
