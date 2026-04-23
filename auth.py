@@ -379,7 +379,7 @@ def init_app(flask_server) -> None:
 
     @auth_bp.route("/auth/google")
     def google_authorize():
-        redirect_uri = url_for("auth.google_callback", _external=True)
+        redirect_uri = url_for("auth.google_callback", _external=True, _scheme="https")
         # hd hint: pre-selects the Workspace account picker on Google's side
         return oauth.google.authorize_redirect(redirect_uri, hd=allowed_domain)
 
