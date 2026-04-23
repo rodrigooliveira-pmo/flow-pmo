@@ -13,6 +13,7 @@ pipelines:
           services:
             - docker
           script:
+            - pip install awscli --quiet
             - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
             - export AWS_ROLE_ARN="$AWS_OIDC_ROLE_ARN"
             - export AWS_REGION="$AWS_DEFAULT_REGION"
