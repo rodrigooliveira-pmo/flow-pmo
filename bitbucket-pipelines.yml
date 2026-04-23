@@ -13,7 +13,7 @@ pipelines:
           services:
             - docker
           script:
-            - pip install awscli --quiet
+            - curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
             - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
             - export AWS_ROLE_ARN="$AWS_OIDC_ROLE_ARN"
             - export AWS_REGION="$AWS_DEFAULT_REGION"
