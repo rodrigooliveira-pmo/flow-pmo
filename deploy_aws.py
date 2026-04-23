@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deploy completo na AWS (ECR + App Runner) com tratamento cross-platform.
 
-Equivalente ao deploy.py (Vercel), mas voltado para o ambiente AWS.
+Deploy voltado para o ambiente AWS (ECR + App Runner).
 Fluxo:
   1. Login no ECR
   2. Build da imagem Docker
@@ -122,8 +122,7 @@ def get_image_tag(repo_root: Path) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Deploy completo na AWS (ECR + App Runner) em um unico script Python. "
-            "Equivale ao deploy.py da Vercel."
+            "Deploy completo na AWS (ECR + App Runner) em um unico script Python."
         )
     )
     parser.add_argument(

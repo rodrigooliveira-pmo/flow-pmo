@@ -21,7 +21,7 @@ flow-pmo/
 │   └── client.py                  ← JiraClient (retry, 3-tier fallback v3/v2)
 │
 ├── api/
-│   └── index.py                   ← Entry point Vercel (WSGI wrapper)
+│   └── index.py                   ← Entry point WSGI
 │
 ├── dash_board_metricas.py          ← HUB CENTRAL de transformação
 ├── dashboard_full.py               ← Dashboard Dash principal (entry point)
@@ -100,7 +100,7 @@ flow-pmo/
   ┌─────────────────────────────────────────────────────────┐
   │  DASHBOARDS DASH                                        │
   │                                                         │
-  │  dashboard_full.py          ← PRINCIPAL (Vercel)        │
+  │  dashboard_full.py          ← PRINCIPAL                  │
   │    • Flow Metrics, Portfólio, Process Mining (tab)      │
   │    • Lê: PowerBI_Model_*.xlsx + portfolio CSV           │
   │                                                         │
@@ -177,7 +177,7 @@ client.list_visible_projects()
 
 ---
 
-## Seleção de Dashboard (Vercel)
+## Seleção de Dashboard
 
 O `api/index.py` seleciona o módulo a servir via env vars:
 

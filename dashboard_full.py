@@ -3068,7 +3068,7 @@ def _resolve_four_ps_kanban_csv_source() -> str:
     if csv_source:
         return csv_source
 
-    # 2. URL de blob (Vercel Blob ou equivalente) — baixa para /tmp e retorna path local
+    # 2. URL remota — baixa para /tmp e retorna path local
     csv_url = os.getenv('FLOW_PMO_FOUR_PS_KANBAN_CSV_URL', '').strip()
     if csv_url:
         try:
@@ -15425,7 +15425,7 @@ date_max_candidates = [series.max() for series in [done_date_defaults, creation_
 min_date = min(date_min_candidates) if date_min_candidates else pd.to_datetime('2023-01-01')
 max_date = max(date_max_candidates) if date_max_candidates else pd.to_datetime('today')
 
-_deploy_version = os.environ.get('VERCEL_GIT_COMMIT_SHA') or os.environ.get('BITBUCKET_COMMIT') or 'Local'
+_deploy_version = os.environ.get('BITBUCKET_COMMIT') or 'Local'
 _deploy_version_display = _deploy_version[:7] if len(_deploy_version) > 7 and _deploy_version != 'Local' else _deploy_version
 
 app.layout = html.Div([
@@ -23436,29 +23436,43 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
         if not details.empty and top_patterns:
             details_plot = details.copy()
             details_plot['Semana'] = pd.to_datetime(details_plot['Semana'], errors='coerce')
-            weeks_index = pd.date_range(start=start_ts, end=end_ts, freq=WEEK_DATE_RANGE_FREQ)
-            week_pattern_index = pd.MultiIndex.from_product(
-                [weeks_index, top_patterns],
-                names=['Semana', 'Padrão']
+
+            _period_weeks = max(1, int((end_ts - start_ts).days / 7))
+            _use_monthly = _period_weeks > 10
+            if _use_monthly:
+                details_plot['Período'] = details_plot['Semana'].dt.to_period('M').dt.to_timestamp()
+                _period_label = 'Mês'
+                _tick_fmt = '%b/%Y'
+                _periods_index = pd.date_range(start=start_ts, end=end_ts, freq='MS')
+            else:
+                details_plot['Período'] = details_plot['Semana']
+                _period_label = 'Semana'
+                _tick_fmt = '%d/%m'
+                _periods_index = pd.date_range(start=start_ts, end=end_ts, freq=WEEK_DATE_RANGE_FREQ)
+
+            _period_pattern_index = pd.MultiIndex.from_product(
+                [_periods_index, top_patterns],
+                names=['Período', 'Padrão']
             )
 
+            # Chart 1: stacked bar — volume de ocorrências por período
             weekly_pattern_occurrences = (
                 details_plot[details_plot['Padrão'].isin(top_patterns)]
-                .groupby(['Semana', 'Padrão'])
+                .groupby(['Período', 'Padrão'])
                 .size()
                 .rename('Ocorrências')
-                .reindex(week_pattern_index, fill_value=0)
+                .reindex(_period_pattern_index, fill_value=0)
                 .reset_index()
             )
-            fig_pattern_timeline = px.line(
+            fig_pattern_timeline = px.bar(
                 weekly_pattern_occurrences,
-                x='Semana',
+                x='Período',
                 y='Ocorrências',
                 color='Padrão',
-                markers=True,
+                barmode='stack',
             )
             fig_pattern_timeline.update_layout(
-                height=430,
+                height=400,
                 template='plotly_white',
                 hovermode='x unified',
                 margin=dict(l=36, r=16, t=24, b=48),
@@ -23477,13 +23491,9 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 ),
                 font={'family': 'Segoe UI, sans-serif', 'color': '#243b53'},
             )
-            fig_pattern_timeline.update_traces(
-                line=dict(width=2.5),
-                marker=dict(size=7),
-            )
             fig_pattern_timeline.update_xaxes(
-                title_text='Semana',
-                tickformat='%d/%m',
+                title_text=_period_label,
+                tickformat=_tick_fmt,
                 tickangle=-25,
                 showgrid=False,
                 zeroline=False,
@@ -23494,60 +23504,49 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 showgrid=True,
                 gridcolor='rgba(148,163,184,0.18)',
                 zeroline=False,
+                dtick=1,
             )
 
+            # Chart 2: heatmap — times únicos afetados por padrão × período
             weekly_pattern_teams = (
                 details_plot[details_plot['Padrão'].isin(top_patterns)]
-                .groupby(['Semana', 'Padrão'])['Projeto']
+                .groupby(['Período', 'Padrão'])['Projeto']
                 .nunique()
                 .rename('Times Afetados')
-                .reindex(week_pattern_index, fill_value=0)
+                .reindex(_period_pattern_index, fill_value=0)
                 .reset_index()
             )
-            fig_pattern_team_timeline = px.line(
-                weekly_pattern_teams,
-                x='Semana',
-                y='Times Afetados',
-                color='Padrão',
-                markers=True,
-            )
+            _heatmap_pivot = weekly_pattern_teams.pivot(
+                index='Padrão', columns='Período', values='Times Afetados'
+            ).fillna(0)
+            _period_labels_fmt = [pd.Timestamp(c).strftime(_tick_fmt) for c in _heatmap_pivot.columns]
+            fig_pattern_team_timeline = go.Figure(go.Heatmap(
+                z=_heatmap_pivot.values.tolist(),
+                x=_period_labels_fmt,
+                y=_heatmap_pivot.index.tolist(),
+                colorscale=[[0, '#f0f9ff'], [0.3, '#fbbf24'], [0.7, '#ef4444'], [1.0, '#7f1d1d']],
+                hoverongaps=False,
+                hovertemplate='%{y}<br>%{x}: %{z} time(s)<extra></extra>',
+                showscale=True,
+                colorbar=dict(title='Times', thickness=12, len=0.8),
+                xgap=2,
+                ygap=2,
+            ))
             fig_pattern_team_timeline.update_layout(
-                height=430,
+                height=max(280, 80 + len(top_patterns) * 52),
                 template='plotly_white',
-                hovermode='x unified',
-                margin=dict(l=36, r=16, t=24, b=48),
-                title=None,
-                legend=dict(
-                    title='Padrão',
-                    orientation='h',
-                    yanchor='bottom',
-                    y=1.06,
-                    xanchor='left',
-                    x=0,
-                    bgcolor='rgba(255,255,255,0.88)',
-                    bordercolor='rgba(23, 50, 77, 0.08)',
-                    borderwidth=1,
-                    font=dict(size=11),
-                ),
+                margin=dict(l=36, r=60, t=24, b=48),
                 font={'family': 'Segoe UI, sans-serif', 'color': '#243b53'},
             )
-            fig_pattern_team_timeline.update_traces(
-                line=dict(width=2.5),
-                marker=dict(size=7),
-            )
             fig_pattern_team_timeline.update_xaxes(
-                title_text='Semana',
-                tickformat='%d/%m',
+                title_text=_period_label,
                 tickangle=-25,
                 showgrid=False,
-                zeroline=False,
             )
             fig_pattern_team_timeline.update_yaxes(
-                title_text='Times afetados',
-                rangemode='tozero',
-                showgrid=True,
-                gridcolor='rgba(148,163,184,0.18)',
-                zeroline=False,
+                title_text='',
+                showgrid=False,
+                autorange='reversed',
             )
 
         pattern_priority_cards = []
@@ -23739,18 +23738,18 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
                 '#d9e2ec',
             ),
             _section_shell(
-                'Evolução Semanal',
-                'Como cada padrão evolui ao longo das semanas',
-                'A primeira visão mostra volume de ocorrências; a segunda mostra quantos times foram atingidos por cada padrão líder.',
+                'Evolução por Período',
+                'Volume de ocorrências e cobertura de times ao longo do tempo',
+                'Períodos de até 10 semanas usam granularidade semanal; acima disso, agrupamento mensal. Barras empilhadas mostram volume total e composição por padrão; o mapa de calor revela quais padrões persistiram nos times — cor mais escura = mais times afetados.',
                 html.Div([
                     _chart_card(
                         'Ocorrências por padrão',
-                        'Linha semanal dos padrões mais recorrentes no período atual.',
+                        'Barras empilhadas por período — comparação direta entre semanas/meses facilita identificar tendência de melhora ou piora.',
                         fig_pattern_timeline,
                     ) if isinstance(fig_pattern_timeline, go.Figure) and fig_pattern_timeline.data else html.Div(),
                     _chart_card(
                         'Times afetados por padrão',
-                        'Linha semanal da quantidade de times impactados por cada padrão prioritário.',
+                        'Mapa de calor: cada linha é um padrão, cada coluna é um período. Cor branca = zero times; vermelho escuro = muitos times impactados.',
                         fig_pattern_team_timeline,
                     ) if isinstance(fig_pattern_team_timeline, go.Figure) and fig_pattern_team_timeline.data else html.Div(),
                 ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '14px'}),

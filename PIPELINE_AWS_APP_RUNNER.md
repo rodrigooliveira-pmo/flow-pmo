@@ -1,18 +1,5 @@
 # Deploy AWS App Runner — Guia Completo
 
-## Mapeamento Vercel → AWS
-
-| Conceito Vercel             | Equivalente AWS                  |
-|-----------------------------|----------------------------------|
-| `vercel.json` (builder)     | `Dockerfile` (gunicorn na 8080)  |
-| `@vercel/python`            | Python 3.11-slim + pip install   |
-| `vercel deploy --prod`      | `python deploy_aws.py`           |
-| Vercel Blob Storage (URLs)  | Mesmas URLs públicas (sem troca) |
-| Vercel env vars (dashboard) | App Runner env vars (console/CLI)|
-| `deploy.py` (Vercel CLI)    | `deploy_aws.py` (AWS CLI+Docker) |
-
----
-
 ## Arquitetura do Deploy
 
 ```
@@ -42,8 +29,7 @@ App Runner: novo container sobe, health check TCP passa → RUNNING ✅
 - **CMD:** `gunicorn api.index:app --bind 0.0.0.0:8080 --workers 1 --timeout 300`
 
 > **⚠️ CRÍTICO:** `gunicorn` **deve** estar em `requirements.txt`.  
-> O `requirements-vercel.txt` é para o ambiente serverless da Vercel e **não inclui gunicorn**.  
-> Sempre que criar um ambiente Docker separado, verificar que o servidor WSGI está no requirements.
+> Sempre que alterar dependências, verificar que o servidor WSGI está presente.
 
 ---
 
@@ -200,9 +186,6 @@ Configurar em **Repository Settings → Pipeline → Variables**:
 | `GOOGLE_CLIENT_SECRET` | Secured |
 | `FLASK_SECRET_KEY` | Secured |
 | `FLOW_PMO_ALLOWED_EMAILS` | Secured |
-| `BLOB_READ_WRITE_TOKEN` | Secured |
-| `FLOWMETRICS_READ_WRITE_TOKEN` | Secured |
-| `VERCEL_OIDC_TOKEN` | Secured |
 
 ---
 
@@ -285,7 +268,7 @@ Todos os deploys reportavam sucesso no pipeline, mas o site nunca atualizava des
 exec: "gunicorn": executable file not found in $PATH
 ```
 
-O `requirements.txt` incluía apenas `-r requirements-vercel.txt`, que foi criado para o ambiente serverless da Vercel **sem gunicorn**. O `CMD` do Dockerfile chamava gunicorn, mas ele nunca era instalado.
+O `requirements.txt` não incluía `gunicorn`. O `CMD` do Dockerfile chamava gunicorn, mas ele nunca era instalado.
 
 ### Por que não era detectado
 

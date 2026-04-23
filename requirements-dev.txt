@@ -1,4 +1,4 @@
--r requirements-vercel.txt
+-r requirements.txt
 
-# Optional local analysis/process-mining stack (avoid in Vercel runtime).
+# Optional local analysis/process-mining stack
 pm4py>=2.7,<3

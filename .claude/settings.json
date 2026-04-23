@@ -39,7 +39,9 @@
       "Bash(python -c \"from dashboards.four_ps.renderer import render_four_ps_kpi_row, render_four_ps_tab; print\\('renderer OK'\\)\")",
       "Bash(python -c \"from dashboards.four_ps import compute_four_ps_kpis, render_four_ps_tab; print\\('__init__ OK'\\)\")",
       "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/**)",
-      "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/latest/**)"
+      "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/latest/**)",
+      "Read(//c/Users/W1 TI/AppData/Local/Temp/**)",
+      "Bash(git rm *)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",

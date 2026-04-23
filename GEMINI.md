@@ -23,7 +23,7 @@ Respond terse like smart caveman. All technical substance stay. Only fluff die.
 
 Projeto: dashboard analytics para gestão de portfólio de TI (W1).
 
-Stack: Python, Dash/Plotly, Flask, AWS App Runner, Vercel (serverless), Bitbucket Pipelines, Google OAuth 2.0.
+Stack: Python, Dash/Plotly, Flask, AWS App Runner, Bitbucket Pipelines, Google OAuth 2.0.
 
 Módulos principais:
 - `dashboard_full.py` — dashboard principal (monolito em refatoração)
