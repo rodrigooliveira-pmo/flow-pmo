@@ -3,6 +3,16 @@ import numpy as np
 from datetime import datetime
 
 from shared.text_utils import normalize_text
+from dashboards.domain.config import HIGHEST_ALIAS_TOKENS
+from dashboards.domain.schema import (
+    FATO_ITEMS_REQUIRED_COLUMNS,
+    DIM_PROJETO_REQUIRED_COLUMNS,
+    DIM_TIPO_REQUIRED_COLUMNS,
+)
+
+
+class SchemaValidationError(ValueError):
+    """Raised when a loaded DataFrame is missing required columns."""
 
 
 def safe_read_sheet(excel_file, sheet_name, default_cols):
@@ -11,16 +21,27 @@ def safe_read_sheet(excel_file, sheet_name, default_cols):
     return pd.DataFrame(columns=default_cols)
 
 
+def _validate_required_columns(df: pd.DataFrame, required: tuple, sheet_name: str) -> None:
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise SchemaValidationError(
+            f"SchemaValidationError: sheet '{sheet_name}' missing columns {missing}"
+        )
+
+
 def load_model_data(model_file):
     """Load and process the main model data."""
     xls = pd.ExcelFile(model_file)
     dim_projeto = pd.read_excel(xls, sheet_name='Dim_Projeto')
     dim_tipo = pd.read_excel(xls, sheet_name='Dim_Tipo')
+    _validate_required_columns(dim_projeto, DIM_PROJETO_REQUIRED_COLUMNS, 'Dim_Projeto')
+    _validate_required_columns(dim_tipo, DIM_TIPO_REQUIRED_COLUMNS, 'Dim_Tipo')
 
     dim_responsavel = safe_read_sheet(xls, 'Dim_Responsavel', ['ResponsavelID', 'Responsavel'])
     dim_prioridade = safe_read_sheet(xls, 'Dim_Prioridade', ['PrioridadeID', 'Prioridade'])
     dim_classe_servico = safe_read_sheet(xls, 'Dim_ClasseServico', ['ClasseServicoID', 'ClasseServico'])
     fato = pd.read_excel(xls, sheet_name='Fato_Items')
+    _validate_required_columns(fato, FATO_ITEMS_REQUIRED_COLUMNS, 'Fato_Items')
     fato_gargalos = safe_read_sheet(
         xls,
         'Fato_Gargalos',
@@ -98,11 +119,6 @@ def is_highest_alias(value):
         return False
     return any(token in text for token in HIGHEST_ALIAS_TOKENS)
 
-
-HIGHEST_ALIAS_TOKENS = (
-    'highest', 'higest', 'expedite', 'urgent', 'urgente',
-    'critical', 'critico', 'blocker', 'fast track', 'fasttrack',
-)
 
 
 def portfolio_type_to_demand_type(tipo):

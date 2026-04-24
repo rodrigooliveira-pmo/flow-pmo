@@ -1,0 +1,40 @@
+{
+  "recommendations": [
+    // ─── Claude Code (obrigatório) ────────────────────────────────────────────
+    "anthropic.claude-code",
+
+    // ─── Markdown (leitura e edição de artefatos BMAD) ────────────────────────
+    "yzhang.markdown-all-in-one",
+    "bierner.markdown-mermaid",
+    "davidanson.vscode-markdownlint",
+
+    // ─── Qualidade de código ──────────────────────────────────────────────────
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "ms-python.python",
+    "ms-python.pylint",
+
+    // ─── Git e controle de versão ─────────────────────────────────────────────
+    "eamodio.gitlens",
+    "mhutchie.git-graph",
+    "github.vscode-pull-request-github",
+
+    // ─── Testes ───────────────────────────────────────────────────────────────
+    "ms-playwright.playwright",
+    "hbenl.vscode-test-explorer",
+    "orta.vscode-jest",
+
+    // ─── Diagramas Mermaid (artefatos de arquitetura) ─────────────────────────
+    "tomoyukim.vscode-mermaid-editor",
+
+    // ─── YAML (GitHub Actions / configurações) ────────────────────────────────
+    "redhat.vscode-yaml",
+
+    // ─── Produtividade geral ──────────────────────────────────────────────────
+    "streetsidesoftware.code-spell-checker",
+    "streetsidesoftware.code-spell-checker-portuguese-brazilian",
+    "christian-kohler.path-intellisense",
+    "usernamehw.errorlens"
+  ],
+  "unwantedRecommendations": []
+}

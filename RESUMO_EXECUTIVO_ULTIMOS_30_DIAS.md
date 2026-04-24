@@ -45,7 +45,7 @@
   - Leitura de CSV de portfólio por URL/arquivo via env
   - Fallbacks para CSV downstream detalhado por projeto
   - Cache em memória para leitura de portfólio
-  - Ajustes de deploy no Vercel e melhor diagnóstico de erro de startup
+  - Melhor diagnóstico de erro de startup no deploy
 
 ## Impacto prático esperado
 
@@ -63,6 +63,6 @@
 ## Próximos passos recomendados (executivo)
 
 - Formalizar uma **baseline de KPIs** por projeto (Lead Time, Throughput, WIP, previsibilidade)
-- Definir **rotina de publicação** (cadência + checklist) para produção/Vercel
+- Definir **rotina de publicação** (cadência + checklist) para produção
 - Criar **testes automatizados** para regras críticas (percentis, elegibilidade, mapeamento de fluxo)
 - Publicar esta síntese junto do índice central para facilitar comunicação com stakeholders

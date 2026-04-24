@@ -29,11 +29,40 @@
       "Bash(git filter-branch *)",
       "Bash(git stash *)",
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --tree-filter 'sed -i \"s/AKIA5MMDFYR2ZCLIX7AW/AKIA_SEU_ACCESS_KEY_AQUI/g; s/mAMmHf71RxDs90TanLICrD5DCX0lrozxe945IkOD/sua_secret_access_key_aqui/g\" jira_env.example.txt 2>/dev/null || true' origin/main..HEAD)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(xargs find *)",
+      "Bash(aws --version)",
+      "Bash(rm -f vercel.json .vercelignore .env.vercel.local deploy.py DEPLOY_VERCEL.md package.json)",
+      "Bash(rm -rf .vercel)",
+      "Bash(rm -f \"docs/migracao-vercel-blob-para-r2.md\")",
+      "Bash(python -c \"from dashboards.four_ps.builder import compute_four_ps_kpis; print\\('builder OK'\\)\")",
+      "Bash(python -c \"from dashboards.four_ps.renderer import render_four_ps_kpi_row, render_four_ps_tab; print\\('renderer OK'\\)\")",
+      "Bash(python -c \"from dashboards.four_ps import compute_four_ps_kpis, render_four_ps_tab; print\\('__init__ OK'\\)\")",
+      "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/**)",
+      "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/latest/**)",
+      "Read(//c/Users/W1 TI/AppData/Local/Temp/**)",
+      "Bash(git rm *)",
+      "Read(//c/Users/W1 TI/Downloads/**)",
+      "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Claude Code/bmad-claude-code/**)",
+      "PowerShell(Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass)",
+      "PowerShell(& \"C:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Claude Code\\\\bmad-claude-code\\\\setup.ps1\" -Target \"C:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Python\")",
+      "Read(//c/c/Users/W1 TI/OneDrive - W1/Documentos/**)",
+      "Bash(python -c \"import dash_bootstrap_components\")",
+      "Bash(python -c \"import pydantic_settings; print\\('ok'\\)\")",
+      "Bash(python -m pip install \"pydantic-settings>=2.0,<3\")",
+      "Bash(python -c \"from dashboards.metrics.health_score import compute_health_score, HealthScoreResult; print\\('health_score OK'\\)\")",
+      "Bash(python -c \"from dashboards.components.health_score_modal import render_health_score_modal; print\\('health_score_modal OK'\\)\")",
+      "Bash(python -m pytest tests/metrics/test_time_metrics.py tests/core/test_data_processing.py -v --tb=short)",
+      "Bash(python -m pytest tests/core/test_data_processing.py tests/metrics/test_time_metrics.py -x -q)",
+      "Bash(python -c \"from dashboards.components.error_boundary import error_boundary, callback_error_div; print\\('OK'\\)\")",
+      "Bash(python -m pytest tests/ -q)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",
-      "C:\\Users\\W1 TI\\AppData\\Roaming\\Python\\Python313\\Scripts"
+      "C:\\Users\\W1 TI\\AppData\\Roaming\\Python\\Python313\\Scripts",
+      "C:\\Users\\W1 TI\\.claude\\skills\\solution-architect",
+      "C:\\Users\\W1 TI\\Downloads\\solution-architect-extracted\\solution-architect",
+      "c:\\Users\\W1 TI\\OneDrive - W1\\Documentos\\Python\\docs\\bmad\\artifacts"
     ]
   },
   "hooks": {

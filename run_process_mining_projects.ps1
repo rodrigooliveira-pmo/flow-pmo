@@ -249,6 +249,57 @@ function Invoke-PythonScript {
     }
 }
 
+function Invoke-PythonScriptWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [string[]]$Arguments = @(),
+        [string]$Label = "",
+        [int]$MaxAttempts = 3,
+        [int[]]$BackoffSeconds = @(2, 4, 8)
+    )
+
+    $lastExit = -1
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            $lastExit = Invoke-PythonScript -ScriptPath $ScriptPath -Arguments $Arguments -Label $Label
+        }
+        catch {
+            if ($attempt -ge $MaxAttempts) { throw }
+            $delay = if (($attempt - 1) -lt $BackoffSeconds.Count) { $BackoffSeconds[$attempt - 1] } else { $BackoffSeconds[-1] }
+            Write-Warning "Tentativa $attempt/$MaxAttempts falhou ao iniciar [$Label]. Nova tentativa em ${delay}s. Erro: $($_.Exception.Message)"
+            Start-Sleep -Seconds $delay
+            continue
+        }
+
+        if ($lastExit -eq 0) { return 0 }
+
+        if ($attempt -lt $MaxAttempts) {
+            $delay = if (($attempt - 1) -lt $BackoffSeconds.Count) { $BackoffSeconds[$attempt - 1] } else { $BackoffSeconds[-1] }
+            Write-Warning "Tentativa $attempt/$MaxAttempts retornou exit $lastExit [$Label]. Nova tentativa em ${delay}s."
+            Start-Sleep -Seconds $delay
+        }
+    }
+
+    return $lastExit
+}
+
+function Reset-BitbucketEnvScope {
+    Remove-Item -Path Env:BB_REPOS              -ErrorAction SilentlyContinue
+    Remove-Item -Path Env:BB_REPO               -ErrorAction SilentlyContinue
+    Remove-Item -Path Env:BB_COMMIT_DEPTH        -ErrorAction SilentlyContinue
+    Remove-Item -Path Env:BB_MIN_REQUEST_INTERVAL_MS -ErrorAction SilentlyContinue
+}
+
+function Test-OutputFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [int]$MinBytes = 512
+    )
+
+    if (-not (Test-Path $Path)) { return $false }
+    return (Get-Item $Path).Length -ge $MinBytes
+}
+
 Import-EnvFile -Path $EnvFile -OverrideExisting $true
 
 if (-not $env:JIRA_BASE_URL -or -not $env:JIRA_EMAIL -or -not $env:JIRA_API_TOKEN) {
@@ -351,6 +402,8 @@ foreach ($p in $projects) {
     Write-Host "`nProjeto: $($p.Key)" -ForegroundColor Yellow
     Write-Host "Changelog detalhado: $detailedChangelogOut"
 
+    Reset-BitbucketEnvScope
+
     if ($p.BitbucketRepos) {
         $env:BB_REPOS = $p.BitbucketRepos
         $env:BB_REPO = ($p.BitbucketRepos -split ',')[0]
@@ -381,7 +434,7 @@ foreach ($p in $projects) {
     $jiraExit = $null
     $jiraStartFailed = $false
     try {
-        $jiraExit = Invoke-PythonScript -ScriptPath $scriptPath -Arguments $jiraArgs -Label "jira_to_pipeline_csv $($p.Key)"
+        $jiraExit = Invoke-PythonScriptWithRetry -ScriptPath $scriptPath -Arguments $jiraArgs -Label "jira_to_pipeline_csv $($p.Key)"
     }
     catch {
         Write-Warning "Falha ao iniciar exportação downstream detalhada do projeto $($p.Key). $($_.Exception.Message)"
@@ -397,12 +450,12 @@ foreach ($p in $projects) {
             [void]$jiraFailures.Add("$($p.Key):exit-$jiraExit")
         }
     }
-    elseif (Test-Path $detailedChangelogOut) {
+    elseif (Test-OutputFile -Path $detailedChangelogOut) {
         $canRunProcessMining = $true
     }
     else {
-        Write-Warning "Changelog detalhado ausente para $($p.Key); process mining será pulado para este projeto."
-        [void]$processMiningFailures.Add("$($p.Key):skipped-missing-detailed-changelog")
+        Write-Warning "Changelog detalhado ausente ou vazio para $($p.Key); process mining será pulado para este projeto."
+        [void]$processMiningFailures.Add("$($p.Key):skipped-empty-detailed-changelog")
     }
 
     if ($canRunProcessMining) {
@@ -444,7 +497,7 @@ foreach ($p in $projects) {
     $bbExit = $null
     $bbStartFailed = $false
     try {
-        $bbExit = Invoke-PythonScript -ScriptPath $bitbucketScript -Arguments @(
+        $bbExit = Invoke-PythonScriptWithRetry -ScriptPath $bitbucketScript -Arguments @(
             '--project', $p.BitbucketProject,
             '--out-dir', $OutDir,
             '--workers', $bitbucketExportWorkers,

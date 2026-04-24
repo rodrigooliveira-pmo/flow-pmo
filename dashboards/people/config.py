@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 from shared.text_utils import normalize_text
+from infra.env_config import get_settings
 
 # ---------------------------------------------------------------------------
 # Internal cache
@@ -149,7 +150,7 @@ def _load_person_alias_index(alias_index=None) -> dict:
     """Builds alias → canonical_name index from FLOW_PMO_PERSON_ALIAS_MAP env var."""
     if isinstance(alias_index, dict):
         return alias_index
-    raw = os.getenv("FLOW_PMO_PERSON_ALIAS_MAP", "").strip()
+    raw = get_settings().FLOW_PMO_PERSON_ALIAS_MAP.strip()
     if not raw:
         return {}
     try:
@@ -295,7 +296,7 @@ def _normalize_seniority_bucket(raw_value) -> str:
 
 
 def _load_person_seniority_index(alias_index=None) -> dict:
-    raw = os.getenv("FLOW_PMO_PERSON_SENIORITY_MAP", "").strip()
+    raw = get_settings().FLOW_PMO_PERSON_SENIORITY_MAP.strip()
     if not raw:
         return {}
     try:

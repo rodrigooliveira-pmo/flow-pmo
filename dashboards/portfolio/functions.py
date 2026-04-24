@@ -1,4 +1,5 @@
 import dash
+from infra.env_config import get_settings
 
 # ============================================================================
 # PORTFOLIO MODULE - Extracted from dashboard_full.py
@@ -3232,7 +3233,7 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
     # Balanceamento por tipo (mix atual vs alvo parametrizável por env JSON; fallback = mix igualitário dos tipos presentes).
     tipo_counts = group_count(df, ['Tipo'], 'WorkItems') if not df.empty else pd.DataFrame(columns=['Tipo', 'WorkItems'])
-    target_mix_raw = os.getenv('FLOW_PMO_PORTFOLIO_TYPE_TARGET_MIX', '').strip()
+    target_mix_raw = get_settings().FLOW_PMO_PORTFOLIO_TYPE_TARGET_MIX.strip()
     target_mix_cfg = {}
     if target_mix_raw:
         try:
@@ -3364,14 +3365,14 @@ def compute_portfolio_snapshot(df, updated_at_label):
 
 
 def find_latest_portfolio_csv():
-    explicit_csv = os.getenv('FLOW_PMO_PORTFOLIO_CSV_FILE', '').strip()
+    explicit_csv = get_settings().FLOW_PMO_PORTFOLIO_CSV_FILE.strip()
     if explicit_csv:
         candidate = explicit_csv if os.path.isabs(explicit_csv) else os.path.join(os.path.dirname(__file__), explicit_csv)
         if os.path.isfile(candidate):
             return os.path.abspath(candidate)
         raise RuntimeError(f'FLOW_PMO_PORTFOLIO_CSV_FILE aponta para arquivo inexistente: {candidate}')
 
-    csv_url = os.getenv('FLOW_PMO_PORTFOLIO_CSV_URL', '').strip()
+    csv_url = get_settings().FLOW_PMO_PORTFOLIO_CSV_URL.strip()
     if csv_url:
         return _download_portfolio_csv_from_url(csv_url)
 

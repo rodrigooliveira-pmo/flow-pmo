@@ -24,6 +24,7 @@ from .data_loading import (
 )
 
 from .data_processing import (
+    SchemaValidationError,
     safe_read_sheet,
     load_model_data,
     resolve_service_class,

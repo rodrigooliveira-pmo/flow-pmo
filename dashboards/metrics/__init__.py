@@ -18,3 +18,13 @@ from .corporativo_metrics import (
     calc_execucao_onepage,
     calc_change_failure_rate,
 )
+from .efficiency_metrics import (
+    build_waste_decomposition,
+    build_scenario_simulation,
+)
+from .health_score import (
+    compute_health_score,
+    compute_health_score_monthly,
+    HealthScoreResult,
+    DimensionResult,
+)

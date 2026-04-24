@@ -138,6 +138,130 @@ def _item_link(key: str, title: str, link: str) -> html.Span:
 
 
 # ---------------------------------------------------------------------------
+# Faixa de KPI cards
+# ---------------------------------------------------------------------------
+
+def render_four_ps_kpi_row(kpis: Dict[str, Any]) -> html.Div:
+    """Renderiza a faixa de 8 KPI cards no topo da aba 4Ps."""
+
+    def _card(
+        title: str,
+        value: Any,
+        sub: str = "",
+        bg: str = "#f8fafc",
+        border: str = "#e2e8f0",
+        val_color: str = "#0f172a",
+    ) -> html.Div:
+        return html.Div(
+            [
+                html.Div(
+                    title,
+                    style={
+                        "fontSize": "10px",
+                        "color": "#64748b",
+                        "fontWeight": "600",
+                        "textTransform": "uppercase",
+                        "letterSpacing": "0.05em",
+                        "marginBottom": "4px",
+                    },
+                ),
+                html.Div(
+                    str(value),
+                    style={
+                        "fontSize": "22px",
+                        "fontWeight": "700",
+                        "color": val_color,
+                        "lineHeight": "1.1",
+                    },
+                ),
+                html.Div(
+                    sub,
+                    style={"fontSize": "10px", "color": "#94a3b8", "marginTop": "2px"},
+                ) if sub else html.Span(),
+            ],
+            style={
+                "flex": "1",
+                "minWidth": "110px",
+                "backgroundColor": bg,
+                "border": f"1px solid {border}",
+                "borderRadius": "8px",
+                "padding": "10px 12px",
+            },
+        )
+
+    wip        = kpis.get("wip_total", 0)
+    pipeline   = kpis.get("pipeline_total", 0)
+    blocked    = kpis.get("blocked_total", 0)
+    deliveries = kpis.get("deliveries_period", 0)
+    bau_pct    = kpis.get("bau_pct", 0)
+    bau_count  = kpis.get("bau_count", 0)
+    no_date    = kpis.get("epics_no_date", 0)
+    avg_pct    = kpis.get("epics_avg_pct")
+    on_time    = kpis.get("on_time_pct")
+    on_denom   = kpis.get("on_time_denominator", 0)
+
+    # Bloqueados
+    if blocked > 0:
+        bl_bg, bl_bord, bl_col = "#fef2f2", "#fca5a5", "#dc2626"
+    else:
+        bl_bg, bl_bord, bl_col = "#f8fafc", "#e2e8f0", "#0f172a"
+
+    # Épicos sem data
+    if no_date > 0:
+        nd_bg, nd_bord, nd_col = "#fff7ed", "#fdba74", "#ea580c"
+    else:
+        nd_bg, nd_bord, nd_col = "#f8fafc", "#e2e8f0", "#0f172a"
+
+    # BAU %
+    if bau_pct >= 50:
+        bau_bg, bau_bord, bau_col = "#fff7ed", "#fdba74", "#ea580c"
+    else:
+        bau_bg, bau_bord, bau_col = "#f8fafc", "#e2e8f0", "#0f172a"
+
+    # Progresso médio
+    if avg_pct is None:
+        avg_val, avg_col = "—", "#94a3b8"
+    elif avg_pct >= 70:
+        avg_val, avg_col = f"{avg_pct}%", "#16a34a"
+    elif avg_pct >= 40:
+        avg_val, avg_col = f"{avg_pct}%", "#d97706"
+    else:
+        avg_val, avg_col = f"{avg_pct}%", "#dc2626"
+
+    # No prazo
+    if on_time is None or on_denom == 0:
+        ot_val, ot_col  = "—", "#94a3b8"
+        ot_bg, ot_bord  = "#f8fafc", "#e2e8f0"
+        ot_sub          = "sem itens c/ data"
+    elif on_time >= 80:
+        ot_val, ot_col  = f"{on_time}%", "#16a34a"
+        ot_bg, ot_bord  = "#f0fdf4", "#86efac"
+        ot_sub          = f"de {on_denom} c/ prazo"
+    elif on_time >= 60:
+        ot_val, ot_col  = f"{on_time}%", "#d97706"
+        ot_bg, ot_bord  = "#fffbeb", "#fcd34d"
+        ot_sub          = f"de {on_denom} c/ prazo"
+    else:
+        ot_val, ot_col  = f"{on_time}%", "#dc2626"
+        ot_bg, ot_bord  = "#fef2f2", "#fca5a5"
+        ot_sub          = f"de {on_denom} c/ prazo"
+
+    return html.Div(
+        [
+            _card("Em Progresso",  wip,       "WIP total"),
+            _card("Pipeline",      pipeline,  "próximos passos"),
+            _card("Bloqueados",    blocked,   ">5 dias parados",    bl_bg,  bl_bord,  bl_col),
+            _card("Entregas",      deliveries,"no período"),
+            _card("BAU",           f"{bau_pct}%", f"{bau_count} itens", bau_bg, bau_bord, bau_col),
+            _card("Épicos s/ Data",no_date,   "Running s/ prazo",   nd_bg,  nd_bord,  nd_col),
+            _card("Prog. Médio",   avg_val,   "épicos running",     val_color=avg_col),
+            _card("No Prazo",      ot_val,    ot_sub,               ot_bg,  ot_bord,  ot_col),
+        ],
+        style={"display": "flex", "gap": "8px", "flexWrap": "wrap", "marginBottom": "16px"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Cards por tipo de item
 # ---------------------------------------------------------------------------
 
@@ -645,8 +769,9 @@ def render_four_ps_tab(
 
     # Resumo mensal restrito ao período selecionado
     monthly_summary_el: Any = html.Div()
+    kpi_row_el: Any = html.Div()
     try:
-        from dashboards.four_ps.builder import build_monthly_summary
+        from dashboards.four_ps.builder import build_monthly_summary, compute_four_ps_kpis
         summary = build_monthly_summary(
             df_portfolio,
             date_start=date_start,
@@ -655,6 +780,8 @@ def render_four_ps_tab(
             kanban_data=kanban_data,
         )
         monthly_summary_el = _render_monthly_summary(summary)
+        kpis = compute_four_ps_kpis(payload, summary, df_portfolio, kanban_data)
+        kpi_row_el = render_four_ps_kpi_row(kpis)
     except Exception:
         pass
 
@@ -764,8 +891,11 @@ def render_four_ps_tab(
                     html.Span(id="four-ps-copy-feedback", style={"fontSize": "11px", "color": "#666", "marginLeft": "8px"}),
                     dcc.Store(id="four-ps-copy-text-store", data=copy_text),
                 ],
-                style={"marginBottom": "16px"},
+                style={"marginBottom": "12px"},
             ),
+
+            # Faixa de KPIs
+            kpi_row_el,
 
             # Grid 2 colunas: Progresso | Próximos Passos
             html.Div(

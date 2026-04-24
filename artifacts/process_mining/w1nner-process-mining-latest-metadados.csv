@@ -1,13 +1,13 @@
 ﻿Metrica,Valor
 pm4py_available,True
-pm4py_events,8022
-pm4py_cases,1081
+pm4py_events,8066
+pm4py_cases,1085
 pm4py_activities,38
 pm4py_dfg_edges,146
 pm4py_start_activities,19
-pm4py_end_activities,11
+pm4py_end_activities,12
 graphviz_dot_available,False
-graphviz_dot_path,dot_not_found
+graphviz_dot_path,dot_not_found | checked: C:\ProgramData\anaconda3\Library\bin
 pm4py_dfg_vis_error,Graphviz 'dot' não encontrado no PATH
 pm4py_dfg_performance_vis_error,Graphviz 'dot' não encontrado no PATH
 pm4py_heuristics_error,Graphviz 'dot' não encontrado no PATH

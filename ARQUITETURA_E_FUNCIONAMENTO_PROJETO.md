@@ -339,11 +339,10 @@ Principais bibliotecas:
 - Dashboard dedicado `dashboard_process_mining.py` para exploração operacional/tática dos resultados de process mining.
 - Suporte a artefatos visuais (DFG, rede heurística, árvore indutiva, rede de Petri) quando presentes no diretório de dados.
 
-### 12.8 Deploy Web (Vercel / `api/index.py`)
+### 12.8 Deploy Web (`api/index.py`)
 
-- Entrypoint Python para Vercel que carrega dinamicamente módulo/atributo do Dash (`FLOW_PMO_DASH_MODULE`, `FLOW_PMO_DASH_ATTR`).
+- Entrypoint WSGI que carrega dinamicamente módulo/atributo do Dash (`FLOW_PMO_DASH_MODULE`, `FLOW_PMO_DASH_ATTR`).
 - Fallback de erro de inicialização com resposta HTTP 500 e mensagem explícita (facilita diagnóstico em produção).
-- Arquivos de suporte de deploy: `vercel.json` e `DEPLOY_VERCEL.md`.
 
 ## 13) Resumo das Entregas dos Últimos 30 Dias (25/01/2026 a 24/02/2026)
 
@@ -391,10 +390,8 @@ Principais bibliotecas:
 - Melhorias em campos e visões de portfólio no dashboard.
 - Cache e fallback de leitura para reduzir fragilidade operacional.
 
-6. **Deploy e operação (Vercel)**
-- Ajustes de `vercel.json`, rotas/rewrite e entrypoint Python.
+6. **Deploy e operação**
 - Tratamento melhor de erro de inicialização no `api/index.py`.
-- Documentação de deploy (`DEPLOY_VERCEL.md`) atualizada no período.
 
 ### 13.3 Arquivos com maior concentração de mudanças no período (sinal de onde houve entrega)
 
@@ -406,7 +403,7 @@ Principais bibliotecas:
 - `run_all_projects_macos.sh`
 - `jira_portfolio_to_csv.py`
 - `dashboard_app.py`
-- `api/index.py` / `vercel.json`
+- `api/index.py`
 
 ### 13.4 Observação de rastreabilidade
 

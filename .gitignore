@@ -23,3 +23,6 @@ artifacts/process_mining/*.xlsx
 artifacts/process_mining/**/*.csv
 artifacts/process_mining/**/*.xlsx
 node_modules/
+
+# Claude Code — configuracoes locais
+.claude/settings.local.json

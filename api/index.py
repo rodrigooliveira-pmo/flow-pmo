@@ -1,4 +1,4 @@
-"""Vercel Python entrypoint for the Dash application.
+"""Entrypoint da aplicação Dash.
 
 Seleciona o dashboard a servir via variáveis de ambiente:
 
@@ -10,7 +10,7 @@ Dashboards disponíveis:
   dashboard_process_mining  Dashboard standalone dedicado ao Process Mining (análise detalhada)
   dashboard_spaf          Dashboard standalone dedicado ao módulo SPAF
 
-Exemplos de configuração no Vercel (env vars):
+Exemplos de configuração (env vars):
   FLOW_PMO_DASH_MODULE=dashboard_full          → dashboard principal (padrão)
   FLOW_PMO_DASH_MODULE=dashboard_process_mining → somente process mining
   FLOW_PMO_DASH_MODULE=dashboard_spaf          → módulo SPAF standalone
@@ -32,7 +32,7 @@ DASH_MODULE = os.getenv("FLOW_PMO_DASH_MODULE", "dashboard_full")
 DASH_ATTR = os.getenv("FLOW_PMO_DASH_ATTR", "app")
 _COMMIT = os.getenv("BITBUCKET_COMMIT", "unknown")
 
-app = None  # defined at top-level so Vercel can detect the entrypoint
+app = None
 
 try:
     module = importlib.import_module(DASH_MODULE)

@@ -72,7 +72,7 @@ Respond terse like smart caveman. All technical substance stay. Only fluff die.
 - Login via Google OAuth 2.0 implementado em `auth.py` — não reescrever, apenas estender.
 - Controle de acesso atual: allowlist estática via `FLOW_PMO_ALLOWED_EMAILS` (env var).
 - Futuro: migrar para checagem dinâmica por grupo Workspace via `FLOW_PMO_ALLOWED_GROUP` + service account.
-- Redirect URI de produção: `https://flow-pmo.vercel.app/callback` (registrada no Google Cloud Console, projeto `dashboard-fluxo-produtividade`).
+- Redirect URI de produção: registrada no Google Cloud Console, projeto `dashboard-fluxo-produtividade`.
 - Workspace tem múltiplos domínios (`w1.com.br`, `w1consultoria.com.br`, `w1technology.com.br`) — não validar por sufixo de e-mail nem por `hd == domínio_primário`. Usar `hd` apenas para bloquear contas Gmail pessoais.
 - Para rodar localmente: `python -c "from dotenv import load_dotenv; load_dotenv('.env.local'); from api.index import app; app.run(port=3000, debug=True)"`
 
@@ -135,8 +135,7 @@ When moving a function to a module:
 
 ### Regras críticas para o Dockerfile / requirements
 
-- `gunicorn` **obrigatoriamente** em `requirements.txt` (não em `requirements-vercel.txt`)
-- `requirements-vercel.txt` é para o ambiente serverless da Vercel — **não inclui gunicorn**
+- `gunicorn` **obrigatoriamente** em `requirements.txt`
 - Ao alterar dependências do container, verificar que o `CMD` do Dockerfile tem seus executáveis instalados
 - CMD atual: `gunicorn api.index:app --bind 0.0.0.0:8080 --workers 1 --timeout 300`
 
