@@ -42,13 +42,18 @@
       "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Dados/latest/**)",
       "Read(//c/Users/W1 TI/AppData/Local/Temp/**)",
       "Bash(git rm *)",
-      "Read(//c/Users/W1 TI/Downloads/**)"
+      "Read(//c/Users/W1 TI/Downloads/**)",
+      "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Claude Code/bmad-claude-code/**)",
+      "PowerShell(Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass)",
+      "PowerShell(& \"C:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Claude Code\\\\bmad-claude-code\\\\setup.ps1\" -Target \"C:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Python\")",
+      "Read(//c/c/Users/W1 TI/OneDrive - W1/Documentos/**)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",
       "C:\\Users\\W1 TI\\AppData\\Roaming\\Python\\Python313\\Scripts",
       "C:\\Users\\W1 TI\\.claude\\skills\\solution-architect",
-      "C:\\Users\\W1 TI\\Downloads\\solution-architect-extracted\\solution-architect"
+      "C:\\Users\\W1 TI\\Downloads\\solution-architect-extracted\\solution-architect",
+      "c:\\Users\\W1 TI\\OneDrive - W1\\Documentos\\Python\\docs\\bmad\\artifacts"
     ]
   },
   "hooks": {
