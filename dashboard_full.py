@@ -120,6 +120,7 @@ from dashboards.components.tables import (
 
 from dashboards.four_ps import build_four_ps_payload, render_four_ps_tab
 from dashboards.pages.corporativo import layout_corporativo
+from dashboards.components.error_boundary import error_boundary, callback_error_div
 
 from dashboards.people import (
     _load_people_config,
@@ -15799,6 +15800,7 @@ def optional_input(component_id, component_property):
     State('tabs', 'value'),
     prevent_initial_call=True
 )
+@error_boundary(fallback=(dash.no_update, dash.no_update))
 def handle_main_menu_navigation(_portfolio_clicks, _services_clicks, _home_clicks, current_tab):
     triggered_id = dash.ctx.triggered_id
     if not triggered_id:
@@ -15824,6 +15826,7 @@ def handle_main_menu_navigation(_portfolio_clicks, _services_clicks, _home_click
     Input('filter-projeto', 'value'),
     State('filter-leadtime-stages', 'value'),
 )
+@error_boundary(fallback=([], []))
 def update_leadtime_stage_filter_options(projeto, current_value):
     projeto = normalize_project_filter_value(projeto)
     stage_cols, stage_source = get_leadtime_stage_filter_columns(projeto)
@@ -15844,6 +15847,7 @@ def update_leadtime_stage_filter_options(projeto, current_value):
     Input('filter-projeto', 'value'),
     State('filter-etapa-fluxo', 'value'),
 )
+@error_boundary(fallback=([], []))
 def update_etapa_fluxo_filter_options(projeto, current_value):
     projeto = normalize_project_filter_value(projeto)
     stage_cols, source = get_leadtime_stage_filter_columns(projeto)
@@ -15871,6 +15875,7 @@ def update_etapa_fluxo_filter_options(projeto, current_value):
     Input('filter-projeto', 'value'),
     State('filter-criador', 'value'),
 )
+@error_boundary(fallback=([], True, []))
 def update_creator_filter_options(projeto, current_value):
     projeto = normalize_project_filter_value(projeto)
     options = get_creator_filter_options_for_project(projeto)
@@ -15919,6 +15924,7 @@ def _work_item_age_bucket(age_days):
     Input('filter-projeto', 'value'),
     State('filter-portfolio-team', 'value'),
 )
+@error_boundary(fallback=([], dash.no_update))
 def sync_portfolio_project_filter(projeto, current_portfolio_project):
     options = get_portfolio_project_filter_options()
     allowed_values = {opt.get('value') for opt in options}
@@ -15937,6 +15943,7 @@ def sync_portfolio_project_filter(projeto, current_portfolio_project):
     Output('tabs', 'children'),
     Input('main-view', 'data')
 )
+@error_boundary(fallback=(dash.no_update,) * 6)
 def update_main_navigation_layout(main_view):
     menu_style = {
         'maxWidth': '720px',
@@ -16000,6 +16007,7 @@ def update_main_navigation_layout(main_view):
     optional_input('corp-groupby-product', 'value'),
     optional_input('corp-feature-types', 'value'),
 )
+@error_boundary(fallback=callback_error_div())
 def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_original_jira, classe_servico, responsavel, leadtime_stages, etapa_fluxo=None, capacity_top_n=5, capacity_weekly_metric='score', portfolio_team=PROJECT_FILTER_ALL_VALUE, portfolio_quarter='ALL',
                pf_backlog_15=None, pf_backlog_30=None, pf_fresh_15=None, pf_fresh_30=None,
                pf_decision_statuses=None, pf_workflow_statuses=None, pf_sla_aging_json=None, pf_target_mix_json=None,
@@ -29043,6 +29051,7 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
     Input('performance-table', 'data'),
     prevent_initial_call=True
 )
+@error_boundary(fallback=callback_error_div())
 def render_metric_chart(active_cell, table_data):
     if not active_cell or not table_data:
         return html.Div()
@@ -29220,6 +29229,7 @@ def _resolve_dash_runtime_options():
     optional_input('cfd-graph', 'hoverData'),
     Input('cfd-summary-store', 'data'),
 )
+@error_boundary(fallback=callback_error_div())
 def update_cfd_summary_panel(click_data, hover_data, summary_payload):
     if not summary_payload:
         raise PreventUpdate
@@ -29276,6 +29286,7 @@ from dashboards.components.health_score_modal import _OVERLAY_HIDDEN as _HS_OVER
     Input('btn-close-health-score', 'n_clicks'),
     prevent_initial_call=True,
 )
+@error_boundary(fallback=_HS_OVERLAY_HIDDEN)
 def toggle_health_score_modal(open_n, close_n):
     ctx = dash.callback_context
     if not ctx.triggered:

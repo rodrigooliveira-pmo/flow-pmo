@@ -62,6 +62,14 @@ class FlowPMOSettings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     FLASK_SECRET_KEY: str = ""
 
+    # --- Portfólio ---
+    FLOW_PMO_PORTFOLIO_CSV_FILE: str = ""
+    FLOW_PMO_PORTFOLIO_TYPE_TARGET_MIX: str = ""
+
+    # --- People ---
+    FLOW_PMO_PERSON_ALIAS_MAP: str = ""
+    FLOW_PMO_PERSON_SENIORITY_MAP: str = ""
+
     # --- AWS ---
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""

@@ -11,11 +11,12 @@ from pathlib import Path
 from shared.env_utils import load_env_file, parse_json_env
 from shared.path_utils import candidate_data_folders, _sanitize_os_path
 from shared.text_utils import normalize_text
+from infra.env_config import get_settings
 
 
 def _get_cache_dir() -> str:
     """Returns the cache directory, configurable via FLOW_PMO_CACHE_DIR."""
-    return os.getenv('FLOW_PMO_CACHE_DIR', '/tmp/flow-pmo-models')
+    return get_settings().FLOW_PMO_CACHE_DIR
 
 
 def download_cached(url: str, prefix: str, ext: str, extra_key: str = '') -> str:
@@ -74,13 +75,7 @@ def _download_gmud_csv_from_url(url, kind):
 
 
 def _remote_cache_ttl_seconds():
-    raw = os.getenv('FLOW_PMO_REMOTE_CACHE_TTL_SECONDS', '').strip()
-    if not raw:
-        return 300
-    try:
-        return max(0, int(raw))
-    except Exception:
-        return 300
+    return max(0, get_settings().FLOW_PMO_REMOTE_CACHE_TTL_SECONDS)
 
 
 def _refresh_remote_cache_file(url, out_file):
@@ -99,17 +94,8 @@ def _refresh_remote_cache_file(url, out_file):
 
 
 def _load_bottleneck_url_map():
-    raw = os.getenv('FLOW_PMO_BOTTLENECK_CSV_URL_MAP', '').strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
     out = {}
-    for key, value in parsed.items():
+    for key, value in get_settings().get_bottleneck_url_map().items():
         project_key = str(key).strip().upper()
         url = str(value).strip()
         if project_key and url:
@@ -122,7 +108,7 @@ def _load_bitbucket_csv_url_map():
     Formato: {"w1nner_commits": "https://...", "w1nner_pullrequests": "https://...", ...}
     A chave é {prefix}_{tipo} (sem .csv). Ex: w1nner_commits, s1nc_pullrequests, befinance_commits.
     """
-    raw = os.getenv('FLOW_PMO_BITBUCKET_CSV_URL_MAP', '').strip()
+    raw = get_settings().FLOW_PMO_BITBUCKET_CSV_URL_MAP.strip()
     if not raw:
         return {}
     cleaned = ' '.join(raw.splitlines())
@@ -151,7 +137,7 @@ def _download_bitbucket_csv_from_url(url, key):
 
 
 def _load_downstream_url_map():
-    raw = os.getenv('FLOW_PMO_DOWNSTREAM_CSV_URL_MAP', '').strip()
+    raw = get_settings().FLOW_PMO_DOWNSTREAM_CSV_URL_MAP.strip()
     if not raw:
         return {}
     parsed = None
@@ -202,14 +188,14 @@ def _url_filename_matches_project(url, expected_prefix):
 
 
 def _resolve_model_file(data_folders):
-    explicit_model = _sanitize_os_path(os.getenv('FLOW_PMO_MODEL_FILE', ''))
+    explicit_model = _sanitize_os_path(get_settings().FLOW_PMO_MODEL_FILE)
     if explicit_model:
         candidate = explicit_model if os.path.isabs(explicit_model) else os.path.join(os.path.dirname(__file__), explicit_model)
         if os.path.isfile(candidate):
             return os.path.abspath(candidate)
         raise FileNotFoundError(f'FLOW_PMO_MODEL_FILE aponta para arquivo inexistente: {candidate}')
 
-    model_url = os.getenv('FLOW_PMO_MODEL_URL', '').strip()
+    model_url = get_settings().FLOW_PMO_MODEL_URL.strip()
     if model_url:
         try:
             return _download_model_from_url(model_url)

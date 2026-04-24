@@ -54,7 +54,7 @@ QUARTER_DATES: Dict[str, Tuple[str, str]] = {
 
 HIGHEST_ALIAS_TOKENS: Tuple[str, ...] = (
     "highest",
-    "highest",   # corrige typo "higest" do módulo legado
+    "higest",    # typo histórico preservado para retrocompatibilidade
     "expedite",
     "urgent",
     "urgente",
@@ -63,12 +63,6 @@ HIGHEST_ALIAS_TOKENS: Tuple[str, ...] = (
     "blocker",
     "fast track",
     "fasttrack",
-)
-
-# Typos históricos aceitos como aliases (para retrocompatibilidade de normalização)
-HIGHEST_ALIAS_TYPOS: Tuple[str, ...] = (
-    "higest",    # typo histórico em HIGHEST_ALIAS_TOKENS original
-    "critico",   # sem acento (normalize_text já remove acentos)
 )
 
 # ---------------------------------------------------------------------------

@@ -52,7 +52,10 @@
       "Bash(python -m pip install \"pydantic-settings>=2.0,<3\")",
       "Bash(python -c \"from dashboards.metrics.health_score import compute_health_score, HealthScoreResult; print\\('health_score OK'\\)\")",
       "Bash(python -c \"from dashboards.components.health_score_modal import render_health_score_modal; print\\('health_score_modal OK'\\)\")",
-      "Bash(python -m pytest tests/metrics/test_time_metrics.py tests/core/test_data_processing.py -v --tb=short)"
+      "Bash(python -m pytest tests/metrics/test_time_metrics.py tests/core/test_data_processing.py -v --tb=short)",
+      "Bash(python -m pytest tests/core/test_data_processing.py tests/metrics/test_time_metrics.py -x -q)",
+      "Bash(python -c \"from dashboards.components.error_boundary import error_boundary, callback_error_div; print\\('OK'\\)\")",
+      "Bash(python -m pytest tests/ -q)"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",

@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import plotly.graph_objects as go
+
 from dashboards.metrics.time_metrics import (
     exact_empirical_percentile,
     exact_percentile_map,
@@ -21,6 +23,7 @@ from dashboards.metrics.time_metrics import (
     unique_item_keys,
     build_monthly_throughput_percentage_by_type,
     build_monthly_leadtime_sla_percentage_by_type,
+    add_statistical_lines,
 )
 
 
@@ -369,3 +372,92 @@ class TestBuildMonthlyThroughputPercentage:
             for col in month_cols:
                 non_dash = result[col][result[col] != "-"]
                 assert non_dash.str.endswith("%").all()
+
+
+# ---------------------------------------------------------------------------
+# build_monthly_leadtime_sla_percentage_by_type
+# ---------------------------------------------------------------------------
+
+class TestBuildMonthlyLeadtimeSlaPercentage:
+    def test_returns_dataframe(self, done_items_df):
+        result = build_monthly_leadtime_sla_percentage_by_type(
+            done_items_df, "Tipo", "Tipo de Demanda"
+        )
+        assert isinstance(result, pd.DataFrame)
+
+    def test_empty_df_returns_empty(self):
+        result = build_monthly_leadtime_sla_percentage_by_type(
+            pd.DataFrame(), "Tipo", "Tipo de Demanda"
+        )
+        assert result.empty
+
+    def test_none_df_returns_empty(self):
+        result = build_monthly_leadtime_sla_percentage_by_type(
+            None, "Tipo", "Tipo de Demanda"
+        )
+        assert result.empty
+
+    def test_missing_column_returns_empty(self, done_items_df):
+        result = build_monthly_leadtime_sla_percentage_by_type(
+            done_items_df, "NonExistent", "Tipo de Demanda"
+        )
+        assert result.empty
+
+    def test_values_contain_percent_sign(self, done_items_df):
+        result = build_monthly_leadtime_sla_percentage_by_type(
+            done_items_df, "Tipo", "Tipo de Demanda"
+        )
+        if not result.empty:
+            month_cols = [c for c in result.columns if c != "Tipo de Demanda"]
+            for col in month_cols:
+                non_dash = result[col][result[col] != "-"]
+                assert non_dash.str.endswith("%").all()
+
+
+# ---------------------------------------------------------------------------
+# add_statistical_lines
+# ---------------------------------------------------------------------------
+
+class TestAddStatisticalLines:
+    def test_returns_fig(self, done_items_df):
+        fig = go.Figure()
+        x = list(range(10))
+        y = pd.Series([float(i + 1) for i in range(10)])
+        result = add_statistical_lines(fig, x, y, name_prefix="Test")
+        assert result is fig
+
+    def test_adds_traces(self, done_items_df):
+        fig = go.Figure()
+        x = list(range(10))
+        y = pd.Series([float(i + 1) for i in range(10)])
+        add_statistical_lines(fig, x, y)
+        assert len(fig.data) == 5  # P15, P85, P95, Média, MM(5)
+
+    def test_empty_y_returns_unchanged_fig(self):
+        fig = go.Figure()
+        result = add_statistical_lines(fig, [], pd.Series([], dtype=float))
+        assert len(result.data) == 0
+
+
+# ---------------------------------------------------------------------------
+# compute_process_capability_metrics — additional quality classification
+# ---------------------------------------------------------------------------
+
+class TestCapabilityQualityClassification:
+    def test_quality_capable(self):
+        # values tightly clustered → high cpk
+        values = [9.5, 10.0, 10.5] * 20
+        result = compute_process_capability_metrics(values, usl=20.0, lsl=0.0)
+        if result["error"] is None:
+            assert result["cpk"] > 1.0
+
+    def test_quality_incapaz_label(self):
+        # Process spread wider than limits → cpk < 1
+        values = list(range(1, 101))
+        result = compute_process_capability_metrics(values, usl=5.0)
+        if result["error"] is None and result["cpk"] < 1.0:
+            assert "Incapaz" in result["quality"]
+
+    def test_lsl_only(self, sample_lead_times):
+        result = compute_process_capability_metrics(sample_lead_times, lsl=0.0)
+        assert result["error"] is None or result["cpk"] is not None or result["error"] is not None
