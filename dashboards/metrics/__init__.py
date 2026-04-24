@@ -24,6 +24,7 @@ from .efficiency_metrics import (
 )
 from .health_score import (
     compute_health_score,
+    compute_health_score_monthly,
     HealthScoreResult,
     DimensionResult,
 )
