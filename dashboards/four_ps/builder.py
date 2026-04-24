@@ -51,42 +51,38 @@ FourPsPayload = Dict[str, Dict[str, AreaData]]
 
 
 # ---------------------------------------------------------------------------
-# Importações lazy das funções de portfólio (evita import circular)
+# Funções de portfólio e normalização — sem dependências circulares
 # ---------------------------------------------------------------------------
 
+from shared.text_utils import normalize_text as _normalize_text
+from dashboards.domain.portfolio.status import (
+    portfolio_roadmap_status_label as _roadmap_status_label,
+    portfolio_roadmap_progress_pct as _roadmap_progress_pct,
+    portfolio_team_to_project_key as _team_to_project_key,
+)
+
+_KEY_TO_LABEL: dict[str, str] = {
+    "W1NNER": "W1nner",
+    "S1NC": "S1NC",
+    "BF": "BeFinance",
+    "DT": "Dados",
+}
+
+
 def _portfolio_status_label(status: str, cat: str = "") -> Optional[str]:
-    try:
-        from dashboard_full import portfolio_roadmap_status_label
-        return portfolio_roadmap_status_label(status, cat)
-    except Exception:
-        return None
+    return _roadmap_status_label(status, cat)
 
 
 def _portfolio_progress_pct(status: str, cat: str = "") -> Optional[int]:
-    try:
-        from dashboard_full import portfolio_roadmap_progress_pct
-        return portfolio_roadmap_progress_pct(status, cat)
-    except Exception:
-        return None
+    return _roadmap_progress_pct(status, cat)
 
 
 def _team_to_area(team_value: str) -> str:
     """Mapeia valor de Team do portfólio para o nome canônico de área."""
-    _KEY_TO_LABEL = {
-        "W1NNER": "W1nner",
-        "S1NC":   "S1NC",
-        "BF":     "BeFinance",
-        "DT":     "Dados",
-    }
-    try:
-        from dashboard_full import _portfolio_team_to_pm_project_key
-        key = _portfolio_team_to_pm_project_key(team_value)
-        if key and key in _KEY_TO_LABEL:
-            return _KEY_TO_LABEL[key]
-    except Exception:
-        pass
+    key = _team_to_project_key(team_value)
+    if key and key in _KEY_TO_LABEL:
+        return _KEY_TO_LABEL[key]
 
-    # Fallback: tenta resolver diretamente pelo texto (ex: "Sistemas - W1NNER")
     norm = _normalize_text(team_value)
     if "w1nner" in norm or "w1nnr" in norm:
         return "W1nner"
@@ -97,18 +93,6 @@ def _team_to_area(team_value: str) -> str:
     if "dados" in norm or " dt " in f" {norm} " or "data" in norm or "analytics" in norm:
         return "Dados"
     return team_value
-
-
-def _normalize_text(text: str) -> str:
-    """Normalização mínima local — evita depender de funções do dashboard."""
-    try:
-        from dashboard_full import normalize_text
-        return normalize_text(text)
-    except Exception:
-        import unicodedata
-        t = unicodedata.normalize("NFD", str(text or "").lower())
-        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
-        return re.sub(r"[^a-z0-9 ]", " ", t).strip()
 
 
 # ---------------------------------------------------------------------------

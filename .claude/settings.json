@@ -46,7 +46,12 @@
       "Read(//c/Users/W1 TI/OneDrive - W1/Documentos/Claude Code/bmad-claude-code/**)",
       "PowerShell(Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass)",
       "PowerShell(& \"C:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Claude Code\\\\bmad-claude-code\\\\setup.ps1\" -Target \"C:\\\\Users\\\\W1 TI\\\\OneDrive - W1\\\\Documentos\\\\Python\")",
-      "Read(//c/c/Users/W1 TI/OneDrive - W1/Documentos/**)"
+      "Read(//c/c/Users/W1 TI/OneDrive - W1/Documentos/**)",
+      "Bash(python -c \"import dash_bootstrap_components\")",
+      "Bash(python -c \"import pydantic_settings; print\\('ok'\\)\")",
+      "Bash(python -m pip install \"pydantic-settings>=2.0,<3\")",
+      "Bash(python -c \"from dashboards.metrics.health_score import compute_health_score, HealthScoreResult; print\\('health_score OK'\\)\")",
+      "Bash(python -c \"from dashboards.components.health_score_modal import render_health_score_modal; print\\('health_score_modal OK'\\)\")"
     ],
     "additionalDirectories": [
       "/Users/rodrigoalmeidadeoliveira/Documents/dados",

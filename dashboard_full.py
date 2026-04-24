@@ -105,6 +105,8 @@ from dashboards.metrics.efficiency_metrics import (
     build_waste_decomposition,
     build_scenario_simulation,
 )
+from dashboards.metrics.health_score import compute_health_score
+from dashboards.components.health_score_modal import render_health_score_modal
 
 from dashboards.components.cards import (
     create_kpi_card,
@@ -22057,8 +22059,46 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             add_statistical_lines(fig_wip_trend, wip_trend_df['Semana'], wip_trend_df['WIP'])
             fig_wip_trend.update_layout(height=550, xaxis_tickangle=-45, margin=dict(b=130))
 
+        hs_result = compute_health_score(df_health_base)
+        hs_modal = render_health_score_modal(hs_result)
+        hs_score_color = '#16a34a' if hs_result.score >= 70 else ('#ea580c' if hs_result.score >= 40 else '#dc2626')
+
         return html.Div([
-            html.H3("Análise de Saúde do Fluxo", style={'textAlign': 'center'}),
+            hs_modal,
+            html.Div([
+                html.H3("Análise de Saúde do Fluxo", style={'textAlign': 'center', 'display': 'inline-block', 'margin': '0 auto'}),
+                html.Button(
+                    [
+                        html.Span('Health Score', style={'marginRight': '8px'}),
+                        html.Span(
+                            str(hs_result.score),
+                            style={
+                                'backgroundColor': hs_score_color,
+                                'color': '#fff',
+                                'borderRadius': '999px',
+                                'padding': '2px 10px',
+                                'fontWeight': '700',
+                                'fontSize': '14px',
+                            },
+                        ),
+                    ],
+                    id='btn-health-score',
+                    n_clicks=0,
+                    style={
+                        'cursor': 'pointer',
+                        'background': '#f8fafc',
+                        'border': '1px solid #e2e8f0',
+                        'borderRadius': '8px',
+                        'padding': '6px 14px',
+                        'fontSize': '14px',
+                        'fontWeight': '600',
+                        'color': '#334155',
+                        'display': 'flex',
+                        'alignItems': 'center',
+                        'gap': '6px',
+                    },
+                ),
+            ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '16px'}),
             html.Div(kpi_table, style={'width': '50%', 'margin': 'auto', 'marginBottom': '30px'}),
             dcc.Graph(figure=fig_flow),
             dcc.Graph(figure=fig_wip_trend),
@@ -29224,6 +29264,37 @@ clientside_callback(
     Input('four-ps-copy-text-store', 'data'),
     prevent_initial_call=True,
 )
+
+
+_HS_OVERLAY_HIDDEN = {'display': 'none'}
+_HS_OVERLAY_VISIBLE = {
+    'display': 'flex',
+    'position': 'fixed',
+    'top': '0',
+    'left': '0',
+    'width': '100%',
+    'height': '100%',
+    'backgroundColor': 'rgba(0,0,0,0.5)',
+    'zIndex': '9999',
+    'justifyContent': 'center',
+    'alignItems': 'center',
+}
+
+
+@app.callback(
+    Output('health-score-overlay', 'style'),
+    Input('btn-health-score', 'n_clicks'),
+    Input('btn-close-health-score', 'n_clicks'),
+    prevent_initial_call=True,
+)
+def toggle_health_score_modal(open_n, close_n):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger_id == 'btn-health-score':
+        return _HS_OVERLAY_VISIBLE
+    return _HS_OVERLAY_HIDDEN
 
 
 if __name__ == '__main__':

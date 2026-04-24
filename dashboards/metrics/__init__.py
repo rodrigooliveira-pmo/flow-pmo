@@ -22,3 +22,8 @@ from .efficiency_metrics import (
     build_waste_decomposition,
     build_scenario_simulation,
 )
+from .health_score import (
+    compute_health_score,
+    HealthScoreResult,
+    DimensionResult,
+)

@@ -13,81 +13,64 @@ from shared.path_utils import candidate_data_folders, _sanitize_os_path
 from shared.text_utils import normalize_text
 
 
-def _download_model_from_url(url):
-    print(f"[data_loading] Downloading model from URL: {url}", flush=True)
-    cache_dir = '/tmp/flow-pmo-models'
+def _get_cache_dir() -> str:
+    """Returns the cache directory, configurable via FLOW_PMO_CACHE_DIR."""
+    return os.getenv('FLOW_PMO_CACHE_DIR', '/tmp/flow-pmo-models')
+
+
+def download_cached(url: str, prefix: str, ext: str, extra_key: str = '') -> str:
+    """Download URL to a TTL-cached local file. Returns local file path.
+
+    Args:
+        url: Remote URL to download.
+        prefix: Filename prefix (e.g. 'PowerBI_Model', 'portfolio-bt-ns').
+        ext: File extension including dot (e.g. '.xlsx', '.csv').
+        extra_key: Optional extra key for disambiguation (e.g. project_key).
+    """
+    cache_dir = _get_cache_dir()
     os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'PowerBI_Model_{file_key}.xlsx')
+    url_hash = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
+    safe_extra = (
+        ''.join(ch for ch in str(extra_key).lower() if ch.isalnum() or ch in {'_', '-'})
+        if extra_key else ''
+    )
+    name = '-'.join(p for p in [prefix, safe_extra, url_hash] if p) + ext
+    out_file = os.path.join(cache_dir, name)
     _refresh_remote_cache_file(url, out_file)
     return out_file
+
+
+def _download_model_from_url(url):
+    print(f"[data_loading] Downloading model from URL: {url}", flush=True)
+    return download_cached(url, 'PowerBI_Model', '.xlsx')
 
 
 def _download_portfolio_csv_from_url(url):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'portfolio-bt-ns-{file_key}-data.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'portfolio-bt-ns', '.csv')
 
 
 def _download_four_ps_kanban_csv_from_url(url):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'four-ps-kanban-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'four-ps-kanban', '.csv')
 
 
 def _download_bottleneck_csv_from_url(url, project_key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data_bottlenecks.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'bottleneck', '.csv', extra_key=project_key or 'project')
 
 
 def _download_process_mining_report_from_url(url):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'w1nner-process-mining-{file_key}.xlsx')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'process-mining', '.xlsx')
 
 
 def _download_downstream_items_csv_from_url(url, project_key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_project = ''.join(ch for ch in str(project_key or '').lower() if ch.isalnum()) or 'project'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'{safe_project}-{file_key}-data.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'downstream', '.csv', extra_key=project_key or 'project')
 
 
 def _download_capex_csv_from_url(url, key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_key = ''.join(ch for ch in str(key or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'capex'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'capex-{safe_key}-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'capex', '.csv', extra_key=key or 'capex')
 
 
 def _download_gmud_csv_from_url(url, kind):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    safe_key = ''.join(ch for ch in str(kind or '').lower() if ch.isalnum() or ch in {'_', '-'}) or 'gmud'
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    out_file = os.path.join(cache_dir, f'gmud-{safe_key}-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'gmud', '.csv', extra_key=kind or 'gmud')
 
 
 def _remote_cache_ttl_seconds():
@@ -164,13 +147,7 @@ def _load_bitbucket_csv_url_map():
 
 
 def _download_bitbucket_csv_from_url(url, key):
-    cache_dir = '/tmp/flow-pmo-models'
-    os.makedirs(cache_dir, exist_ok=True)
-    file_key = hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
-    safe_key = ''.join(ch for ch in str(key).lower() if ch.isalnum() or ch == '_')
-    out_file = os.path.join(cache_dir, f'bb-{safe_key}-{file_key}.csv')
-    _refresh_remote_cache_file(url, out_file)
-    return out_file
+    return download_cached(url, 'bb', '.csv', extra_key=key or 'bb')
 
 
 def _load_downstream_url_map():
