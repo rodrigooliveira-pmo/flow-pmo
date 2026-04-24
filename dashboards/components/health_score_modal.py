@@ -168,13 +168,6 @@ def render_dimensions_table(dimensions: list, score: int = None) -> html.Table:
         )
         rows.append(html.Tr([name_cell, value_cell, pts_cell]))
 
-    # Totals row
-    rows.append(html.Tr([
-        html.Td('', style={**_td_base, 'borderBottom': 'none'}),
-        html.Td('HEALTH SCORE', style={**_td_base, 'borderTop': '2px solid #e2e8f0', 'borderBottom': 'none', 'fontWeight': '700', 'fontSize': '12px', 'letterSpacing': '0.06em', 'textTransform': 'uppercase', 'color': '#64748b', 'textAlign': 'right'}),
-        html.Td('', style={**_td_base, 'borderTop': '2px solid #e2e8f0', 'borderBottom': 'none'}),
-    ], style={'display': 'none'}))
-
     # Score total — usa valor pré-computado para garantir consistência com HealthScoreResult.score
     score_pts = score if score is not None else (int(round(sum(d.points for d in dimensions) / len(dimensions))) if dimensions else 0)
     rows.append(html.Tr([

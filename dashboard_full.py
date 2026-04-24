@@ -22059,9 +22059,10 @@ def render_tab(main_view, tab, start_date, end_date, projeto, tipo, tipo_origina
             add_statistical_lines(fig_wip_trend, wip_trend_df['Semana'], wip_trend_df['WIP'])
             fig_wip_trend.update_layout(height=550, xaxis_tickangle=-45, margin=dict(b=130))
 
+        from dashboards.components.health_score_modal import _score_color as _hs_score_color
         hs_result = compute_health_score(df_health_base)
         hs_modal = render_health_score_modal(hs_result)
-        hs_score_color = '#16a34a' if hs_result.score >= 70 else ('#ea580c' if hs_result.score >= 40 else '#dc2626')
+        hs_score_color = _hs_score_color(hs_result.score)
 
         return html.Div([
             hs_modal,
@@ -29266,19 +29267,7 @@ clientside_callback(
 )
 
 
-_HS_OVERLAY_HIDDEN = {'display': 'none'}
-_HS_OVERLAY_VISIBLE = {
-    'display': 'flex',
-    'position': 'fixed',
-    'top': '0',
-    'left': '0',
-    'width': '100%',
-    'height': '100%',
-    'backgroundColor': 'rgba(0,0,0,0.5)',
-    'zIndex': '9999',
-    'justifyContent': 'center',
-    'alignItems': 'center',
-}
+from dashboards.components.health_score_modal import _OVERLAY_HIDDEN as _HS_OVERLAY_HIDDEN, _OVERLAY_VISIBLE as _HS_OVERLAY_VISIBLE
 
 
 @app.callback(
