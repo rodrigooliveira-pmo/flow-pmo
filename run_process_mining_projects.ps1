@@ -389,142 +389,250 @@ if ($env:JIRA_STATUS_MAP) {
 }
 Remove-Item -Path Env:JIRA_STATUS_MAP -ErrorAction SilentlyContinue
 $env:JIRA_IGNORE_STATUS_MAP = '1'
-$originalBbRepos = $env:BB_REPOS
-$originalBbRepo = $env:BB_REPO
-$originalBbCommitDepth = $env:BB_COMMIT_DEPTH
-$originalBbMinIntervalMs = $env:BB_MIN_REQUEST_INTERVAL_MS
+# Jobs usam env isolado — captura/restore de BB vars no processo pai não é mais necessária.
+# JIRA_STATUS_MAP já removido acima; JIRA_IGNORE_STATUS_MAP definido acima.
+
+$pythonExe_  = $script:PythonInvoker.Executable
+$prefixArgs_ = $script:PythonInvoker.PrefixArgs
+$tempDir_    = [System.IO.Path]::GetTempPath()
+
+$jiraEnv = @{
+    JIRA_BASE_URL          = [string]$env:JIRA_BASE_URL
+    JIRA_EMAIL             = [string]$env:JIRA_EMAIL
+    JIRA_API_TOKEN         = [string]$env:JIRA_API_TOKEN
+    JIRA_IGNORE_STATUS_MAP = '1'
+}
+
+$projectMeta   = @{}
+$jiraJobs      = [ordered]@{}
+$jiraExitFiles = @{}
+$bbJobs        = [ordered]@{}
+$bbExitFiles   = @{}
+
+Write-Host "`nIniciando jobs em paralelo (Jira + Bitbucket por projeto)..." -ForegroundColor Cyan
 
 foreach ($p in $projects) {
-    $outFile = Join-Path $OutDir ("{0}-{1}-data.csv" -f $p.FilePrefix, $DateTag)
-    $detailedChangelogOut = Join-Path $OutDir ("{0}-{1}-data_detailed_changelog.csv" -f $p.FilePrefix, $DateTag)
+    $outFile                 = Join-Path $OutDir ("{0}-{1}-data.csv" -f $p.FilePrefix, $DateTag)
+    $detailedChangelogOut    = Join-Path $OutDir ("{0}-{1}-data_detailed_changelog.csv" -f $p.FilePrefix, $DateTag)
     $detailedChangelogLatest = Join-Path $OutDir ("{0}-latest-data_detailed_changelog.csv" -f $p.FilePrefix)
 
-    Write-Host "`nProjeto: $($p.Key)" -ForegroundColor Yellow
-    Write-Host "Changelog detalhado: $detailedChangelogOut"
-
-    Reset-BitbucketEnvScope
-
-    if ($p.BitbucketRepos) {
-        $env:BB_REPOS = $p.BitbucketRepos
-        $env:BB_REPO = ($p.BitbucketRepos -split ',')[0]
-        $env:BB_COMMIT_DEPTH = $jiraBitbucketCommitDepth
-        $env:BB_MIN_REQUEST_INTERVAL_MS = $jiraBitbucketMinIntervalMs
-        Write-Host "Bitbucket escopado para o projeto: $($env:BB_REPOS) | depth=$($env:BB_COMMIT_DEPTH) | intervalo=$($env:BB_MIN_REQUEST_INTERVAL_MS)ms" -ForegroundColor DarkYellow
+    $projectMeta[$p.Key] = @{
+        Project                 = $p
+        OutFile                 = $outFile
+        DetailedChangelogOut    = $detailedChangelogOut
+        DetailedChangelogLatest = $detailedChangelogLatest
     }
 
-    $jiraArgs = @(
+    # Jira args
+    $jiraArgsList = [System.Collections.Generic.List[string]]@(
         '--projects', $p.Key,
         '--out', $outFile,
         '--env-file', $EnvFile,
-        '--workers', $Workers,
+        '--workers', [string]$Workers,
         '--detailed-changelog-out', $detailedChangelogOut,
         '--skip-devexecutor-bitbucket'
     )
     if ($p.Jql) {
-        $jiraArgs += @('--jql', $p.Jql)
-        Write-Host "Usando JQL dedicada do projeto: $($p.Jql)" -ForegroundColor DarkCyan
-        if ($JqlExtra) {
-            Write-Warning "JqlExtra global foi ignorado para $($p.Key) porque este projeto usa uma JQL completa dedicada."
+        $jiraArgsList.AddRange([string[]]@('--jql', $p.Jql))
+        Write-Host "[$($p.Key)] JQL dedicada: $($p.Jql)" -ForegroundColor DarkCyan
+        if ($JqlExtra) { Write-Warning "JqlExtra ignorado para $($p.Key) (JQL dedicada ativa)." }
+    } elseif ($JqlExtra) {
+        $jiraArgsList.AddRange([string[]]@('--jql-extra', $JqlExtra))
+    }
+    $jiraArgsFinal = $jiraArgsList.ToArray()
+
+    $jiraExitFile = Join-Path $tempDir_ ("jira_exit_$($p.Key)_$DateTag.tmp")
+    $jiraExitFiles[$p.Key] = $jiraExitFile
+    $jiraLabel = "jira_to_pipeline_csv $($p.Key)"
+    $scriptPath_ = $scriptPath
+
+    Write-Host "Iniciando job Jira: $($p.Key)" -ForegroundColor DarkGray
+
+    $jiraJobs[$p.Key] = Start-Job -ScriptBlock {
+        param($exe, $prefixArgs, $scriptPath, $jiraArgs, $envHash, $label, $maxAttempts, $backoff, $exitFile)
+        foreach ($k in $envHash.Keys) { [System.Environment]::SetEnvironmentVariable($k, $envHash[$k]) }
+        $lastExit = -1
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $fullArgs = $prefixArgs + @($scriptPath) + $jiraArgs
+            Write-Output "[$label] Tentativa $attempt/$maxAttempts"
+            & $exe @fullArgs 2>&1 | ForEach-Object { Write-Output $_ }
+            $lastExit = $LASTEXITCODE
+            if ($lastExit -eq 0) { break }
+            if ($attempt -lt $maxAttempts) {
+                $delay = if (($attempt - 1) -lt $backoff.Count) { $backoff[$attempt - 1] } else { $backoff[-1] }
+                Write-Output "[$label] Exit $lastExit — nova tentativa em ${delay}s."
+                Start-Sleep -Seconds $delay
+            }
+        }
+        [string]$lastExit | Out-File -FilePath $exitFile -NoNewline -Encoding ascii
+    } -ArgumentList $pythonExe_, $prefixArgs_, $scriptPath_, $jiraArgsFinal, $jiraEnv, $jiraLabel, 3, @(2, 4, 8), $jiraExitFile
+
+    # Bitbucket job — independente do Jira, inicia imediatamente
+    if ($p.BitbucketRepos) {
+        $bbEnvLocal = @{
+            BB_REPOS                   = $p.BitbucketRepos
+            BB_REPO                    = ($p.BitbucketRepos -split ',')[0]
+            BB_COMMIT_DEPTH            = $jiraBitbucketCommitDepth
+            BB_MIN_REQUEST_INTERVAL_MS = $jiraBitbucketMinIntervalMs
+        }
+        foreach ($k in $jiraEnv.Keys) { $bbEnvLocal[$k] = $jiraEnv[$k] }
+
+        $bbArgsFinal = @(
+            '--project', $p.BitbucketProject,
+            '--out-dir', $OutDir,
+            '--workers', [string]$bitbucketExportWorkers,
+            '--min-request-interval-ms', $bitbucketExportMinIntervalMs
+        )
+        $bbExitFile  = Join-Path $tempDir_ ("bb_exit_$($p.Key)_$DateTag.tmp")
+        $bbExitFiles[$p.Key] = $bbExitFile
+        $bbLabel     = "bitbucket_export $($p.BitbucketProject)"
+        $bbScript_   = $bitbucketScript
+
+        Write-Host "Iniciando job Bitbucket: $($p.BitbucketProject)" -ForegroundColor DarkGray
+
+        $bbJobs[$p.Key] = Start-Job -ScriptBlock {
+            param($exe, $prefixArgs, $scriptPath, $bbArgs, $envHash, $label, $maxAttempts, $backoff, $exitFile)
+            foreach ($k in $envHash.Keys) { [System.Environment]::SetEnvironmentVariable($k, $envHash[$k]) }
+            $lastExit = -1
+            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                $fullArgs = $prefixArgs + @($scriptPath) + $bbArgs
+                Write-Output "[$label] Tentativa $attempt/$maxAttempts"
+                & $exe @fullArgs 2>&1 | ForEach-Object { Write-Output $_ }
+                $lastExit = $LASTEXITCODE
+                if ($lastExit -eq 0) { break }
+                if ($attempt -lt $maxAttempts) {
+                    $delay = if (($attempt - 1) -lt $backoff.Count) { $backoff[$attempt - 1] } else { $backoff[-1] }
+                    Write-Output "[$label] Exit $lastExit — nova tentativa em ${delay}s."
+                    Start-Sleep -Seconds $delay
+                }
+            }
+            [string]$lastExit | Out-File -FilePath $exitFile -NoNewline -Encoding ascii
+        } -ArgumentList $pythonExe_, $prefixArgs_, $bbScript_, $bbArgsFinal, $bbEnvLocal, $bbLabel, 3, @(2, 4, 8), $bbExitFile
+    } else {
+        Write-Warning "Projeto $($p.Key) sem repos Bitbucket configurados. Pulando."
+        [void]$bitbucketFailures.Add("$($p.Key):no-repos-configured")
+        $bbJobs[$p.Key] = $null
+    }
+}
+
+# --- Fan-in: monitora Jira jobs; dispara Process Mining por projeto assim que Jira conclui ---
+$pmJobs      = [ordered]@{}
+$pmExitFiles = @{}
+$pendingJiraKeys = [System.Collections.Generic.HashSet[string]]($jiraJobs.Keys)
+
+Write-Host "`nMonitorando Jira. Process Mining inicia por projeto assim que Jira conclui..." -ForegroundColor Cyan
+
+while ($pendingJiraKeys.Count -gt 0) {
+    $runningJiraJobs = @(
+        $jiraJobs.GetEnumerator() |
+            Where-Object { $pendingJiraKeys.Contains($_.Key) } |
+            ForEach-Object { $_.Value }
+    )
+    $doneJob = Wait-Job -Job $runningJiraJobs -Any -Timeout 30
+    if ($null -eq $doneJob) { continue }
+
+    foreach ($job in @($doneJob)) {
+        $key = ($jiraJobs.GetEnumerator() | Where-Object { $_.Value.Id -eq $job.Id }).Key
+        [void]$pendingJiraKeys.Remove($key)
+
+        Write-Host "`n--- Output Jira: $key ---" -ForegroundColor Yellow
+        Receive-Job $job | ForEach-Object { Write-Host $_ }
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+        $jiraExit = if (Test-Path $jiraExitFiles[$key]) {
+            [int](Get-Content $jiraExitFiles[$key] -Raw -ErrorAction SilentlyContinue)
+        } else { -1 }
+        Remove-Item $jiraExitFiles[$key] -ErrorAction SilentlyContinue
+
+        $meta = $projectMeta[$key]
+
+        if ($jiraExit -ne 0) {
+            Write-Warning "Job Jira falhou para $key (exit $jiraExit)."
+            [void]$jiraFailures.Add("$key`:exit-$jiraExit")
+        } elseif (Test-OutputFile -Path $meta.DetailedChangelogOut) {
+            Copy-Item -Path $meta.DetailedChangelogOut -Destination $meta.DetailedChangelogLatest -Force
+            Write-Host "Arquivo latest atualizado: $($meta.DetailedChangelogLatest)" -ForegroundColor Green
+            Publish-LatestArtifact -SourcePath $meta.DetailedChangelogLatest -LatestDir $LatestDir
+
+            Write-Host "Iniciando job Process Mining: $key" -ForegroundColor Cyan
+            $pmExitFile  = Join-Path $tempDir_ ("pm_exit_$key`_$DateTag.tmp")
+            $pmExitFiles[$key] = $pmExitFile
+            $p_          = $meta.Project
+            $pmArgsFinal = @('--input', $meta.DetailedChangelogOut, '--out-dir', $processMiningOutDir, '--project', $key, '--prefix', $p_.ProcessMiningPrefix)
+            $pmScript_   = $processMiningScript
+            $pmLabel     = "process_mining_jira $key"
+
+            $pmJobs[$key] = Start-Job -ScriptBlock {
+                param($exe, $prefixArgs, $scriptPath, $pmArgs, $envHash, $label, $exitFile)
+                foreach ($k in $envHash.Keys) { [System.Environment]::SetEnvironmentVariable($k, $envHash[$k]) }
+                $fullArgs = $prefixArgs + @($scriptPath) + $pmArgs
+                Write-Output "[$label] Iniciando"
+                & $exe @fullArgs 2>&1 | ForEach-Object { Write-Output $_ }
+                $lastExit = $LASTEXITCODE
+                [string]$lastExit | Out-File -FilePath $exitFile -NoNewline -Encoding ascii
+            } -ArgumentList $pythonExe_, $prefixArgs_, $pmScript_, $pmArgsFinal, $jiraEnv, $pmLabel, $pmExitFile
+        } else {
+            Write-Warning "Changelog detalhado ausente ou vazio para $key; process mining será pulado."
+            [void]$processMiningFailures.Add("$key`:skipped-empty-detailed-changelog")
         }
     }
-    elseif ($JqlExtra) {
-        $jiraArgs += @('--jql-extra', $JqlExtra)
-    }
+}
 
-    $jiraExit = $null
-    $jiraStartFailed = $false
-    try {
-        $jiraExit = Invoke-PythonScriptWithRetry -ScriptPath $scriptPath -Arguments $jiraArgs -Label "jira_to_pipeline_csv $($p.Key)"
-    }
-    catch {
-        Write-Warning "Falha ao iniciar exportação downstream detalhada do projeto $($p.Key). $($_.Exception.Message)"
-        [void]$jiraFailures.Add("$($p.Key):start-error")
-        $jiraStartFailed = $true
-        $jiraExit = -1
-    }
+# --- Aguarda Process Mining jobs ---
+if ($pmJobs.Count -gt 0) {
+    Write-Host "`nAguardando jobs Process Mining..." -ForegroundColor Cyan
+    $nonNullPm = @($pmJobs.Values | Where-Object { $null -ne $_ })
+    if ($nonNullPm.Count -gt 0) { Wait-Job -Job $nonNullPm | Out-Null }
 
-    $canRunProcessMining = $false
-    if ($jiraExit -ne 0) {
-        Write-Warning "Falha na exportação downstream detalhada do projeto $($p.Key) (exit $jiraExit). O lote seguirá para os demais projetos."
-        if (-not $jiraStartFailed) {
-            [void]$jiraFailures.Add("$($p.Key):exit-$jiraExit")
-        }
-    }
-    elseif (Test-OutputFile -Path $detailedChangelogOut) {
-        $canRunProcessMining = $true
-    }
-    else {
-        Write-Warning "Changelog detalhado ausente ou vazio para $($p.Key); process mining será pulado para este projeto."
-        [void]$processMiningFailures.Add("$($p.Key):skipped-empty-detailed-changelog")
-    }
+    foreach ($kvp in $pmJobs.GetEnumerator()) {
+        $key = $kvp.Key
+        Write-Host "`n--- Output Process Mining: $key ---" -ForegroundColor Yellow
+        Receive-Job $kvp.Value | ForEach-Object { Write-Host $_ }
+        Remove-Job $kvp.Value -Force -ErrorAction SilentlyContinue
 
-    if ($canRunProcessMining) {
-        Copy-Item -Path $detailedChangelogOut -Destination $detailedChangelogLatest -Force
-        Write-Host "Arquivo latest atualizado: $detailedChangelogLatest" -ForegroundColor Green
-        Publish-LatestArtifact -SourcePath $detailedChangelogLatest -LatestDir $LatestDir
-
-        Write-Host "Gerando process mining para $($p.Key)..." -ForegroundColor Cyan
-        $pmExit = $null
-        $pmStartFailed = $false
-        try {
-            $pmExit = Invoke-PythonScript -ScriptPath $processMiningScript -Arguments @(
-                '--input', $detailedChangelogOut,
-                '--out-dir', $processMiningOutDir,
-                '--project', $p.Key,
-                '--prefix', $p.ProcessMiningPrefix
-            ) -Label "process_mining_jira $($p.Key)"
-        }
-        catch {
-            Write-Warning "Falha ao iniciar process mining para $($p.Key). $($_.Exception.Message)"
-            [void]$processMiningFailures.Add("$($p.Key):start-error")
-            $pmStartFailed = $true
-            $pmExit = -1
-        }
+        $pmExit = if (Test-Path $pmExitFiles[$key]) {
+            [int](Get-Content $pmExitFiles[$key] -Raw -ErrorAction SilentlyContinue)
+        } else { -1 }
+        Remove-Item $pmExitFiles[$key] -ErrorAction SilentlyContinue
 
         if ($pmExit -eq 0) {
             Sync-LatestArtifactsFromOutDir -SourceDir $processMiningOutDir -LatestDir $LatestDir
-        }
-        else {
-            $status = $pmExit
-            Write-Warning "Process mining falhou para $($p.Key) (exit $status)."
-            if (-not $pmStartFailed) {
-                [void]$processMiningFailures.Add("$($p.Key):exit-$status")
-            }
+        } else {
+            Write-Warning "Process Mining falhou para $key (exit $pmExit)."
+            [void]$processMiningFailures.Add("$key`:exit-$pmExit")
         }
     }
+}
 
-    Write-Host "Exportando Bitbucket para $($p.BitbucketProject)..." -ForegroundColor Cyan
-    $bbExit = $null
-    $bbStartFailed = $false
-    try {
-        $bbExit = Invoke-PythonScriptWithRetry -ScriptPath $bitbucketScript -Arguments @(
-            '--project', $p.BitbucketProject,
-            '--out-dir', $OutDir,
-            '--workers', $bitbucketExportWorkers,
-            '--min-request-interval-ms', $bitbucketExportMinIntervalMs
-        ) -Label "bitbucket_export $($p.BitbucketProject)"
-    }
-    catch {
-        Write-Warning "Falha ao iniciar extração Bitbucket do projeto $($p.BitbucketProject). $($_.Exception.Message)"
-        [void]$bitbucketFailures.Add("$($p.BitbucketProject):start-error")
-        $bbStartFailed = $true
-        $bbExit = -1
-    }
+# --- Aguarda Bitbucket jobs (muitos já concluídos em paralelo com Jira) ---
+Write-Host "`nAguardando jobs Bitbucket..." -ForegroundColor Cyan
+$nonNullBb = @($bbJobs.Values | Where-Object { $null -ne $_ })
+if ($nonNullBb.Count -gt 0) { Wait-Job -Job $nonNullBb | Out-Null }
 
+foreach ($kvp in $bbJobs.GetEnumerator()) {
+    $key = $kvp.Key
+    if ($null -eq $kvp.Value) { continue }
+
+    Write-Host "`n--- Output Bitbucket: $key ---" -ForegroundColor Yellow
+    Receive-Job $kvp.Value | ForEach-Object { Write-Host $_ }
+    Remove-Job $kvp.Value -Force -ErrorAction SilentlyContinue
+
+    $bbExit = if (Test-Path $bbExitFiles[$key]) {
+        [int](Get-Content $bbExitFiles[$key] -Raw -ErrorAction SilentlyContinue)
+    } else { -1 }
+    Remove-Item $bbExitFiles[$key] -ErrorAction SilentlyContinue
+
+    $p_ = $projectMeta[$key].Project
     if ($bbExit -eq 0) {
         foreach ($suffix in @('commits', 'pullrequests', 'pipelines')) {
-            $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p.FilePrefix.Replace('-downstream', ''), $suffix)
+            $bitbucketFile = Join-Path $OutDir ("{0}_{1}.csv" -f $p_.FilePrefix.Replace('-downstream', ''), $suffix)
             if (Test-Path $bitbucketFile) {
                 Publish-LatestArtifact -SourcePath $bitbucketFile -LatestDir $LatestDir
             }
         }
-    }
-    else {
-        $status = $bbExit
-        Write-Warning "Falha na extração Bitbucket do projeto $($p.BitbucketProject) (exit $status)."
-        if (-not $bbStartFailed) {
-            [void]$bitbucketFailures.Add("$($p.BitbucketProject):exit-$status")
-        }
+    } else {
+        Write-Warning "Falha na extração Bitbucket para $($p_.BitbucketProject) (exit $bbExit)."
+        [void]$bitbucketFailures.Add("$($p_.BitbucketProject):exit-$bbExit")
     }
 }
 
@@ -532,26 +640,6 @@ if ($null -ne $originalJiraStatusMap -and $originalJiraStatusMap -ne '') {
     $env:JIRA_STATUS_MAP = $originalJiraStatusMap
 }
 Remove-Item -Path Env:JIRA_IGNORE_STATUS_MAP -ErrorAction SilentlyContinue
-if ($null -ne $originalBbRepos -and $originalBbRepos -ne '') {
-    $env:BB_REPOS = $originalBbRepos
-} else {
-    Remove-Item -Path Env:BB_REPOS -ErrorAction SilentlyContinue
-}
-if ($null -ne $originalBbRepo -and $originalBbRepo -ne '') {
-    $env:BB_REPO = $originalBbRepo
-} else {
-    Remove-Item -Path Env:BB_REPO -ErrorAction SilentlyContinue
-}
-if ($null -ne $originalBbCommitDepth -and $originalBbCommitDepth -ne '') {
-    $env:BB_COMMIT_DEPTH = $originalBbCommitDepth
-} else {
-    Remove-Item -Path Env:BB_COMMIT_DEPTH -ErrorAction SilentlyContinue
-}
-if ($null -ne $originalBbMinIntervalMs -and $originalBbMinIntervalMs -ne '') {
-    $env:BB_MIN_REQUEST_INTERVAL_MS = $originalBbMinIntervalMs
-} else {
-    Remove-Item -Path Env:BB_MIN_REQUEST_INTERVAL_MS -ErrorAction SilentlyContinue
-}
 
 if ($RunDashboardModel) {
     Write-Host "`nAtualizando modelo consolidado para o dashboard_full..." -ForegroundColor Cyan
